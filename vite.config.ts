@@ -13,6 +13,6 @@ export default defineConfig({
       server: { entry: "server" },
     }),
     viteReact(),
-    nitro({ config: { preset: "cloudflare-module" } }),
+    nitro(),
   ],
 });
