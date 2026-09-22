@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { OnboardShell } from "@/components/OnboardShell";
 import { Btn, Field, Input } from "@/components/kit";
-import { strength } from "./onboarding.password";
+import { strength } from "./password";
 
 export const Route = createFileRoute("/onboarding/reset")({
   head: () => ({
