@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { OnboardShell } from "@/components/OnboardShell";
 import { Btn, Field, Input } from "@/components/kit";
+import { useApp } from "@/lib/store";
+import { signUp, authErrorMessage } from "@/lib/auth";
 
 export const Route = createFileRoute("/onboarding/password")({
   head: () => ({
@@ -29,10 +31,28 @@ const TONES = ["bg-field", "bg-pink", "bg-yellow", "bg-green", "bg-green"];
 
 /** S06 Password */
 function PasswordScreen() {
+  const { s } = useApp();
   const navigate = useNavigate();
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const score = strength(pw);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (score < 2) return;
+    setError("");
+    setLoading(true);
+    try {
+      await signUp(s.email, pw, s.name);
+      navigate({ to: "/onboarding/dob" });
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <OnboardShell
@@ -42,14 +62,8 @@ function PasswordScreen() {
       title="Lock it down"
       subtitle="8+ characters, with a number and a capital letter."
     >
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (score >= 2) navigate({ to: "/onboarding/dob" });
-        }}
-      >
-        <Field label="Password">
+      <form className="space-y-4" onSubmit={submit}>
+        <Field label="Password" error={error}>
           <div className="relative">
             <Input
               type={show ? "text" : "password"}
@@ -96,8 +110,8 @@ function PasswordScreen() {
           ))}
         </ul>
 
-        <Btn type="submit" size="lg" full disabled={score < 2}>
-          Continue →
+        <Btn type="submit" size="lg" full disabled={score < 2 || loading}>
+          {loading ? "Creating account…" : "Continue →"}
         </Btn>
       </form>
     </OnboardShell>

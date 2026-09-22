@@ -1,8 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { OnboardShell } from "@/components/OnboardShell";
 import { Btn, BtnLink } from "@/components/kit";
 import { useApp } from "@/lib/store";
-import { useNavigate } from "@tanstack/react-router";
+import { logInWithGoogle, authErrorMessage } from "@/lib/auth";
 
 export const Route = createFileRoute("/onboarding/gateway")({
   head: () => ({
@@ -18,12 +19,24 @@ export const Route = createFileRoute("/onboarding/gateway")({
 
 /** S04 Gateway */
 function Gateway() {
-  const { set } = useApp();
+  const { set, finishOnboarding } = useApp();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const social = (provider: string) => {
-    set({ name: "Amina Bello", email: `amina@${provider}.com` });
-    navigate({ to: "/onboarding/zone" });
+  const continueWithGoogle = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const user = await logInWithGoogle();
+      set({ name: user.displayName || "", email: user.email || "" });
+      finishOnboarding();
+      navigate({ to: "/onboarding/zone" });
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -49,12 +62,16 @@ function Gateway() {
         <span className="h-0.5 flex-1 bg-field" />
       </div>
 
+      {error && (
+        <p className="mb-2 text-center text-[13px] font-semibold text-pink">{error}</p>
+      )}
+
       <div className="space-y-2">
-        <Btn variant="outline" full onClick={() => social("google")}>
-          <span aria-hidden>🇬</span> Continue with Google
+        <Btn variant="outline" full onClick={continueWithGoogle} disabled={loading}>
+          <span aria-hidden>🇬</span> {loading ? "Connecting…" : "Continue with Google"}
         </Btn>
-        <Btn variant="ink" full onClick={() => social("icloud")}>
-          <span aria-hidden></span> Continue with Apple
+        <Btn variant="ink" full disabled title="Coming soon">
+          <span aria-hidden></span> Continue with Apple (coming soon)
         </Btn>
       </div>
 
