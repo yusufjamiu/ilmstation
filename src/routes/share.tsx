@@ -68,7 +68,7 @@ function ShareCards() {
     invite: {
       title: "Learn your Deen with me",
       arabic: "طَلَبُ الْعِلْم",
-      lines: ["Join IlmStation free", "We both get 50 XP", "ilmstation.app/invite/seeker"],
+      lines: ["Join IlmStation free", "We both get 50 XP", "ilmstation.com/invite/seeker"],
       caption: "Come learn with me on IlmStation",
     },
     quest: {
@@ -219,7 +219,7 @@ function ShareCards() {
                 {s.avatar}
               </span>
               <Mono className="text-[11px] font-bold tracking-widest uppercase">
-                ilmstation.app
+                ilmstation.com
               </Mono>
             </div>
           </div>

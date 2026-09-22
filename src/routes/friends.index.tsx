@@ -35,7 +35,7 @@ function Friends() {
 
   const invite = async () => {
     try {
-      await navigator.clipboard.writeText("https://ilmstation.app/invite/seeker");
+      await navigator.clipboard.writeText("https://ilmstation.com/invite/seeker");
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

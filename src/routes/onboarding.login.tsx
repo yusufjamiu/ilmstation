@@ -20,7 +20,7 @@ export const Route = createFileRoute("/onboarding/login")({
 function LoginScreen() {
   const { s, set, finishOnboarding } = useApp();
   const navigate = useNavigate();
-  const [email, setEmail] = useState(s.email || "amina@ilmstation.app");
+  const [email, setEmail] = useState(s.email || "amina@ilmstation.com");
   const [pw, setPw] = useState("");
   const [error, setError] = useState("");
 
