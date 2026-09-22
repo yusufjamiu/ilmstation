@@ -3,6 +3,7 @@ import { useState } from "react";
 import { OnboardShell } from "@/components/OnboardShell";
 import { Btn, Field, Input } from "@/components/kit";
 import { useApp } from "@/lib/store";
+import { logInWithGoogle, authErrorMessage } from "@/lib/auth";
 
 export const Route = createFileRoute("/onboarding/signup")({
   head: () => ({
@@ -18,11 +19,13 @@ export const Route = createFileRoute("/onboarding/signup")({
 
 /** S05 Name & Email */
 function NameEmail() {
-  const { s, set } = useApp();
+  const { s, set, finishOnboarding } = useApp();
   const navigate = useNavigate();
   const [name, setName] = useState(s.name);
   const [email, setEmail] = useState(s.email);
   const [touched, setTouched] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState("");
 
   const nameErr = name.trim().length < 2 ? "Enter your full name" : "";
   const emailErr = !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? "Enter a valid email address" : "";
@@ -34,6 +37,21 @@ function NameEmail() {
     if (!valid) return;
     set({ name: name.trim(), email: email.trim() });
     navigate({ to: "/onboarding/password" });
+  };
+
+  const submitGoogle = async () => {
+    setGoogleError("");
+    setGoogleLoading(true);
+    try {
+      const user = await logInWithGoogle();
+      set({ name: user.displayName || "", email: user.email || "" });
+      finishOnboarding();
+      navigate({ to: "/onboarding/zone" });
+    } catch (err) {
+      setGoogleError(authErrorMessage(err));
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return (
@@ -62,10 +80,31 @@ function NameEmail() {
             autoComplete="email"
           />
         </Field>
-        <Btn type="submit" size="lg" full>
+        <Btn type="submit" size="lg" full disabled={googleLoading}>
           Continue →
         </Btn>
       </form>
+
+      <div className="my-4 flex items-center gap-3">
+        <span className="h-px flex-1 bg-ink/10" />
+        <span className="mono text-[11px] font-bold tracking-widest text-ink2 uppercase">or</span>
+        <span className="h-px flex-1 bg-ink/10" />
+      </div>
+
+      {googleError && (
+        <p className="mb-2 text-center text-[13px] font-semibold text-pink">{googleError}</p>
+      )}
+
+      <Btn
+        type="button"
+        variant="outline"
+        size="lg"
+        full
+        onClick={submitGoogle}
+        disabled={googleLoading}
+      >
+        {googleLoading ? "Connecting…" : "Continue with Google"}
+      </Btn>
     </OnboardShell>
   );
 }
