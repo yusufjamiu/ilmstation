@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { EventsPage } from "@/components/public-site";
+export const Route=createFileRoute("/events")({head:()=>({meta:[{title:"Upcoming Events — IlmStation"},{name:"description",content:"Register for upcoming IlmStation classes, gatherings, and guided conversations."},{property:"og:title",content:"Upcoming Events — IlmStation"},{property:"og:description",content:"Live classes and community gatherings led by trusted teachers."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:EventsPage});

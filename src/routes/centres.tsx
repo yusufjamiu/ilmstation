@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { CentresPage } from "@/components/public-site";
+export const Route=createFileRoute("/centres")({head:()=>({meta:[{title:"Learning Centres — IlmStation"},{name:"description",content:"Find available IlmStation learning centres and programmes near you."},{property:"og:title",content:"Learning Centres — IlmStation"},{property:"og:description",content:"Explore welcoming spaces for Qur’an, Arabic, foundations, and family learning."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:CentresPage});

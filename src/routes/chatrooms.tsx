@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { ChatroomsPage } from "@/components/public-site";
+export const Route=createFileRoute("/chatrooms")({head:()=>({meta:[{title:"Community Chatrooms — IlmStation"},{name:"description",content:"Join moderated IlmStation chatrooms for reflection, study, and community."},{property:"og:title",content:"Community Chatrooms — IlmStation"},{property:"og:description",content:"Thoughtful spaces for shared Islamic learning."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:ChatroomsPage});

@@ -6,30 +6,30 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  type ErrorRouteComponent,
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { AppProvider, FlowProvider } from "../lib/store";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
-    <div className="grid-paper flex min-h-screen items-center justify-center bg-page px-4">
-      <div className="brutal-lg max-w-md rounded-r24 bg-surface p-8 text-center">
-        <div className="text-[64px]" aria-hidden>
-          ☪
-        </div>
-        <h1 className="mono text-[44px] font-bold">404</h1>
-        <h2 className="mt-2 text-[24px] font-black">This path isn&apos;t on the map</h2>
-        <p className="mt-2 text-[15px] text-ink2">
-          The screen you&apos;re looking for doesn&apos;t exist or has moved.
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-7xl font-bold text-foreground">404</h1>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The page you're looking for doesn't exist or has been moved.
         </p>
-        <Link
-          to="/home"
-          className="brutal press mt-6 inline-flex min-h-11 items-center justify-center rounded-r12 bg-yellow px-5 py-3 text-[15px] font-extrabold"
-        >
-          Back to Home
-        </Link>
+        <div className="mt-6">
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Go home
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -40,14 +40,13 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   return (
-    <div className="grid-paper flex min-h-screen items-center justify-center bg-page px-4">
-      <div className="brutal-lg max-w-md rounded-r24 bg-surface p-8 text-center">
-        <div className="text-[56px]" aria-hidden>
-          ⚠️
-        </div>
-        <h1 className="mt-2 text-[24px] font-black">Something broke the chain</h1>
-        <p className="mt-2 text-[15px] text-ink2">
-          This screen didn&apos;t load. Try again, or head back home.
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          This page didn't load
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Something went wrong on our end. You can try refreshing or head back home.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -55,13 +54,13 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
               router.invalidate();
               reset();
             }}
-            className="brutal press inline-flex min-h-11 items-center rounded-r12 bg-yellow px-5 py-3 text-[15px] font-extrabold"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Try again
           </button>
           <a
-            href="/home"
-            className="brutal press inline-flex min-h-11 items-center rounded-r12 bg-surface px-5 py-3 text-[15px] font-extrabold"
+            href="/"
+            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             Go home
           </a>
@@ -76,37 +75,30 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "IlmStation — Gamified Islamic Learning" },
-      {
-        name: "description",
-        content:
-          "IlmStation turns Islamic learning into a daily habit: quests, streaks, Hifz mode, duels and Sadaqah rewards.",
-      },
+      { title: "IlmStation — Seek · Learn · Grow" },
+      { name: "description", content: "Build a lasting daily habit of Islamic learning through quests, practice, and community." },
       { name: "author", content: "IlmStation" },
-      { property: "og:title", content: "IlmStation — Gamified Islamic Learning" },
-      {
-        property: "og:description",
-        content: "Seek · Learn · Grow. A daily Islamic learning system built around streaks and quests.",
-      },
+      { property: "og:title", content: "IlmStation — Seek · Learn · Grow" },
+      { property: "og:description", content: "A focused daily Islamic learning journey." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "theme-color", content: "#F5C842" },
     ],
     links: [
-      { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&family=Amiri:wght@400;700&display=swap",
+        href: appCss,
       },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: "/favicon.ico", sizes: "any" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Instrument+Serif:ital@0;1&family=Work+Sans:wght@400;500;600;700&display=swap" },
     ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
-  errorComponent: ErrorComponent,
+  errorComponent: ErrorComponent as unknown as ErrorRouteComponent,
 });
 
 function RootShell({ children }: { children: ReactNode }) {
@@ -128,12 +120,9 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppProvider>
-        <FlowProvider>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-        </FlowProvider>
-      </AppProvider>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <Toaster position="bottom-right" />
     </QueryClientProvider>
   );
 }
