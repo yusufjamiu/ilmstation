@@ -88,7 +88,7 @@ export function IlmStationApp() {
   return <div className="min-h-screen bg-background text-foreground">
     <div className="mx-auto flex max-w-[1440px] gap-5 px-3 py-3 sm:px-5 sm:py-5">
       <Sidebar current={screen} onSelect={selectScreen} className="hidden lg:block" />
-      {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar current={screen} onSelect={selectScreen} className="h-full w-64 bg-background" /></div>}
+      {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar current={screen} onSelect={selectScreen} className="h-full w-64 overflow-y-auto overscroll-contain bg-background pb-24" /></div>}
       <main className="min-w-0 flex-1 pb-20 lg:pb-0">
         <header className="mb-6 flex items-center justify-between gap-3">
           <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu /></Button>

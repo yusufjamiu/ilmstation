@@ -47,7 +47,12 @@ const ranges = Array.from({ length: 6 }, (_, i) => [i * 20 + 1, Math.min(114, i 
 const allSurahs = surahList.map(meta => ({ name: meta.name, arabic: meta.arabic, number: meta.n, juz: meta.juz, ayahs: meta.ayahs, start: meta.start, translation: meta.translation }));
 /** Traditional memorisation order: Al-Fatiha, then An-Nas back to Al-Baqarah. */
 const HIFZ_ORDER: number[] = [1, ...Array.from({ length: 113 }, (_, i) => 114 - i)];
+// TEMP TESTING SWITCH: true unlocks every surah and skips the revision gates. Set to false before pushing.
+const DEV_UNLOCK_ALL = false;
 const REVISION_MINUTE_OPTIONS = [15, 30, 45, 60, 90, 120];
+const LONG_SURAH_AYAHS = 40;
+const LONG_REVIEW_TAIL = 20;
+const RESUME_LOOKBACK = 3;
 function formatMinutes(m: number): string {
   if (m < 60) return `${m} min`;
   const hrs = Math.floor(m / 60);
@@ -82,6 +87,7 @@ const MAX_BLIND_ATTEMPTS = 3;
 const MAX_LINK_ATTEMPTS = 2;
 const MAX_LINK_WORDS = 40;
 const LOW_CONFIDENCE = 0.4;
+const PASS_RATIO = 0.9;
 
 /** Breaks a long ayah into shorter phrases so recitation can be checked piece by piece before the whole-verse pass. Short verses stay whole. */
 function splitIntoPhrases(arabic: string): string[] {
@@ -130,6 +136,7 @@ export function HifzScreen() {
   const [plan, setPlan] = useState<Plan>(defaultPlan);
   const [hydrated, setHydrated] = useState(false);
   const [revisionCursor, setRevisionCursor] = useState<number>(0);
+  const [revisionResume, setRevisionResume] = useState<{ surah: number; verse: number } | null>(null);
   const [revisionMandatoryDoneDate, setRevisionMandatoryDoneDate] = useState<string | null>(null);
   const [revisionDoneDate, setRevisionDoneDate] = useState<string | null>(null);
   const [revisionTimerEnd, setRevisionTimerEnd] = useState<number | null>(null);
@@ -165,14 +172,16 @@ export function HifzScreen() {
 
   useEffect(() => {
     setProgress(load("iq_hifz_progress", {})); setActivity(load("iq_hifz_activity", {}));
-    setRevisionCursor((() => { try { const raw = localStorage.getItem("iq_hifz_cursor"); const v = raw ? JSON.parse(raw) : 0; return typeof v === "number" && Number.isFinite(v) ? v : 0; } catch { return 0; } })());
+    setRevisionCursor((() => { try { const raw = localStorage.getItem("iq_hifz_cursor_v2"); const v = raw ? JSON.parse(raw) : 0; return typeof v === "number" && Number.isFinite(v) ? v : 0; } catch { return 0; } })());
+    setRevisionResume((() => { try { const raw = localStorage.getItem("iq_hifz_resume"); const v = raw ? JSON.parse(raw) : null; return v && typeof v.surah === "number" && typeof v.verse === "number" ? v : null; } catch { return null; } })());
     setRevisionMandatoryDoneDate(load("iq_hifz_mandatory_date", null as string | null));
     setRevisionDoneDate(load("iq_hifz_revision_date", null as string | null));
     const p = load("iq_hifz_plan", defaultPlan); setPlan(p); setSetupSize(p.size); setHydrated(true);
   }, []);
   useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_progress", JSON.stringify(progress)); }, [progress, hydrated]);
   useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_activity", JSON.stringify(activity)); }, [activity, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_cursor", JSON.stringify(revisionCursor)); }, [revisionCursor, hydrated]);
+  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_cursor_v2", JSON.stringify(revisionCursor)); }, [revisionCursor, hydrated]);
+  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_resume", JSON.stringify(revisionResume)); }, [revisionResume, hydrated]);
   useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_mandatory_date", JSON.stringify(revisionMandatoryDoneDate)); }, [revisionMandatoryDoneDate, hydrated]);
   useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_revision_date", JSON.stringify(revisionDoneDate)); }, [revisionDoneDate, hydrated]);
   useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_plan", JSON.stringify(plan)); }, [plan, hydrated]);
@@ -284,6 +293,11 @@ export function HifzScreen() {
     setListeningNow(false);
     if (autoStopRef.current) return { words: [], ok: false };
     let { words, ok } = matchAyah(heard, reference);
+    if (!ok && words.length > 0) {
+      const hit = words.filter(w => w.ok).length / words.length;
+      const heardCount = heard.trim().split(/\s+/).filter(Boolean).length;
+      if (hit >= PASS_RATIO && heardCount <= words.length * 1.6 + 2) ok = true;
+    }
     if (confidence > 0 && confidence < LOW_CONFIDENCE) { words = words.map(w => ({ ...w, ok: false })); ok = false; }
     const label = matchLabel(words);
     setLastDiff(words); setLastLabel(label);
@@ -433,6 +447,7 @@ export function HifzScreen() {
     return true;
   };
   const surahLocked = (n: number) => {
+    if (DEV_UNLOCK_ALL) return false;
     const idx = HIFZ_ORDER.indexOf(n);
     if (idx <= 0) return false;
     const prev = HIFZ_ORDER[idx - 1]!;
@@ -445,17 +460,35 @@ export function HifzScreen() {
     for (let v = 0; v < m.ayahs; v++) if (progress[keyFor(n, v)]?.level) maxIdx = v;
     return maxIdx;
   };
-  /** The full revision cycle, in memorisation order: one whole-surah block per fully memorised surah, plus — if you're partway through the next one — a final partial block covering ayah 1 to wherever you've stopped. Short surahs are never split; only this one trailing surah can be partial. */
-  const revisionBlocks = () => {
+  const surahAyahs = (n: number) => allSurahs.find(s => s.number === n)?.ayahs ?? 0;
+  /** The surah you're memorising, as a revision block. Short or medium: verse 1 to where you stopped. Long (like Al-Baqarah): only the last 20 verses you learned. */
+  const currentBlock = () => {
+    const cur = nextUpSurah();
+    const max = lastLearnedIndex(cur);
+    if (max < 0) return null;
+    const from = surahAyahs(cur) > LONG_SURAH_AYAHS ? Math.max(0, max - LONG_REVIEW_TAIL + 1) : 0;
+    return { surah: cur, from, to: max };
+  };
+  /** Fully memorised surahs, newest first, going back toward Al-Fatiha. */
+  const rotationBlocks = () => {
     const upTo = HIFZ_ORDER.indexOf(nextUpSurah());
-    const blocks: { surah: number; from: number; to: number }[] = HIFZ_ORDER.slice(0, upTo).map(n => ({ surah: n, from: 0, to: (allSurahs.find(s => s.number === n)?.ayahs ?? 1) - 1 }));
-    const current = nextUpSurah();
-    const curMax = lastLearnedIndex(current);
-    if (curMax >= 0) blocks.push({ surah: current, from: 0, to: curMax });
-    return blocks;
+    return HIFZ_ORDER.slice(0, upTo).reverse().map(n => ({ surah: n, from: 0, to: surahAyahs(n) - 1 }));
+  };
+  const rotationIndex = (blocks: { surah: number }[]) => { const i = blocks.findIndex(b => b.surah === revisionCursor); return i >= 0 ? i : 0; };
+  const revisionBlocks = () => { const cb = currentBlock(); return [...(cb ? [cb] : []), ...rotationBlocks()]; };
+  /** If time ran out partway through a long surah, start a few verses earlier next time. Short surahs restart from verse 1. */
+  const withResume = (b: { surah: number; from: number; to: number }) => revisionResume && revisionResume.surah === b.surah ? { ...b, from: Math.min(Math.max(revisionResume.verse, b.from), b.to) } : b;
+  /** What the next revision session starts with: the surah you're memorising (once a day), then the rotation from where you stopped. */
+  const nextRevisionTarget = () => {
+    const cb = currentBlock();
+    if (cb && revisionMandatoryDoneDate !== today) return { block: cb, mandatory: true };
+    const rot = rotationBlocks();
+    if (!rot.length) return null;
+    return { block: withResume(rot[rotationIndex(rot)]!), mandatory: false };
   };
   /** True if there's an in-progress surah that still needs its mandatory daily revision pass before new memorisation can start. */
   const mandatoryNeeded = () => {
+    if (DEV_UNLOCK_ALL) return false;
     const cur = nextUpSurah();
     return lastLearnedIndex(cur) >= 0 && revisionMandatoryDoneDate !== today;
   };
@@ -488,7 +521,7 @@ export function HifzScreen() {
     const m = allSurahs.find(s => s.number === n); if (!m) return;
     if (surahLocked(n)) { toast("Finish memorising the previous surah first"); return; }
     if (mandatoryNeeded()) { toast(`Revise ${surahName(nextUpSurah())} before starting new Hifz today`); setTab("revision"); return; }
-    if (revisionBlocks().length > 0 && revisionDoneDate !== today) { toast("Revise today's cycle before starting new Hifz"); setTab("revision"); return; }
+    if (!DEV_UNLOCK_ALL && revisionBlocks().length > 0 && revisionDoneDate !== today) { toast("Revise today's cycle before starting new Hifz"); setTab("revision"); return; }
     setSetup(n); setSetupStart(firstUnlearned(n, m.ayahs)); setSetupSize(plan.size);
   }
   function markKnownSurahs() {
@@ -521,22 +554,21 @@ export function HifzScreen() {
     const to = setupSize === 0 ? setupMeta.ayahs - 1 : Math.min(setupMeta.ayahs - 1, from + setupSize - 1);
     openSession(setupMeta.number, from, to);
   }
-  function startNextRevision(keepReciter = false) {
-    const blocks = revisionBlocks();
-    if (!blocks.length) return;
-    const block = blocks[revisionCursor % blocks.length]!;
-    openSession(block.surah, block.from, block.to, true, keepReciter);
+  function startBlock(target: { block: { surah: number; from: number; to: number }; mandatory: boolean }, keepReciter = false) {
+    openSession(target.block.surah, target.block.from, target.block.to, true, keepReciter);
+    setMandatoryPass(target.mandatory);
   }
   function beginTimedRevision() {
+    const target = nextRevisionTarget();
+    if (!target) return;
     setRevisionTimerEnd(Date.now() + plan.revisionMinutes * 60000);
-    startNextRevision(false);
+    startBlock(target, false);
   }
   function startMandatoryRevision(keepReciter = false) {
-    const cur = nextUpSurah();
-    const maxIdx = lastLearnedIndex(cur);
-    if (maxIdx < 0) return;
-    openSession(cur, 0, maxIdx, true, keepReciter);
-    setMandatoryPass(true);
+    const cb = currentBlock();
+    if (!cb) return;
+    setRevisionTimerEnd(null);
+    startBlock({ block: cb, mandatory: true }, keepReciter);
   }
   function nextVerse(mark: Mark) {
     if (active === null || !surah) return;
@@ -550,35 +582,44 @@ export function HifzScreen() {
     setActivity(prev => ({ ...prev, [today]: (prev[today] ?? 0) + 1 }));
     const finishedSurah = active;
     resetVerseUi(); setStage(reviewOnly ? "recall" : "study");
-    if (verseIndex < chunk[1]) { setVerseIndex(index => index + 1); return; }
 
-    if (!reviewOnly) { setDone(true); return; }
+    if (!reviewOnly) {
+      if (verseIndex < chunk[1]) setVerseIndex(index => index + 1); else setDone(true);
+      return;
+    }
 
-    const blocks = revisionBlocks();
-    if (blocks.length) setRevisionCursor(c => (c + 1) % blocks.length);
+    const timed = revisionTimerEnd !== null;
+    const expired = timed && Date.now() >= (revisionTimerEnd as number);
+
+    if (verseIndex < chunk[1]) {
+      // Time is checked after every verse, except while revising the surah you're memorising (that one must be finished).
+      if (expired && !mandatoryPass) {
+        setRevisionResume(surahAyahs(finishedSurah) > LONG_SURAH_AYAHS ? { surah: finishedSurah, verse: Math.max(chunk[0], verseIndex + 1 - RESUME_LOOKBACK) } : null);
+        toast.success("Time's up — revision done for today");
+        setDone(true);
+        return;
+      }
+      setVerseIndex(index => index + 1);
+      return;
+    }
+
+    // This block is finished.
     setRevisionDoneDate(today);
-    const wasMandatorySurah = finishedSurah === nextUpSurah();
-    if (wasMandatorySurah) setRevisionMandatoryDoneDate(today);
-
+    setRevisionResume(r => (r && r.surah === finishedSurah ? null : r));
+    const rot = rotationBlocks();
+    let next: { block: { surah: number; from: number; to: number }; mandatory: boolean } | null = null;
     if (mandatoryPass) {
-      toast.success("Revision complete — new Hifz is unlocked for today.");
-      setDone(true);
-      return;
+      setRevisionMandatoryDoneDate(today);
+      if (!timed) { toast.success("Revision complete — new Hifz is unlocked for today."); setDone(true); return; }
+      if (rot.length) next = { block: withResume(rot[rotationIndex(rot)]!), mandatory: false };
+    } else if (rot.length) {
+      const following = rot[(rotationIndex(rot) + 1) % rot.length]!;
+      setRevisionCursor(following.surah);
+      next = { block: following.surah === finishedSurah ? following : withResume(following), mandatory: false };
     }
-
-    const expired = revisionTimerEnd !== null && Date.now() >= revisionTimerEnd;
-    if (!expired) {
-      toast.success("Continuing revision…");
-      startNextRevision(true);
-      return;
-    }
-    if (!wasMandatorySurah && lastLearnedIndex(nextUpSurah()) >= 0 && revisionMandatoryDoneDate !== today) {
-      toast("Time's up — now let's revise what you're currently memorising");
-      startMandatoryRevision(true);
-      return;
-    }
-    toast.success("Time's up — revision done for today");
-    setDone(true);
+    if (expired || !next) { toast.success(expired ? "Time's up — revision done for today" : "Revision complete"); setDone(true); return; }
+    toast.success("Continuing revision…");
+    startBlock(next, true);
   }
   function downloadIcs() {
     const [h, m] = plan.time.split(":");
@@ -616,7 +657,7 @@ export function HifzScreen() {
       <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
         <div className={cn(tile, "bg-primary")}><p className="text-xs font-bold uppercase">Today's goal</p><strong className="mt-1 block font-serif text-3xl font-normal">{todayCount}<span className="text-lg"> / {plan.daily}</span></strong><div className="mt-2 h-2 border border-foreground bg-background"><div className="h-full bg-foreground" style={{ width: `${Math.min(100, (todayCount / Math.max(1, plan.daily)) * 100)}%` }}/></div></div>
         <div className={cn(tile, "bg-secondary text-secondary-foreground")}><p className="text-xs font-bold uppercase">Memorised</p><strong className="mt-1 block font-serif text-3xl font-normal">{memorized}</strong><p className="text-xs opacity-80">{((memorized / TOTAL_AYAT) * 100).toFixed(2)}% of the Qur'an</p></div>
-        <div className={cn(tile, "bg-background")}><p className="text-xs font-bold uppercase text-muted-foreground">Revision</p><strong className="mt-1 block font-serif text-2xl font-normal">{(() => { const blocks = revisionBlocks(); return blocks.length ? surahName(blocks[revisionCursor % blocks.length]!.surah) : "Nothing yet"; })()}</strong><p className="text-xs text-muted-foreground">{streak ? `${streak}-day streak` : "Start a streak today"}</p></div>
+        <div className={cn(tile, "bg-background")}><p className="text-xs font-bold uppercase text-muted-foreground">Revision</p><strong className="mt-1 block font-serif text-2xl font-normal">{(() => { const t = nextRevisionTarget(); return t ? surahName(t.block.surah) : "Nothing yet"; })()}</strong><p className="text-xs text-muted-foreground">{streak ? `${streak}-day streak` : "Start a streak today"}</p></div>
         <div className={cn(tile, "bg-background")}><p className="text-xs font-bold uppercase text-muted-foreground">Next session</p><strong className="mt-1 block font-serif text-2xl font-normal">{nextSession ?? "Not planned"}</strong><button className="text-xs font-semibold underline" onClick={() => setTab("plan")}>{plan.reminders ? "Reminders on · edit" : "Set your plan"}</button></div>
       </div>
       <div className="mt-3 grid min-w-0 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -653,26 +694,28 @@ export function HifzScreen() {
       {tab === "revision" && <div className="mt-4 min-w-0 space-y-4">
         {mandatoryNeeded() && <section className={cn(tile, "bg-destructive/10")}>
           <p className="text-xs font-bold uppercase text-destructive">Required before new Hifz today</p>
-          <h3 className="mt-1 font-serif text-2xl">Revise {surahName(nextUpSurah())} · ayat 1–{lastLearnedIndex(nextUpSurah()) + 1}</h3>
+          <h3 className="mt-1 font-serif text-2xl">Revise {surahName(nextUpSurah())} · ayat {(currentBlock()?.from ?? 0) + 1}–{lastLearnedIndex(nextUpSurah()) + 1}</h3>
           <p className="mt-2 text-sm text-muted-foreground">You're still memorising this surah — revise everything you've learned of it so far before starting anything new today.</p>
           <Button className="mt-3" variant="destructive" onClick={() => startMandatoryRevision(false)}>Revise now <ArrowRight /></Button>
         </section>}
         {(() => {
-          const blocks = revisionBlocks();
-          if (!blocks.length) return <section className={cn(tile, "bg-background")}><p className="text-sm text-muted-foreground">Nothing memorised yet — start with Al-Fatiha to begin building your revision cycle.</p></section>;
-          const idx = revisionCursor % blocks.length;
-          const block = blocks[idx]!;
+          const target = nextRevisionTarget();
+          const cb = currentBlock();
+          const rot = rotationBlocks();
+          if (!target) return <section className={cn(tile, "bg-background")}><p className="text-sm text-muted-foreground">{cb || rot.length ? "You've finished today's revision." : "Nothing memorised yet — start with Al-Fatiha to begin building your revision cycle."}</p></section>;
+          const order = [...(cb ? [cb] : []), ...rot];
+          const b = target.block;
           return <>
             <section className={cn(tile, "bg-primary")}>
-              <p className="text-xs font-bold uppercase">Next up in your revision cycle</p>
-              <h3 className="mt-1 font-serif text-3xl">{surahName(block.surah)} <span className="text-lg font-normal">· ayat {block.from + 1}–{block.to + 1}</span></h3>
-              <p className="mt-2 text-sm">One continuous loop through everything you've memorised, surah by surah, in order — wrapping back to Al-Fatiha once you reach the end.</p>
+              <p className="text-xs font-bold uppercase">{target.mandatory ? "Starts with the surah you're memorising" : "Next up in your revision cycle"}</p>
+              <h3 className="mt-1 font-serif text-3xl">{surahName(b.surah)} <span className="text-lg font-normal">· ayat {b.from + 1}–{b.to + 1}</span></h3>
+              <p className="mt-2 text-sm">Newest first, then back toward Al-Fatiha, then around again. Each day starts with the surah you're memorising.</p>
               <div className="mt-4 flex flex-wrap items-center gap-2"><Timer className="size-4"/><span className="text-xs font-bold uppercase">Session length</span>{REVISION_MINUTE_OPTIONS.map(m => <Button key={m} size="sm" variant={plan.revisionMinutes === m ? "default" : "outline"} onClick={() => setPlan(p => ({ ...p, revisionMinutes: m }))}>{formatMinutes(m)}</Button>)}</div>
               <Button className="mt-4 bg-foreground text-background" onClick={beginTimedRevision}><RotateCcw /> Start {formatMinutes(plan.revisionMinutes)} revision</Button>
             </section>
             <section className={cn(tile, "bg-background")}>
               <h3 className="font-serif text-xl">Your cycle, in order</h3>
-              <ol className="mt-3 flex flex-wrap gap-2 text-sm">{blocks.map((b, i) => <li key={`${b.surah}-${i}`} className={cn("border-2 border-foreground px-2 py-1", i === idx ? "bg-primary font-bold" : "bg-muted text-muted-foreground")}>{surahName(b.surah)}{b.to < (allSurahs.find(s => s.number === b.surah)?.ayahs ?? 1) - 1 ? ` (1–${b.to + 1})` : ""}</li>)}</ol>
+              <ol className="mt-3 flex flex-wrap gap-2 text-sm">{order.map((x, i) => <li key={`${x.surah}-${i}`} className={cn("border-2 border-foreground px-2 py-1", x.surah === b.surah ? "bg-primary font-bold" : "bg-muted text-muted-foreground")}>{surahName(x.surah)}{x.from > 0 || x.to < surahAyahs(x.surah) - 1 ? ` (${x.from + 1}–${x.to + 1})` : ""}</li>)}</ol>
             </section>
           </>;
         })()}
