@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Clock, Search, Send, Share2, Swords, Trophy, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,11 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ShareActions } from "@/components/share-actions";
 import { QuizVisual, visualQuestions, type VisualKind } from "@/components/quiz-visual";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, doc, limit, onSnapshot, orderBy, query as fsQuery, setDoc, updateDoc, where } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { useAuth } from "@/components/auth";
+import { useFriendIds } from "@/components/friends";
 
 export type Presence = "online" | "in-duel" | "away" | "offline";
 
@@ -13,24 +18,78 @@ export type Rival = {
   id: string;
   name: string;
   handle: string;
-  level: number;
-  streak: number;
+  level: string;
+  xp: number;
   presence: Presence;
-  best: string;
   record: string;
 };
 
-/** Demo roster. Presence shifts on a timer so the list feels live. */
-const roster: Rival[] = [
-  { id: "amina", name: "Amina Rahman", handle: "@aminar", level: 5, streak: 14, presence: "online", best: "Seerah", record: "4W · 2L" },
-  { id: "yusuf", name: "Yusuf Adeleke", handle: "@yusufa", level: 4, streak: 9, presence: "online", best: "Fiqh", record: "2W · 1L" },
-  { id: "hassan", name: "Hassan Bello", handle: "@hbello", level: 6, streak: 21, presence: "in-duel", best: "Hadith", record: "1W · 3L" },
-  { id: "maryam", name: "Maryam Idris", handle: "@maryami", level: 4, streak: 6, presence: "online", best: "Arabic", record: "New" },
-  { id: "safiyyah", name: "Safiyyah Lawal", handle: "@safiyyah", level: 5, streak: 11, presence: "away", best: "Tafsir", record: "3W · 3L" },
-  { id: "ibrahim", name: "Ibrahim Sani", handle: "@ibrsani", level: 3, streak: 4, presence: "offline", best: "Qur’an", record: "New" },
-  { id: "khadijah", name: "Khadijah Umar", handle: "@khadijahu", level: 7, streak: 33, presence: "online", best: "Aqeedah", record: "0W · 1L" },
-  { id: "bilal", name: "Bilal Okon", handle: "@bilalo", level: 4, streak: 8, presence: "offline", best: "Dua", record: "2W · 2L" },
-];
+const ONLINE_MS = 3 * 60 * 1000;
+const AWAY_MS = 15 * 60 * 1000;
+const BEAT_MS = 90 * 1000;
+
+type PlayerDoc = { uid: string; username?: string; name?: string; level?: string; xp?: number; wins?: number; losses?: number; bestRun?: number; streak?: number; lastSeen?: number };
+
+/** Keeps the public player card fresh while the app is open, so others can see this learner is online. */
+export function PresenceBeat() {
+  const { account } = useAuth();
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!account || !uid) return undefined;
+    const beat = () => {
+      if (document.hidden) return;
+      void setDoc(doc(db, "players", uid), { uid, username: account.username ?? "", name: account.name, level: account.level, lastSeen: Date.now() }, { merge: true }).catch(() => {});
+    };
+    beat();
+    const id = setInterval(beat, BEAT_MS);
+    document.addEventListener("visibilitychange", beat);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", beat); };
+  }, [account]);
+  return null;
+}
+
+function usePlayers() {
+  const [myId, setMyId] = useState<string | null>(null);
+  const [docs, setDocs] = useState<PlayerDoc[]>([]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => onAuthStateChanged(auth, (u) => setMyId(u?.uid ?? null)), []);
+  useEffect(() => {
+    const unsub = onSnapshot(fsQuery(collection(db, "players"), orderBy("lastSeen", "desc"), limit(50)), (snap) => setDocs(snap.docs.map((d) => d.data() as PlayerDoc)), () => {});
+    const tick = setInterval(() => setNow(Date.now()), 30000);
+    return () => { unsub(); clearInterval(tick); };
+  }, []);
+  const toRival = (p: PlayerDoc): Rival => {
+    const age = now - (p.lastSeen ?? 0);
+    const wins = p.wins ?? 0;
+    const losses = p.losses ?? 0;
+    return { id: p.uid, name: p.name ?? "Learner", handle: p.username ? `@${p.username}` : "", level: p.level ?? "Beginner", xp: p.xp ?? 50, presence: age <= ONLINE_MS ? "online" : age <= AWAY_MS ? "away" : "offline", record: wins + losses === 0 ? "New" : `${wins}W · ${losses}L` };
+  };
+  const mine = docs.find((p) => p.uid === myId);
+  return { players: docs.filter((p) => p.uid !== myId).map(toRival), myId, me: { wins: mine?.wins ?? 0, losses: mine?.losses ?? 0, bestRun: mine?.bestRun ?? 0, streak: mine?.streak ?? 0, xp: mine?.xp ?? 50 } };
+}
+
+export function useLeaderboard() {
+  const [myId, setMyId] = useState<string | null>(null);
+  const [docs, setDocs] = useState<PlayerDoc[]>([]);
+  useEffect(() => onAuthStateChanged(auth, (u) => setMyId(u?.uid ?? null)), []);
+  useEffect(() => onSnapshot(fsQuery(collection(db, "players"), orderBy("lastSeen", "desc"), limit(100)), (snap) => setDocs(snap.docs.map((d) => d.data() as PlayerDoc)), () => {}), []);
+  const rows = docs.map((p) => ({ id: p.uid, name: p.username || (p.name ?? "Learner").split(" ")[0] || "Learner", xp: p.xp ?? 50, me: p.uid === myId })).sort((a, b) => b.xp - a.xp);
+  return { rows };
+}
+
+type ChallengeDoc = { id: string; from: string; to: string; fromName: string; toName: string; topic: string; level: string; seconds: number; rounds: number; status: "pending" | "accepted" | "declined" | "cancelled"; createdAt: number; scores?: Record<string, number>; done?: Record<string, boolean> };
+
+function useIncoming(myId: string | null) {
+  const [list, setList] = useState<ChallengeDoc[]>([]);
+  useEffect(() => {
+    if (!myId) { setList([]); return undefined; }
+    return onSnapshot(fsQuery(collection(db, "challenges"), where("to", "==", myId), where("status", "==", "pending")), (snap) => {
+      const cutoff = Date.now() - 24 * 3600 * 1000;
+      setList(snap.docs.map((d) => ({ ...(d.data() as Omit<ChallengeDoc, "id">), id: d.id })).filter((x) => x.createdAt > cutoff));
+    }, () => {});
+  }, [myId]);
+  return list;
+}
 
 const presenceLabel: Record<Presence, string> = { online: "Online now", "in-duel": "In a duel", away: "Away", offline: "Offline" };
 const presenceDot: Record<Presence, string> = { online: "fill-secondary text-secondary", "in-duel": "fill-primary text-primary", away: "fill-muted-foreground text-muted-foreground", offline: "fill-transparent text-muted-foreground" };
@@ -42,9 +101,9 @@ const levels = [
   { id: "Advanced", note: "2× points" },
 ];
 const clocks = [
-  { id: 10, note: "Lightning" },
+  { id: 10, note: "Lightning · 1.25× points" },
   { id: 20, note: "Standard" },
-  { id: 45, note: "Relaxed" },
+  { id: 45, note: "Relaxed · 0.8× points" },
 ];
 const roundOptions = [5, 10, 15];
 
@@ -86,6 +145,9 @@ function questionsFor(topic: string, rounds: number): Q[] {
   return Array.from({ length: rounds }, (_, i) => i === 0 && visual ? { q: visual.q, options: visual.options, a: visual.answer, visual: visual.visual, why: visual.why } : pool[(i - (visual ? 1 : 0)) % pool.length] ?? fallback[0]!);
 }
 
+const levelMult = (l: string) => (l === "Advanced" ? 2 : l === "Intermediate" ? 1.5 : 1);
+const clockMult = (s: number) => (s <= 10 ? 1.25 : s >= 45 ? 0.8 : 1);
+
 type Phase = "lobby" | "setup" | "invite" | "duel" | "result";
 
 export function ChallengeScreen() {
@@ -108,13 +170,48 @@ export function ChallengeScreen() {
 
   const questions = useMemo(() => questionsFor(topic, rounds), [topic, rounds]);
   const current = questions[round];
-  const onlineCount = roster.filter((r) => r.presence === "online").length;
+  const { players, me, myId } = usePlayers();
+  const { account } = useAuth();
+  const incoming = useIncoming(myId);
+  const friendIds = useFriendIds();
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [live, setLive] = useState<ChallengeDoc | null>(null);
+  const meRef = useRef(me); meRef.current = me;
+  const youRef = useRef(0);
+  const recorded = useRef(false);
+  const [earned, setEarned] = useState(0);
+  useEffect(() => {
+    if (!challengeId) { setLive(null); return undefined; }
+    return onSnapshot(doc(db, "challenges", challengeId), (snap) => setLive(snap.exists() ? { ...(snap.data() as Omit<ChallengeDoc, "id">), id: snap.id } : null), () => {});
+  }, [challengeId]);
+  const liveNow = live && live.id === challengeId ? live : null;
+  const opponentDone = !!(liveNow && rival && liveNow.done?.[rival.id]);
+  const opponentLeft = !!(liveNow && liveNow.status === "cancelled" && phase !== "invite");
+  useEffect(() => {
+    if (!liveNow || phase !== "invite") return;
+    if (liveNow.status === "accepted") startDuel();
+    else if (liveNow.status === "declined") { toast("They declined your challenge"); setChallengeId(null); setPhase("lobby"); }
+  }, [liveNow?.status, phase]);
+  useEffect(() => { if (liveNow && rival) setThem(liveNow.scores?.[rival.id] ?? 0); }, [liveNow?.scores, rival]);
+  useEffect(() => {
+    if (phase !== "result") { recorded.current = false; return; }
+    if (recorded.current || !myId || !rival || !opponentDone) return;
+    recorded.current = true;
+    const m = meRef.current;
+    const mine = youRef.current;
+    const theirs = liveNow?.scores?.[rival.id] ?? 0;
+    const gained = Math.round(mine / 10) + (mine > theirs ? Math.round((20 + 2 * rounds) * levelMult(level) * clockMult(seconds)) : mine === theirs ? 10 : 0); setEarned(gained); const xp = m.xp + gained;
+    if (mine > theirs) { const s = m.streak + 1; void setDoc(doc(db, "players", myId), { xp, wins: m.wins + 1, streak: s, bestRun: Math.max(m.bestRun, s) }, { merge: true }).catch(() => {}); }
+    else if (mine === theirs) void setDoc(doc(db, "players", myId), { xp }, { merge: true }).catch(() => {});
+    else if (mine < theirs) void setDoc(doc(db, "players", myId), { xp, losses: m.losses + 1, streak: 0 }, { merge: true }).catch(() => {});
+  }, [phase, opponentDone]);
+  const onlineCount = players.filter((r) => r.presence === "online").length;
 
-  const list = roster.filter((r) => {
+  const list = players.filter((r) => {
     const match = (r.name + r.handle).toLowerCase().includes(query.toLowerCase());
     if (!match) return false;
     if (filter === "Online") return r.presence === "online";
-    if (filter === "Friends") return r.record !== "New";
+    if (filter === "Friends") return friendIds.includes(r.id);
     return true;
   });
 
@@ -126,7 +223,7 @@ export function ChallengeScreen() {
     return () => clearTimeout(t);
   }, [phase, left, picked]);
 
-  const resetDuel = () => { setRound(0); setPicked(undefined); setLeft(seconds); setYou(0); setThem(0); setCorrectCount(0); };
+  const resetDuel = () => { setRound(0); setPicked(undefined); setLeft(seconds); setYou(0); youRef.current = 0; setThem(0); setCorrectCount(0); };
 
   const startDuel = () => { resetDuel(); setPhase("duel"); };
 
@@ -135,16 +232,35 @@ export function ChallengeScreen() {
     setPicked(choice);
     const right = choice === current.a;
     const speedBonus = Math.round((left / seconds) * 30);
-    const mult = level === "Advanced" ? 2 : level === "Intermediate" ? 1.5 : 1;
-    if (right) { setYou((v) => v + Math.round((50 + speedBonus) * mult)); setCorrectCount((c) => c + 1); }
+    const mult = levelMult(level) * clockMult(seconds);
+    if (right) { const total = youRef.current + Math.round((50 + speedBonus) * mult); youRef.current = total; setYou(total); setCorrectCount((c) => c + 1); if (challengeId && myId) void updateDoc(doc(db, "challenges", challengeId), { [`scores.${myId}`]: total }).catch(() => {}); }
     // Opponent plays with a topic-weighted chance so results vary.
-    const rivalRight = Math.random() < (rival?.best === topic ? 0.78 : 0.6);
-    if (rivalRight) setThem((v) => v + Math.round((50 + Math.round(Math.random() * 30)) * mult));
+    
+    
     setTimeout(() => {
-      if (round + 1 >= rounds) { setPhase("result"); return; }
+      if (round + 1 >= rounds) { finishDuel(); setPhase("result"); return; }
       setRound((r) => r + 1); setPicked(undefined); setLeft(seconds);
     }, 1400);
   }
+
+  async function sendChallenge() {
+    if (!myId || !rival) return;
+    const id = `${myId}_${rival.id}_${Date.now()}`;
+    try {
+      await setDoc(doc(db, "challenges", id), { from: myId, to: rival.id, fromName: account?.name ?? "A learner", toName: rival.name, topic, level, seconds, rounds, status: "pending", createdAt: Date.now(), scores: {}, done: {} });
+      setChallengeId(id); setPhase("invite");
+    } catch { toast("We couldn't send that challenge. Try again."); }
+  }
+  async function acceptInvite(inv: ChallengeDoc) {
+    try {
+      await updateDoc(doc(db, "challenges", inv.id), { status: "accepted" });
+      setRival(players.find((p) => p.id === inv.from) ?? { id: inv.from, name: inv.fromName, handle: "", level: "Beginner", xp: 0, presence: "online", record: "New" });
+      setTopic(inv.topic); setLevel(inv.level); setSeconds(inv.seconds); setRounds(inv.rounds);
+      setChallengeId(inv.id); setPhase("invite");
+    } catch { toast("We couldn't accept that invite. Try again."); }
+  }
+  const declineInvite = (inv: ChallengeDoc) => updateDoc(doc(db, "challenges", inv.id), { status: "declined" }).then(() => toast("Invite declined")).catch(() => toast("Something went wrong. Try again."));
+  function finishDuel() { if (challengeId && myId) void updateDoc(doc(db, "challenges", challengeId), { [`done.${myId}`]: true }).catch(() => {}); }
 
   return <div className="iq-rise">
     <header className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
@@ -152,7 +268,7 @@ export function ChallengeScreen() {
         <p className="text-xs font-semibold uppercase text-muted-foreground">Head-to-head · 1 vs 1</p>
         <h1 className="font-serif text-4xl leading-none sm:text-5xl">Challenge</h1>
       </div>
-      {phase !== "lobby" && <Button variant="outline" onClick={() => { setPhase("lobby"); resetDuel(); }}>Leave duel</Button>}
+      {phase !== "lobby" && <Button variant="outline" onClick={() => { if ((phase === "duel" || phase === "invite") && challengeId) void updateDoc(doc(db, "challenges", challengeId), { status: "cancelled" }).catch(() => {}); setChallengeId(null); setPhase("lobby"); resetDuel(); }}>Leave duel</Button>}
     </header>
 
     <div className="mt-6">
@@ -177,11 +293,11 @@ export function ChallengeScreen() {
                   <b className="block break-words font-serif text-xl leading-tight sm:truncate sm:font-sans sm:text-base sm:font-bold">{r.name}</b>
                   <p className="mt-1 grid gap-1 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:gap-2">
                     <span className="flex items-center gap-1"><Circle className={cn("size-2.5 shrink-0", presenceDot[r.presence])} />{presenceLabel[r.presence]}</span>
-                    <span>Level {r.level} · {r.streak} day streak · Best: {r.best}</span>
+                    <span>{r.level} · {r.xp} XP{r.handle ? ` · ${r.handle}` : ""}</span>
                   </p>
                 </div>
                 <span className="col-start-2 text-xs font-semibold uppercase text-muted-foreground sm:col-start-auto">{r.record}</span>
-                <Button className="col-span-2 w-full sm:col-span-1 sm:w-auto" size="sm" disabled={r.presence === "offline"} onClick={() => { setRival(r); setTopic(r.best); setPhase("setup"); }}>
+                <Button className="col-span-2 w-full sm:col-span-1 sm:w-auto" size="sm" disabled={r.presence === "offline"} onClick={() => { setRival(r); setPhase("setup"); }}>
                   <Swords /> {r.presence === "in-duel" ? "Queue duel" : "Challenge"}
                 </Button>
               </li>)}
@@ -196,30 +312,21 @@ export function ChallengeScreen() {
             <h2 className="mt-3 font-serif text-2xl">Quick match</h2>
             <p className="mt-1 text-sm">We’ll pair you with an online learner near your level.</p>
             <Button className="mt-4" variant="secondary" onClick={() => {
-              const pool = roster.filter((r) => r.presence === "online");
+              const pool = players.filter((r) => r.presence === "online");
               const pick = pool[Math.floor(Math.random() * pool.length)];
-              if (!pick) { toast("Nobody is online right now"); return; }
-              setRival(pick); setTopic(pick.best); setPhase("setup");
+              if (!pick) { toast("Nobody else is online right now"); return; }
+              setRival(pick); setPhase("setup");
               toast.success(`Matched with ${pick.name}`);
             }}>Find an opponent</Button>
           </section>
           <section className="border-2 border-foreground bg-background p-4 shadow-brutal">
             <h2 className="font-serif text-2xl">Invites for you</h2>
-            <div className="mt-3 space-y-3">
-              {[["Khadijah Umar", "Aqeedah · 5 rounds"], ["Yusuf Adeleke", "Fiqh · 10 rounds"]].map(([n, d]) => <div key={n} className="border-2 border-foreground p-3">
-                <b className="block">{n}</b>
-                <small className="text-muted-foreground">{d}</small>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={() => { const r = roster.find((x) => x.name === n); if (r) { setRival(r); setTopic(r.best); setPhase("setup"); } }}>Accept</Button>
-                  <Button size="sm" variant="outline" onClick={() => toast("Invite declined")}>Decline</Button>
-                </div>
-              </div>)}
-            </div>
+            {incoming.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No invites yet. When someone challenges you, it will show here.</p> : <div className="mt-3 space-y-3">{incoming.map((inv) => <div key={inv.id} className="border-2 border-foreground p-3"><b className="block">{inv.fromName}</b><small className="text-muted-foreground">{inv.topic} · {inv.rounds} rounds · {inv.level}</small><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void acceptInvite(inv)}>Accept</Button><Button size="sm" variant="outline" onClick={() => void declineInvite(inv)}>Decline</Button></div></div>)}</div>}
           </section>
           <section className="border-2 border-foreground bg-background p-4 shadow-brutal">
             <h2 className="font-serif text-2xl">Your duel record</h2>
             <div className="mt-3 grid grid-cols-3 border-2 border-foreground text-center">
-              {[["Wins", "12"], ["Losses", "6"], ["Best run", "5"]].map(([l, v]) => <div key={l} className="border-r-2 border-foreground p-3 last:border-r-0">
+              {[["Wins", String(me.wins)], ["Losses", String(me.losses)], ["Best run", String(me.bestRun)]].map(([l, v]) => <div key={l} className="border-r-2 border-foreground p-3 last:border-r-0">
                 <p className="font-serif text-3xl">{v}</p><small className="text-muted-foreground">{l}</small>
               </div>)}
             </div>
@@ -252,7 +359,7 @@ export function ChallengeScreen() {
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button onClick={() => setPhase("invite")}><Send /> Send challenge</Button>
+            <Button onClick={() => void sendChallenge()}><Send /> Send challenge</Button>
             <Button variant="outline" onClick={() => setPhase("lobby")}>Back</Button>
           </div>
         </div>
@@ -260,13 +367,10 @@ export function ChallengeScreen() {
 
       {phase === "invite" && rival && <section className="mx-auto max-w-xl border-2 border-foreground bg-background p-6 text-center shadow-brutal">
         <span className="mx-auto grid size-20 place-items-center border-2 border-foreground bg-primary font-serif text-4xl text-primary-foreground">{rival.name[0]}</span>
-        <h2 className="mt-4 font-serif text-3xl">Challenge sent to {rival.name}</h2>
+        <h2 className="mt-4 font-serif text-3xl">{liveNow?.status === "accepted" ? "Starting the duel…" : `Waiting for ${rival.name}`}</h2>
         <p className="mt-2 text-muted-foreground">{topic} · {level} · {rounds} rounds · {seconds}s a question</p>
         <p className="mt-1 text-sm text-muted-foreground">The duel begins the moment they accept. Invites expire after 24 hours.</p>
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Button onClick={startDuel}>{rival.presence === "online" ? "They accepted — start" : "Simulate accept"}</Button>
-          <Button variant="outline" onClick={() => { setPhase("lobby"); toast("Challenge withdrawn"); }}>Withdraw</Button>
-        </div>
+        <div className="mt-6 flex flex-wrap justify-center gap-3"><Button variant="outline" onClick={() => { if (challengeId) void updateDoc(doc(db, "challenges", challengeId), { status: "cancelled" }).catch(() => {}); setChallengeId(null); setPhase("lobby"); toast("Challenge withdrawn"); }}>Withdraw</Button></div>
       </section>}
 
       {phase === "duel" && rival && current && <section className="border-2 border-foreground bg-background shadow-brutal">
@@ -291,8 +395,8 @@ export function ChallengeScreen() {
 
       {phase === "result" && rival && <section className="mx-auto max-w-2xl border-2 border-foreground bg-background shadow-brutal">
         <div className="flex items-center justify-between border-b-2 border-foreground px-4 py-2">
-          <h2 className="font-serif text-xl">{you > them ? "You won the duel" : you === them ? "A draw" : "Close one"}</h2>
-          <span className="text-xs font-semibold uppercase text-muted-foreground">+{Math.round(you / 10)} XP</span>
+          <h2 className="font-serif text-xl">{opponentLeft ? "Your opponent left" : !opponentDone ? "Waiting for your opponent to finish…" : you > them ? "You won the duel" : you === them ? "A draw" : "Close one"}</h2>{earned > 0 && <span className="text-xs font-semibold uppercase text-muted-foreground">+{earned} XP</span>}
+          
         </div>
         <div className="p-4">
           <div className="grid grid-cols-2 divide-x-2 divide-foreground border-2 border-foreground text-center">
@@ -303,8 +407,8 @@ export function ChallengeScreen() {
             {[["Correct", `${correctCount}/${rounds}`], ["Topic", topic], ["Level", level]].map(([l, v]) => <div key={l} className="border-b-2 border-foreground p-3 last:border-b-0 sm:border-b-0 sm:border-r-2 sm:last:border-r-0"><p className="break-words font-serif text-2xl">{v}</p><small className="text-muted-foreground">{l}</small></div>)}
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Button onClick={startDuel}><Swords /> Rematch</Button>
-            <Button variant="outline" onClick={() => setPhase("lobby")}><UserPlus /> New opponent</Button>
+            <Button onClick={() => void sendChallenge()}><Swords /> Rematch</Button>
+            <Button variant="outline" onClick={() => { setChallengeId(null); setPhase("lobby"); }}><UserPlus /> New opponent</Button>
             <Button variant="outline" onClick={() => setShareOpen(true)}><Share2 /> Share result</Button>
             <Button variant="ghost" onClick={() => toast.success(`${rival.name} thanked for the duel`)}><Trophy /> Say jazakAllahu khayran</Button>
           </div>
