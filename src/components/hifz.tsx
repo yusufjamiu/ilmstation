@@ -5,6 +5,9 @@ import { surahList } from "@/components/quran-data";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { matchAyah, type WordCheck } from "@/lib/arabic-match";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
 type Verse = { arabic: string; meaning: string };
 type Surah = { name: string; arabic: string; number: number; juz: number; ayahs: number; start: number; verses: Verse[] };
@@ -181,22 +184,41 @@ export function HifzScreen() {
   const autoActive = speechSupported;
   const showText = stage === "study" || revealed;
 
+  const [hifzUid, setHifzUid] = useState<string | null>(null);
   useEffect(() => {
-    setProgress(load("iq_hifz_progress", {})); setActivity(load("iq_hifz_activity", {})); setNewCounts(load("iq_hifz_new", {}));
-    setRevisionCursor((() => { try { const raw = localStorage.getItem("iq_hifz_cursor_v2"); const v = raw ? JSON.parse(raw) : 0; return typeof v === "number" && Number.isFinite(v) ? v : 0; } catch { return 0; } })());
-    setRevisionResume((() => { try { const raw = localStorage.getItem("iq_hifz_resume"); const v = raw ? JSON.parse(raw) : null; return v && typeof v.surah === "number" && typeof v.verse === "number" ? v : null; } catch { return null; } })());
-    setRevisionMandatoryDoneDate(load("iq_hifz_mandatory_date", null as string | null));
-    setRevisionDoneDate(load("iq_hifz_revision_date", null as string | null));
-    const p = load("iq_hifz_plan", defaultPlan); setPlan(p); setSetupSize(p.daily); setHydrated(true);
+    let cancelled = false;
+    const unsub = onAuthStateChanged(auth, async user => {
+      setHydrated(false);
+      setProgress({}); setActivity({}); setNewCounts({}); setRevisionCursor(0); setRevisionResume(null);
+      setRevisionMandatoryDoneDate(null); setRevisionDoneDate(null); setPlan(defaultPlan); setSetupSize(defaultPlan.daily);
+      if (!user) { setHifzUid(null); return; }
+      setHifzUid(user.uid);
+      try {
+        const snap = await getDoc(doc(db, "hifz", user.uid));
+        if (cancelled || auth.currentUser?.uid !== user.uid) return;
+        const d: any = snap.exists() ? snap.data() : {};
+        setProgress(d.progress ?? {}); setActivity(d.activity ?? {}); setNewCounts(d.newCounts ?? {});
+        setRevisionCursor(typeof d.revisionCursor === "number" ? d.revisionCursor : 0);
+        setRevisionResume(d.revisionResume ?? null);
+        setRevisionMandatoryDoneDate(d.revisionMandatoryDoneDate ?? null);
+        setRevisionDoneDate(d.revisionDoneDate ?? null);
+        const p: Plan = { ...defaultPlan, ...(d.plan ?? {}) };
+        setPlan(p); setSetupSize(p.daily);
+        setHydrated(true);
+      } catch {
+        if (!cancelled) toast("We couldn't load your Hifz progress. Check your connection and refresh the page.");
+      }
+    });
+    return () => { cancelled = true; unsub(); };
   }, []);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_progress", JSON.stringify(progress)); }, [progress, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_activity", JSON.stringify(activity)); }, [activity, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_new", JSON.stringify(newCounts)); }, [newCounts, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_cursor_v2", JSON.stringify(revisionCursor)); }, [revisionCursor, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_resume", JSON.stringify(revisionResume)); }, [revisionResume, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_mandatory_date", JSON.stringify(revisionMandatoryDoneDate)); }, [revisionMandatoryDoneDate, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_revision_date", JSON.stringify(revisionDoneDate)); }, [revisionDoneDate, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem("iq_hifz_plan", JSON.stringify(plan)); }, [plan, hydrated]);
+  useEffect(() => {
+    if (!hydrated || !hifzUid) return;
+    const id = setTimeout(() => {
+      setDoc(doc(db, "hifz", hifzUid), { progress, activity, newCounts, revisionCursor, revisionResume, revisionMandatoryDoneDate, revisionDoneDate, plan })
+        .catch(() => toast("We couldn't save your progress. Check your connection."));
+    }, 800);
+    return () => clearTimeout(id);
+  }, [progress, activity, newCounts, revisionCursor, revisionResume, revisionMandatoryDoneDate, revisionDoneDate, plan, hydrated, hifzUid]);
 
   useEffect(() => {
     if (!plan.reminders) return;
