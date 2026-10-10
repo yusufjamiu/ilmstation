@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft, ArrowRight, AtSign, CalendarDays, Check, Eye, EyeOff, Gem, LockKeyhole, Search, User, X,
@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme";
 import { languages, useLanguage, type Lang } from "@/components/language";
 import { QuizVisual, quizQuestionsFor, type VisualQuestion } from "@/components/quiz-visual";
 import {
-  ageFrom, isValidEmail, normaliseEmail, passwordRules, useAuth,
+  ageFrom, isUsernameAvailable, isValidEmail, isValidUsername, normaliseEmail, normaliseUsername, passwordRules, useAuth,
   type Gender, type Level, type Zone,
 } from "@/components/auth";
 import { cn } from "@/lib/utils";
@@ -142,16 +142,17 @@ function buildQuiz(interests: string[]): (VisualQuestion & { topic: string })[] 
   return order.flatMap((topic) => { const q = quizQuestionsFor(topic)[0]; return q ? [{ ...q, topic }] : []; });
 }
 
-type Draft = { language: Lang; name: string; email: string; password: string; dob: string; gender: Gender | null; interests: string[] };
+type Draft = { language: Lang; name: string; username: string; email: string; password: string; dob: string; gender: Gender | null; interests: string[] };
 
 export function SignupFlow() {
   const { lang, set: setLanguage } = useLanguage();
   const { account, loggedIn, signUp, logOut, firstName } = useAuth();
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<Draft>({ language: lang, name: "", email: "", password: "", dob: "", gender: null, interests: [] });
+  const [draft, setDraft] = useState<Draft>({ language: lang, name: "", username: "", email: "", password: "", dob: "", gender: null, interests: [] });
   const [result, setResult] = useState<{ score: number | null; level: Level } | null>(null);
   const [signupError, setSignupError] = useState("");
   const [signingUp, setSigningUp] = useState(false);
+  const [accountError, setAccountError] = useState("");
   const update = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
   const next = () => { setStep((s) => Math.min(steps.length - 1, s + 1)); window.scrollTo({ top: 0 }); };
   const back = () => setStep((s) => Math.max(0, s - 1));
@@ -161,13 +162,21 @@ export function SignupFlow() {
     const level = score === null ? "Beginner" : levelFor(score);
     setSignupError("");
     setSigningUp(true);
-    const error = await signUp({
-      name: draft.name.trim(), email: normaliseEmail(draft.email), password: draft.password, language: draft.language,
-      dob: draft.dob, gender: draft.gender ?? "male", zone: age < 18 ? "youth" : "adult", interests: draft.interests,
-      level, quizScore: score, xp: 50,
-    });
+    try {
+      await signUp({
+        name: draft.name.trim(), username: draft.username, email: normaliseEmail(draft.email), password: draft.password, language: draft.language,
+        dob: draft.dob, gender: draft.gender ?? "male", zone: age < 18 ? "youth" : "adult", interests: draft.interests,
+        level, quizScore: score, xp: 50,
+      });
+    } catch (err) {
+      setSigningUp(false);
+      const code = (err as { code?: string })?.code ?? "";
+      if ((err as Error)?.message === "USERNAME_TAKEN") { setAccountError("That username was just taken. Please choose another."); setStep(1); window.scrollTo({ top: 0 }); return; }
+      if (code === "auth/email-already-in-use") { setAccountError("An account with this email already exists. Try logging in instead."); setStep(1); window.scrollTo({ top: 0 }); return; }
+      setSignupError(code === "auth/weak-password" ? "Your password is too weak. Go back and choose a stronger one." : "We couldn't create your account. Please try again.");
+      return;
+    }
     setSigningUp(false);
-    if (error) { setSignupError(error); return; }
     setResult({ score, level });
     next();
   };
@@ -200,7 +209,7 @@ export function SignupFlow() {
   return <AuthShell mode="signup" aside={aside}>
     {step < steps.length - 1 && <StepHeader step={step} />}
     {step === 0 && <LanguageStep value={draft.language} onNext={(language) => { update({ language }); setLanguage(language); next(); }} />}
-    {step === 1 && <AccountStep draft={draft} existingEmail={account?.email} onBack={back} onNext={(name, email) => { update({ name, email }); next(); }} />}
+    {step === 1 && <AccountStep draft={draft} existingEmail={account?.email} serverError={accountError} onBack={back} onNext={(name, username, email) => { setAccountError(""); update({ name, username, email }); next(); }} />}
     {step === 2 && <PasswordStep onBack={back} onNext={(password) => { update({ password }); next(); }} />}
     {step === 3 && <DetailsStep draft={draft} onBack={back} onNext={(dob, gender) => { update({ dob, gender }); next(); }} />}
     {step === 4 && <InterestsStep value={draft.interests} onBack={back} onNext={(interests) => { update({ interests }); next(); }} />}
@@ -255,10 +264,28 @@ function LanguageStep({ value, onNext }: { value: Lang; onNext: (l: Lang) => voi
   </form>;
 }
 
-function AccountStep({ draft, existingEmail, onBack, onNext }: { draft: Draft; existingEmail?: string | undefined; onBack: () => void; onNext: (name: string, email: string) => void }) {
+function AccountStep({ draft, existingEmail, serverError, onBack, onNext }: { draft: Draft; existingEmail?: string | undefined; serverError?: string | undefined; onBack: () => void; onNext: (name: string, username: string, email: string) => void }) {
   const [name, setName] = useState(draft.name);
+  const [username, setUsername] = useState(draft.username);
   const [email, setEmail] = useState(draft.email);
+  const [status, setStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
   const [errors, setErrors] = useState<{ name?: string; email?: string; exists?: boolean }>({});
+
+  useEffect(() => {
+    const value = normaliseUsername(username);
+    if (!value) { setStatus("idle"); return undefined; }
+    if (!isValidUsername(value)) { setStatus("invalid"); return undefined; }
+    setStatus("checking");
+    let cancelled = false;
+    const id = setTimeout(() => {
+      isUsernameAvailable(value).then(ok => { if (!cancelled) setStatus(ok ? "available" : "taken"); }).catch(() => { if (!cancelled) setStatus("error"); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [username]);
+
+  const usernameError = status === "invalid" ? "Use 3 to 20 letters, numbers or underscores." : status === "taken" ? "Already taken, choose another." : status === "error" ? "We couldn't check this name. Check your connection." : undefined;
+  const usernameHint = status === "available" ? <span className="mt-1.5 block text-sm font-semibold text-secondary">Available</span> : status === "checking" ? <span className="mt-1.5 block text-sm text-muted-foreground">Checking…</span> : !usernameError ? <span className="mt-1.5 block text-sm text-muted-foreground">3 to 20 letters, numbers or underscores. This is how others find you.</span> : undefined;
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
@@ -266,17 +293,21 @@ function AccountStep({ draft, existingEmail, onBack, onNext }: { draft: Draft; e
     if (!isValidEmail(email)) next.email = "Enter a valid email, like name@example.com.";
     else if (existingEmail && normaliseEmail(email) === existingEmail) next.exists = true;
     setErrors(next);
-    if (!next.name && !next.email && !next.exists) onNext(name.trim(), email.trim());
+    if (!next.name && !next.email && !next.exists && status === "available") onNext(name.trim(), normaliseUsername(username), email.trim());
   };
   return <form noValidate onSubmit={submit} className="grid gap-5">
+    {serverError && <p role="alert" className="border-2 border-destructive bg-destructive/10 p-3 text-sm font-semibold text-destructive">{serverError}</p>}
     <Field label="Full name" icon={User} error={errors.name}>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Yusuf Jamiu" autoComplete="name" aria-invalid={!!errors.name} className={inputClass} />
+    </Field>
+    <Field label="Username" icon={AtSign} error={usernameError} hint={usernameHint}>
+      <input value={username} onChange={(e) => setUsername(e.target.value.replace(/\s/g, ""))} placeholder="e.g. yusuf_learns" autoComplete="username" autoCapitalize="none" maxLength={20} aria-invalid={!!usernameError} className={inputClass} />
     </Field>
     <Field label="Email address" icon={AtSign} error={errors.email}>
       <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" aria-invalid={!!errors.email} className={inputClass} />
     </Field>
     {errors.exists && <p role="alert" className="border-2 border-foreground bg-muted p-3 text-sm">An account with this email already exists. <Link to="/login" className="font-bold underline underline-offset-4">Log in instead</Link></p>}
-    <StepNav onBack={onBack} />
+    <StepNav onBack={onBack} disabled={status !== "available"} />
   </form>;
 }
 

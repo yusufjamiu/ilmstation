@@ -7,7 +7,7 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 export type Gender = "male" | "female";
@@ -16,6 +16,7 @@ export type Level = "Beginner" | "Intermediate" | "Advanced";
 
 export type Account = {
   name: string;
+  username?: string;
   email: string;
   language: string;
   dob: string;
@@ -30,6 +31,16 @@ export type Account = {
 
 export const normaliseEmail = (email: string) => email.trim().toLowerCase();
 export const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+export const normaliseUsername = (u: string) => u.trim().toLowerCase();
+export const isValidUsername = (u: string) => /^[a-z0-9_]{3,20}$/.test(normaliseUsername(u));
+/** True when the name is valid and nobody has reserved it yet. Works before login. */
+export async function isUsernameAvailable(u: string): Promise<boolean> {
+  const name = normaliseUsername(u);
+  if (!isValidUsername(name)) return false;
+  const snap = await getDoc(doc(db, "usernames", name));
+  return !snap.exists();
+}
 
 export const passwordRules = [
   { id: "length", label: "8+ characters", test: (p: string) => p.length >= 8 },
@@ -48,6 +59,7 @@ export function ageFrom(dob: string, today = new Date()) {
 }
 
 function authErrorMessage(err: unknown): string {
+  if ((err as { message?: string })?.message === "USERNAME_TAKEN") return "That username is already taken. Please choose another.";
   const code = (err as { code?: string })?.code ?? "";
   switch (code) {
     case "auth/email-already-in-use":
@@ -99,11 +111,21 @@ export function useAuth() {
 
     /** Creates a real Firebase account and saves the rich profile to Firestore. */
     signUp: async (details: Omit<Account, "createdAt"> & { password: string }) => {
-      const { password, ...profile } = details;
+      const { password, username: rawUsername, ...profile } = details;
+      const username = rawUsername ? normaliseUsername(rawUsername) : undefined;
+      if (username && !(await isUsernameAvailable(username))) throw new Error("USERNAME_TAKEN");
       const cred = await createUserWithEmailAndPassword(auth, profile.email, password);
       await updateProfile(cred.user, { displayName: profile.name });
-      const fullProfile: Account = { ...profile, createdAt: new Date().toISOString() };
-      await setDoc(doc(db, "profiles", cred.user.uid), fullProfile);
+      const fullProfile: Account = { ...profile, ...(username ? { username } : {}), createdAt: new Date().toISOString() };
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, "profiles", cred.user.uid), fullProfile);
+        if (username) batch.set(doc(db, "usernames", username), { uid: cred.user.uid });
+        await batch.commit();
+      } catch (err) {
+        await cred.user.delete().catch(() => {});
+        throw username && (err as { code?: string })?.code === "permission-denied" ? new Error("USERNAME_TAKEN") : err;
+      }
       setAccount(fullProfile);
       return null;
     },
