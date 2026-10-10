@@ -88,6 +88,7 @@ const MAX_LINK_ATTEMPTS = 2;
 const MAX_LINK_WORDS = 40;
 const LOW_CONFIDENCE = 0.4;
 const PASS_RATIO = 0.9;
+const VERSE_BREAK_MS = 10 * 60 * 1000;
 
 /** Breaks a long ayah into shorter phrases so recitation can be checked piece by piece before the whole-verse pass. Short verses stay whole. */
 function splitIntoPhrases(arabic: string): string[] {
@@ -146,6 +147,7 @@ export function HifzScreen() {
   const [done, setDone] = useState(false);
   const [showKnownDialog, setShowKnownDialog] = useState(false);
   const [knownPicks, setKnownPicks] = useState<number[]>([]);
+  const [knownRemovals, setKnownRemovals] = useState<number[]>([]);
   const [portionHidden, setPortionHidden] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
@@ -156,8 +158,13 @@ export function HifzScreen() {
   const notified = useRef("");
 
   // Automated reciter-sync matching
-  const speechSupported = useMemo(() => typeof window !== "undefined" && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition), []);
-  const [preferManual, setPreferManual] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const chromium = /Chrome|Edg\//.test(ua) && !/OPR|Firefox/.test(ua);
+    setSpeechSupported(!iOS && chromium && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
+  }, []);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [autoPhase, setAutoPhase] = useState<"visible" | "blind" | null>(null);
   const [autoAttempt, setAutoAttempt] = useState(0);
@@ -168,7 +175,10 @@ export function HifzScreen() {
   const [listeningNow, setListeningNow] = useState(false);
   const recognitionRef = useRef<any>(null);
   const autoStopRef = useRef(false);
-  const autoActive = speechSupported && !preferManual;
+  const verseStartRef = useRef(0);
+  const breakResolve = useRef<((v: "continue" | "stop") => void) | null>(null);
+  const [breakPrompt, setBreakPrompt] = useState(false);
+  const autoActive = speechSupported;
   const showText = stage === "study" || revealed;
 
   useEffect(() => {
@@ -268,6 +278,17 @@ export function HifzScreen() {
     }
   }
 
+  function askBreak(): Promise<"continue" | "stop"> {
+    return new Promise(resolve => { breakResolve.current = resolve; setBreakPrompt(true); });
+  }
+  function stopForToday() {
+    autoStopRef.current = true;
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    stopRecording(); setRecordedUrl(null);
+    setActive(null); setSetup(null); setDone(false);
+    toast.success("Saved. You will continue from this verse next time.");
+  }
+
   function listenOnce(): Promise<{ transcript: string; confidence: number }> {
     return new Promise(resolve => {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -288,6 +309,12 @@ export function HifzScreen() {
 
   /** One attempt: play the reciter (unless `silent`), listen, and score. Low-confidence results are treated as a miss, since the browser may "hear" a word the user never finished saying. Doesn't touch `revealed`, callers control visibility for their own stage. */
   async function attempt(reference: string, silent = false): Promise<{ words: WordCheck[]; ok: boolean }> {
+    if (!reviewOnly && verseStartRef.current > 0 && Date.now() - verseStartRef.current >= VERSE_BREAK_MS) {
+      const choice = await askBreak();
+      breakResolve.current = null; setBreakPrompt(false);
+      if (choice === "stop") { stopForToday(); return { words: [], ok: false }; }
+      verseStartRef.current = Date.now();
+    }
     if (!silent) await playRecital();
     if (autoStopRef.current) return { words: [], ok: false };
     setListeningNow(true);
@@ -337,6 +364,7 @@ export function HifzScreen() {
   async function runAutoVerse() {
     if (!verse) return;
     autoStopRef.current = false;
+    verseStartRef.current = Date.now();
     setLastDiff(null); setLastLabel(null); setAutoAttempt(0); setPhraseIndex(0);
     if (!recording) await startRecording();
     const versePhrases = splitIntoPhrases(verse.arabic);
@@ -413,17 +441,10 @@ export function HifzScreen() {
   useEffect(() => {
     if (!autoActive || !verse || !sessionStarted) return;
     void (reviewOnly ? runAutoReview() : runAutoVerse());
-    return () => { autoStopRef.current = true; try { recognitionRef.current?.stop(); } catch { /* ignore */ } };
+    return () => { autoStopRef.current = true; breakResolve.current?.("stop"); breakResolve.current = null; setBreakPrompt(false); try { recognitionRef.current?.stop(); } catch { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, verseIndex, autoActive, reviewOnly, sessionStarted]);
 
-  function switchToManual() {
-    autoStopRef.current = true;
-    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
-    setAutoPhase(null); setListeningNow(false); setLinkChecking(false);
-    setPreferManual(true);
-    setStage("study"); setRevealed(true);
-  }
 
   const today = dayKey();
   const entries = Object.entries(progress);
@@ -515,20 +536,26 @@ export function HifzScreen() {
       recorder.current = next;
       next.start();
       setRecording(true);
-    } catch { setRecordError("Microphone access was declined. You can still recite aloud and assess yourself."); }
+    } catch { setRecordError("Microphone access was declined. Please allow the microphone to continue."); }
   }
   function resetVerseUi() { stopRecording(); setRecordedUrl(null); setRecordError(""); setRevealed(false); setAutoPhase(null); setLastDiff(null); setLastLabel(null); setAutoAttempt(0); setPhraseIndex(0); setLinkChecking(false); }
   function chooseSurah(n: number) {
     const m = allSurahs.find(s => s.number === n); if (!m) return;
+    if (!speechSupported) { toast("Please open IlmStation in Chrome or Edge to use Hifz"); return; }
     if (surahLocked(n)) { toast("Finish memorising the previous surah first"); return; }
     if (mandatoryNeeded()) { toast(`Revise ${surahName(nextUpSurah())} before starting new Hifz today`); setTab("revision"); return; }
     if (!DEV_UNLOCK_ALL && revisionBlocks().length > 0 && revisionDoneDate !== today) { toast("Revise today's cycle before starting new Hifz"); setTab("revision"); return; }
     setSetup(n); setSetupStart(firstUnlearned(n, m.ayahs)); setSetupSize(plan.daily);
   }
   function markKnownSurahs() {
-    if (!knownPicks.length) { setShowKnownDialog(false); return; }
+    if (!knownPicks.length && !knownRemovals.length) { setShowKnownDialog(false); return; }
     setProgress(prev => {
       const next = { ...prev };
+      for (const n of knownRemovals) {
+        const m = allSurahs.find(s => s.number === n);
+        if (!m) continue;
+        for (let v = 0; v < m.ayahs; v++) delete next[keyFor(n, v)];
+      }
       for (const n of knownPicks) {
         const m = allSurahs.find(s => s.number === n);
         if (!m) continue;
@@ -538,10 +565,11 @@ export function HifzScreen() {
       }
       return next;
     });
-    toast.success(`Marked ${knownPicks.length} surah${knownPicks.length === 1 ? "" : "s"} as memorised`);
-    setKnownPicks([]); setShowKnownDialog(false);
+    toast.success("Your memorised surahs are updated");
+    setKnownPicks([]); setKnownRemovals([]); setShowKnownDialog(false);
   }
   function openSession(n: number, from: number, to: number, isReview = false, keepReciter = false) {
+    if (!speechSupported) { toast("Please open IlmStation in Chrome or Edge to use Hifz"); return; }
     resetVerseUi();
     if (!keepReciter) setSessionStarted(false);
     setMandatoryPass(false);
@@ -642,17 +670,19 @@ export function HifzScreen() {
   const sessionTotal = chunk[1] - chunk[0] + 1;
 
   return <div className="min-w-0 iq-rise pb-8">
+    {breakPrompt && <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"><div className="w-full max-w-sm border-2 border-foreground bg-background p-5 shadow-brutal"><h3 className="font-serif text-2xl">Take a break?</h3><p className="mt-2 text-sm text-muted-foreground">This verse is taking a while. You can stop here for today and continue from this verse next time, or keep going.</p><div className="mt-4 flex flex-wrap gap-2"><Button onClick={() => breakResolve.current?.("continue")}>Keep going</Button><Button variant="outline" onClick={() => breakResolve.current?.("stop")}>Stop for today</Button></div></div></div>}
     <header className="border-2 border-foreground bg-primary px-4 py-4 shadow-brutal sm:px-6">
       <p className="text-xs font-bold uppercase">IlmStation / Memorisation</p>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-3"><h1 className="font-serif text-4xl leading-none sm:text-5xl">Hifz workspace</h1>{(active !== null || setup !== null) && <Button variant="outline" size="sm" onClick={() => { autoStopRef.current = true; stopRecording(); setActive(null); setSetup(null); setDone(false); }}><ArrowLeft /> Workspace</Button>}</div>
     </header>
+    {!speechSupported && <div className="mt-4 border-2 border-foreground bg-destructive/10 p-4"><p className="text-xs font-bold uppercase text-destructive">Browser not supported</p><p className="mt-1 font-serif text-2xl">Please open IlmStation in Chrome or Edge</p><p className="mt-2 text-sm text-muted-foreground">Hifz listens to your recitation and checks it word by word, and that only works in Chrome or Edge on a laptop or an Android phone. iPhones and iPads are not supported yet.</p></div>}
 
     {setupMeta ? <div className="mt-6 max-w-2xl border-2 border-foreground bg-background shadow-brutal">
       <div className="flex items-center justify-between gap-3 border-b-2 border-foreground bg-muted px-5 py-3"><div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Surah {setupMeta.number} · {setupMeta.ayahs} ayat</p><h2 className="font-serif text-3xl">{setupMeta.name}</h2></div><span className="font-arabic text-3xl" lang="ar" dir="rtl">{setupMeta.arabic}</span></div>
       <div className="space-y-5 p-5">
         <div><p className="text-xs font-bold uppercase">How much would you like to memorise?</p><div className="mt-2 flex flex-wrap gap-2">{sizes.map(s => <Button key={s.value} size="sm" variant={setupSize === s.value ? "default" : "outline"} aria-pressed={setupSize === s.value} onClick={() => setSetupSize(s.value)}>{s.label}</Button>)}</div></div>
         <label className="block"><span className="text-xs font-bold uppercase">Start from ayah</span><input type="number" min={1} max={setupMeta.ayahs} value={setupStart} onChange={e => setSetupStart(Number(e.target.value) || 1)} className="mt-2 block h-11 w-32 border-2 border-foreground bg-background px-3"/></label>
-        {(() => { const from = Math.min(Math.max(1, setupStart), setupMeta.ayahs); const to = setupSize === 0 ? setupMeta.ayahs : Math.min(setupMeta.ayahs, from + setupSize - 1); return <p className="border-l-4 border-secondary bg-muted/50 px-3 py-2 text-sm">This session: <b>ayat {from}{to > from ? `–${to}` : ""}</b> · {to - from + 1} {to - from === 0 ? "ayah" : "ayat"}{speechSupported && !preferManual ? ", you'll pick a reciter next" : ", each through study, recall and recite, then the whole portion together"}.</p>; })()}
+        {(() => { const from = Math.min(Math.max(1, setupStart), setupMeta.ayahs); const to = setupSize === 0 ? setupMeta.ayahs : Math.min(setupMeta.ayahs, from + setupSize - 1); return <p className="border-l-4 border-secondary bg-muted/50 px-3 py-2 text-sm">This session: <b>ayat {from}{to > from ? `–${to}` : ""}</b> · {to - from + 1} {to - from === 0 ? "ayah" : "ayat"}{", you'll pick a reciter next"}.</p>; })()}
         <div className="flex flex-wrap gap-2"><Button onClick={beginSetup}>Begin session <ArrowRight /></Button><Button variant="ghost" onClick={() => setSetup(null)}>Cancel</Button></div>
       </div>
     </div> : active === null ? <div className="mt-6 min-w-0">
@@ -686,9 +716,9 @@ export function HifzScreen() {
         {showKnownDialog && <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" onClick={() => setShowKnownDialog(false)}>
           <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
             <h3 className="font-serif text-2xl">Already know some surahs?</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Tick any you can already recite from memory, they'll be marked complete and added to your revision cycle.</p>
-            <div className="mt-4 grid max-h-80 gap-1 overflow-y-auto">{HIFZ_ORDER.map(n => { const m = allSurahs.find(s => s.number === n); if (!m) return null; const checked = knownPicks.includes(n); const already = isSurahMemorized(n); return <label key={n} className={cn("flex items-center justify-between gap-2 border-b border-foreground/20 py-2 text-sm", already && "opacity-50")}><span>{m.name} <span className="text-xs text-muted-foreground">({m.ayahs} ayat)</span></span><input type="checkbox" disabled={already} checked={checked || already} onChange={() => setKnownPicks(p => checked ? p.filter(x => x !== n) : [...p, n])} className="size-5 accent-foreground"/></label>; })}</div>
-            <div className="mt-5 flex flex-wrap gap-2"><Button onClick={markKnownSurahs}>Save</Button><Button variant="ghost" onClick={() => { setKnownPicks([]); setShowKnownDialog(false); }}>Cancel</Button></div>
+            <p className="mt-1 text-sm text-muted-foreground">Tick any you can already recite from memory, they'll be marked complete and added to your revision cycle. Untick one to remove it.</p>
+            <div className="mt-4 grid max-h-80 gap-1 overflow-y-auto">{HIFZ_ORDER.map(n => { const m = allSurahs.find(s => s.number === n); if (!m) return null; const already = isSurahMemorized(n); const removed = knownRemovals.includes(n); const picked = knownPicks.includes(n); const on = already ? !removed : picked; return <label key={n} className="flex items-center justify-between gap-2 border-b border-foreground/20 py-2 text-sm"><span>{m.name} <span className="text-xs text-muted-foreground">({m.ayahs} ayat)</span></span><input type="checkbox" checked={on} onChange={() => { if (already) setKnownRemovals(r => removed ? r.filter(x => x !== n) : [...r, n]); else setKnownPicks(p => picked ? p.filter(x => x !== n) : [...p, n]); }} className="size-5 accent-foreground"/></label>; })}</div>
+            <div className="mt-5 flex flex-wrap gap-2"><Button onClick={markKnownSurahs}>Save</Button><Button variant="ghost" onClick={() => { setKnownPicks([]); setKnownRemovals([]); setShowKnownDialog(false); }}>Cancel</Button></div>
           </div>
         </div>}
       </>}
@@ -757,26 +787,22 @@ export function HifzScreen() {
           <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="mt-4 h-11 w-full border-2 border-foreground bg-background px-3">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button onClick={() => setSessionStarted(true)}>Start with {reciters.find(r => r.id === reciter)?.name} <ArrowRight /></Button>
-            <Button variant="outline" onClick={switchToManual}>Use manual grading instead</Button>
           </div>
         </div> : <>
         {autoActive && <div className="mb-4 flex flex-wrap items-start gap-3 border-2 border-foreground bg-secondary/10 px-4 py-3 text-sm">
           <span className="flex shrink-0 items-center gap-2 font-bold"><Ear className={cn("size-4", listeningNow && "animate-pulse text-secondary")}/> {linkChecking ? "Linking check" : listeningNow ? "Listening…" : autoPhase === "blind" ? "Recite from memory" : "Repeat after the reciter"}</span>
           {lastLabel && !listeningNow && <span className={cn("border-2 border-foreground px-2 py-0.5 text-xs font-bold uppercase", lastLabel === "Excellent" ? "bg-secondary text-secondary-foreground" : "bg-background")}>{lastLabel}</span>}
-          {lastDiff && !showText && <div className="flex flex-1 flex-wrap justify-end gap-1 font-arabic text-lg" dir="rtl">{lastDiff.map((w, i) => <span key={i} className={cn("px-1", w.ok ? "text-secondary" : "bg-destructive/15 text-destructive underline decoration-destructive decoration-2 underline-offset-2")}>{w.word}</span>)}</div>}
           {phrases.length > 1 && autoPhase === "visible" && !linkChecking && <span className="w-full text-xs text-muted-foreground">Phrase {phraseIndex + 1} of {phrases.length}</span>}
-          <Button size="sm" variant="ghost" onClick={switchToManual}>Switch to manual grading</Button>
         </div>}
-        {!speechSupported && <p className="mb-4 text-xs text-muted-foreground">Automatic reciter-sync needs Chrome's speech recognition, which this browser doesn't support. Use the self-assessment buttons below instead.</p>}
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
           <section className="min-w-0 border-2 border-foreground bg-background shadow-brutal"><div className="flex items-center justify-between gap-2 border-b-2 border-foreground bg-muted px-4 py-2 text-xs font-bold uppercase"><span>{stage === "study" ? "Read and understand" : stage === "recall" ? "Bring the words to mind" : "Recite aloud"}</span><span>{surah.number}:{verseIndex + 1}</span></div><div className="flex min-h-72 flex-col justify-center px-5 py-8 sm:px-8">
-            {showText ? <><p dir="rtl" lang="ar" className="font-arabic text-4xl leading-[2.1] sm:text-5xl">{verse.arabic}</p><p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p></> : <div className="py-8 text-center"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">{stage === "recall" ? "Bring the ayah to mind, then reveal to check." : "Say it aloud before revealing the words."}</p></div>}
-          </div><div className="flex flex-wrap items-center gap-2 border-t-2 border-foreground bg-muted/50 px-4 py-3"><Button size="sm" variant={playing ? "secondary" : "outline"} onClick={toggleRecital} aria-label={playing ? "Pause recitation" : "Play recitation"}>{playing ? <Pause /> : <Volume2 />}{playing ? "Pause" : "Listen"}</Button><select value={reciter} onChange={event => setReciter(event.target.value)} aria-label="Reciter" className="h-9 min-w-0 max-w-full flex-1 border-2 border-foreground bg-background px-2 text-sm sm:flex-none">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Playback speed" className="h-9 border-2 border-foreground bg-background px-2 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select><Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop(v => !v)} aria-pressed={loop} aria-label="Repeat verse"><Repeat /> Repeat</Button><audio ref={recital} src={recitalUrl} preload="none" loop={loop} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} /></div>{!autoActive && <div className="flex flex-wrap gap-2 border-t-2 border-foreground p-4">{stage === "study" ? <Button onClick={() => { setStage("recall"); setRevealed(false); }}>Ready to recall <ArrowRight /></Button> : <Button variant="outline" onClick={() => setRevealed(value => !value)}>{revealed ? "Hide verse" : "Reveal verse"}</Button>}{stage === "recall" && <Button onClick={() => { setStage("recite"); setRevealed(false); }}>Continue to recite <ArrowRight /></Button>}</div>}</section>
-          <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{autoActive ? (reviewOnly ? "Try to recall it from memory first. If you miss a word, the reciter reads just this verse again before you retry." : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.") : stage === "study" ? "Read the Arabic slowly, listen to a reciter, and connect it to the meaning. Move on when you are ready." : stage === "recall" ? "Try to recall the whole ayah first. Reveal it to compare, then move on to reciting." : "Recite aloud without looking. You can record and listen back locally, or simply recite without recording. You decide what to review."}</p>
-            {stage === "recite" && <div className="mt-5 border-y-2 border-foreground py-4"><div className="flex flex-wrap gap-2"><Button variant={recording ? "secondary" : "outline"} onClick={recording ? stopRecording : startRecording}>{recording ? <Square /> : <Mic />}{recording ? "Stop recording" : "Record recitation"}</Button>{recordedUrl && <Button variant="outline" onClick={() => { if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play(); } }}><Play /> Play back</Button>}</div>{recordedUrl && <audio ref={audioRef} src={recordedUrl} controls className="mt-3 w-full" aria-label="Your recorded recitation"/>}{recordError && <p role="alert" className="mt-3 text-sm text-destructive">{recordError}</p>}<p className="mt-3 text-xs text-muted-foreground">Recording stays on this device during this session. No automatic recitation grading.</p></div>}
-            {!autoActive && stage === "recite" && <div className="mt-5"><p className="mb-3 text-xs font-bold uppercase">How did it go?</p><div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">{([{ mark: "again", label: "Again", hint: "Revise later today" }, { mark: "hard", label: "Hard", hint: "Revise tomorrow" }, { mark: "good", label: "Good", hint: "Space it out further" }] as const).map(item => <Button key={item.mark} variant={item.mark === "good" ? "default" : "outline"} className="h-auto min-h-12 flex-col items-start rounded-none px-4 py-2 text-left" onClick={() => nextVerse(item.mark)}><span>{item.label}</span><span className="text-xs font-normal opacity-75">{item.hint}</span></Button>)}</div></div>}
-            <div className="mt-6 border-t border-foreground pt-4 text-xs text-muted-foreground"><CircleHelp className="mr-1 inline size-4"/> Memorised verses return on a revision schedule: 1, 3, 7, 14, 30, then 60 days.</div>
+            {showText ? <><p dir="rtl" lang="ar" className="font-arabic text-4xl leading-[2.1] sm:text-5xl">{verse.arabic}</p><p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p></> : <div className="py-8 text-center"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div>}
+          </div><div className="flex flex-wrap items-center gap-2 border-t-2 border-foreground bg-muted/50 px-4 py-3"><Button size="sm" variant={playing ? "secondary" : "outline"} onClick={toggleRecital} aria-label={playing ? "Pause recitation" : "Play recitation"}>{playing ? <Pause /> : <Volume2 />}{playing ? "Pause" : "Listen"}</Button><select value={reciter} onChange={event => setReciter(event.target.value)} aria-label="Reciter" className="h-9 min-w-0 max-w-full flex-1 border-2 border-foreground bg-background px-2 text-sm sm:flex-none">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Playback speed" className="h-9 border-2 border-foreground bg-background px-2 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select><Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop(v => !v)} aria-pressed={loop} aria-label="Repeat verse"><Repeat /> Repeat</Button><audio ref={recital} src={recitalUrl} preload="none" loop={loop} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} /></div></section>
+          <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{(reviewOnly ? "Try to recall it from memory first. If you miss a word, the reciter reads just this verse again before you retry." : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.")}</p>
+            {stage === "recite" && <div className="mt-5 border-y-2 border-foreground py-4"><div className="flex flex-wrap gap-2"><Button variant={recording ? "secondary" : "outline"} onClick={recording ? stopRecording : startRecording}>{recording ? <Square /> : <Mic />}{recording ? "Stop recording" : "Record recitation"}</Button>{recordedUrl && <Button variant="outline" onClick={() => { if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play(); } }}><Play /> Play back</Button>}</div>{recordedUrl && <audio ref={audioRef} src={recordedUrl} controls className="mt-3 w-full" aria-label="Your recorded recitation"/>}{recordError && <p role="alert" className="mt-3 text-sm text-destructive">{recordError}</p>}<p className="mt-3 text-xs text-muted-foreground">Recording stays on this device during this session.</p></div>}
+            
+            <div className="mt-6 border-t border-foreground pt-4 text-xs text-muted-foreground"><CircleHelp className="mr-1 inline size-4"/> Your memorised surahs come back in the revision cycle, newest first.</div>
           </aside>
         </div>
         </>}
