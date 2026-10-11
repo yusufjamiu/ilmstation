@@ -104,6 +104,72 @@ function splitIntoPhrases(arabic: string): string[] {
   return phrases;
 }
 
+const normWord = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "");
+function lev(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0]![j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length]![b.length]!;
+}
+const closeEnough = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && lev(a, b) <= 1);
+/** How many expected words the heard words match, in order from the start. */
+function prefixMatch(exp: string[], heard: string[]) {
+  let p = 0; let h = 0;
+  while (p < exp.length && h < heard.length) {
+    if (!exp[p]) { p++; continue; }
+    if (closeEnough(exp[p]!, heard[h]!)) { p++; h++; } else break;
+  }
+  while (p < exp.length && !exp[p]) p++;
+  return { p, h };
+}
+
+/** Follows the reader's place in a verse. A repeated word, or a restart a few words back, counts as continuing, not as a mistake. */
+function follow(exp: string[], heard: string[], startP: number) {
+  let p = startP; let bad = 0;
+  for (const w of heard) {
+    while (p < exp.length && !exp[p]) p++;
+    if (p < exp.length && closeEnough(exp[p]!, w)) { p++; bad = 0; continue; }
+    let back = -1;
+    for (let k = p - 1; k >= Math.max(0, p - 6); k--) if (exp[k] && closeEnough(exp[k]!, w)) { back = k; break; }
+    if (back >= 0) { p = back + 1; bad = 0; continue; }
+    bad++;
+  }
+  while (p < exp.length && !exp[p]) p++;
+  return { p, bad };
+}
+
+/** Removes repeated words and restarts from what was heard, so pausing and picking up again is not scored as an error. */
+function dropRestarts(heard: string, reference: string): string {
+  const exp = reference.trim().split(/\s+/).filter(Boolean).map(normWord);
+  const kept: string[] = []; const pos: number[] = [];
+  let p = 0;
+  for (const raw of heard.trim().split(/\s+/).filter(Boolean)) {
+    const w = normWord(raw);
+    if (!w) { kept.push(raw); pos.push(-1); continue; }
+    while (p < exp.length && !exp[p]) p++;
+    if (p < exp.length && closeEnough(exp[p]!, w)) { kept.push(raw); pos.push(p); p++; continue; }
+    let back = -1;
+    for (let k = p - 1; k >= Math.max(0, p - 6); k--) if (exp[k] && closeEnough(exp[k]!, w)) { back = k; break; }
+    if (back >= 0) {
+      const cut = pos.findIndex(x => x >= back);
+      if (cut >= 0) { kept.length = cut; pos.length = cut; }
+      kept.push(raw); pos.push(back); p = back + 1; continue;
+    }
+    kept.push(raw); pos.push(-1);
+  }
+  return kept.join(" ");
+}
+
+/** Drops a spoken Bismillah from the start, unless the verse itself begins with it. */
+function stripBismillah(heard: string, exp: string[]): string {
+  const bism = ["بسم", "الله", "الرحمن", "الرحيم"];
+  if (exp[0] && closeEnough(exp[0], bism[0]!)) return heard;
+  const raw = heard.trim().split(/\s+/).filter(Boolean);
+  let i = 0;
+  while (i < raw.length && i < 4 && closeEnough(normWord(raw[i]!), bism[i]!)) i++;
+  return i >= 1 ? raw.slice(i).join(" ") : heard;
+}
+
 /** A qualitative read of how close an attempt was, only "Excellent" (every word matched, in a sensible order) is allowed to advance. */
 function matchLabel(words: WordCheck[]): string {
   const total = words.length || 1;
@@ -176,6 +242,9 @@ export function HifzScreen() {
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [linkChecking, setLinkChecking] = useState(false);
   const [listeningNow, setListeningNow] = useState(false);
+  const [wordsShown, setWordsShown] = useState(0);
+  const [canSkip, setCanSkip] = useState(false);
+  const [retryNote, setRetryNote] = useState("");
   const recognitionRef = useRef<any>(null);
   const autoStopRef = useRef(false);
   const verseStartRef = useRef(0);
@@ -311,26 +380,42 @@ export function HifzScreen() {
     toast.success("Saved. You will continue from this verse next time.");
   }
 
-  function listenOnce(): Promise<{ transcript: string; confidence: number }> {
+  /** Listens once. In `long` mode (joined verses) it keeps listening through pauses and stops after about 3 seconds of silence. */
+  function listenOnce(long = false): Promise<{ transcript: string; confidence: number }> {
     return new Promise(resolve => {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SR) { resolve({ transcript: "", confidence: 0 }); return; }
       const recognition = new SR();
       recognitionRef.current = recognition;
       recognition.lang = "ar-SA";
-      recognition.interimResults = false;
+      recognition.continuous = long;
+      recognition.interimResults = long;
       recognition.maxAlternatives = 1;
       let settled = false;
-      const finish = (transcript: string, confidence: number) => { if (settled) return; settled = true; resolve({ transcript, confidence }); };
-      recognition.onresult = (e: any) => { const r = e.results?.[0]?.[0]; finish(r?.transcript ?? "", r?.confidence ?? 0); };
-      recognition.onerror = () => finish("", 0);
-      recognition.onend = () => finish("", 0);
-      try { recognition.start(); } catch { finish("", 0); }
+      let text = ""; let confSum = 0; let confN = 0;
+      let silence: any; let cap: any;
+      const heard = () => ({ transcript: text.trim(), confidence: confN ? confSum / confN : 0 });
+      const finish = (transcript: string, confidence: number) => { if (settled) return; settled = true; clearTimeout(silence); clearTimeout(cap); resolve({ transcript, confidence }); };
+      const stopIn = (ms: number) => { clearTimeout(silence); silence = setTimeout(() => { try { recognition.stop(); } catch { const h = heard(); finish(h.transcript, h.confidence); } }, ms); };
+      recognition.onresult = (e: any) => {
+        if (!long) { const r = e.results?.[0]?.[0]; finish(r?.transcript ?? "", r?.confidence ?? 0); return; }
+        let all = ""; confSum = 0; confN = 0;
+        for (let i = 0; i < e.results.length; i++) { const r = e.results[i]; all += `${r[0].transcript} `; if (r.isFinal) { confSum += r[0].confidence ?? 0; confN++; } }
+        text = all;
+        stopIn(4000);
+      };
+      const done = () => { if (long) { const h = heard(); finish(h.transcript, h.confidence); } else finish("", 0); };
+      recognition.onerror = done;
+      recognition.onend = done;
+      try {
+        recognition.start();
+        if (long) { stopIn(10000); cap = setTimeout(() => { try { recognition.stop(); } catch { /* ignore */ } }, 60000); }
+      } catch { finish("", 0); }
     });
   }
 
   /** One attempt: play the reciter (unless `silent`), listen, and score. Low-confidence results are treated as a miss, since the browser may "hear" a word the user never finished saying. Doesn't touch `revealed`, callers control visibility for their own stage. */
-  async function attempt(reference: string, silent = false): Promise<{ words: WordCheck[]; ok: boolean }> {
+  async function attempt(reference: string, silent = false, long = false): Promise<{ words: WordCheck[]; ok: boolean }> {
     if (!reviewOnly && verseStartRef.current > 0 && Date.now() - verseStartRef.current >= VERSE_BREAK_MS) {
       const choice = await askBreak();
       breakResolve.current = null; setBreakPrompt(false);
@@ -340,7 +425,9 @@ export function HifzScreen() {
     if (!silent) await playRecital();
     if (autoStopRef.current) return { words: [], ok: false };
     setListeningNow(true);
-    const { transcript: heard, confidence } = await listenOnce();
+    const useLong = long || reference.trim().split(/\s+/).length >= 7;
+    const { transcript: rawHeard, confidence } = await listenOnce(useLong);
+    const heard = dropRestarts(stripBismillah(rawHeard, reference.trim().split(/\s+/).filter(Boolean).map(normWord)), reference);
     setListeningNow(false);
     if (autoStopRef.current) return { words: [], ok: false };
     let { words, ok } = matchAyah(heard, reference);
@@ -383,6 +470,35 @@ export function HifzScreen() {
     return false;
   }
 
+  /** Recites the verses from the start of the portion up to this one, together. On a mistake, replays only the verse that went wrong, then carries on from that verse. */
+  async function reciteJoined(blind: boolean): Promise<void> {
+    if (!surah) return;
+    let from = chunk[0]; let misses = 0; let first = true;
+    while (!autoStopRef.current) {
+      const ref = surah.verses.slice(from, verseIndex + 1).map(v => v.arabic).join(" ");
+      if (!blind && first) { await playJoinedRecital(from, verseIndex); first = false; if (autoStopRef.current) return; }
+      const { words, ok } = await attempt(ref, true, true);
+      if (autoStopRef.current || ok) return;
+      let pos = 0; let bad = from;
+      for (let i = from; i <= verseIndex; i++) {
+        const n = surah.verses[i]!.arabic.trim().split(/\s+/).filter(Boolean).length;
+        if (words.slice(pos, pos + n).some(w => !w.ok)) { bad = i; break; }
+        pos += n;
+      }
+      from = bad;
+      misses++;
+      if (blind && misses >= MAX_BLIND_ATTEMPTS) {
+        toast("Let's look at this verse once more");
+        setRevealed(true); setAutoPhase("visible");
+        await playAyahAudio(from);
+        setRevealed(false); setAutoPhase("blind");
+        misses = 0;
+      } else {
+        await playAyahAudio(from);
+      }
+    }
+  }
+
   async function runAutoVerse() {
     if (!verse) return;
     autoStopRef.current = false;
@@ -418,18 +534,12 @@ export function HifzScreen() {
     if (verseIndex > chunk[0] && surah) {
       const joined = surah.verses.slice(chunk[0], verseIndex + 1).map(v => v.arabic).join(" ");
       if (joined.trim().split(/\s+/).length <= MAX_LINK_WORDS) {
-        setAutoPhase("blind"); setLinkChecking(true); setRevealed(false);
-        let linked = false;
-        while (!autoStopRef.current && !linked) {
-          await playJoinedRecital(chunk[0], verseIndex);
-          if (autoStopRef.current) break;
-          const { ok } = await attempt(joined, true);
-          linked = ok;
-          if (ok) {
-            setRevealed(true);
-            await delay(900);
-            setRevealed(false);
-          }
+        setLinkChecking(true); setAutoPhase("visible"); setRevealed(true);
+        await reciteJoined(false);
+        if (!autoStopRef.current) {
+          setRevealed(false); setAutoPhase("blind");
+          await reciteJoined(true);
+          if (!autoStopRef.current) { setRevealed(true); await delay(900); setRevealed(false); }
         }
         setLinkChecking(false); setRevealed(false);
         if (autoStopRef.current) return;
@@ -441,23 +551,103 @@ export function HifzScreen() {
     nextVerse("good");
   }
 
-  /** Revision check: try to recall blind first; if missed, the reciter re-reads just this verse, then try again. Simpler than new-memorisation (no echo/linking), since it's testing retention, not teaching. */
+  /** Listens continuously and reports how far you are through the verse. Pauses, repeated words and restarts are allowed. Resolves true when every word is said. */
+  function listenLive(expected: string[], onProgress: (n: number) => void): Promise<boolean> {
+    return new Promise(resolve => {
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SR) { resolve(false); return; }
+      let settled = false; let best = 0; let base = 0; let cur = 0; let restarts = 0;
+      let silence: any; let cap: any; let rec: any;
+      const end = (ok: boolean) => { if (settled) return; settled = true; clearTimeout(silence); clearTimeout(cap); try { rec?.stop(); } catch { /* ignore */ } resolve(ok); };
+      const arm = (ms: number) => { clearTimeout(silence); silence = setTimeout(() => end(false), ms); };
+      const begin = () => {
+        rec = new SR();
+        recognitionRef.current = rec;
+        rec.lang = "ar-SA"; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+        rec.onresult = (e: any) => {
+          let all = "";
+          for (let i = 0; i < e.results.length; i++) all += `${e.results[i][0].transcript} `;
+          const heard = stripBismillah(all, expected).trim().split(/\s+/).filter(Boolean).map(normWord).filter(Boolean);
+          const { p, bad } = follow(expected, heard, base);
+          cur = p;
+          if (p > best) { best = p; onProgress(p); }
+          if (p >= expected.length) { end(true); return; }
+          if (bad >= 3) { end(false); return; }
+          arm(best > 0 ? 6000 : 2500);
+        };
+        rec.onerror = (ev: any) => { if (ev?.error === "no-speech" || ev?.error === "aborted") return; end(false); };
+        rec.onend = () => {
+          if (settled) return;
+          if (autoStopRef.current || restarts >= 6) { end(false); return; }
+          restarts++; base = cur;
+          setTimeout(() => { if (settled) return; try { begin(); } catch { end(false); } }, 200);
+        };
+        rec.start();
+      };
+      try { begin(); arm(9000); cap = setTimeout(() => end(false), 90000); } catch { end(false); }
+    });
+  }
+
+  /** Moves on from a revision verse the learner believes they recited correctly. Marked "hard" so it comes back sooner. */
+  function skipVerse() {
+    if (!reviewOnly) return;
+    autoStopRef.current = true;
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    try { recital.current?.pause(); } catch { /* ignore */ }
+    setRetryNote(""); setListeningNow(false); setAutoPhase(null);
+    toast("Skipped. This verse will come back soon.");
+    setTimeout(() => nextVerse("hard"), 50);
+  }
+
+  /** Revision: the page is blank, words appear as you say them. A slip means "say it again", up to 3 tries, then the reciter reads it. */
   async function runAutoReview() {
     if (!verse) return;
     autoStopRef.current = false;
-    setLastDiff(null); setLastLabel(null);
+    setLastDiff(null); setLastLabel(null); setRetryNote(""); setWordsShown(0); setCanSkip(false);
     if (!recording) await startRecording();
     setStage("recite"); setAutoPhase("blind"); setRevealed(false);
-    let ok = false; let usedHelp = false;
-    for (let a = 1; a <= MAX_BLIND_ATTEMPTS + 1 && !autoStopRef.current; a++) {
-      if (a > 1) { usedHelp = true; await playRecital(); }
-      const res = await attempt(verse.arabic, true);
-      ok = res.ok;
-      if (ok) { setRevealed(true); await delay(900); setRevealed(false); break; }
+    const shown = verse.arabic.trim().split(/\s+/).filter(Boolean);
+    const expected = shown.map(normWord);
+    let ok = false; let tries = 0;
+    while (tries < 3 && !ok && !autoStopRef.current) {
+      tries++;
+      setWordsShown(0);
+      if (tries > 1) setRetryNote(`Say it again (${tries} of 3)`);
+      setListeningNow(true);
+      ok = await listenLive(expected, n => setWordsShown(n));
+      setListeningNow(false);
+      if (autoStopRef.current) return;
+    }
+    if (ok) {
+      setRetryNote(""); setWordsShown(shown.length);
+      await delay(700);
+      if (autoStopRef.current) return;
+      setAutoPhase(null);
+      nextVerse(tries === 1 ? "good" : "hard");
+      return;
+    }
+    setRetryNote("Listen to the reciter"); setWordsShown(shown.length);
+    await playRecital();
+    await delay(500);
+    setWordsShown(0);
+    if (autoStopRef.current) return;
+    let again = 0; let said = false;
+    while (!said && !autoStopRef.current) {
+      setRetryNote(again === 0 ? "Now say it after the reciter" : "Say it again");
+      setWordsShown(0);
+      setListeningNow(true);
+      said = await listenLive(expected, n => setWordsShown(n));
+      setListeningNow(false);
+      if (autoStopRef.current) return;
+      if (!said) {
+        again++;
+        if (again % 3 === 0) { setRetryNote("Listen to the reciter"); setWordsShown(shown.length); await playRecital(); await delay(500); setWordsShown(0); setCanSkip(true); }
+      }
     }
     if (autoStopRef.current) return;
+    setRetryNote("");
     setAutoPhase(null);
-    nextVerse(ok ? (usedHelp ? "hard" : "good") : "again");
+    nextVerse("again");
   }
 
   useEffect(() => {
@@ -525,10 +715,10 @@ export function HifzScreen() {
   /** What the next revision session starts with: the surah you're memorising (once a day), then the rotation from where you stopped. */
   const nextRevisionTarget = () => {
     const cb = currentBlock();
-    if (cb && revisionMandatoryDoneDate !== today) return { block: cb, mandatory: true };
     const rot = rotationBlocks();
-    if (!rot.length) return null;
-    return { block: withResume(rot[rotationIndex(rot)]!), mandatory: false };
+    if (rot.length) return { block: withResume(rot[rotationIndex(rot)]!), mandatory: false };
+    if (cb && revisionMandatoryDoneDate !== today) return { block: cb, mandatory: true };
+    return null;
   };
   /** True if there's an in-progress surah that still needs its mandatory daily revision pass before new memorisation can start. */
   const mandatoryNeeded = () => {
@@ -647,6 +837,8 @@ export function HifzScreen() {
       // Time is checked after every verse, except while revising the surah you're memorising (that one must be finished).
       if (expired && !mandatoryPass) {
         setRevisionResume(surahAyahs(finishedSurah) > LONG_SURAH_AYAHS ? { surah: finishedSurah, verse: Math.max(chunk[0], verseIndex + 1 - RESUME_LOOKBACK) } : null);
+        const last = currentBlock();
+        if (last && revisionMandatoryDoneDate !== today) { toast("Time's up. One last pass on the surah you're memorising."); startBlock({ block: last, mandatory: true }, true); return; }
         toast.success("Time's up. Revision done for today");
         setDone(true);
         return;
@@ -660,16 +852,19 @@ export function HifzScreen() {
     setRevisionResume(r => (r && r.surah === finishedSurah ? null : r));
     const rot = rotationBlocks();
     let next: { block: { surah: number; from: number; to: number }; mandatory: boolean } | null = null;
+    const last = currentBlock();
+    const lastOpen = !!last && revisionMandatoryDoneDate !== today;
     if (mandatoryPass) {
       setRevisionMandatoryDoneDate(today);
-      if (!timed) { toast.success("Revision complete. New Hifz is unlocked for today."); setDone(true); return; }
-      if (rot.length) next = { block: withResume(rot[rotationIndex(rot)]!), mandatory: false };
-    } else if (rot.length) {
+      toast.success("Revision complete. New Hifz is unlocked for today."); setDone(true); return;
+    } else if (expired || !rot.length) {
+      if (lastOpen) next = { block: last!, mandatory: true };
+    } else {
       const following = rot[(rotationIndex(rot) + 1) % rot.length]!;
       setRevisionCursor(following.surah);
       next = { block: following.surah === finishedSurah ? following : withResume(following), mandatory: false };
     }
-    if (expired || !next) { toast.success(expired ? "Time's up. Revision done for today" : "Revision complete"); setDone(true); return; }
+    if (!next) { toast.success(expired ? "Time's up. Revision done for today" : "Revision complete"); setDone(true); return; }
     toast.success("Continuing revision…");
     startBlock(next, true);
   }
@@ -761,9 +956,9 @@ export function HifzScreen() {
           const b = target.block;
           return <>
             <section className={cn(tile, "bg-primary")}>
-              <p className="text-xs font-bold uppercase">{target.mandatory ? "Starts with the surah you're memorising" : "Next up in your revision cycle"}</p>
+              <p className="text-xs font-bold uppercase">{target.mandatory ? "Last step: the surah you're memorising" : "Next up in your revision cycle"}</p>
               <h3 className="mt-1 font-serif text-3xl">{surahName(b.surah)} <span className="text-lg font-normal">· ayat {b.from + 1}–{b.to + 1}</span></h3>
-              <p className="mt-2 text-sm">Newest first, then back toward Al-Fatiha, then around again. Each day starts with the surah you're memorising.</p>
+              <p className="mt-2 text-sm">Newest first, then back toward Al-Fatiha, then around again. Each session ends with the surah you're memorising, which is required before new Hifz.</p>
               <div className="mt-4 flex flex-wrap items-center gap-2"><Timer className="size-4"/><span className="text-xs font-bold uppercase">Session length</span>{REVISION_MINUTE_OPTIONS.map(m => <Button key={m} size="sm" variant={plan.revisionMinutes === m ? "default" : "outline"} onClick={() => setPlan(p => ({ ...p, revisionMinutes: m }))}>{formatMinutes(m)}</Button>)}</div>
               <Button className="mt-4 bg-foreground text-background" onClick={beginTimedRevision}><RotateCcw /> Start {formatMinutes(plan.revisionMinutes)} revision</Button>
             </section>
@@ -812,16 +1007,18 @@ export function HifzScreen() {
           </div>
         </div> : <>
         {autoActive && <div className="mb-4 flex flex-wrap items-start gap-3 border-2 border-foreground bg-secondary/10 px-4 py-3 text-sm">
-          <span className="flex shrink-0 items-center gap-2 font-bold"><Ear className={cn("size-4", listeningNow && "animate-pulse text-secondary")}/> {linkChecking ? "Linking check" : listeningNow ? "Listening…" : autoPhase === "blind" ? "Recite from memory" : "Repeat after the reciter"}</span>
+          <span className="flex shrink-0 items-center gap-2 font-bold"><Ear className={cn("size-4", listeningNow && "animate-pulse text-secondary")}/> {listeningNow ? "Listening…" : linkChecking ? (autoPhase === "blind" ? "Recite both from memory" : "Repeat both together") : autoPhase === "blind" ? "Recite from memory" : "Repeat after the reciter"}</span>
           {lastLabel && !listeningNow && <span className={cn("border-2 border-foreground px-2 py-0.5 text-xs font-bold uppercase", lastLabel === "Excellent" ? "bg-secondary text-secondary-foreground" : "bg-background")}>{lastLabel}</span>}
+          {reviewOnly && canSkip && <Button size="sm" variant="outline" onClick={skipVerse}>Skip this verse</Button>}
+          {retryNote && <span className="border-2 border-foreground bg-primary px-2 py-0.5 text-xs font-bold uppercase">{retryNote}</span>}
           {phrases.length > 1 && autoPhase === "visible" && !linkChecking && <span className="w-full text-xs text-muted-foreground">Phrase {phraseIndex + 1} of {phrases.length}</span>}
         </div>}
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
           <section className="min-w-0 border-2 border-foreground bg-background shadow-brutal"><div className="flex items-center justify-between gap-2 border-b-2 border-foreground bg-muted px-4 py-2 text-xs font-bold uppercase"><span>{stage === "study" ? "Read and understand" : stage === "recall" ? "Bring the words to mind" : "Recite aloud"}</span><span>{surah.number}:{verseIndex + 1}</span></div><div className="flex min-h-72 flex-col justify-center px-5 py-8 sm:px-8">
-            {showText ? <><p dir="rtl" lang="ar" className="font-arabic text-4xl leading-[2.1] sm:text-5xl">{verse.arabic}</p><p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p></> : <div className="py-8 text-center"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div>}
+            {reviewOnly && sessionStarted && surah ? (() => { const words = verse.arabic.trim().split(/\s+/).filter(Boolean); const prev = surah.verses.slice(Math.max(chunk[0], verseIndex - 3), verseIndex); return <div dir="rtl" lang="ar" className="mx-auto w-full max-w-2xl border-4 border-double border-foreground bg-muted/40 px-5 py-6"><div className="mb-3 border-b border-foreground/30 pb-2 text-center font-arabic text-xl">{surah.arabic}</div>{prev.length > 0 && <p className="font-arabic text-2xl leading-[2.4] text-muted-foreground sm:text-3xl">{prev.map((v, i) => <span key={i}>{v.arabic} ﴿{Math.max(chunk[0], verseIndex - 3) + i + 1}﴾ </span>)}</p>}<p className="mt-1 min-h-24 font-arabic text-4xl leading-[2.4] sm:text-5xl">{words.slice(0, wordsShown).join(" ")}{wordsShown >= words.length ? <span className="text-2xl text-muted-foreground"> ﴿{verseIndex + 1}﴾</span> : <span className="animate-pulse text-secondary"> |</span>}</p></div>; })() : showText ? (linkChecking && surah ? <div className="space-y-4">{surah.verses.slice(chunk[0], verseIndex + 1).map((v, i) => <p key={i} dir="rtl" lang="ar" className="font-arabic text-3xl leading-[2.1] sm:text-4xl">{v.arabic} <span className="text-base text-muted-foreground">﴿{chunk[0] + i + 1}﴾</span></p>)}</div> : <><p dir="rtl" lang="ar" className="font-arabic text-4xl leading-[2.1] sm:text-5xl">{verse.arabic}</p><p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p></>) : <div className="py-8 text-center"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div>}
           </div><div className="flex flex-wrap items-center gap-2 border-t-2 border-foreground bg-muted/50 px-4 py-3"><Button size="sm" variant={playing ? "secondary" : "outline"} onClick={toggleRecital} aria-label={playing ? "Pause recitation" : "Play recitation"}>{playing ? <Pause /> : <Volume2 />}{playing ? "Pause" : "Listen"}</Button><select value={reciter} onChange={event => setReciter(event.target.value)} aria-label="Reciter" className="h-9 min-w-0 max-w-full flex-1 border-2 border-foreground bg-background px-2 text-sm sm:flex-none">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Playback speed" className="h-9 border-2 border-foreground bg-background px-2 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select><Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop(v => !v)} aria-pressed={loop} aria-label="Repeat verse"><Repeat /> Repeat</Button><audio ref={recital} src={recitalUrl} preload="none" loop={loop} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} /></div></section>
-          <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{(reviewOnly ? "Try to recall it from memory first. If you miss a word, the reciter reads just this verse again before you retry." : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.")}</p>
+          <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{(reviewOnly ? "Recite from memory. Each word appears as you say it. If you slip, you will be asked to say it again, up to 3 times, then the reciter reads it." : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.")}</p>
             {stage === "recite" && <div className="mt-5 border-y-2 border-foreground py-4"><div className="flex flex-wrap gap-2"><Button variant={recording ? "secondary" : "outline"} onClick={recording ? stopRecording : startRecording}>{recording ? <Square /> : <Mic />}{recording ? "Stop recording" : "Record recitation"}</Button>{recordedUrl && <Button variant="outline" onClick={() => { if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play(); } }}><Play /> Play back</Button>}</div>{recordedUrl && <audio ref={audioRef} src={recordedUrl} controls className="mt-3 w-full" aria-label="Your recorded recitation"/>}{recordError && <p role="alert" className="mt-3 text-sm text-destructive">{recordError}</p>}<p className="mt-3 text-xs text-muted-foreground">Recording stays on this device during this session.</p></div>}
             
             <div className="mt-6 border-t border-foreground pt-4 text-xs text-muted-foreground"><CircleHelp className="mr-1 inline size-4"/> Your memorised surahs come back in the revision cycle, newest first.</div>
