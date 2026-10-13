@@ -121,44 +121,154 @@ function canvasPlane(
   return { mesh: m, tex, canvas: c };
 }
 
-function person(robe: number, opts: { cap?: number; hijab?: number } = {}) {
-  const g = new THREE.Group();
-  const body = cyl(0.32, 0.42, 1.25, robe, 8);
-  body.position.y = 0.72;
-  g.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), mat(0x6b4428));
-  head.position.y = 1.58;
-  head.castShadow = true;
-  g.add(head);
-  if (opts.hijab !== undefined) {
-    const h = new THREE.Mesh(
-      new THREE.SphereGeometry(0.29, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
-      mat(opts.hijab),
-    );
-    h.position.y = 1.6;
-    h.rotation.x = -0.25;
-    g.add(h);
-    const drape = cyl(0.3, 0.38, 0.35, opts.hijab, 8);
-    drape.position.y = 1.32;
-    g.add(drape);
-  } else {
-    const cap = cyl(0.25, 0.25, 0.16, opts.cap ?? 0xffffff, 10);
-    cap.position.y = 1.78;
-    g.add(cap);
+type Limbs = {
+  armL: THREE.Object3D;
+  armR: THREE.Object3D;
+  legL: THREE.Object3D;
+  legR: THREE.Object3D;
+  body: THREE.Object3D;
+};
+const SKINS = [0x5a3620, 0x6b4428, 0x7a4e2e, 0x8d5a36, 0xa86f45, 0xc58b5c];
+const smooth = new Map<number, THREE.MeshStandardMaterial>();
+function skinMat(color: number) {
+  let m = smooth.get(color);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.75 });
+    smooth.set(color, m);
   }
+  return m;
+}
+function part(geo: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(geo, skinMat(color));
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  return m;
+}
+const capsule = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 4, 10);
+
+/** A low-poly person with real arms and legs that swing when walking.
+    Brothers wear a kaftan, trousers and kufi; sisters wear an abaya and hijab. */
+function person(
+  robe: number,
+  opts: { cap?: number; hijab?: number; skin?: number; trousers?: number; seed?: number } = {},
+) {
+  const g = new THREE.Group();
+  const seed = opts.seed ?? Math.floor(robe % 7);
+  const skin = opts.skin ?? SKINS[seed % SKINS.length];
+  const female = opts.hijab !== undefined;
+  const trousers = opts.trousers ?? (female ? robe : 0x3a3f46);
+  const body = new THREE.Group();
+  g.add(body);
+
+  // legs: pivot at the hip so they swing
+  const leg = (side: number) => {
+    const hip = new THREE.Group();
+    hip.position.set(0.11 * side, 0.92, 0);
+    hip.add(part(capsule(0.085, 0.62), female ? robe : trousers, 0, -0.42, 0));
+    hip.add(part(new THREE.BoxGeometry(0.15, 0.09, 0.28), 0x2a2420, 0, -0.86, 0.05));
+    body.add(hip);
+    return hip;
+  };
+  const legL = leg(-1),
+    legR = leg(1);
+
+  // torso and clothing
+  if (female) {
+    const abaya = part(new THREE.CylinderGeometry(0.2, 0.36, 1.12, 14, 1, true), robe, 0, 0.66, 0);
+    (abaya.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+    body.add(abaya);
+    body.add(part(capsule(0.2, 0.36), robe, 0, 1.3, 0));
+  } else {
+    body.add(part(capsule(0.2, 0.4), robe, 0, 1.28, 0));
+    body.add(part(new THREE.CylinderGeometry(0.21, 0.27, 0.42, 14), robe, 0, 0.9, 0));
+  }
+
+  // arms: pivot at the shoulder
+  const arm = (side: number) => {
+    const sh = new THREE.Group();
+    sh.position.set(0.27 * side, 1.5, 0);
+    sh.add(part(capsule(0.07, 0.5), robe, 0, -0.3, 0));
+    sh.add(part(new THREE.SphereGeometry(0.07, 10, 8), skin, 0, -0.64, 0));
+    body.add(sh);
+    return sh;
+  };
+  const armL = arm(-1),
+    armR = arm(1);
+
+  // neck, head, face
+  body.add(part(new THREE.CylinderGeometry(0.07, 0.08, 0.12, 10), skin, 0, 1.63, 0));
+  const head = part(new THREE.SphereGeometry(0.16, 16, 12), skin, 0, 1.8, 0);
+  head.scale.set(1, 1.08, 1);
+  body.add(head);
+  const eye = new THREE.SphereGeometry(0.022, 8, 6);
+  body.add(part(eye, 0x1a1412, -0.055, 1.82, 0.145), part(eye, 0x1a1412, 0.055, 1.82, 0.145));
+  if (female) {
+    const open = 1.0;
+    const hijab = part(
+      new THREE.SphereGeometry(0.185, 18, 14, Math.PI / 2 + open, Math.PI * 2 - open * 2),
+      opts.hijab!,
+      0,
+      1.81,
+      0,
+    );
+    (hijab.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+    hijab.scale.set(1, 1.1, 1);
+    body.add(hijab);
+    body.add(part(new THREE.CylinderGeometry(0.17, 0.3, 0.3, 16), opts.hijab!, 0, 1.55, -0.01));
+  } else {
+    body.add(
+      part(new THREE.CylinderGeometry(0.15, 0.16, 0.12, 16), opts.cap ?? 0xffffff, 0, 1.96, 0),
+    );
+    if (seed % 2 === 0) {
+      const beard = part(
+        new THREE.SphereGeometry(0.12, 12, 8, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.4),
+        0x1d1712,
+        0,
+        1.79,
+        0.035,
+      );
+      body.add(beard);
+    }
+  }
+
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.45, 12),
+    new THREE.CircleGeometry(0.42, 16),
     new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.2,
       depthWrite: false,
     }),
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.02;
   g.add(shadow);
+  g.userData.limbs = { armL, armR, legL, legR, body } satisfies Limbs;
+  g.scale.setScalar(1.15);
   return g;
+}
+
+/** Swing arms and legs; `amount` 0 = standing still, 1 = full walk. */
+function animatePerson(g: THREE.Object3D, phase: number, amount: number) {
+  const l = g.userData.limbs as Limbs | undefined;
+  if (!l) return;
+  const s = Math.sin(phase) * 0.55 * amount;
+  l.legL.rotation.x = s;
+  l.legR.rotation.x = -s;
+  l.armL.rotation.x = -s * 0.9;
+  l.armR.rotation.x = s * 0.9;
+  l.body.position.y = Math.abs(Math.cos(phase)) * 0.05 * amount;
+}
+
+/** Sitting on the masjid carpet, legs folded. */
+function sitPerson(g: THREE.Object3D) {
+  const l = g.userData.limbs as Limbs | undefined;
+  if (!l) return;
+  l.legL.rotation.x = -1.45;
+  l.legR.rotation.x = -1.45;
+  l.armL.rotation.x = -0.5;
+  l.armR.rotation.x = -0.5;
+  l.body.position.y = -0.62;
 }
 
 function palm(x: number, z: number, s = 1) {
@@ -635,9 +745,9 @@ export class IlmCityEngine {
       ],
     ];
     people.forEach(([robe, name, cap, hijab, route], i) => {
-      const g = person(robe, hijab !== undefined ? { hijab } : { cap });
+      const g = person(robe, hijab !== undefined ? { hijab, seed: i } : { cap, seed: i });
       const tag = label(name, { size: 0.7, bold: false });
-      tag.position.y = 2.45;
+      tag.position.y = 2.25;
       g.add(tag);
       g.position.set(route[0][0], 0, route[0][1]);
       S.add(g);
@@ -1099,8 +1209,8 @@ export class IlmCityEngine {
         [-2, -2.8],
         [2, -2.8],
       ].forEach(([x, z], i) => {
-        const p = person([0xf4efe4, 0xcdb38a, 0x8fb8e8][i % 3], { cap: 0xffffff });
-        p.scale.y = 0.62;
+        const p = person([0xf4efe4, 0xcdb38a, 0x8fb8e8][i % 3], { cap: 0xffffff, seed: i });
+        sitPerson(p);
         p.position.set(x, 0, z);
         p.rotation.y = Math.PI;
         g.add(p);
@@ -1329,6 +1439,7 @@ export class IlmCityEngine {
     for (const w of this.walkers) {
       if (w.wait > 0) {
         w.wait -= dt;
+        animatePerson(w.g, 0, 0);
         continue;
       }
       const [tx, tz] = w.route[w.k],
@@ -1345,7 +1456,7 @@ export class IlmCityEngine {
       w.g.position.z += (dz / d) * s;
       w.g.rotation.y = Math.atan2(dx, dz);
       w.t += dt;
-      w.g.position.y = Math.abs(Math.sin(w.t * 9)) * 0.08;
+      animatePerson(w.g, w.t * 7, 1);
     }
 
     // camera
@@ -1433,9 +1544,9 @@ export class IlmCityEngine {
       while (dr < -Math.PI) dr += Math.PI * 2;
       this.player.rotation.y += dr * Math.min(1, dt * 12);
       this.walkT += dt;
-      this.player.position.y = Math.abs(Math.sin(this.walkT * 10)) * 0.1;
+      animatePerson(this.player, this.walkT * 9, 1);
     } else {
-      this.player.position.y = 0;
+      animatePerson(this.player, 0, 0);
       void t;
     }
   }
