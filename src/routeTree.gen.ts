@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as CentresRouteImport } from './routes/centres'
 import { Route as ChatroomsRouteImport } from './routes/chatrooms'
+import { Route as CityRouteImport } from './routes/city'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlayRouteImport } from './routes/play'
@@ -37,6 +38,11 @@ const CentresRoute = CentresRouteImport.update({
 const ChatroomsRoute = ChatroomsRouteImport.update({
   id: '/chatrooms',
   path: '/chatrooms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CityRoute = CityRouteImport.update({
+  id: '/city',
+  path: '/city',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EventsRoute = EventsRouteImport.update({
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
+  '/city': typeof CityRoute
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
+  '/city': typeof CityRoute
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
+  '/city': typeof CityRoute
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/app'
     | '/centres'
     | '/chatrooms'
+    | '/city'
     | '/events'
     | '/login'
     | '/play'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/app'
     | '/centres'
     | '/chatrooms'
+    | '/city'
     | '/events'
     | '/login'
     | '/play'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/app'
     | '/centres'
     | '/chatrooms'
+    | '/city'
     | '/events'
     | '/login'
     | '/play'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRoute
   CentresRoute: typeof CentresRoute
   ChatroomsRoute: typeof ChatroomsRoute
+  CityRoute: typeof CityRoute
   EventsRoute: typeof EventsRoute
   LoginRoute: typeof LoginRoute
   PlayRoute: typeof PlayRoute
@@ -175,6 +188,13 @@ declare module '@tanstack/react-router' {
       path: '/chatrooms'
       fullPath: '/chatrooms'
       preLoaderRoute: typeof ChatroomsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/city': {
+      id: '/city'
+      path: '/city'
+      fullPath: '/city'
+      preLoaderRoute: typeof CityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/events': {
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRoute,
   CentresRoute: CentresRoute,
   ChatroomsRoute: ChatroomsRoute,
+  CityRoute: CityRoute,
   EventsRoute: EventsRoute,
   LoginRoute: LoginRoute,
   PlayRoute: PlayRoute,
