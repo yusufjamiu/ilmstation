@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IlmCityEngine, type Context } from "./engine";
+import { TravelMap } from "./TravelMap";
 import {
   AD_EMAIL,
   BILLBOARDS,
@@ -93,7 +94,10 @@ export default function IlmCityGame() {
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
   const [webgl, setWebgl] = useState(true);
-  const [travelling, setTravelling] = useState<string | null>(null);
+  const arriveRef = useRef<(() => void) | null>(null);
+  const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
+    null,
+  );
 
   const toast = useCallback((text: string, tone?: "good" | "warn") => {
     const id = Math.random();
@@ -175,8 +179,7 @@ export default function IlmCityGame() {
           }
           setPanel(null);
           const d = districtById(to);
-          setTravelling(`${byCar ? "Driving" : "Taking the bus"} to ${d.name}…`);
-          setTimeout(() => {
+          arriveRef.current = () => {
             e.travel(to, byCar);
             setDriving(false);
             setInside(false);
@@ -189,7 +192,8 @@ export default function IlmCityGame() {
             }));
             setTravelling(null);
             toast(`Welcome to ${d.name}, ${d.state}.`, "good");
-          }, 1400);
+          };
+          setTravelling({ from: here, to, byCar });
         };
         setPanel({
           kind: "info",
@@ -542,17 +546,7 @@ export default function IlmCityGame() {
         </div>
       )}
 
-      {travelling && (
-        <div
-          data-game-ui
-          className="absolute inset-0 grid place-items-center bg-[#10201e]/85 text-center text-[#fdf8ec]"
-        >
-          <div>
-            <div className="mx-auto h-10 w-24 animate-pulse rounded-lg bg-[#f2c230]" />
-            <p className="mt-4 font-serif text-2xl">{travelling}</p>
-          </div>
-        </div>
-      )}
+      {travelling && <TravelMap {...travelling} onDone={() => arriveRef.current?.()} />}
       {panel && (
         <Sheet
           panel={panel}
