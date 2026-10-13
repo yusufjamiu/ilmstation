@@ -173,6 +173,7 @@ export default function IlmCityGame() {
       if (id === "bus") {
         const here = e.districtId();
         const carHere = e.carHere();
+        const inCar = e.isDriving();
         const go = (to: string, byCar: boolean) => {
           if (!byCar && saveRef.current.coins < BUS_FARE) {
             toast(`The bus fare is ${BUS_FARE} coins. Earn coins at the madrasah quiz.`, "warn");
@@ -198,7 +199,7 @@ export default function IlmCityGame() {
         };
         setPanel({
           kind: "info",
-          title: "Where are you going?",
+          title: inCar ? "Where are you driving?" : "Where are you going?",
           body: (
             <div className="grid gap-2">
               {DISTRICTS.filter((d) => d.id !== here).map((d) => (
@@ -213,12 +214,14 @@ export default function IlmCityGame() {
                       .join(" · ") || "Homes and shops"}
                   </div>
                   <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => go(d.id, false)}
-                      className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
-                    >
-                      Bus · {BUS_FARE} coins
-                    </button>
+                    {!inCar && (
+                      <button
+                        onClick={() => go(d.id, false)}
+                        className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
+                      >
+                        Bus · {BUS_FARE} coins
+                      </button>
+                    )}
                     {carHere && (
                       <button
                         onClick={() => go(d.id, true)}
@@ -490,7 +493,7 @@ export default function IlmCityGame() {
               const e = engine.current;
               if (!e) return;
               if (inside) toast("Go outside first, then tap Travel.");
-              else if (driving) toast("Get out of the car first, then tap Travel.");
+              else if (driving) onAction("bus");
               else if (e.goToBusPark()) toast("Walking to the Bus Park…");
             }}
             className="pointer-events-auto rounded-xl bg-[#f2c230] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
