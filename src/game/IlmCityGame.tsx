@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IlmCityEngine, type Context } from "./engine";
-import { AD_EMAIL, BILLBOARDS, QUESTIONS, STREETS, type Question } from "./content";
+import {
+  AD_EMAIL,
+  BILLBOARDS,
+  BUS_FARE,
+  DISTRICTS,
+  QUESTIONS,
+  STREETS,
+  districtById,
+  type Question,
+} from "./content";
 import {
   CITIES,
   clockFor,
@@ -20,6 +29,12 @@ type Save = {
   prayed: Record<string, boolean>;
   asked: number[];
   pos?: { x: number; z: number };
+  district?: string;
+  carDistrict?: string;
+};
+const landmarkName = (lid: string) => {
+  for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return l.name;
+  return "";
 };
 const KEY = "ilmcity-3d-v1";
 function loadSave(): Save {
@@ -70,12 +85,15 @@ export default function IlmCityGame() {
   const clockRef = useRef(clock);
   clockRef.current = clock;
   const [ctx, setCtx] = useState<Context>(null);
-  const [place, setPlace] = useState("Lekki · Lagos");
+  const [place, setPlace] = useState(
+    () => `${districtById(save.district ?? "lekki").name} · Lagos`,
+  );
   const [panel, setPanel] = useState<Panel | null>(null);
   const [toasts, setToasts] = useState<{ id: number; text: string; tone?: "good" | "warn" }[]>([]);
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
   const [webgl, setWebgl] = useState(true);
+  const [travelling, setTravelling] = useState<string | null>(null);
 
   const toast = useCallback((text: string, tone?: "good" | "warn") => {
     const id = Math.random();
@@ -104,10 +122,11 @@ export default function IlmCityGame() {
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
-      if (id === "door:masjid") {
+      if (id.startsWith("door:masjid:")) {
         const ms = masjidStatus(c);
+        const name = landmarkName(id.slice(12));
         if (ms.open) {
-          e.enterInterior("masjid");
+          e.enterInterior("masjid", name);
           setInside(true);
           toast(
             `Assalamu alaykum. ${ms.prayer!.name} jama'ah ${c.min < ms.prayer!.start ? `starts at ${fmtTime(ms.prayer!.start)}` : "is on"}.`,
@@ -115,18 +134,18 @@ export default function IlmCityGame() {
           );
         } else
           toast(
-            `Masjid al-Huda is closed. It opens for ${ms.next ? `${ms.next.name} at ${fmtTime(ms.next.start - 10)}` : "Fajr tomorrow"}.`,
+            `${name} is closed. It opens for ${ms.next ? `${ms.next.name} at ${fmtTime(ms.next.start - 10)}` : "Fajr tomorrow"}.`,
             "warn",
           );
         return;
       }
-      if (id === "door:home") {
-        e.enterInterior("home");
+      if (id.startsWith("door:home:")) {
+        e.enterInterior("home", "Your Home");
         setInside(true);
         return;
       }
-      if (id === "door:madrasah") {
-        e.enterInterior("madrasah");
+      if (id.startsWith("door:madrasah:")) {
+        e.enterInterior("madrasah", landmarkName(id.slice(14)));
         setInside(true);
         return;
       }
@@ -144,6 +163,76 @@ export default function IlmCityGame() {
       if (id === "car-exit") {
         e.exitCar();
         setDriving(false);
+        return;
+      }
+      if (id === "bus") {
+        const here = e.districtId();
+        const carHere = e.carHere();
+        const go = (to: string, byCar: boolean) => {
+          if (!byCar && saveRef.current.coins < BUS_FARE) {
+            toast(`The bus fare is ${BUS_FARE} coins. Earn coins at the madrasah quiz.`, "warn");
+            return;
+          }
+          setPanel(null);
+          const d = districtById(to);
+          setTravelling(`${byCar ? "Driving" : "Taking the bus"} to ${d.name}…`);
+          setTimeout(() => {
+            e.travel(to, byCar);
+            setDriving(false);
+            setInside(false);
+            update((x) => ({
+              ...x,
+              coins: byCar ? x.coins : x.coins - BUS_FARE,
+              district: to,
+              carDistrict: byCar ? to : (x.carDistrict ?? "lekki"),
+              pos: undefined,
+            }));
+            setTravelling(null);
+            toast(`Welcome to ${d.name}, ${d.state}.`, "good");
+          }, 1400);
+        };
+        setPanel({
+          kind: "info",
+          title: "Where are you going?",
+          body: (
+            <div className="grid gap-2">
+              {DISTRICTS.filter((d) => d.id !== here).map((d) => (
+                <div key={d.id} className="rounded-xl border border-[#10201e]/15 p-3">
+                  <div className="font-bold">
+                    {d.name}, {d.state}
+                  </div>
+                  <div className="text-[12.5px] opacity-75">
+                    {d.landmarks
+                      .filter((l) => l.kind !== "home")
+                      .map((l) => l.name)
+                      .join(" · ") || "Homes and shops"}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => go(d.id, false)}
+                      className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
+                    >
+                      Bus · {BUS_FARE} coins
+                    </button>
+                    {carHere && (
+                      <button
+                        onClick={() => go(d.id, true)}
+                        className="flex-1 rounded-lg bg-[#1f6f63] px-3 py-2 text-[13px] font-bold text-[#fdf8ec]"
+                      >
+                        Drive · free
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {!carHere && (
+                <p className="text-[12px] opacity-70">
+                  Your car is parked in {districtById(saveRef.current.carDistrict ?? "lekki").name}.
+                </p>
+              )}
+            </div>
+          ),
+        });
         return;
       }
       if (id === "souq") {
@@ -296,7 +385,12 @@ export default function IlmCityGame() {
       e = new IlmCityEngine(
         host.current,
         { onContext: setCtx, onAction: (id) => onActionRef.current(id), onPlace: setPlace },
-        saveRef.current.pos,
+        {
+          district: saveRef.current.district,
+          carDistrict: saveRef.current.carDistrict,
+          x: saveRef.current.pos?.x,
+          z: saveRef.current.pos?.z,
+        },
       );
     } catch {
       setWebgl(false);
@@ -310,12 +404,12 @@ export default function IlmCityGame() {
       const prev = clockRef.current;
       for (const p of c.prayers)
         if (prev.min < p.start && c.min >= p.start && prev.key === c.key)
-          toast(`Adhan for ${p.name}. Masjid al-Huda is open.`, "good");
+          toast(`Adhan for ${p.name}. The masjid is open.`, "good");
       setClock(c);
       e.setClock(c);
       const pp = e.playerPos();
       if (pp.where === "out" && !e.isDriving())
-        update((s) => ({ ...s, pos: { x: pp.x, z: pp.z } }));
+        update((s) => ({ ...s, pos: { x: pp.x, z: pp.z }, district: e.districtId() }));
     }, 1000);
     return () => {
       clearInterval(iv);
@@ -395,16 +489,17 @@ export default function IlmCityGame() {
         <span className="rounded-full bg-[#10201e]/80 px-3 py-1 text-[12px] font-semibold text-[#fdf8ec]">
           {place}
         </span>
-        {!inside && (
-          <span
-            className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${ms.open ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#fdf8ec]/90 text-[#10201e]"}`}
-          >
-            Masjid{" "}
-            {ms.open
-              ? `open · ${ms.prayer!.name}`
-              : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
-          </span>
-        )}
+        {!inside &&
+          districtById(save.district ?? "lekki").landmarks.some((l) => l.kind === "masjid") && (
+            <span
+              className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${ms.open ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#fdf8ec]/90 text-[#10201e]"}`}
+            >
+              Masjid{" "}
+              {ms.open
+                ? `open · ${ms.prayer!.name}`
+                : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
+            </span>
+          )}
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -435,6 +530,17 @@ export default function IlmCityGame() {
         </div>
       )}
 
+      {travelling && (
+        <div
+          data-game-ui
+          className="absolute inset-0 grid place-items-center bg-[#10201e]/85 text-center text-[#fdf8ec]"
+        >
+          <div>
+            <div className="mx-auto h-10 w-24 animate-pulse rounded-lg bg-[#f2c230]" />
+            <p className="mt-4 font-serif text-2xl">{travelling}</p>
+          </div>
+        </div>
+      )}
       {panel && (
         <Sheet
           panel={panel}

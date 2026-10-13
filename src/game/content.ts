@@ -15,22 +15,105 @@ export type Advert = {
   videoUrl?: string; // optional, plays only when a player taps the board
   link?: string;
 };
-export type Billboard = {
+/** A billboard belongs to an area; the game places it beside the main street. */
+export type Billboard = { id: string; name: string; district: string; ad?: Advert };
+
+const COMING_SOON =
+  "Biography coming soon. The IlmStation team will add it after review by our scholars panel.";
+
+export type Street = { id: string; name: string; bio: string };
+export const STREETS: Record<string, Street> = {
+  ridwanjamiu: { id: "ridwanjamiu", name: "Imam Ridwan Jamiu Street", bio: COMING_SOON },
+  alilory: {
+    id: "alilory",
+    name: "Sheikh Adam Al-Ilory Street",
+    bio: "Sheikh Adam Abdullahi Al-Ilory was a Nigerian scholar and author who founded the Markaz Arabic and Islamic Training Centre, later based in Agege, Lagos. He wrote many books in Arabic and trained generations of teachers. He passed away in 1992. May Allah have mercy on him.",
+  },
+  adewuyi: { id: "adewuyi", name: "Sheikh Yusuf Adewuyi Street", bio: COMING_SOON },
+  ahmadsad: { id: "ahmadsad", name: "Sheikh Ahmad Sad Street", bio: COMING_SOON },
+  habeebadewuyi: { id: "habeebadewuyi", name: "Sheikh Habeeb Adewuyi Street", bio: COMING_SOON },
+};
+
+/* ---------------- areas ----------------
+   To add an area: copy one block, give it streets (main street first, z = 0;
+   a second street sits at z = -55) and landmarks placed along a street by x. */
+export type LandmarkKind = "masjid" | "school" | "home" | "souq";
+export type Landmark = { id: string; kind: LandmarkKind; name: string; street: string; x: number };
+export type District = {
   id: string;
   name: string;
-  x: number;
-  z: number;
-  rot: number;
-  ad?: Advert;
+  state: string;
+  lagoon?: boolean;
+  streets: { id: string; z: number }[];
+  landmarks: Landmark[];
 };
+
+export const DISTRICTS: District[] = [
+  {
+    id: "lekki",
+    name: "Lekki",
+    state: "Lagos",
+    lagoon: true,
+    streets: [{ id: "ridwanjamiu", z: 0 }],
+    landmarks: [
+      {
+        id: "lekki-central",
+        kind: "masjid",
+        name: "Lekki Central Mosque",
+        street: "ridwanjamiu",
+        x: -36,
+      },
+      { id: "home", kind: "home", name: "Your Home", street: "ridwanjamiu", x: 24 },
+      { id: "souq", kind: "souq", name: "Souq al-Barakah", street: "ridwanjamiu", x: 60 },
+    ],
+  },
+  {
+    id: "agege",
+    name: "Agege",
+    state: "Lagos",
+    streets: [{ id: "alilory", z: 0 }],
+    landmarks: [
+      { id: "markaz", kind: "school", name: "Markaz Arabic School", street: "alilory", x: -32 },
+    ],
+  },
+  {
+    id: "ajegunle",
+    name: "Ajegunle",
+    state: "Lagos",
+    streets: [
+      { id: "adewuyi", z: 0 },
+      { id: "ahmadsad", z: -55 },
+    ],
+    landmarks: [
+      { id: "ibaadullah", kind: "masjid", name: "Ibaadullah Mosque", street: "adewuyi", x: -36 },
+      { id: "as-sirat", kind: "school", name: "As-Sirat Schools", street: "ahmadsad", x: 30 },
+    ],
+  },
+  {
+    id: "ikorodu",
+    name: "Ikorodu",
+    state: "Lagos",
+    streets: [{ id: "habeebadewuyi", z: 0 }],
+    landmarks: [
+      {
+        id: "maktab",
+        kind: "masjid",
+        name: "Maktab (Saudi) Mosque",
+        street: "habeebadewuyi",
+        x: -36,
+      },
+      { id: "manaar", kind: "school", name: "Manaar Schools", street: "habeebadewuyi", x: 32 },
+    ],
+  },
+];
+export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
+export const BUS_FARE = 5;
 
 export const BILLBOARDS: Billboard[] = [
   {
     id: "lekki-junction",
     name: "Lekki Junction",
-    x: 14,
-    z: -14,
-    rot: 0,
+    district: "lekki",
     ad: {
       brand: "IlmStation",
       headline: "Learn daily. Earn rewards.",
@@ -40,12 +123,11 @@ export const BILLBOARDS: Billboard[] = [
       link: "https://ilmstation.com",
     },
   },
+  { id: "lekki-lagoon", name: "Lekki Lagoon Road", district: "lekki" },
   {
-    id: "masjid-road",
-    name: "Masjid Road",
-    x: 62,
-    z: -61,
-    rot: 0,
+    id: "agege-markaz",
+    name: "Agege Markaz Gate",
+    district: "agege",
     ad: {
       brand: "OutingStation",
       headline: "Find halal outings near you",
@@ -54,28 +136,12 @@ export const BILLBOARDS: Billboard[] = [
       fg: "#2a1c05",
     },
   },
-  { id: "lagoon-front", name: "Lagoon Front", x: -40, z: 58, rot: 0 },
-  { id: "souq-gate", name: "Souq Gate", x: 64, z: -14, rot: 0 },
+  { id: "agege-junction", name: "Agege Junction", district: "agege" },
+  { id: "ajegunle-junction", name: "Ajegunle Junction", district: "ajegunle" },
+  { id: "ajegunle-market", name: "Ajegunle Market Road", district: "ajegunle" },
+  { id: "ikorodu-garage", name: "Ikorodu Garage", district: "ikorodu" },
+  { id: "ikorodu-junction", name: "Ikorodu Junction", district: "ikorodu" },
 ];
-
-export type Street = { id: string; name: string; bio: string };
-export const STREETS: Record<string, Street> = {
-  alilory: {
-    id: "alilory",
-    name: "Sheikh Adam Al-Ilory Street",
-    bio: "Sheikh Adam Abdullahi Al-Ilory was a Nigerian scholar and author who founded the Markaz Arabic and Islamic Training Centre, later based in Agege, Lagos. He wrote many books in Arabic and trained generations of teachers. He passed away in 1992. May Allah have mercy on him.",
-  },
-  adewuyi: {
-    id: "adewuyi",
-    name: "Sheikh Yusuf Adewuyi Street",
-    bio: "Biography coming soon. The IlmStation team will add it after review by our scholars panel.",
-  },
-  masjidroad: {
-    id: "masjidroad",
-    name: "Masjid Road",
-    bio: "The road to Masjid al-Huda, the central masjid of Lekki in IlmCity.",
-  },
-};
 
 export type Question = { q: string; o: string[]; a: number; e: string };
 export const QUESTIONS: Question[] = [
