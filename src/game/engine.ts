@@ -858,6 +858,21 @@ export class IlmCityEngine {
   districtId() {
     return this.district.id;
   }
+  /** Walk to this area's bus park and open the travel menu on arrival. Returns false if not possible. */
+  goToBusPark() {
+    if (this.where !== "out" || this.driving) return false;
+    const z = this.zones.find((zz) => zz.id === "bus");
+    if (!z) return false;
+    if (Math.hypot(z.x - this.player.position.x, z.z - this.player.position.z) < z.r) {
+      this.ev.onAction("bus");
+      return true;
+    }
+    this.tapZone = "bus";
+    this.tapTarget = new THREE.Vector3(z.x, 0, z.z);
+    this.marker.position.set(z.x, 0.05, z.z);
+    this.marker.visible = true;
+    return true;
+  }
   carHere() {
     return this.carDistrict === this.district.id;
   }

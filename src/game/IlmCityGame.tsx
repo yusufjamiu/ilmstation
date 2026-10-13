@@ -473,6 +473,18 @@ export default function IlmCityGame() {
               {save.ilm}
             </Chip>
           </div>
+          <button
+            onClick={() => {
+              const e = engine.current;
+              if (!e) return;
+              if (inside) toast("Go outside first, then tap Travel.");
+              else if (driving) toast("Get out of the car first, then tap Travel.");
+              else if (e.goToBusPark()) toast("Walking to the Bus Park…");
+            }}
+            className="pointer-events-auto rounded-xl bg-[#f2c230] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
+          >
+            Travel
+          </button>
           <a
             href="/app"
             className="pointer-events-auto rounded-xl bg-[#10201e]/80 px-3 py-1.5 text-[12px] font-semibold text-[#fdf8ec]"
