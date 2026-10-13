@@ -95,6 +95,7 @@ export default function IlmCityGame() {
   const [inside, setInside] = useState(false);
   const [webgl, setWebgl] = useState(true);
   const arriveRef = useRef<(() => void) | null>(null);
+  const [arriving, setArriving] = useState<string | null>(null);
   const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
     null,
   );
@@ -191,7 +192,7 @@ export default function IlmCityGame() {
               pos: undefined,
             }));
             setTravelling(null);
-            toast(`Welcome to ${d.name}, ${d.state}.`, "good");
+            setArriving(d.name);
           };
           setTravelling({ from: here, to, byCar });
         };
@@ -388,7 +389,14 @@ export default function IlmCityGame() {
     try {
       e = new IlmCityEngine(
         host.current,
-        { onContext: setCtx, onAction: (id) => onActionRef.current(id), onPlace: setPlace },
+        {
+          onContext: setCtx,
+          onAction: (id) => onActionRef.current(id),
+          onPlace: setPlace,
+          onCinematic: (on) => {
+            if (!on) setArriving(null);
+          },
+        },
         {
           district: saveRef.current.district,
           carDistrict: saveRef.current.carDistrict,
@@ -527,8 +535,8 @@ export default function IlmCityGame() {
       </div>
 
       {/* controls */}
-      {!panel && <Joystick onMove={(x, y) => engine.current?.setInput(x, y)} />}
-      {!panel && ctx && (
+      {!panel && !arriving && <Joystick onMove={(x, y) => engine.current?.setInput(x, y)} />}
+      {!panel && !arriving && ctx && (
         <button
           data-game-ui
           onClick={() => onAction(ctx.id)}
@@ -537,7 +545,7 @@ export default function IlmCityGame() {
           {ctx.label}
         </button>
       )}
-      {!panel && !ctx && !driving && !inside && (
+      {!panel && !arriving && !ctx && !driving && !inside && (
         <div
           data-game-ui
           className="pointer-events-none absolute bottom-[max(36px,env(safe-area-inset-bottom))] right-4 max-w-[46vw] rounded-xl bg-[#10201e]/70 px-3 py-2 text-[12px] text-[#fdf8ec]"
@@ -546,6 +554,19 @@ export default function IlmCityGame() {
         </div>
       )}
 
+      {arriving && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 bottom-[12%] flex justify-center px-4"
+        >
+          <div className="rounded-2xl border-2 border-[#e6b84a] bg-[#1f6f63]/95 px-6 py-4 text-center text-[#fdf8ec] shadow-2xl">
+            <div className="text-[12px] font-semibold uppercase tracking-[0.15em] text-[#e6b84a]">
+              Lagos State
+            </div>
+            <div className="font-serif text-3xl leading-tight">Welcome to {arriving}</div>
+          </div>
+        </div>
+      )}
       {travelling && <TravelMap {...travelling} onDone={() => arriveRef.current?.()} />}
       {panel && (
         <Sheet

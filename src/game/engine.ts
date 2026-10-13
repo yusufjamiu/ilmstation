@@ -19,6 +19,8 @@ export type EngineEvents = {
   onContext: (c: Context) => void;
   onAction: (id: string) => void;
   onPlace: (name: string) => void;
+  /** The arrival drive into a new area started (true) or finished (false). */
+  onCinematic?: (on: boolean) => void;
 };
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
@@ -319,6 +321,28 @@ function crescent(color = PALETTE.gold) {
     mat(color, { metalness: 0.4, roughness: 0.4 }),
   );
   return m;
+}
+
+/** A yellow Lagos city bus, nose pointing along +x. */
+function makeBus() {
+  const bus = new THREE.Group();
+  bus.add(box(8, 2.6, 2.6, 0xf2c230, 0, 0.5, 0));
+  bus.add(box(7.4, 0.9, 2.64, 0x2a3a44, 0, 1.6, 0, false));
+  bus.add(box(8.04, 0.3, 2.64, 0x1d1f22, 0, 0.6, 0, false));
+  bus.add(box(0.1, 1.1, 2.2, 0x2a3a44, 4.02, 1.4, 0, false));
+  const wheel = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 12);
+  for (const [wx, wz] of [
+    [-2.6, 1.2],
+    [2.6, 1.2],
+    [-2.6, -1.2],
+    [2.6, -1.2],
+  ]) {
+    const w = new THREE.Mesh(wheel, mat(0x1d1f22));
+    w.rotation.x = Math.PI / 2;
+    w.position.set(wx, 0.5, wz);
+    bus.add(w);
+  }
+  return bus;
 }
 
 export class IlmCityEngine {
@@ -713,10 +737,8 @@ export class IlmCityEngine {
       n++;
     }
 
-    // area name over the far end of the main street
-    const area = label(`${D.name} · ${D.state}`, { bg: "rgba(31,111,99,0.9)", size: 2.2 });
-    area.position.set(0, 8, Math.min(40, southEdge - 12));
-    S.add(area);
+    // welcome gate over the road into the area
+    this.welcomeGate(D, 34);
 
     // neighbours walking the pavements
     const names = [
@@ -842,18 +864,132 @@ export class IlmCityEngine {
     this.where = "out";
     if (byCar) this.carDistrict = id;
     this.buildDistrict(id);
+    this.driving = false;
+    this.player.visible = false;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    // the vehicle drives in from the south, under the welcome gate, then along the main street
+    let vehicle: THREE.Group;
+    let path: THREE.Vector3[];
     if (byCar) {
-      this.car.position.set(-16, 0, 9.8);
-      this.carHeading = 0;
-      this.car.rotation.y = 0;
+      vehicle = this.car;
       this.car.visible = true;
-      this.driving = false;
-      this.player.visible = true;
-      this.player.position.set(-16, 0, 13);
-    } else this.player.position.set(-78, 0, 23);
+      path = [
+        new THREE.Vector3(3, 0, 58),
+        new THREE.Vector3(3, 0, 13),
+        new THREE.Vector3(-4, 0, 9.8),
+        new THREE.Vector3(-16, 0, 9.8),
+      ];
+    } else {
+      vehicle = makeBus();
+      this.dg.add(vehicle);
+      path = [
+        new THREE.Vector3(3, 0, 58),
+        new THREE.Vector3(3, 0, 13),
+        new THREE.Vector3(-6, 0, 9.6),
+        new THREE.Vector3(-52, 0, 9.6),
+      ];
+    }
+    vehicle.position.copy(path[0]);
+    vehicle.rotation.y = Math.PI / 2;
+    this.player.position.copy(path[0]);
+    this.cine = { vehicle, path, k: 1, byCar, hold: 0.8 };
+    this.ev.onCinematic?.(true);
     this.applyLight();
     this.snapCamera();
     this.place = "";
+  }
+  private cine: {
+    vehicle: THREE.Group;
+    path: THREE.Vector3[];
+    k: number;
+    byCar: boolean;
+    hold: number;
+  } | null = null;
+
+  private stepCinematic(dt: number) {
+    const c = this.cine!;
+    if (c.hold > 0) {
+      c.hold -= dt;
+      return;
+    }
+    const target = c.path[c.k];
+    const v = c.vehicle.position;
+    const dx = target.x - v.x,
+      dz = target.z - v.z,
+      d = Math.hypot(dx, dz);
+    const step = (c.k === c.path.length - 1 && d < 10 ? Math.max(5, d * 1.6) : 16) * dt;
+    if (d <= step) {
+      v.set(target.x, 0, target.z);
+      c.k++;
+      if (c.k >= c.path.length) return this.endCinematic();
+    } else {
+      v.x += (dx / d) * step;
+      v.z += (dz / d) * step;
+      const want = Math.atan2(-dz, dx);
+      let dr = want - c.vehicle.rotation.y;
+      while (dr > Math.PI) dr -= Math.PI * 2;
+      while (dr < -Math.PI) dr += Math.PI * 2;
+      c.vehicle.rotation.y += dr * Math.min(1, dt * 6);
+    }
+    this.player.position.set(v.x, 0, v.z);
+  }
+
+  private endCinematic() {
+    const c = this.cine!;
+    this.cine = null;
+    if (c.byCar) {
+      this.carHeading = Math.PI;
+      this.car.rotation.y = Math.PI;
+      this.player.position.set(-16, 0, 13);
+    } else {
+      c.vehicle.removeFromParent();
+      this.player.position.set(-54, 0, 13.5);
+    }
+    this.player.rotation.y = 0;
+    this.player.visible = true;
+    this.ev.onCinematic?.(false);
+  }
+
+  private welcomeGate(D: District, z: number) {
+    const g = new THREE.Group();
+    g.position.set(0, 0, z);
+    for (const x of [-8.6, 8.6]) {
+      g.add(box(1.4, 7.5, 1.4, 0xece6d6, x, 0, 0));
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(1, 1.6, 8), mat(PALETTE.dome));
+      cap.position.set(x, 8.3, 0);
+      cap.castShadow = true;
+      g.add(cap);
+      const c = crescent();
+      c.scale.setScalar(0.6);
+      c.position.set(x - 0.1, 9.6, 0);
+      g.add(c);
+      this.addCollider("out", x - 0.8, x + 0.8, z - 0.8, z + 0.8);
+    }
+    g.add(box(18.6, 2.6, 0.7, 0x1f6f63, 0, 5.4, 0));
+    const { mesh } = canvasPlane(
+      17.6,
+      2.3,
+      (c, W, H) => {
+        c.fillStyle = "#1f6f63";
+        c.fillRect(0, 0, W, H);
+        c.strokeStyle = "#e6b84a";
+        c.lineWidth = 8;
+        c.strokeRect(10, 10, W - 20, H - 20);
+        c.fillStyle = "#fdf8ec";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `800 ${Math.round(H * 0.42)}px "Work Sans", system-ui, sans-serif`;
+        c.fillText(`Welcome to ${D.name}`, W / 2, H * 0.42);
+        c.fillStyle = "#e6b84a";
+        c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
+        c.fillText(`${D.state} State · IlmCity`, W / 2, H * 0.78);
+      },
+      1400,
+    );
+    mesh.position.set(0, 6.7, 0.37);
+    g.add(mesh);
+    this.dg.add(g);
   }
   districtId() {
     return this.district.id;
@@ -1460,13 +1596,18 @@ export class IlmCityEngine {
 
   private camOffset() {
     const portrait = this.camera.aspect < 0.8;
+    if (this.cine) return portrait ? new THREE.Vector3(0, 15, 30) : new THREE.Vector3(0, 11, 22);
     if (this.where !== "out")
       return portrait ? new THREE.Vector3(0, 22, 19) : new THREE.Vector3(0, 13, 13);
     if (this.driving) return portrait ? new THREE.Vector3(0, 44, 36) : new THREE.Vector3(0, 30, 26);
     return portrait ? new THREE.Vector3(0, 32, 27) : new THREE.Vector3(0, 22, 19);
   }
   private snapCamera() {
-    const t = this.driving ? this.car.position : this.player.position;
+    const t = this.cine
+      ? new THREE.Vector3(this.cine.vehicle.position.x * 0.35, 0, this.cine.vehicle.position.z)
+      : this.driving
+        ? this.car.position
+        : this.player.position;
     this.camera.position.copy(t).add(this.camOffset());
     this.camera.lookAt(t.x, t.y + 1, t.z);
   }
@@ -1495,6 +1636,7 @@ export class IlmCityEngine {
   };
 
   private onPointer = (e: PointerEvent) => {
+    if (this.cine) return;
     const r = this.renderer.domElement.getBoundingClientRect();
     const p = new THREE.Vector2(
       ((e.clientX - r.left) / r.width) * 2 - 1,
@@ -1554,7 +1696,8 @@ export class IlmCityEngine {
 
   private update(dt: number, t: number) {
     const v = this.moveVec();
-    if (this.driving) this.drive(v, dt);
+    if (this.cine) this.stepCinematic(dt);
+    else if (this.driving) this.drive(v, dt);
     else this.walk(v, dt, t);
 
     // neighbours
@@ -1582,7 +1725,11 @@ export class IlmCityEngine {
     }
 
     // camera
-    const target = this.driving ? this.car.position : this.player.position;
+    const target = this.cine
+      ? new THREE.Vector3(this.cine.vehicle.position.x * 0.35, 0, this.cine.vehicle.position.z)
+      : this.driving
+        ? this.car.position
+        : this.player.position;
     const want = target.clone().add(this.camOffset());
     this.camera.position.lerp(want, 1 - Math.exp(-dt * 5));
     this.camera.lookAt(target.x, 1, target.z);
@@ -1599,7 +1746,8 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.driving)
+    if (this.cine) best = null;
+    else if (this.driving)
       best = { id: "car-exit", label: "Get out of the car", x: 0, z: 0, r: 0, scene: "out" };
     else
       for (const z of this.zones) {
@@ -1613,7 +1761,7 @@ export class IlmCityEngine {
           bd = dd;
         }
       }
-    if (!this.driving && this.where === "out" && this.car.visible) {
+    if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
       if (dc < 3.4 && dc < bd)
         best = { id: "car", label: "Get in your car", x: 0, z: 0, r: 0, scene: "out" };
