@@ -30,6 +30,7 @@ import {
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
 import {
+  forgetHuman,
   gesture,
   humansReady,
   makeHuman,
@@ -1781,6 +1782,43 @@ export class IlmCityEngine {
     return this.areaAt(this.car.position.x, this.car.position.z)?.id ?? null;
   }
   /** Walk to this area's bus park and open the travel menu on arrival. Returns false if not possible. */
+  /** Walk to the nearest place whose id starts with `prefix` (used by the guided start). */
+  goToZone(prefix: string) {
+    if (this.where !== "out" || this.driving || this.riding) return false;
+    const p = this.player.position;
+    const z = this.zones
+      .filter((zz) => zz.scene === "out" && zz.id.startsWith(prefix))
+      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+    if (!z) return false;
+    this.tapZone = z.id;
+    this.tapTarget = new THREE.Vector3(z.x, 0, z.z);
+    this.marker.position.set(z.x, 0.05, z.z);
+    this.marker.visible = true;
+    return true;
+  }
+  /** Dress your character: brother or sister, skin tone and clothes. */
+  setPlayerLook(o: { female: boolean; skin: number; robe: number; accent: number }) {
+    const fresh = o.female
+      ? person(o.robe, { hijab: o.accent, skin: o.skin, seed: 2 })
+      : person(o.robe, { cap: o.accent, skin: o.skin, seed: 1, outfit: "thobe", beard: true });
+    for (const c of [...this.player.children]) {
+      this.player.remove(c);
+      forgetHuman(c);
+    }
+    for (const c of [...fresh.children]) this.player.add(c);
+    this.player.userData = { ...fresh.userData };
+  }
+  /** A close front view of your character while you dress them. */
+  private preview = false;
+  setPreview(on: boolean) {
+    this.preview = on;
+    if (on) {
+      // turn along the pavement so nothing stands between you and the camera
+      this.player.rotation.y = Math.PI / 2;
+      this.camYaw = Math.PI / 2;
+    }
+    this.snapCamera();
+  }
   goToBusPark() {
     if (this.where !== "out" || this.driving) return false;
     const p = this.player.position;
@@ -2397,6 +2435,7 @@ export class IlmCityEngine {
   private camDist() {
     const portrait = this.camera.aspect < 0.8;
     if (this.cine) return { d: 14, h: 5.5 };
+    if (this.preview) return { d: 5.2, h: 1.4 };
     if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
     if (this.riding) return { d: portrait ? 14 : 12, h: 5.2 };
     return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
@@ -3001,7 +3040,7 @@ export class IlmCityEngine {
     const target = this.camTarget();
     const want = target.clone().add(this.camOffset());
     this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
-    this.camera.lookAt(target.x, this.where === "out" ? 1.6 : 1, target.z);
+    this.camera.lookAt(target.x, this.preview ? 0.2 : this.where === "out" ? 1.6 : 1, target.z);
     this.sun.target.position.set(target.x, 0, target.z);
     this.sky?.position.set(this.camera.position.x, 0, this.camera.position.z);
     const sunDir =

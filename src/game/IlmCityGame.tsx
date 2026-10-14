@@ -50,7 +50,12 @@ type Save = {
   plots?: Record<string, PlotOwn>;
   shops?: Record<string, ShopOwn>;
   schoolPts?: number;
+  /** who you are in the city */
+  profile?: Look;
+  /** guided start: 1–4 in progress, 5 finished */
+  guide?: number;
 };
+type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
 const landmarkName = (lid: string) => {
   for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return l.name;
   return "";
@@ -72,7 +77,21 @@ function lectureNext(mosque: string, c: Clock) {
     .filter((l) => hm(l.start) > c.min)
     .sort((a, b) => hm(a.start) - hm(b.start))[0];
 }
-const KEY = "ilmcity-3d-v1";
+const GUEST_KEY = "ilmcity-3d-v1";
+let KEY = GUEST_KEY;
+/** One save per IlmStation account. A guest's progress moves into their account the
+    first time they log in on this phone. */
+function useAccountSave(uid: string | null) {
+  KEY = uid ? `${GUEST_KEY}-${uid}` : GUEST_KEY;
+  if (uid && typeof localStorage !== "undefined") {
+    try {
+      if (!localStorage.getItem(KEY) && localStorage.getItem(GUEST_KEY))
+        localStorage.setItem(KEY, localStorage.getItem(GUEST_KEY)!);
+    } catch {
+      /* storage blocked */
+    }
+  }
+}
 function loadSave(): Save {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? "null") as Save | null;
@@ -123,7 +142,83 @@ type Panel =
   | { kind: "quiz"; q: Question; qi: number; picked?: number }
   | { kind: "busy"; title: string; ms: number; done: () => void };
 
+/** Waits for the IlmStation login check, then opens the city with the right save. */
+type Who = { ready: boolean; uid: string | null; firstName: string; female: boolean };
+/** The IlmStation login, loaded safely: if it fails or is slow, you play as a guest. */
+function useCityAuth(): Who {
+  const [who, setWho] = useState<Who>({ ready: false, uid: null, firstName: "", female: false });
+  useEffect(() => {
+    let done = false;
+    const finish = (w: Omit<Who, "ready">) => {
+      if (done) return;
+      done = true;
+      setWho({ ...w, ready: true });
+    };
+    const guest = { uid: null, firstName: "", female: false };
+    const t = setTimeout(() => finish(guest), 4000);
+    (async () => {
+      try {
+        const { auth, db } = await import("@/lib/firebase");
+        const { onAuthStateChanged } = await import("firebase/auth");
+        const { doc, getDoc } = await import("firebase/firestore");
+        onAuthStateChanged(auth, async (u) => {
+          if (!u) return finish(guest);
+          let name = u.displayName ?? "",
+            female = false;
+          try {
+            const snap = await getDoc(doc(db, "profiles", u.uid));
+            if (snap.exists()) {
+              const a = snap.data() as { name?: string; gender?: string };
+              name = a.name ?? name;
+              female = a.gender === "female";
+            }
+          } catch {
+            /* profile unavailable */
+          }
+          finish({ uid: u.uid, firstName: name.split(/\s+/)[0] ?? "", female });
+        });
+      } catch {
+        finish(guest);
+      }
+    })();
+    return () => clearTimeout(t);
+  }, []);
+  return who;
+}
+
 export default function IlmCityGame() {
+  const { ready, uid, firstName, female } = useCityAuth();
+  if (!ready)
+    return (
+      <div className="grid h-full place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
+        <div className="font-serif text-4xl">
+          Ilm<span className="text-[#45b8a8]">City</span>
+        </div>
+      </div>
+    );
+  return (
+    <CityGame
+      key={uid ?? "guest"}
+      uid={uid}
+      loggedIn={!!uid}
+      firstName={firstName}
+      female={female}
+    />
+  );
+}
+
+function CityGame({
+  uid,
+  loggedIn,
+  firstName,
+  female: accountFemale,
+}: {
+  uid: string | null;
+  loggedIn: boolean;
+  firstName: string;
+  female: boolean;
+}) {
+  useAccountSave(uid);
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<IlmCityEngine | null>(null);
   const [save, setSave] = useState<Save>(() => {
@@ -194,6 +289,24 @@ export default function IlmCityGame() {
     [],
   );
 
+  /** Finish a step of the guided start: +10 points. */
+  const advance = useCallback(
+    (step: number) => {
+      if (saveRef.current.guide !== step) return;
+      saveRef.current = { ...saveRef.current, guide: step + 1 };
+      update((x) => ({ ...x, guide: step + 1, coins: x.coins + 10 }));
+      toast(
+        step < GUIDE.length
+          ? `Step ${step} done! +10 points`
+          : "You're ready. Enjoy IlmCity! +10 points",
+        "good",
+      );
+    },
+    [toast, update],
+  );
+  const loggedInRef = useRef(loggedIn);
+  loggedInRef.current = loggedIn;
+
   // new day resets the daily salah tracker
   useEffect(() => {
     if (save.day !== clock.key)
@@ -201,7 +314,8 @@ export default function IlmCityGame() {
   }, [clock.key, save.day, update]);
 
   const openLecture = useCallback(
-    (lec: Lecture, live: boolean) =>
+    (lec: Lecture, live: boolean) => {
+      advance(2);
       setPanel({
         kind: "info",
         title: live ? "Lecture time" : "Lecture",
@@ -224,8 +338,9 @@ export default function IlmCityGame() {
             }
           />
         ),
-      }),
-    [update],
+      });
+    },
+    [update, advance],
   );
 
   const openPlot = useCallback(
@@ -233,6 +348,14 @@ export default function IlmCityGame() {
       const e = engine.current;
       const p = e?.plotInfo(pid);
       if (!e || !p) return;
+      if (!loggedInRef.current) {
+        setPanel({
+          kind: "info",
+          title: p.kind === "land" ? "Land for sale" : "House to let",
+          body: <LoginFirst what={p.kind === "land" ? "buy land and build" : "rent a house"} />,
+        });
+        return;
+      }
       const setOwn = (next: PlotOwn) => {
         update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
         e.setPlot(pid, plotStateFn(next) ?? { kind: p.kind === "land" ? "land" : "tolet" });
@@ -322,6 +445,14 @@ export default function IlmCityGame() {
       const e = engine.current;
       const info = e?.shopInfo(sid);
       if (!e || !info) return;
+      if (!loggedInRef.current && !(info.kind === "stall" && traderAt(sid))) {
+        setPanel({
+          kind: "info",
+          title: info.kind === "shop" ? "Shop to let" : "Market space for rent",
+          body: <LoginFirst what="rent a shop or market stall" />,
+        });
+        return;
+      }
       const D = districtById(info.district);
       const render = () => {
         const own = saveRef.current.shops?.[sid];
@@ -401,6 +532,7 @@ export default function IlmCityGame() {
             onFinish={() => {
               setPanel(null);
               engine.current?.prayPose(null);
+              advance(2);
               if (fard) {
                 update((x) => ({
                   ...x,
@@ -421,7 +553,7 @@ export default function IlmCityGame() {
         ),
       });
     },
-    [toast, update],
+    [toast, update, advance],
   );
 
   /* ---------- actions coming from the 3D world ---------- */
@@ -588,6 +720,7 @@ export default function IlmCityGame() {
           return;
         }
         if (e.boardBus()) {
+          advance(3);
           update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
           toast(`Bismillah! You paid ${BUS_FARE} points. Tap "Get off" before your stop.`, "good");
         }
@@ -598,6 +731,7 @@ export default function IlmCityGame() {
         return;
       }
       if (id.startsWith("door:masjid:")) {
+        advance(1);
         const lid = id.slice(12);
         const name = landmarkName(lid);
         e.enterInterior("masjid", name);
@@ -691,6 +825,7 @@ export default function IlmCityGame() {
           const d = districtById(to);
           arriveRef.current = () => {
             e.travel(to, byCar);
+            advance(3);
             setDriving(false);
             setInside(false);
             update((x) => ({
@@ -870,7 +1005,7 @@ export default function IlmCityGame() {
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update, openLecture, openPlot, openShop, startPrayer],
+    [toast, update, openLecture, openPlot, openShop, startPrayer, advance],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -911,6 +1046,7 @@ export default function IlmCityGame() {
     engine.current = e;
     if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
     e.setClock(clockRef.current);
+    if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     const startedAt = performance.now();
     {
       const st: Record<
@@ -977,6 +1113,7 @@ export default function IlmCityGame() {
               title: who?.name ?? "Hisbah",
               body: (
                 <HisbahStop
+                  sister={!!saveRef.current.profile?.female}
                   who={who?.name ?? "Hisbah"}
                   ask={ask}
                   onAnswer={(yes) => {
@@ -993,8 +1130,8 @@ export default function IlmCityGame() {
                     update((x) => ({ ...x, coins: Math.max(0, x.coins - gain) }));
                     toast(`−${gain} points. Go and make it up, in shaa Allah.`, "warn");
                     return ask.kind === "prayer"
-                      ? `Fear Allah, my brother! Salah is the first deed we will be asked about on the Day of Judgement. ${cp2 ? `${cp2.name} time ends at ${fmtTime(cp2.end)}.` : ""} Go to the masjid now. (−${gain} points)`
-                      : `Fear Allah, my brother. Do not leave the Qur'an behind. Read even one page today, in shaa Allah. (−${gain} points)`;
+                      ? `Fear Allah, my ${saveRef.current.profile?.female ? "sister" : "brother"}! Salah is the first deed we will be asked about on the Day of Judgement. ${cp2 ? `${cp2.name} time ends at ${fmtTime(cp2.end)}.` : ""} Go to the masjid now. (−${gain} points)`
+                      : `Fear Allah, my ${saveRef.current.profile?.female ? "sister" : "brother"}. Do not leave the Qur'an behind. Read even one page today, in shaa Allah. (−${gain} points)`;
                   }}
                 />
               ),
@@ -1059,7 +1196,6 @@ export default function IlmCityGame() {
           </div>
         </div>
       )}
-
       {/* top bar */}
       <div
         data-game-ui
@@ -1116,7 +1252,6 @@ export default function IlmCityGame() {
           </a>
         </div>
       </div>
-
       <div
         data-game-ui
         className="pointer-events-none absolute left-3 top-[118px] flex flex-col items-start gap-1.5"
@@ -1152,8 +1287,41 @@ export default function IlmCityGame() {
           </div>
         ))}
       </div>
-
-      {/* controls */}
+      {/* controls */}{" "}
+      {peopleReady && !save.profile && (
+        <Onboarding
+          loggedIn={loggedIn}
+          firstName={firstName}
+          female={accountFemale}
+          onPreview={(look) => {
+            const e = engine.current;
+            if (!e) return;
+            if (look) e.setPlayerLook(look);
+            e.setPreview(!!look);
+          }}
+          onDone={(look) => {
+            engine.current?.setPlayerLook(look);
+            engine.current?.setPreview(false);
+            update((x) => ({ ...x, profile: look, guide: 1, coins: x.coins + 100 }));
+            toast(`Welcome to IlmCity, ${look.name}! Here is a gift of 100 points.`, "good");
+          }}
+        />
+      )}
+      {save.profile &&
+        (save.guide ?? 5) <= GUIDE.length &&
+        !panel &&
+        !ride &&
+        !arriving &&
+        !travelling && (
+          <Guide
+            step={save.guide ?? 5}
+            onGo={(prefix) => {
+              if (!engine.current?.goToZone(prefix)) toast("Go outside first.");
+            }}
+            onNext={() => advance(GUIDE.length)}
+            onSkip={() => update((x) => ({ ...x, guide: GUIDE.length + 1 }))}
+          />
+        )}
       {ride && (
         <div
           data-game-ui
@@ -1184,8 +1352,8 @@ export default function IlmCityGame() {
             </button>
           </div>
         </div>
-      )}
-      {!panel && !arriving && !ride && (
+      )}{" "}
+      {!panel && !arriving && !ride && save.profile && (
         <Joystick onMove={(x, y) => engine.current?.setInput(x, y)} />
       )}
       {!panel && !arriving && !ride && ctx && (
@@ -1197,15 +1365,20 @@ export default function IlmCityGame() {
           {ctx.label}
         </button>
       )}
-      {!panel && !arriving && !ride && !ctx && !driving && !inside && (
-        <div
-          data-game-ui
-          className="pointer-events-none absolute bottom-[max(36px,env(safe-area-inset-bottom))] right-4 max-w-[46vw] rounded-xl bg-[#10201e]/70 px-3 py-2 text-[12px] text-[#fdf8ec]"
-        >
-          Use the stick to walk. Drag the screen to look around. Tap signs and billboards.
-        </div>
-      )}
-
+      {!panel &&
+        !arriving &&
+        !ride &&
+        !ctx &&
+        !driving &&
+        !inside &&
+        (save.guide ?? 5) > GUIDE.length && (
+          <div
+            data-game-ui
+            className="pointer-events-none absolute bottom-[max(36px,env(safe-area-inset-bottom))] right-4 max-w-[46vw] rounded-xl bg-[#10201e]/70 px-3 py-2 text-[12px] text-[#fdf8ec]"
+          >
+            Use the stick to walk. Drag the screen to look around. Tap signs and billboards.
+          </div>
+        )}
       {arriving && (
         <div
           data-game-ui
@@ -1229,6 +1402,7 @@ export default function IlmCityGame() {
             talkingRef.current = null;
           }}
           onQuizPick={(i) => {
+            advance(2);
             if (panel.kind !== "quiz" || panel.picked !== undefined) return;
             const ok = i === panel.q.a;
             setPanel({ ...panel, picked: i });
@@ -2529,7 +2703,9 @@ function HisbahStop({
   who,
   ask,
   onAnswer,
+  sister,
 }: {
+  sister: boolean;
   who: string;
   ask: { kind: "prayer"; name: string } | { kind: "quran" };
   onAnswer: (yes: boolean) => string;
@@ -2537,8 +2713,8 @@ function HisbahStop({
   const [reply, setReply] = useState<string | null>(null);
   const q =
     ask.kind === "prayer"
-      ? `Assalamu alaykum, my brother. Have you prayed ${ask.name}?`
-      : "Assalamu alaykum, my brother. Have you read the Qur'an today?";
+      ? `Assalamu alaykum, my ${sister ? "sister" : "brother"}. Have you prayed ${ask.name}?`
+      : `Assalamu alaykum, my ${sister ? "sister" : "brother"}. Have you read the Qur'an today?`;
   return (
     <div className="space-y-2">
       <div className="max-w-[85%] rounded-2xl bg-white px-3 py-2 text-[14px]">{q}</div>
@@ -2561,6 +2737,321 @@ function HisbahStop({
         </div>
       )}
       <p className="text-[12px] opacity-60">{who} · Hisbah</p>
+    </div>
+  );
+}
+
+/* ---------------- first visit: welcome, account, character ---------------- */
+const SKIN_TONES = [0x4a2c18, 0x5a3620, 0x6b4428, 0x8d5a36, 0xa86f45, 0xc58b5c];
+const BROTHER_CLOTHES = [0xf4efe4, 0xcdb38a, 0x2f6f8f, 0x3d5a4a, 0x5a3f6a, 0x2a2a30];
+const SISTER_CLOTHES = [0x1d1d26, 0x3d5a4a, 0x5a3f6a, 0x7d2f3a, 0x2a4a6a, 0xcdb38a];
+const CAPS = [0xffffff, 0x2f8f83, 0x1d1d26, 0x7d2f3a, 0xd9b45a];
+const HIJABS = [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0x3d5a4a, 0x1d1d26];
+const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+const goToLogin = (to: "/login" | "/signup") => {
+  try {
+    sessionStorage.setItem("ilmcity-return", "1");
+  } catch {
+    /* storage blocked */
+  }
+  window.location.href = to;
+};
+
+function Swatches({
+  list,
+  value,
+  onPick,
+  label,
+}: {
+  list: number[];
+  value: number;
+  onPick: (c: number) => void;
+  label: string;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[12px] font-semibold opacity-75">{label}</div>
+      <div className="flex gap-2">
+        {list.map((c) => (
+          <button
+            key={c}
+            aria-label={label}
+            onClick={() => onPick(c)}
+            className={`size-9 rounded-full border-2 ${value === c ? "border-[#e6b84a] ring-2 ring-[#e6b84a]/50" : "border-black/10"}`}
+            style={{ background: hex(c) }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Onboarding({
+  loggedIn,
+  firstName,
+  female,
+  onPreview,
+  onDone,
+}: {
+  loggedIn: boolean;
+  firstName: string;
+  female: boolean;
+  onPreview: (look: Look | null) => void;
+  onDone: (look: Look) => void;
+}) {
+  const [step, setStep] = useState<"welcome" | "account" | "look">("welcome");
+  const [look, setLook] = useState<Look>({
+    name: firstName,
+    female,
+    skin: SKIN_TONES[2],
+    robe: female ? SISTER_CLOTHES[0] : BROTHER_CLOTHES[0],
+    accent: female ? HIJABS[0] : CAPS[1],
+  });
+  const set = (p: Partial<Look>) => {
+    const next = { ...look, ...p };
+    if (p.female !== undefined && p.female !== look.female) {
+      next.robe = p.female ? SISTER_CLOTHES[0] : BROTHER_CLOTHES[0];
+      next.accent = p.female ? HIJABS[0] : CAPS[1];
+    }
+    setLook(next);
+    onPreview(next);
+  };
+  useEffect(() => {
+    if (step === "look") onPreview(look);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  if (step === "welcome")
+    return (
+      <div
+        data-game-ui
+        className="absolute inset-0 z-30 flex flex-col justify-end bg-gradient-to-t from-[#10201e] via-[#10201e]/70 to-transparent p-5 pb-[max(28px,env(safe-area-inset-bottom))] text-[#fdf8ec]"
+      >
+        <div className="mx-auto w-full max-w-md">
+          <div className="font-serif text-5xl leading-none">
+            Ilm<span className="text-[#45b8a8]">City</span>
+          </div>
+          <p className="mt-3 text-[16px] leading-snug opacity-90">
+            A Muslim city in Lagos that runs on real prayer times. Pray, learn, travel by danfo,
+            rent a home and run your own business.
+          </p>
+          <ul className="mt-4 space-y-1.5 text-[14px] opacity-90">
+            <li>🕌 Mosques with lectures, jama'ah and quizzes</li>
+            <li>🏫 Schools with classes, books and tests</li>
+            <li>🏠 Houses to rent, land to build on, shops to run</li>
+          </ul>
+          <button
+            onClick={() => setStep("account")}
+            className="mt-6 w-full rounded-2xl bg-[#e6b84a] py-4 text-[17px] font-extrabold text-[#2a1c05] shadow-xl active:scale-[0.98]"
+          >
+            Start
+          </button>
+        </div>
+      </div>
+    );
+
+  if (step === "account")
+    return (
+      <div
+        data-game-ui
+        className="absolute inset-0 z-30 flex items-end bg-[#10201e]/70 p-4 pb-[max(20px,env(safe-area-inset-bottom))]"
+      >
+        <div className="mx-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-5 shadow-2xl">
+          {loggedIn ? (
+            <>
+              <h2 className="font-serif text-2xl">
+                Assalamu alaykum{firstName ? `, ${firstName}` : ""}!
+              </h2>
+              <p className="mt-2 text-[15px]">
+                You are logged in to IlmStation, so your city progress is kept with your account.
+              </p>
+              <button
+                onClick={() => setStep("look")}
+                className="mt-5 w-full rounded-xl bg-[#1f6f63] py-3.5 font-bold text-[#fdf8ec]"
+              >
+                Continue
+              </button>
+            </>
+          ) : (
+            <>
+              <h2 className="font-serif text-2xl">Save your progress</h2>
+              <p className="mt-2 text-[15px]">
+                Log in with your IlmStation account to keep your points, home and shop on every
+                device.
+              </p>
+              <button
+                onClick={() => goToLogin("/login")}
+                className="mt-5 w-full rounded-xl bg-[#1f6f63] py-3.5 font-bold text-[#fdf8ec]"
+              >
+                Log in
+              </button>
+              <button
+                onClick={() => goToLogin("/signup")}
+                className="mt-2 w-full rounded-xl border border-[#1f6f63]/40 bg-white py-3.5 font-bold text-[#1f6f63]"
+              >
+                Create a free account
+              </button>
+              <button
+                onClick={() => setStep("look")}
+                className="mt-2 w-full py-3 text-[15px] font-semibold text-[#10201e]/80 underline underline-offset-4"
+              >
+                Play as a guest
+              </button>
+              <p className="mt-1 text-center text-[12px] opacity-60">
+                Guests can explore, pray and learn. Log in to rent houses, shops and land.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+
+  return (
+    <div
+      data-game-ui
+      className="absolute inset-x-0 bottom-0 z-30 p-3 pb-[max(14px,env(safe-area-inset-bottom))]"
+    >
+      <div className="mx-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        <h2 className="font-serif text-xl">Create your character</h2>
+        <input
+          value={look.name}
+          maxLength={20}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder="Your name"
+          className="mt-2 w-full rounded-xl border border-[#1f6f63]/30 bg-white px-3 py-2.5 text-[15px]"
+        />
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {[false, true].map((f) => (
+            <button
+              key={String(f)}
+              onClick={() => set({ female: f })}
+              className={`rounded-xl py-2.5 font-bold ${look.female === f ? "bg-[#1f6f63] text-[#fdf8ec]" : "border border-[#1f6f63]/30 bg-white"}`}
+            >
+              {f ? "Sister" : "Brother"}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 space-y-2.5">
+          <Swatches
+            label="Skin tone"
+            list={SKIN_TONES}
+            value={look.skin}
+            onPick={(c) => set({ skin: c })}
+          />
+          <Swatches
+            label={look.female ? "Abaya" : "Thobe"}
+            list={look.female ? SISTER_CLOTHES : BROTHER_CLOTHES}
+            value={look.robe}
+            onPick={(c) => set({ robe: c })}
+          />
+          <Swatches
+            label={look.female ? "Hijab" : "Cap"}
+            list={look.female ? HIJABS : CAPS}
+            value={look.accent}
+            onPick={(c) => set({ accent: c })}
+          />
+        </div>
+        <button
+          disabled={!look.name.trim()}
+          onClick={() => onDone({ ...look, name: look.name.trim() })}
+          className="mt-4 w-full rounded-xl bg-[#e6b84a] py-3.5 text-[16px] font-extrabold text-[#2a1c05] disabled:opacity-50"
+        >
+          Bismillah, let's go
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- guided first minutes ---------------- */
+const GUIDE: { title: string; text: string; go?: { prefix: string; label: string } }[] = [
+  {
+    title: "Visit the masjid",
+    text: "Walk to Lekki Central Mosque. Follow the marker on the ground.",
+    go: { prefix: "door:masjid:lekki-central", label: "Show me the way" },
+  },
+  {
+    title: "Learn or pray",
+    text: "Inside, take the quiz, listen to a lecture or pray. Learning earns points.",
+  },
+  {
+    title: "Ride a danfo",
+    text: "Walk to a bus stop and wait for the yellow danfo, or tap Travel at the top.",
+    go: { prefix: "busstop:", label: "Show me a bus stop" },
+  },
+  {
+    title: "Your points",
+    text: "Points at the top pay for rides, rent and shops. Earn them by learning and praying. The Hisbah may stop you to ask about your salah!",
+  },
+];
+
+function Guide({
+  step,
+  onGo,
+  onNext,
+  onSkip,
+}: {
+  step: number;
+  onGo: (prefix: string) => void;
+  onNext: () => void;
+  onSkip: () => void;
+}) {
+  const g = GUIDE[step - 1];
+  if (!g) return null;
+  return (
+    <div
+      data-game-ui
+      className="pointer-events-none absolute inset-x-3 bottom-[190px] z-10 flex justify-center"
+    >
+      <div className="pointer-events-auto w-full max-w-sm rounded-2xl border-2 border-[#e6b84a] bg-[#10201e]/92 p-3 text-[#fdf8ec] shadow-2xl">
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#e6b84a]">
+            Step {step} of {GUIDE.length} · +10 points
+          </div>
+          <button onClick={onSkip} className="text-[11px] opacity-60 underline">
+            Skip guide
+          </button>
+        </div>
+        <div className="mt-0.5 text-[16px] font-bold">{g.title}</div>
+        <div className="text-[13px] opacity-85">{g.text}</div>
+        {g.go && (
+          <button
+            onClick={() => onGo(g.go!.prefix)}
+            className="mt-2 rounded-lg bg-[#e6b84a] px-3 py-1.5 text-[13px] font-bold text-[#2a1c05]"
+          >
+            {g.go.label}
+          </button>
+        )}
+        {step === GUIDE.length && (
+          <button
+            onClick={onNext}
+            className="mt-2 rounded-lg bg-[#e6b84a] px-3 py-1.5 text-[13px] font-bold text-[#2a1c05]"
+          >
+            Got it
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Asking a guest to log in before they rent or buy. */
+function LoginFirst({ what }: { what: string }) {
+  return (
+    <div className="space-y-2">
+      <p>Log in with your IlmStation account to {what}. Your progress as a guest comes with you.</p>
+      <button
+        onClick={() => goToLogin("/login")}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        Log in
+      </button>
+      <button
+        onClick={() => goToLogin("/signup")}
+        className="w-full rounded-xl border border-[#1f6f63]/40 bg-white py-3 font-bold text-[#1f6f63]"
+      >
+        Create a free account
+      </button>
     </div>
   );
 }
