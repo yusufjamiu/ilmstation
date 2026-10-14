@@ -1864,6 +1864,109 @@ export class IlmCityEngine {
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
   }
+  /* ---------------- other real players ---------------- */
+  private remotes = new Map<
+    string,
+    {
+      g: THREE.Group;
+      name: string;
+      look: string;
+      tx: number;
+      tz: number;
+      th: number;
+      moving: boolean;
+    }
+  >();
+  /** Show the real players near you; they glide to where they last were seen. */
+  setRemotePlayers(
+    list: {
+      uid: string;
+      name: string;
+      look: { female: boolean; skin: number; robe: number; accent: number };
+      x: number;
+      z: number;
+      h: number;
+      moving: boolean;
+    }[],
+  ) {
+    const seen = new Set<string>();
+    for (const p of list) {
+      seen.add(p.uid);
+      const key = JSON.stringify(p.look);
+      let r = this.remotes.get(p.uid);
+      if (r && r.look !== key) {
+        r.g.removeFromParent();
+        r.g.traverse((c) => forgetHuman(c));
+        this.remotes.delete(p.uid);
+        r = undefined;
+      }
+      if (!r) {
+        const g = p.look.female
+          ? person(p.look.robe, { hijab: p.look.accent, skin: p.look.skin, seed: 2 })
+          : person(p.look.robe, {
+              cap: p.look.accent,
+              skin: p.look.skin,
+              seed: 1,
+              outfit: "thobe",
+              beard: true,
+            });
+        const tag = label("● " + p.name, { size: 0.75, bg: "rgba(230,184,74,0.95)" });
+        tag.position.y = 2.65;
+        g.add(tag);
+        g.position.set(p.x, 0, p.z);
+        this.scene.add(g);
+        r = { g, name: p.name, look: key, tx: p.x, tz: p.z, th: p.h, moving: p.moving };
+        this.remotes.set(p.uid, r);
+      }
+      r.tx = p.x;
+      r.tz = p.z;
+      r.th = p.h;
+      r.moving = p.moving;
+      r.name = p.name;
+    }
+    for (const [uid, r] of this.remotes)
+      if (!seen.has(uid)) {
+        r.g.removeFromParent();
+        r.g.traverse((c) => forgetHuman(c));
+        this.remotes.delete(uid);
+      }
+  }
+  private stepRemotes(dt: number) {
+    for (const r of this.remotes.values()) {
+      const dx = r.tx - r.g.position.x,
+        dz = r.tz - r.g.position.z,
+        d = Math.hypot(dx, dz);
+      if (d > 40) r.g.position.set(r.tx, 0, r.tz);
+      else if (d > 0.05) {
+        const step = Math.min(d, Math.max(2.5, d * 2) * dt);
+        r.g.position.x += (dx / d) * step;
+        r.g.position.z += (dz / d) * step;
+      }
+      r.g.rotation.y = lerpAngle(r.g.rotation.y, r.th, Math.min(1, dt * 8));
+      animatePerson(r.g, 0, d > 0.15 || r.moving ? 1 : 0, Math.max(2, d * 2));
+      r.g.visible = this.where === "out";
+    }
+  }
+  /** Where you are and which way you face, for other players. */
+  presence() {
+    const p = this.player.position;
+    return {
+      x: +p.x.toFixed(2),
+      z: +p.z.toFixed(2),
+      h: +this.player.rotation.y.toFixed(2),
+      moving: this.walkT !== this.lastWalkT,
+      out: this.where === "out" && !this.driving && !this.riding && !this.cine,
+    };
+  }
+  /** Note the walking clock after reporting presence, so "moving" means moved since last time. */
+  presenceSent() {
+    this.lastWalkT = this.walkT;
+  }
+  remoteName(uid: string) {
+    return this.remotes.get(uid)?.name ?? null;
+  }
+  private lastWalkT = 0;
+
   /** A close front view of your character while you dress them. */
   private preview = false;
   setPreview(on: boolean) {
@@ -3035,6 +3138,7 @@ export class IlmCityEngine {
     else if (!this.riding) this.walk(v, dt, t);
 
     this.stepTraffic(dt);
+    this.stepRemotes(dt);
     tickHumans(dt, this.camera);
     // only draw areas near the camera
     if (this.where === "out")
@@ -3156,6 +3260,14 @@ export class IlmCityEngine {
           bd = dw;
         }
       });
+    if (!this.cine && !this.driving && !this.riding && this.where === "out")
+      for (const [uid, r] of this.remotes) {
+        const dr = Math.hypot(r.g.position.x - pos.x, r.g.position.z - pos.z);
+        if (dr < 3 && dr < bd) {
+          best = { id: "player:" + uid, label: "Chat · " + r.name, x: 0, z: 0, r: 0, scene: "out" };
+          bd = dr;
+        }
+      }
     if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
       if (dc < 3.4 && dc < bd)

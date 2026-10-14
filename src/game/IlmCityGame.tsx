@@ -2,6 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import { loadHumans } from "./humans";
+import {
+  ONLINE_LIMITS,
+  cleanText,
+  connectFirestore,
+  connectLocal,
+  looksLikeContact,
+  type ChatInfo,
+  type ChatMsg,
+  type Online,
+  type PlayerStatus,
+} from "./online";
 import { SCHOOL_POINTS, SUBJECTS, quizFor, type Q as SchoolQ } from "./school";
 import {
   AD_EMAIL,
@@ -144,10 +155,22 @@ type Panel =
   | { kind: "busy"; title: string; ms: number; done: () => void };
 
 /** Waits for the IlmStation login check, then opens the city with the right save. */
-type Who = { ready: boolean; uid: string | null; firstName: string; female: boolean };
+type Who = {
+  ready: boolean;
+  uid: string | null;
+  firstName: string;
+  female: boolean;
+  adult: boolean;
+};
 /** The IlmStation login, loaded safely: if it fails or is slow, you play as a guest. */
 function useCityAuth(): Who {
-  const [who, setWho] = useState<Who>({ ready: false, uid: null, firstName: "", female: false });
+  const [who, setWho] = useState<Who>({
+    ready: false,
+    uid: null,
+    firstName: "",
+    female: false,
+    adult: false,
+  });
   useEffect(() => {
     let done = false;
     const finish = (w: Omit<Who, "ready">) => {
@@ -155,7 +178,22 @@ function useCityAuth(): Who {
       done = true;
       setWho({ ...w, ready: true });
     };
-    const guest = { uid: null, firstName: "", female: false };
+    // dev only: ?online=local&as=Name pretends to be a logged-in adult, to test multiplayer
+    if (import.meta.env.DEV) {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("online") === "local") {
+        const as = q.get("as") ?? "Tester";
+        setWho({
+          ready: true,
+          uid: "local-" + as,
+          firstName: as,
+          female: q.get("sister") === "1",
+          adult: true,
+        });
+        return;
+      }
+    }
+    const guest = { uid: null, firstName: "", female: false, adult: false };
     const t = setTimeout(() => finish(guest), 4000);
     (async () => {
       try {
@@ -165,18 +203,28 @@ function useCityAuth(): Who {
         onAuthStateChanged(auth, async (u) => {
           if (!u) return finish(guest);
           let name = u.displayName ?? "",
-            female = false;
+            female = false,
+            adult = false;
           try {
             const snap = await getDoc(doc(db, "profiles", u.uid));
             if (snap.exists()) {
-              const a = snap.data() as { name?: string; gender?: string };
+              const a = snap.data() as {
+                name?: string;
+                gender?: string;
+                zone?: string;
+                dob?: string;
+              };
               name = a.name ?? name;
               female = a.gender === "female";
+              const age = a.dob
+                ? (Date.now() - new Date(a.dob).getTime()) / (365.25 * 86400000)
+                : 0;
+              adult = a.zone !== "youth" && age >= 18;
             }
           } catch {
             /* profile unavailable */
           }
-          finish({ uid: u.uid, firstName: name.split(/\s+/)[0] ?? "", female });
+          finish({ uid: u.uid, firstName: name.split(/\s+/)[0] ?? "", female, adult });
         });
       } catch {
         finish(guest);
@@ -188,7 +236,7 @@ function useCityAuth(): Who {
 }
 
 export default function IlmCityGame() {
-  const { ready, uid, firstName, female } = useCityAuth();
+  const { ready, uid, firstName, female, adult } = useCityAuth();
   if (!ready)
     return (
       <div className="grid h-full place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
@@ -204,6 +252,7 @@ export default function IlmCityGame() {
       loggedIn={!!uid}
       firstName={firstName}
       female={female}
+      adult={adult}
     />
   );
 }
@@ -213,11 +262,13 @@ function CityGame({
   loggedIn,
   firstName,
   female: accountFemale,
+  adult,
 }: {
   uid: string | null;
   loggedIn: boolean;
   firstName: string;
   female: boolean;
+  adult: boolean;
 }) {
   useAccountSave(uid);
   const host = useRef<HTMLDivElement>(null);
@@ -256,6 +307,11 @@ function CityGame({
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
+  const presenceAt = useRef(0);
+  const lastSent = useRef({ x: 0, z: 0, area: "" });
+  const watchedArea = useRef<string | null>(null);
+  const offArea = useRef<(() => void) | null>(null);
+  useEffect(() => () => offArea.current?.(), []);
   const areaRef = useRef<string | null>(null);
   const [newArea, setNewArea] = useState<string | null>(null);
 
@@ -580,6 +636,187 @@ function CityGame({
     [toast, update, advance],
   );
 
+  /* ---------- other real players ---------- */
+  const onlineRef = useRef<Online | null>(null);
+  const [inbox, setInbox] = useState<ChatInfo[]>([]);
+  const [seenTick, setSeenTick] = useState(0);
+  const myStatus = useRef<PlayerStatus | null>(null);
+  useEffect(() => {
+    if (!uid || !adult) return;
+    let live = true;
+    let offInbox: (() => void) | null = null;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    (local ? Promise.resolve(connectLocal(uid)) : connectFirestore(uid))
+      .then(async (o) => {
+        if (!live) return;
+        onlineRef.current = o;
+        myStatus.current = await o.status().catch(() => null);
+        offInbox = o.watchInbox(setInbox);
+      })
+      .catch(() => {});
+    const bye = () => onlineRef.current?.leave();
+    window.addEventListener("pagehide", bye);
+    return () => {
+      live = false;
+      offInbox?.();
+      bye();
+      window.removeEventListener("pagehide", bye);
+      onlineRef.current = null;
+    };
+  }, [uid, adult]);
+  const unread = inbox.filter(
+    (c) => c.lastFrom !== uid && c.lastText && c.lastAt > chatSeen(c.id),
+  ).length;
+  void seenTick;
+
+  /** Start or continue a conversation, within the free limit, chat pass and fines. */
+  const openChatWith = useCallback(
+    async (other: { uid: string; name: string }) => {
+      const o = onlineRef.current;
+      if (!o) {
+        setPanel({
+          kind: "info",
+          title: other.name,
+          body: adult ? (
+            <p>Connecting… try again in a moment.</p>
+          ) : !loggedInRef.current ? (
+            <LoginFirst what="chat with other players" />
+          ) : (
+            <p>
+              Chatting with other players is for adults (18+). You can still talk to the neighbours
+              in the city.
+            </p>
+          ),
+        });
+        return;
+      }
+      const st = (myStatus.current = await o.status().catch(() => myStatus.current ?? null)) ?? {
+        partners: [],
+        passUntil: 0,
+        fine: 0,
+        blocked: [],
+      };
+      if (st.blocked.includes(other.uid)) {
+        toast(`You blocked ${other.name}.`);
+        return;
+      }
+      if (st.fine > 0) {
+        setPanel({
+          kind: "info",
+          title: "Chat is paused",
+          body: (
+            <FineView
+              fine={st.fine}
+              reason={st.fineReason}
+              points={saveRef.current.coins}
+              onNaira={() => toast("Paystack checkout is coming next.")}
+              onPayPoints={async () => {
+                const pts = Math.round(st.fine / 10);
+                if (saveRef.current.coins < pts) return;
+                update((x) => ({ ...x, coins: x.coins - pts }));
+                await o.saveStatus({ fine: 0, fineReason: "" });
+                myStatus.current = { ...st, fine: 0 };
+                setPanel(null);
+                toast("Fine paid. Please keep your words good. Chat is open again.", "good");
+              }}
+            />
+          ),
+        });
+        return;
+      }
+      // replying to someone who wrote to you first never uses a free conversation
+      const known =
+        st.partners.includes(other.uid) ||
+        inboxRef.current.some((c) => c.members.includes(other.uid));
+      const pass = st.passUntil > Date.now();
+      if (!known && !pass && st.partners.length >= ONLINE_LIMITS.freePartners) {
+        setPanel({
+          kind: "info",
+          title: "Chat with more people",
+          body: (
+            <PassView
+              points={saveRef.current.coins}
+              onPoints={async (days, pts) => {
+                if (saveRef.current.coins < pts) return;
+                update((x) => ({ ...x, coins: x.coins - pts }));
+                const passUntil = Math.max(Date.now(), st.passUntil) + days * 86400000;
+                await o.saveStatus({ passUntil });
+                myStatus.current = { ...st, passUntil };
+                toast(`Unlimited chat for ${days} days. Enjoy, and keep it halal!`, "good");
+                void openChatWith(other);
+              }}
+              onNaira={(amount, what) =>
+                toast(`Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next.`)
+              }
+            />
+          ),
+        });
+        return;
+      }
+      if (!known) {
+        const partners = [...st.partners, other.uid];
+        myStatus.current = { ...st, partners };
+        void o.saveStatus({ partners });
+      }
+      const myName = saveRef.current.profile?.name ?? firstName ?? "Player";
+      const chatId = await o.openChat(other, myName);
+      markChatSeen(chatId);
+      setSeenTick((x) => x + 1);
+      setPanel({
+        kind: "info",
+        title: other.name,
+        body: (
+          <ChatView
+            online={o}
+            chatId={chatId}
+            me={o.uid}
+            other={other}
+            freeLeft={
+              pass
+                ? null
+                : Math.max(0, ONLINE_LIMITS.freePartners - (myStatus.current?.partners.length ?? 0))
+            }
+            onReported={async (blockedUid) => {
+              const s2 = myStatus.current ?? st;
+              const blocked = [...new Set([...s2.blocked, blockedUid])];
+              myStatus.current = { ...s2, blocked };
+              await o.saveStatus({ blocked });
+              setPanel(null);
+              toast(
+                "Thank you. Our team will review the report. You won't hear from them again.",
+                "good",
+              );
+            }}
+          />
+        ),
+      });
+    },
+    [adult, toast, update, firstName],
+  );
+  const openInbox = useCallback(() => {
+    if (!onlineRef.current) {
+      void openChatWith({ uid: "", name: "Messages" });
+      return;
+    }
+    setPanel({
+      kind: "info",
+      title: "Messages",
+      body: (
+        <InboxView
+          me={onlineRef.current.uid}
+          chats={inboxRef.current}
+          onOpen={(c) => {
+            const other = c.members.find((m) => m !== onlineRef.current?.uid) ?? "";
+            void openChatWith({ uid: other, name: c.names[other] ?? "Player" });
+          }}
+        />
+      ),
+    });
+  }, [openChatWith]);
+  const inboxRef = useRef<ChatInfo[]>([]);
+  inboxRef.current = inbox;
+
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
     (id: string) => {
@@ -728,6 +965,11 @@ function CityGame({
       }
       if (id.startsWith("plot:")) {
         openPlot(id.slice(5));
+        return;
+      }
+      if (id.startsWith("player:")) {
+        const puid = id.slice(7);
+        void openChatWith({ uid: puid, name: e.remoteName(puid) ?? "Player" });
         return;
       }
       if (id.startsWith("talk:")) {
@@ -1045,7 +1287,7 @@ function CityGame({
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update, openLecture, openPlot, openShop, startPrayer, advance],
+    [toast, update, openLecture, openPlot, openShop, startPrayer, advance, openChatWith],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -1118,6 +1360,37 @@ function CityGame({
         }));
       setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
       setRide(e.rideInfo());
+      // tell other players where you are (every 2 seconds)
+      const o = onlineRef.current;
+      const prof = saveRef.current.profile;
+      const pr = e.presence();
+      const ar = pr.out ? (e.areaAt(pr.x, pr.z)?.id ?? "") : "";
+      const moved =
+        Math.hypot(pr.x - lastSent.current.x, pr.z - lastSent.current.z) > 0.5 ||
+        ar !== lastSent.current.area;
+      // send when you move (every 3 s at most) or every 20 s while standing, to keep costs low
+      if (o && prof && Date.now() - presenceAt.current > (moved ? 3000 : 20000)) {
+        presenceAt.current = Date.now();
+        lastSent.current = { x: pr.x, z: pr.z, area: ar };
+        e.presenceSent();
+        o.setPresence({
+          name: prof.name,
+          look: prof,
+          x: pr.x,
+          z: pr.z,
+          h: pr.h,
+          moving: pr.moving,
+          area: ar,
+        });
+        if (ar !== watchedArea.current) {
+          watchedArea.current = ar;
+          offArea.current?.();
+          offArea.current = ar
+            ? o.watchArea(ar, (list) => engine.current?.setRemotePlayers(list))
+            : null;
+          if (!ar) e.setRemotePlayers([]);
+        }
+      }
       if (e.playerPos().where === "out") {
         const ar = e.areaAt(e.playerPos().x, e.playerPos().z)?.id ?? null;
         if (ar && ar !== areaRef.current) {
@@ -1294,6 +1567,18 @@ function CityGame({
             className="pointer-events-auto rounded-xl bg-[#f2c230] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
           >
             Travel
+          </button>
+          <button
+            onClick={openInbox}
+            className="pointer-events-auto relative rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+            aria-label="Messages"
+          >
+            💬 Chat
+            {unread > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-[#b8573a] text-[11px] text-white">
+                {unread}
+              </span>
+            )}
           </button>
           <button
             onClick={() => openPlaces(engine.current?.districtId() ?? "lekki")}
@@ -3364,6 +3649,284 @@ function PlacesView({ area, onGo }: { area: string; onGo: (prefix: string) => vo
           </span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/* ---------------- chat with other players ---------------- */
+const chatSeen = (id: string) => {
+  try {
+    return Number(localStorage.getItem("ilmcity-seen-" + id) ?? 0);
+  } catch {
+    return 0;
+  }
+};
+const markChatSeen = (id: string) => {
+  try {
+    localStorage.setItem("ilmcity-seen-" + id, String(Date.now()));
+  } catch {
+    /* storage blocked */
+  }
+};
+const REPORT_REASONS = [
+  "Harassment or bullying",
+  "Rude or indecent language",
+  "Asking for money or a scam",
+  "Pretending to be someone else",
+  "Something else",
+];
+
+function ChatView({
+  online,
+  chatId,
+  me,
+  other,
+  freeLeft,
+  onReported,
+}: {
+  online: Online;
+  chatId: string;
+  me: string;
+  other: { uid: string; name: string };
+  freeLeft: number | null;
+  onReported: (uid: string) => void;
+}) {
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [text, setText] = useState("");
+  const [reporting, setReporting] = useState(false);
+  const [reason, setReason] = useState(REPORT_REASONS[0]);
+  const [details, setDetails] = useState("");
+  const [warn, setWarn] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(
+    () => online.watchChat(chatId, (m) => (setMsgs(m), markChatSeen(chatId))),
+    [online, chatId],
+  );
+  useEffect(() => {
+    box.current?.scrollTo({ top: box.current.scrollHeight });
+  }, [msgs]);
+  if (reporting)
+    return (
+      <div className="space-y-2">
+        <p className="text-[14px]">Report {other.name}. Our team reads every report.</p>
+        {REPORT_REASONS.map((r) => (
+          <label key={r} className="flex items-center gap-2 text-[14px]">
+            <input type="radio" checked={reason === r} onChange={() => setReason(r)} />
+            {r}
+          </label>
+        ))}
+        <textarea
+          value={details}
+          onChange={(e) => setDetails(e.target.value)}
+          maxLength={500}
+          placeholder="What happened? (optional)"
+          className="h-20 w-full rounded-xl border border-black/15 bg-white p-2 text-[14px]"
+        />
+        <button
+          onClick={async () => {
+            await online
+              .report({
+                reported: other.uid,
+                reportedName: other.name,
+                reason,
+                details,
+                chatId,
+                messages: msgs.slice(-30).map((m) => ({ from: m.from, text: m.text })),
+              })
+              .catch(() => {});
+            onReported(other.uid);
+          }}
+          className="w-full rounded-xl bg-[#b8573a] py-3 font-bold text-white"
+        >
+          Send report and block
+        </button>
+        <button onClick={() => setReporting(false)} className="w-full py-2 text-[14px] underline">
+          Cancel
+        </button>
+      </div>
+    );
+  return (
+    <div className="space-y-2">
+      <div ref={box} className="max-h-[42vh] min-h-[120px] space-y-2 overflow-y-auto">
+        {msgs.length === 0 && (
+          <p className="text-center text-[13px] opacity-60">
+            Say salam to {other.name}. Keep it kind and halal.
+          </p>
+        )}
+        {msgs.map((m) => (
+          <div
+            key={m.id}
+            className={`max-w-[85%] rounded-2xl px-3 py-2 text-[14px] ${m.from === me ? "ml-auto bg-[#1f6f63] text-[#fdf8ec]" : "bg-white"}`}
+          >
+            {m.text}
+          </div>
+        ))}
+      </div>
+      {warn && <p className="text-[12px] text-[#b8573a]">{warn}</p>}
+      <form
+        className="flex gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const t = cleanText(text.trim());
+          if (!t) return;
+          if (looksLikeContact(t) && !warn) {
+            setWarn(
+              "For your safety, think twice before sharing phone or bank numbers with people you don't know. Tap Send again to send.",
+            );
+            return;
+          }
+          setWarn("");
+          setText("");
+          await online.send(chatId, t).catch(() => setWarn("Not sent. Check your connection."));
+        }}
+      >
+        <input
+          value={text}
+          maxLength={400}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={`Message ${other.name}…`}
+          className="min-w-0 flex-1 rounded-xl border border-[#1f6f63]/30 bg-white px-3 py-2 text-[14px]"
+        />
+        <button className="rounded-xl bg-[#1f6f63] px-4 font-bold text-[#fdf8ec]">Send</button>
+      </form>
+      <div className="flex items-center justify-between text-[12px]">
+        <span className="opacity-60">
+          {freeLeft === null
+            ? "Unlimited chat pass"
+            : `${freeLeft} free conversation${freeLeft === 1 ? "" : "s"} left`}
+        </span>
+        <button
+          onClick={() => setReporting(true)}
+          className="font-semibold text-[#b8573a] underline"
+        >
+          Report
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InboxView({
+  me,
+  chats,
+  onOpen,
+}: {
+  me: string;
+  chats: ChatInfo[];
+  onOpen: (c: ChatInfo) => void;
+}) {
+  if (!chats.length)
+    return (
+      <p className="text-[14px]">
+        No messages yet. Walk up to a player with a gold name tag (● Name) and tap Chat.
+      </p>
+    );
+  return (
+    <div className="space-y-2">
+      {chats.map((c) => {
+        const other = c.members.find((m) => m !== me) ?? "";
+        const isNew = c.lastFrom !== me && c.lastText && c.lastAt > chatSeen(c.id);
+        return (
+          <button
+            key={c.id}
+            onClick={() => onOpen(c)}
+            className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+          >
+            <span className="grid size-9 place-items-center rounded-full bg-[#e6b84a] font-bold text-[#2a1c05]">
+              {(c.names[other] ?? "?").slice(0, 1)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-bold">{c.names[other] ?? "Player"}</span>
+              <span className="block truncate text-[12px] opacity-70">
+                {c.lastText || "New conversation"}
+              </span>
+            </span>
+            {isNew && <span className="size-2.5 rounded-full bg-[#b8573a]" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PassView({
+  points,
+  onPoints,
+  onNaira,
+}: {
+  points: number;
+  onPoints: (days: number, pts: number) => void;
+  onNaira: (amount: number, what: string) => void;
+}) {
+  const P = ONLINE_LIMITS.pass;
+  const btn = "w-full rounded-xl px-4 py-3 text-left text-[14px] font-bold";
+  return (
+    <div className="space-y-2">
+      <p>
+        You have used your {ONLINE_LIMITS.freePartners} free conversations. Get a chat pass to talk
+        with as many people as you like.
+      </p>
+      <p className="text-[13px] opacity-75">You have {points} points.</p>
+      {(["week", "month"] as const).map((k) => (
+        <button
+          key={k}
+          disabled={points < P[k].points}
+          onClick={() => onPoints(P[k].days, P[k].points)}
+          className={`${btn} bg-[#1f6f63] text-[#fdf8ec] disabled:opacity-50`}
+        >
+          {k === "week" ? "1 week" : "1 month"} · {P[k].points} points
+        </button>
+      ))}
+      {(["week", "month"] as const).map((k) => (
+        <button
+          key={"n" + k}
+          onClick={() => onNaira(P[k].naira, `a ${k} chat pass`)}
+          className={`${btn} border border-[#1f6f63]/30 bg-white`}
+        >
+          {k === "week" ? "1 week" : "1 month"} · ₦{P[k].naira.toLocaleString()} with Paystack
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FineView({
+  fine,
+  reason,
+  points,
+  onPayPoints,
+  onNaira,
+}: {
+  onNaira: () => void;
+  fine: number;
+  reason?: string;
+  points: number;
+  onPayPoints: () => void;
+}) {
+  const pts = Math.round(fine / 10);
+  return (
+    <div className="space-y-2">
+      <p>
+        After a report was checked by our team, your chat was paused
+        {reason ? ` for: ${reason}` : ""}. Pay the fine to chat again.
+      </p>
+      <div className="rounded-xl bg-white p-3 text-center">
+        <div className="text-[13px] opacity-70">Fine</div>
+        <div className="font-serif text-3xl">₦{fine.toLocaleString()}</div>
+      </div>
+      <button
+        disabled={points < pts}
+        onClick={onPayPoints}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
+      >
+        Pay with {pts} points
+      </button>
+      <button
+        onClick={onNaira}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+      >
+        Pay ₦{fine.toLocaleString()} with Paystack
+      </button>
     </div>
   );
 }
