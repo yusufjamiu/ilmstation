@@ -1796,6 +1796,19 @@ export class IlmCityEngine {
     this.marker.visible = true;
     return true;
   }
+  /** Begin in this area: you stand on the main street, your car parked beside you. */
+  startIn(id: string) {
+    const D = districtById(id);
+    this.where = "out";
+    this.district = D;
+    this.player.position.set(D.origin.x - 9, 0, D.origin.z + 17);
+    this.player.rotation.y = Math.PI;
+    this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
+    this.carHeading = Math.PI;
+    this.car.rotation.y = Math.PI;
+    this.camYaw = 0;
+    this.snapCamera();
+  }
   /** Dress your character: brother or sister, skin tone and clothes. */
   setPlayerLook(o: { female: boolean; skin: number; robe: number; accent: number }) {
     const fresh = o.female
