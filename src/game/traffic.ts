@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { DISTRICTS, type District } from "./content";
+import { DISTRICTS, districtById, halfOf, type District } from "./content";
 import { VEHICLE_INFO, randomCarColor, vehicleMesh, type VehicleKind } from "./vehicles";
 
 /* Traffic: cars, keke, danfos and the Hisbah van drive on the right along the city's
@@ -90,7 +90,7 @@ function lane(center: [number, number][], off: number, v: number): P[] {
 
 const sideOf = (d: District) => (d.origin.x > 0 ? -1 : 1);
 export const roadEndOf = (d: District): [number, number] => [
-  d.origin.x + sideOf(d) * 106,
+  d.origin.x + sideOf(d) * (halfOf(d).x - 6),
   d.origin.z,
 ];
 const RING = 23;
@@ -116,8 +116,9 @@ function tourPath(order: string[]) {
     }
     const ring: [number, number] = [Math.cos(a) * 30, Math.sin(a) * 30];
     const near = roadEndOf(d);
-    const far: [number, number] = [d.origin.x - sideOf(d) * 92, d.origin.z];
-    const inArea = (q: P) => Math.abs(q.x - d.origin.x) < 104 && Math.abs(q.z - d.origin.z) < 30;
+    const far: [number, number] = [d.origin.x - sideOf(d) * (halfOf(d).x - 20), d.origin.z];
+    const inArea = (q: P) =>
+      Math.abs(q.x - d.origin.x) < halfOf(d).x - 8 && Math.abs(q.z - d.origin.z) < 30;
     const leg = (c: [number, number][]) =>
       lane(c, 3.3, 20).map((q) => (inArea(q) ? { ...q, v: 11 } : q));
     pts.push(...leg([ring, near, far]));
@@ -136,8 +137,8 @@ function tourPath(order: string[]) {
 
 /** Up and down one street inside an area. */
 function streetLoop(d: District, z: number, v = 10) {
-  const x0 = d.origin.x - 92,
-    x1 = d.origin.x + 92,
+  const x0 = d.origin.x - (halfOf(d).x - 20),
+    x1 = d.origin.x + (halfOf(d).x - 20),
     zz = d.origin.z + z;
   const pts = [
     ...lane(
@@ -176,6 +177,9 @@ export type Vehicle = {
 };
 export type BusStop = {
   id: string;
+  path: Path;
+  /** turn of the shelter so its back faces away from the road */
+  rot: number;
   district: string;
   name: string;
   s: number;
@@ -188,6 +192,7 @@ export type BusStop = {
 export class Traffic {
   vehicles: Vehicle[] = [];
   tour: Path;
+  shuttle!: Path;
   stops: BusStop[] = [];
   /** set by the game: the stop the player is waiting at */
   waitingAt: string | null = null;
@@ -207,6 +212,7 @@ export class Traffic {
 
     // two bus stops per area, one on each side of the main street
     for (const d of DISTRICTS) {
+      if (d.parent) continue;
       const sd = sideOf(d);
       for (const dir of [1, -1]) {
         // dir 1: coming into the area, dir -1: leaving it
@@ -216,8 +222,10 @@ export class Traffic {
         const near = this.tour.nearest(x, d.origin.z + travel * 3);
         this.stops.push({
           id: `${d.id}-${dir > 0 ? "in" : "out"}`,
+          path: this.tour,
+          rot: z > d.origin.z ? 0 : Math.PI,
           district: d.id,
-          name: `${d.name} Bus Stop`,
+          name: `${d.busStop ?? d.name} Bus Stop`,
           s: near.s,
           x,
           z,
@@ -225,6 +233,53 @@ export class Traffic {
         });
       }
     }
+    // the Ikorodu shuttle: up Ikorodu Road from Igbe Laara to the market and back
+    const chain: District[] = [districtById("ikorodu")];
+    for (;;) {
+      const next = DISTRICTS.find((d) => d.parent === chain[chain.length - 1].id);
+      if (!next) break;
+      chain.push(next);
+    }
+    const top = chain[chain.length - 1];
+    const cx = chain[0].origin.x;
+    const zs = chain[0].origin.z + 40,
+      ze = top.origin.z - (halfOf(top).z - 12);
+    const sp = [
+      ...lane(
+        [
+          [cx, zs],
+          [cx, ze],
+        ],
+        3.3,
+        14,
+      ),
+      ...lane(
+        [
+          [cx, ze],
+          [cx, zs],
+        ],
+        3.3,
+        14,
+      ),
+    ];
+    sp.push({ ...sp[0] });
+    this.shuttle = new Path(sp);
+    for (const d of chain)
+      for (const north of [true, false]) {
+        const x = cx + (north ? 8.6 : -8.6),
+          z = d.origin.z + 22;
+        this.stops.push({
+          id: `${d.id}-${north ? "n" : "s"}`,
+          path: this.shuttle,
+          rot: north ? Math.PI / 2 : -Math.PI / 2,
+          district: d.id,
+          name: `${d.busStop ?? d.name} Bus Stop`,
+          s: this.shuttle.nearest(cx + (north ? 3.3 : -3.3), z).s,
+          x,
+          z,
+          heading: north ? Math.PI / 2 : -Math.PI / 2,
+        });
+      }
     this.stops.sort((a, b) => a.s - b.s);
 
     const add = (kind: VehicleKind, path: Path, s: number, color?: number) => {
@@ -258,6 +313,10 @@ export class Traffic {
     ];
     for (let i = 0; i < 10; i++) add(kinds[i % kinds.length], this.tour, (L / 10) * i + 120);
     for (let i = 0; i < 8; i++) add(kinds[(i + 3) % kinds.length], tour2, (tour2.length / 8) * i);
+    const SL = this.shuttle.length;
+    add("danfo", this.shuttle, 30);
+    add("danfo", this.shuttle, SL / 2 + 30);
+    for (let i = 0; i < 5; i++) add(kinds[(i + 1) % kinds.length], this.shuttle, (SL / 5) * i + 80);
     for (const d of DISTRICTS) {
       d.streets.forEach((st, k) => {
         const p = streetLoop(d, st.z, k === 0 ? 11 : 8);
@@ -286,9 +345,11 @@ export class Traffic {
   summon(stopId: string) {
     const stop = this.stops.find((s) => s.id === stopId);
     if (!stop) return;
-    const L = this.tour.length;
+    const L = stop.path.length;
     const ahead = (b: Vehicle) => (((stop.s - b.s) % L) + L) % L;
-    const buses = this.vehicles.filter((b) => b.kind === "danfo" && b !== this.riding);
+    const buses = this.vehicles.filter(
+      (b) => b.kind === "danfo" && b !== this.riding && b.path === stop.path,
+    );
     const soon = buses.find((b) => ahead(b) < 160);
     if (soon) return;
     const b = buses.sort((x, y) => ahead(x) - ahead(y))[buses.length - 1];
@@ -302,8 +363,10 @@ export class Traffic {
     const stop = this.stops.find((s) => s.id === stopId);
     if (!stop) return null;
     return (
-      this.vehicles.find((b) => b.kind === "danfo" && b.dwell > 0 && Math.abs(b.s - stop.s) < 4) ??
-      null
+      this.vehicles.find(
+        (b) =>
+          b.kind === "danfo" && b.path === stop.path && b.dwell > 0 && Math.abs(b.s - stop.s) < 4,
+      ) ?? null
     );
   }
   nextStop(b: Vehicle) {
@@ -311,6 +374,7 @@ export class Traffic {
     let best: BusStop | null = null,
       bd = Infinity;
     for (const st of this.stops) {
+      if (st.path !== b.path) continue;
       const d = (((st.s - b.s) % L) + L) % L;
       if (d > 3 && d < bd) {
         bd = d;
@@ -350,6 +414,7 @@ export class Traffic {
         const L = v.path.length;
         for (let i = 0; i < this.stops.length; i++) {
           const st = this.stops[i];
+          if (st.path !== v.path) continue;
           const d = (((st.s - v.s) % L) + L) % L;
           if (i === v.lastStop) continue;
           const back = L - d; // just passed it

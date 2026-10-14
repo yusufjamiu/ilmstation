@@ -10,8 +10,11 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   lekki: { name: "Lekki", lat: 6.44, lng: 3.475 },
   agege: { name: "Agege", lat: 6.622, lng: 3.325 },
   ajegunle: { name: "Ajegunle", lat: 6.455, lng: 3.335 },
-  ikorodu: { name: "Ikorodu", lat: 6.615, lng: 3.505 },
+  ikorodu: { name: "Igbe Laara", lat: 6.615, lng: 3.505 },
   egbeda: { name: "Egbeda", lat: 6.592, lng: 3.29 },
+  agric: { name: "Agric", lat: 6.632, lng: 3.522 },
+  secondgate: { name: "Second Gate", lat: 6.647, lng: 3.536 },
+  market: { name: "Ikorodu Market", lat: 6.66, lng: 3.548 },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -28,12 +31,15 @@ const ROADS: [string, string][] = [
   ["yaba", "ajegunle"],
   ["ketu", "egbeda"],
   ["egbeda", "agege"],
+  ["ikorodu", "agric"],
+  ["agric", "secondgate"],
+  ["secondgate", "market"],
 ];
 
 const W = 400,
   H = 380;
-const X = (lng: number) => ((lng - 3.25) / (3.56 - 3.25)) * (W - 40) + 20;
-const Y = (lat: number) => ((6.67 - lat) / (6.67 - 6.39)) * (H - 40) + 20;
+const X = (lng: number) => ((lng - 3.25) / (3.575 - 3.25)) * (W - 40) + 20;
+const Y = (lat: number) => ((6.68 - lat) / (6.68 - 6.39)) * (H - 40) + 20;
 const pt = (id: string) => ({ x: X(PLACES[id].lng), y: Y(PLACES[id].lat) });
 
 function km(a: P, b: P) {

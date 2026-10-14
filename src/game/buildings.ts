@@ -746,3 +746,490 @@ export function powerLine(b: Batch, x0: number, x1: number, z: number, wires: TH
     wires.add(new THREE.Line(g, lineMat));
   }
 }
+
+/* ---------------- signs with text ---------------- */
+export function textMat(
+  text: string,
+  o: { bg: string; fg: string; w?: number; h?: number; sub?: string; border?: string } = {
+    bg: "#1f6f63",
+    fg: "#fff",
+  },
+) {
+  const key = `txt|${text}|${o.sub ?? ""}|${o.bg}|${o.fg}|${o.border ?? ""}`;
+  return M(key, () => {
+    const W = o.w ?? 1024,
+      Hh = o.h ?? 160;
+    const t = tex(
+      key,
+      W,
+      Hh,
+      (c, w, h) => {
+        c.fillStyle = o.bg;
+        c.fillRect(0, 0, w, h);
+        if (o.border) {
+          c.strokeStyle = o.border;
+          c.lineWidth = 8;
+          c.strokeRect(8, 8, w - 16, h - 16);
+        }
+        c.fillStyle = o.fg;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        let size = Math.round(h * (o.sub ? 0.42 : 0.58));
+        c.font = `800 ${size}px "Work Sans", system-ui, sans-serif`;
+        while (c.measureText(text).width > w - 40 && size > 12) {
+          size -= 2;
+          c.font = `800 ${size}px "Work Sans", system-ui, sans-serif`;
+        }
+        c.fillText(text, w / 2, o.sub ? h * 0.4 : h / 2 + 2);
+        if (o.sub) {
+          c.font = `600 ${Math.round(h * 0.2)}px "Work Sans", system-ui, sans-serif`;
+          c.fillText(o.sub, w / 2, h * 0.78);
+        }
+      },
+      false,
+    );
+    return std({ map: t, roughness: 0.5 });
+  });
+}
+
+/** Glass curtain wall: 4 m per tile. */
+const glassTex = () =>
+  tex("glass", 128, 128, (c, w, h) => {
+    const g = c.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, "#6f9fb8");
+    g.addColorStop(0.5, "#2f5468");
+    g.addColorStop(1, "#7fb0c8");
+    c.fillStyle = g;
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = "#d8e2e6";
+    c.fillRect(0, 0, w, 6);
+    c.fillRect(0, 0, 5, h);
+    c.fillRect(w / 2 - 2, 0, 4, h);
+  });
+const shutterTex = () =>
+  tex("shutter", 64, 64, (c, w, h) => {
+    for (let y = 0; y < h; y++) {
+      const v = 165 + Math.round(Math.sin((y / h) * Math.PI * 12) * 35);
+      c.fillStyle = `rgb(${v},${v + 4},${v + 8})`;
+      c.fillRect(0, y, w, 1);
+    }
+  });
+export const MAT2 = {
+  glass: () => M("glass", () => std({ map: glassTex(), roughness: 0.15, metalness: 0.6 })),
+  shutter: () => M("shutter", () => std({ map: shutterTex(), metalness: 0.5, roughness: 0.4 })),
+  water: () => M("pool", () => std({ color: 0x4fb3d0, roughness: 0.1, metalness: 0.2 })),
+  lawn: () => M("lawn", () => std({ color: 0x6f9e48 })),
+};
+
+/* ---------------- shared helpers ---------------- */
+type Placed = { x: number; z: number };
+type Built = {
+  colliders: Box[];
+  /** doors and interaction spots, in area coordinates */
+  spots: { key: string; x: number; z: number; label: string; labelY?: number }[];
+};
+/** Sets up a turned frame (front faces +z before turning) and a collider helper. */
+function frame(b: Batch, x: number, z: number, turn: number) {
+  b.base.makeRotationY(turn).setPosition(x, 0, z);
+  const cos = Math.cos(turn),
+    sin = Math.sin(turn);
+  const to = (lx: number, lz: number): Placed => ({
+    x: x + lx * cos + lz * sin,
+    z: z - lx * sin + lz * cos,
+  });
+  const colliders: Box[] = [];
+  const solid = (lx0: number, lx1: number, lz0: number, lz1: number) => {
+    const a = to(lx0, lz0),
+      c = to(lx1, lz1);
+    colliders.push({
+      x0: Math.min(a.x, c.x),
+      x1: Math.max(a.x, c.x),
+      z0: Math.min(a.z, c.z),
+      z1: Math.max(a.z, c.z),
+    });
+  };
+  return { to, colliders, solid };
+}
+function palmInto(b: Batch, x: number, z: number, s = 1) {
+  b.add(
+    new THREE.CylinderGeometry(0.14 * s, 0.24 * s, 5 * s, 6),
+    MAT.plain(0x8a6a3e),
+    x,
+    2.5 * s,
+    z,
+  );
+  for (let i = 0; i < 7; i++) {
+    const leaf = new THREE.BoxGeometry(0.5 * s, 0.06, 2.6 * s);
+    leaf.translate(0, 0, 1.2 * s);
+    leaf.rotateX(0.45);
+    leaf.rotateY((i / 7) * Math.PI * 2);
+    b.add(leaf, MAT.plain(i % 2 ? 0x3f7d3a : 0x4f8f45), x, 5 * s, z);
+  }
+}
+function fountain(b: Batch, x: number, z: number, r = 2.4) {
+  b.add(new THREE.CylinderGeometry(r, r + 0.2, 0.6, 24), MAT.plain(0xe8e2d4), x, 0.3, z);
+  b.add(new THREE.CylinderGeometry(r - 0.25, r - 0.25, 0.1, 24), MAT2.water(), x, 0.58, z);
+  b.add(new THREE.CylinderGeometry(0.25, 0.35, 1.6, 10), MAT.plain(0xe8e2d4), x, 1.2, z);
+  b.add(new THREE.CylinderGeometry(0.9, 0.4, 0.3, 16), MAT.plain(0xe8e2d4), x, 2.0, z);
+  b.add(new THREE.SphereGeometry(0.35, 10, 8), MAT2.water(), x, 2.3, z);
+}
+
+/**
+ * A school built round a courtyard (four wings, the "four-corner" shape), entered
+ * through a gate in the front wing. Classes, the admin block and the Sheikh's office
+ * open onto the courtyard.
+ */
+export function campus(
+  b: Batch,
+  o: {
+    x: number;
+    z: number;
+    turn: number;
+    width: number;
+    depth: number;
+    floors: number;
+    name: string;
+    classes: string[];
+  },
+): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth,
+    T = 8; // wing depth
+  const H = 0.4 + o.floors * 3.3;
+  const wallM = MAT.plaster(0xf2ead6),
+    trim = MAT.plain(0x1f6f63),
+    cream = MAT.plain(0xf7f5ef);
+  const front = D / 2;
+  b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.03, 0, 0, false);
+  b.add(groundGeo(W - 2 * T - 4, D - 2 * T - 4, 4), MAT2.lawn(), 0, 0.05, 0, 0, false);
+  const gate = 7;
+  const wing = (cx: number, cz: number, w: number, d: number) => {
+    b.box(w, H, d, wallM, cx, 0, cz);
+    for (let f = 1; f <= o.floors; f++)
+      b.box(w + 0.3, 0.3, d + 0.3, trim, cx, 0.4 + f * 3.3 - 0.3, cz);
+    b.box(w + 0.5, 0.5, d + 0.5, cream, cx, H, cz); // parapet top
+    solid(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2);
+  };
+  // front wing in two halves with the gate between
+  const half = (W - gate) / 2;
+  wing(-W / 2 + half / 2, front - T / 2, half, T);
+  wing(W / 2 - half / 2, front - T / 2, half, T);
+  wing(0, -front + T / 2, W, T); // back
+  wing(-W / 2 + T / 2, 0, T, D - 2 * T); // left
+  wing(W / 2 - T / 2, 0, T, D - 2 * T); // right
+  // gate arch with the school's name and a little dome
+  b.box(gate + 2, 1.6, T, wallM, 0, H - 1.6, front - T / 2);
+  b.plane(
+    gate + 6,
+    1.8,
+    textMat(o.name, { bg: "#1f6f63", fg: "#fdf8ec", border: "#e6b84a" }),
+    0,
+    H + 1.4,
+    front + 0.05,
+  );
+  b.add(
+    new THREE.SphereGeometry(2.2, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    MAT.plain(0x2f8f83, 0.5),
+    0,
+    H + 0.5,
+    front - T / 2,
+  );
+  // windows round the outside, and a covered walkway round the courtyard
+  for (let f = 0; f < o.floors; f++) {
+    const y = 0.4 + f * 3.3 + 1.6;
+    for (let x = -W / 2 + 3; x < W / 2 - 2; x += 4) {
+      if (Math.abs(x) < gate / 2 + 1.5) continue;
+      b.plane(1.4, 1.5, MAT.window(0x1f6f63), x, y, front + 0.02);
+      b.plane(1.4, 1.5, MAT.window(0x1f6f63), x, y, -front - 0.02, Math.PI);
+    }
+    for (let z = -D / 2 + 3; z < D / 2 - 2; z += 4) {
+      b.plane(1.4, 1.5, MAT.window(0x1f6f63), -W / 2 - 0.02, y, z, -Math.PI / 2);
+      b.plane(1.4, 1.5, MAT.window(0x1f6f63), W / 2 + 0.02, y, z, Math.PI / 2);
+    }
+  }
+  const ix = W / 2 - T,
+    iz = D / 2 - T; // inner courtyard edge
+  for (let x = -ix + 2; x <= ix - 2; x += 4) {
+    b.box(0.35, 3, 0.35, cream, x, 0, -iz + 1.6);
+    if (Math.abs(x) > gate / 2 + 0.5) b.box(0.35, 3, 0.35, cream, x, 0, iz - 1.6);
+  }
+  for (let z = -iz + 2; z <= iz - 2; z += 4) {
+    b.box(0.35, 3, 0.35, cream, -ix + 1.6, 0, z);
+    b.box(0.35, 3, 0.35, cream, ix - 1.6, 0, z);
+  }
+  b.box(ix * 2, 0.25, 2, trim, 0, 3, -iz + 1);
+  b.box(2, 0.25, iz * 2, trim, -ix + 1, 3, 0);
+  b.box(2, 0.25, iz * 2, trim, ix - 1, 3, 0);
+  // flagpole and trees in the courtyard
+  b.add(new THREE.CylinderGeometry(0.06, 0.08, 9, 6), MAT.plain(0xd8dce0, 0.3), 0, 4.5, 0);
+  b.plane(1.8, 1.1, textMat(" ", { bg: "#1f8a3a", fg: "#fff" }), 0.9, 8.3, 0);
+  for (const [px, pz] of [
+    [-ix / 2, -iz / 2],
+    [ix / 2, -iz / 2],
+    [-ix / 2, iz / 2],
+    [ix / 2, iz / 2],
+  ])
+    palmInto(b, px, pz, 0.8);
+
+  // doors opening onto the courtyard
+  const spots: Built["spots"] = [];
+  const doorAt = (lx: number, lz: number, ry: number, key: string, label: string) => {
+    b.plane(1.4, 2.4, MAT.door(0x6b4226), lx, 1.2, lz, ry);
+    const p = to(lx + Math.sin(ry) * 1.6, lz + Math.cos(ry) * 1.6);
+    spots.push({ key, x: p.x, z: p.z, label, labelY: 3.6 });
+  };
+  doorAt(-gate / 2 - 3, iz - 0.02 - 0.0 + 0.04 - 0.04, Math.PI, "admin", "Admin block");
+  doorAt(gate / 2 + 3, iz - 0.02, Math.PI, "office", "Sheikh's office");
+  // classes along the back, then the left and right wings
+  const places: [number, number, number][] = [];
+  for (let x = -ix + 4; x <= ix - 4; x += 6) places.push([x, -iz + 0.02, 0]);
+  for (let z = -iz + 4; z <= iz - 4; z += 6) places.push([-ix + 0.02, z, Math.PI / 2]);
+  for (let z = -iz + 4; z <= iz - 4; z += 6) places.push([ix - 0.02, z, -Math.PI / 2]);
+  o.classes.forEach((c, i) => {
+    const pl = places[i];
+    if (pl) doorAt(pl[0], pl[1], pl[2], "class:" + i, c);
+  });
+  spots.push({ key: "gate", ...to(0, front + 2), label: o.name, labelY: H + 4 });
+  b.base.identity();
+  return { colliders, spots };
+}
+
+/** A big walled house for a Sheikh: gatehouse, fountain, palms and a white house with columns. */
+export function mansion(
+  b: Batch,
+  o: {
+    x: number;
+    z: number;
+    turn: number;
+    width: number;
+    depth: number;
+    floors: number;
+    name: string;
+  },
+): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth;
+  const front = D / 2;
+  b.add(groundGeo(W, D, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  const FH = 2.8,
+    T = 0.4;
+  const fenceM = MAT.plaster(0xf2ead6),
+    gold = MAT.plain(0xd9b45a, 0.4),
+    white = MAT.plaster(0xfbf8f0),
+    green = MAT.plain(0x1f6f63);
+  const gw = 6;
+  const seg = (x0: number, x1: number, z: number) => {
+    b.box(x1 - x0, FH, T, fenceM, (x0 + x1) / 2, 0, z, 0, 4);
+    b.box(x1 - x0 + 0.2, 0.2, T + 0.2, gold, (x0 + x1) / 2, FH, z);
+    solid(x0, x1, z - T / 2, z + T / 2);
+  };
+  seg(-W / 2, -gw / 2 - 0.5, front);
+  seg(gw / 2 + 0.5, W / 2, front);
+  seg(-W / 2, W / 2, -front);
+  for (const sx of [-W / 2, W / 2]) {
+    b.add(boxGeo(T, FH, D, 4), fenceM, sx, FH / 2, 0);
+    solid(sx - T / 2, sx + T / 2, -front, front);
+  }
+  for (const px of [-gw / 2 - 0.5, gw / 2 + 0.5]) {
+    b.box(1, 3.6, 1, fenceM, px, 0, front);
+    b.add(new THREE.SphereGeometry(0.45, 12, 8), gold, px, 3.9, front);
+    solid(px - 0.5, px + 0.5, front - 0.5, front + 0.5);
+  }
+  b.add(boxGeo(gw * 0.5, 2.6, 0.08), MAT.gate(0x1a1a1a), -gw * 0.25, 1.3, front - 0.05);
+  b.add(boxGeo(gw * 0.2, 2.6, 0.08), MAT.gate(0x1a1a1a), gw * 0.4, 1.3, front - 0.05);
+  solid(-gw / 2, 0, front - 0.2, front + 0.2);
+  b.plane(
+    gw + 4,
+    1.0,
+    textMat(o.name, { bg: "#1f6f63", fg: "#fdf8ec", border: "#d9b45a" }),
+    0,
+    4.6,
+    front + 0.3,
+  );
+  b.add(boxGeo(gw + 4.2, 1.1, 0.2), green, 0, 4.6, front + 0.15);
+  // gatehouse
+  b.box(3, 2.8, 3, white, W / 2 - 3, 0, front - 2.5);
+  b.box(3.4, 0.25, 3.4, green, W / 2 - 3, 2.8, front - 2.5);
+  solid(W / 2 - 4.5, W / 2 - 1.5, front - 4, front - 1);
+  // the house
+  const BW = W - 14,
+    BD = D - 16,
+    bz = -front + 2 + BD / 2;
+  const FHt = 3.6;
+  for (let f = 0; f < o.floors; f++) {
+    const y = 0.6 + f * FHt;
+    const w = BW - f * 2;
+    b.box(w, FHt - 0.3, BD - f, white, 0, y, bz - f / 2);
+    b.box(w + 0.4, 0.3, BD - f + 0.4, gold, 0, y + FHt - 0.3, bz - f / 2);
+    for (let x = -w / 2 + 2; x < w / 2 - 1; x += 3.2) {
+      if (f === 0 && Math.abs(x) < 3) continue;
+      b.plane(1.6, 2.0, MAT.window(0xd9b45a), x, y + 1.7, bz - f / 2 + (BD - f) / 2 + 0.02);
+    }
+  }
+  b.box(BW + 1, 0.6, BD + 1, MAT.plain(0xd8d2c2), 0, 0, bz);
+  const top = 0.6 + o.floors * FHt;
+  // portico with columns and a dome
+  for (const cx of [-3, -1, 1, 3])
+    b.add(new THREE.CylinderGeometry(0.3, 0.35, 6.6, 12), white, cx, 0.6 + 3.3, bz + BD / 2 + 1.6);
+  b.box(8.4, 0.5, 3.6, gold, 0, 7.2, bz + BD / 2 + 1.4);
+  b.plane(1.8, 2.8, MAT.door(0x5a3418), 0, 0.6 + 1.4, bz + BD / 2 + 0.02);
+  b.add(
+    new THREE.SphereGeometry(2.6, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    MAT.plain(0xd9b45a, 0.35),
+    0,
+    top,
+    bz - o.floors / 2,
+  );
+  b.add(new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6), gold, 0, top + 3.2, bz - o.floors / 2);
+  solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2 + 0.3);
+  // fountain and palms in the front yard
+  fountain(b, 0, front - 4.5, 2.2);
+  solid(-2.4, 2.4, front - 6.9, front - 2.1);
+  for (const px of [-W / 2 + 3, W / 2 - 6, -W / 2 + 3, W / 2 - 3])
+    palmInto(b, px, px > 0 ? -front + 3 : front - 4, 1);
+  b.base.identity();
+  return { colliders, spots: [{ key: "gate", ...to(0, front + 1.4), label: o.name, labelY: 6 }] };
+}
+
+/** A modern office: glass tower, the company name on top, a plaza with a fountain and flags. */
+export function office(
+  b: Batch,
+  o: {
+    x: number;
+    z: number;
+    turn: number;
+    width: number;
+    depth: number;
+    floors: number;
+    name: string;
+    color: number;
+    accent: number;
+  },
+): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth,
+    front = D / 2;
+  b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.035, 0, 0, false);
+  const BW = W - 6,
+    BD = D - 12,
+    bz = -front + 1 + BD / 2;
+  const FHt = 3.6,
+    H = 0.6 + o.floors * FHt;
+  const brand = MAT.plain(o.color, 0.4);
+  b.box(BW + 0.6, 0.6, BD + 0.6, MAT.plain(0x9a958a), 0, 0, bz);
+  b.add(boxGeo(BW, H - 0.6, BD, 4), MAT2.glass(), 0, 0.6 + (H - 0.6) / 2, bz);
+  for (let f = 1; f <= o.floors; f++)
+    b.box(BW + 0.3, 0.25, BD + 0.3, MAT.plain(0xe9ecee, 0.3), 0, 0.6 + f * FHt - 0.25, bz);
+  // coloured vertical fins in the brand colour
+  for (const x of [-BW / 2, BW / 2]) b.box(0.8, H + 0.6, 0.8, brand, x, 0, bz + BD / 2);
+  b.box(BW + 1.2, 1.2, BD + 1.2, brand, 0, H, bz);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  b.plane(
+    BW * 0.9,
+    2.2,
+    textMat(o.name, { bg: hex(o.color), fg: hex(o.accent) }),
+    0,
+    H + 2.4,
+    bz + BD / 2 + 0.1,
+  );
+  b.box(BW * 0.92, 2.4, 0.2, brand, 0, H + 1.2, bz + BD / 2);
+  // entrance canopy
+  b.box(7, 0.3, 3, brand, 0, 3.4, bz + BD / 2 + 1.5);
+  b.plane(3, 2.6, MAT2.glass(), 0, 1.9, bz + BD / 2 + 0.03);
+  solid(-BW / 2 - 0.4, BW / 2 + 0.4, bz - BD / 2, bz + BD / 2 + 0.4);
+  // plaza: fountain, flags, benches, planters
+  fountain(b, -W / 4, front - 4, 1.8);
+  solid(-W / 4 - 2, -W / 4 + 2, front - 6, front - 2);
+  for (const [i, fx] of [W / 4 - 1.5, W / 4, W / 4 + 1.5].entries()) {
+    b.add(
+      new THREE.CylinderGeometry(0.05, 0.06, 7, 6),
+      MAT.plain(0xd8dce0, 0.3),
+      fx,
+      3.5,
+      front - 3,
+    );
+    b.plane(
+      1.3,
+      0.8,
+      i === 1 ? brand : MAT.plain(i ? 0x1f8a3a : 0xfdfdfd),
+      fx + 0.65,
+      6.5,
+      front - 3,
+    );
+  }
+  for (const bx of [-W / 2 + 2, W / 2 - 2]) {
+    b.box(1.6, 0.45, 0.5, MAT.plain(0x8a5a3a), bx, 0, front - 1.5);
+    b.add(new THREE.CylinderGeometry(0.6, 0.5, 0.8, 12), MAT.plain(0xcfc8b8), bx, 0.4, front - 7);
+    b.add(new THREE.IcosahedronGeometry(0.8, 0), MAT.plain(0x3f7d3a), bx, 1.3, front - 7);
+  }
+  b.base.identity();
+  return {
+    colliders,
+    spots: [{ key: "door", ...to(0, bz + BD / 2 + 3), label: o.name, labelY: 4.6 }],
+  };
+}
+
+/** A row of lock-up shops on a plot. Returns where each shop's front and sign are. */
+export function shopRow(
+  b: Batch,
+  o: { x: number; z: number; turn: number; n?: number; rnd: () => number },
+) {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const n = o.n ?? 4,
+    UW = 5.2,
+    W = n * UW,
+    D = 7,
+    H = 3.8;
+  const front = 10 - 1.2; // just inside the plot front
+  const back = front - D;
+  const wallC = [0xf2e6c8, 0xdfe8dc, 0xf0dcc8][Math.floor(o.rnd() * 3)];
+  const wallM = MAT.plaster(wallC);
+  b.add(groundGeo(W + 2, 3, 2), MAT.pavement(), 0, 0.04, front + 1.3, 0, false);
+  b.box(W, H, 0.3, wallM, 0, 0, back); // back wall
+  for (let i = 0; i <= n; i++) b.box(0.3, H, D, wallM, -W / 2 + i * UW, 0, (front + back) / 2);
+  b.box(W + 0.4, 0.3, D + 0.6, MAT.plain(0xf7f5ef), 0, H, (front + back) / 2 + 0.2); // roof slab
+  b.box(W + 0.4, 0.9, 0.25, MAT.plain(0x1f6f63), 0, H + 0.3, front + 0.4); // parapet band
+  b.add(groundGeo(W, D, 2), MAT.plain(0xb8b2a4), 0, 0.05, (front + back) / 2, 0, false);
+  solid(-W / 2, W / 2, back - 0.15, back + 0.15);
+  for (let i = 0; i <= n; i++) solid(-W / 2 + i * UW - 0.15, -W / 2 + i * UW + 0.15, back, front);
+  const units: { center: Placed; front: Placed; turn: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const lx = -W / 2 + UW * (i + 0.5);
+    units.push({ center: to(lx, (front + back) / 2), front: to(lx, front + 1.6), turn: o.turn });
+    // a counter at the back of each shop
+    b.box(UW - 1.2, 1, 0.8, MAT.plain(0x8a5a3a), lx, 0, back + 0.8);
+  }
+  b.base.identity();
+  return { colliders, units, front, unitWidth: UW };
+}
+
+/** Open market stalls under tin roofs, in a row facing +z. */
+export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn: number }) {
+  const { to, colliders, solid } = frame(b, 0, o.z, o.turn);
+  const SW = 5,
+    SD = 4;
+  const units: { center: Placed; front: Placed; lx: number }[] = [];
+  for (let x = o.x0; x + SW <= o.x1; x += SW + 0.6) {
+    const cx = x + SW / 2;
+    for (const [px, pz] of [
+      [-SW / 2, -SD / 2],
+      [SW / 2, -SD / 2],
+      [-SW / 2, SD / 2],
+      [SW / 2, SD / 2],
+    ])
+      b.box(0.1, 2.8, 0.1, MAT.plain(0x6b5a44), cx + px, 0, pz);
+    const roof = new THREE.BoxGeometry(SW + 0.6, 0.08, SD + 0.8);
+    roof.rotateX(-0.12);
+    b.add(roof, MAT.zinc(0x9aa0a6), cx, 2.95, 0);
+    b.box(SW - 0.4, 0.9, 0.9, MAT.plain(0x8a6a3e), cx, 0, SD / 2 - 0.6);
+    b.box(SW - 0.4, 0.06, 1.1, MAT.plain(0xe9dcc0), cx, 0.9, SD / 2 - 0.6);
+    b.add(groundGeo(SW, SD, 2), MAT.plain(0xa89c88), cx, 0.04, 0, 0, false);
+    solid(cx - SW / 2, cx + SW / 2, -SD / 2, SD / 2 - 0.1);
+    units.push({ center: to(cx, 0), front: to(cx, SD / 2 + 1.6), lx: cx });
+  }
+  b.base.identity();
+  return { colliders, units };
+}

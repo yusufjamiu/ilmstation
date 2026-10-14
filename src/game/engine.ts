@@ -6,12 +6,27 @@ import {
   AD_EMAIL,
   DISTRICTS,
   districtById,
+  halfOf,
+  fullName,
   type Billboard,
   type District,
   type Landmark,
 } from "./content";
 import { darkness, type Clock } from "./time";
-import { Batch, MAT, compound, groundGeo, powerLine, type Compound } from "./buildings";
+import {
+  Batch,
+  MAT,
+  MAT2,
+  campus,
+  compound,
+  groundGeo,
+  mansion,
+  office,
+  powerLine,
+  shopRow,
+  stallRow,
+  type Compound,
+} from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
 import {
   gesture,
@@ -650,10 +665,14 @@ export class IlmCityEngine {
     );
     const S = this.dg;
     const batch = new Batch();
+    this.curBatch = batch;
     const rnd = mulberry(D.id.length * 97 + D.name.charCodeAt(0));
 
     // Lekki's beach and the ocean
-    const southEdge = D.lagoon ? 76 : 99;
+    const H = halfOf(D);
+    const southEdge = D.lagoon ? 76 : H.z - 1;
+    const north = -(H.z - 4); // the northern end of the cross road
+    const XR = H.x - 16; // how far streets run either side of the cross road
     if (D.lagoon) {
       const beach = new THREE.Mesh(new THREE.PlaneGeometry(260, 14), mat(PALETTE.sand));
       beach.rotation.x = -Math.PI / 2;
@@ -690,8 +709,8 @@ export class IlmCityEngine {
     const dashMat = new THREE.MeshBasicMaterial({ color: PALETTE.line });
     const zs = D.streets.map((st) => st.z);
     D.streets.forEach((st) => {
-      road(0, st.z, st.z === 0 ? 214 : 200, 12);
-      for (let x = -96; x < 96; x += 6) {
+      road(0, st.z, st.z === 0 ? H.x * 2 - 10 : H.x * 2 - 24, 12);
+      for (let x = -XR; x < XR; x += 6) {
         if (Math.abs(x) < 8) continue;
         const d = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.25), dashMat);
         d.rotation.x = -Math.PI / 2;
@@ -703,8 +722,8 @@ export class IlmCityEngine {
       this.streetSign(-60, st.z + 8.5, st.id, 0);
     });
     const crossEnd = southEdge - 6;
-    road(0, (-96 + crossEnd) / 2, 12, crossEnd + 96);
-    for (let z = -96; z < crossEnd; z += 6) {
+    road(0, (north + crossEnd) / 2, 12, crossEnd - north);
+    for (let z = north; z < crossEnd; z += 6) {
       if (zs.some((sz) => Math.abs(z - sz) < 8)) continue;
       const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
       d.rotation.x = -Math.PI / 2;
@@ -761,13 +780,15 @@ export class IlmCityEngine {
       for (const north of [true, false]) {
         const cz = north ? sz - 21.5 : sz + 21.5;
         if (!north && cz + 10 > southEdge - 3) continue;
-        for (let x = -86; x <= 86; x += 24) {
+        for (let x = -(H.x - 26); x <= H.x - 26; x += 24) {
           if (Math.abs(x) < 16) continue;
           if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
           if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
           const id = `${D.id}-${num}`;
-          const land = rnd() < 0.13;
-          const toLet = !land && rnd() < 0.3;
+          const r1 = rnd();
+          const land = r1 < (D.land ?? 0.13);
+          const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.08);
+          const toLet = !land && !shops && rnd() < 0.3;
           const turn = north ? 0 : Math.PI;
           let c: Compound;
           if (land) {
@@ -796,6 +817,26 @@ export class IlmCityEngine {
               floors: 0,
               number: num,
             };
+          } else if (shops) {
+            const row = shopRow(batch, { x, z: cz, turn, rnd });
+            const front = cz + (north ? 10 : -10);
+            c = {
+              colliders: row.colliders,
+              door: { x, z: front },
+              gate: { x, z: front },
+              floors: 1,
+              number: num,
+            };
+            row.units.forEach((u, k) =>
+              this.addShopUnit(
+                `${D.id}-${num}-${k}`,
+                "shop",
+                u.center,
+                u.front,
+                D,
+                STREETS[D.streets[si].id].name,
+              ),
+            );
           } else c = compound(batch, { x, z: cz, turn, number: num, rnd });
           num += 2;
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
@@ -809,7 +850,7 @@ export class IlmCityEngine {
           this.plots.push({
             ...c,
             id,
-            kind: land ? "land" : "house",
+            kind: land ? "land" : shops ? "shops" : "house",
             toLet,
             district: D.id,
             street: STREETS[D.streets[si].id].name,
@@ -833,7 +874,7 @@ export class IlmCityEngine {
       }
     });
     const wires = new THREE.Group();
-    zs.forEach((sz) => powerLine(batch, -95, 95, sz - 9.8, wires));
+    zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     S.add(wires);
 
     // street lamps
@@ -841,7 +882,7 @@ export class IlmCityEngine {
       lampHead = new THREE.SphereGeometry(0.32, 8, 6);
     const lamps: [number, number][] = [];
     zs.forEach((sz) => {
-      for (let x = -90; x <= 90; x += 20) {
+      for (let x = -(XR - 6); x <= XR - 6; x += 20) {
         if (Math.abs(x) <= 8) continue;
         if (this.boxFree(x - 0.5, x + 0.5, sz + 7.5, sz + 8.5)) lamps.push([x, sz + 8]);
         if (this.boxFree(x + 9.5, x + 10.5, sz - 8.5, sz - 7.5)) lamps.push([x + 10, sz - 8]);
@@ -868,8 +909,8 @@ export class IlmCityEngine {
       z < southEdge - 8;
     let n = 0;
     for (let i = 0; i < 700 && n < 60; i++) {
-      const x = -96 + rnd() * 192,
-        z = -96 + rnd() * (southEdge + 80);
+      const x = -XR + rnd() * XR * 2,
+        z = north + rnd() * (southEdge - 8 - north);
       if (!clear(x, z)) continue;
       batch.addObject(rnd() < 0.55 ? palm(x, z, 0.8 + rnd() * 0.3) : tree(x, z, 0.9 + rnd() * 0.4));
       n++;
@@ -899,21 +940,21 @@ export class IlmCityEngine {
     const routes: [number, number][][] = [];
     zs.forEach((sz) => {
       routes.push([
-        [-90, sz + 9],
-        [90, sz + 9],
+        [-(XR - 6), sz + 9],
+        [XR - 6, sz + 9],
       ]);
       routes.push([
-        [90, sz - 9],
-        [-90, sz - 9],
+        [XR - 6, sz - 9],
+        [-(XR - 6), sz - 9],
       ]);
     });
     routes.push([
-      [9, -95],
+      [9, north + 1],
       [9, crossEnd],
     ]);
     routes.push([
       [-9, crossEnd],
-      [-9, -95],
+      [-9, north + 1],
     ]);
     routes.forEach((route, i) => {
       const k = (start + i) % names.length;
@@ -975,8 +1016,8 @@ export class IlmCityEngine {
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
   private buildWorld() {
     const S = this.scene;
-    const ground = new THREE.Mesh(groundGeo(1800, 1700, 10), MAT.grass());
-    ground.position.set(50, -0.01, 0);
+    const ground = new THREE.Mesh(groundGeo(2000, 2400, 10), MAT.grass());
+    ground.position.set(50, -0.01, -330);
     ground.receiveShadow = true;
     S.add(ground);
     const water = (w: number, d: number, x: number, z: number, round = false) => {
@@ -999,9 +1040,11 @@ export class IlmCityEngine {
     water(150, 105, 540, 20, true);
     this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
     // world edges
-    this.colliders.out.push({ x0: -1100, x1: -800, z0: -900, z1: 900 });
-    this.colliders.out.push({ x0: 860, x1: 1200, z0: -900, z1: 900 });
-    this.colliders.out.push({ x0: -1100, x1: 1200, z0: -900, z1: -680 });
+    this.colliders.out.push({ x0: -1100, x1: -800, z0: -1600, z1: 900 });
+    this.colliders.out.push({ x0: 860, x1: 1200, z0: -1600, z1: 900 });
+    // the north edge: Ikorodu reaches further north than the rest of the city
+    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1600, z1: -680 });
+    this.colliders.out.push({ x0: 420, x1: 1200, z0: -1600, z1: -1330 });
 
     DISTRICTS.forEach((d) => this.buildDistrict(d.id));
 
@@ -1034,8 +1077,38 @@ export class IlmCityEngine {
     jl.position.set(0, 14, 0);
     S.add(jl);
 
+    // Ikorodu Road continues north, joining each Ikorodu area to the next
+    for (const d of DISTRICTS) {
+      if (!d.parent) continue;
+      const p = districtById(d.parent);
+      const z0 = p.origin.z - (halfOf(p).z - 4),
+        z1 = d.origin.z + halfOf(d).z - 7;
+      const len = z0 - z1;
+      const k = new THREE.Mesh(groundGeo(22, len, 2), MAT.pavement());
+      k.position.set(d.origin.x, 0.02, (z0 + z1) / 2);
+      S.add(k);
+      const r = new THREE.Mesh(groundGeo(12, len, 4), MAT.asphalt());
+      r.position.set(d.origin.x, 0.04, (z0 + z1) / 2);
+      S.add(r);
+      for (let z = z1 + 3; z < z0 - 3; z += 6) {
+        const m = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.25, 3),
+          new THREE.MeshBasicMaterial({ color: PALETTE.line }),
+        );
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(d.origin.x, 0.06, z);
+        this.worldBatch.addObject(m);
+      }
+      const t = label("Ikorodu Road", { bg: "rgba(42,58,52,0.9)", size: 1.1 });
+      t.position.set(d.origin.x + 9, 6, (z0 + z1) / 2);
+      S.add(t);
+      for (let z = z1 + 6; z < z0 - 6; z += 14) {
+        this.worldBatch.addObject(palm(d.origin.x - 13, z, 0.9));
+        this.worldBatch.addObject(palm(d.origin.x + 13, z + 7, 0.9));
+      }
+    }
     // expressways from the junction to the end of each main street
-    DISTRICTS.forEach((d) => {
+    DISTRICTS.filter((d) => !d.parent).forEach((d) => {
       const [ax, az] = this.roadEnd(d);
       const len0 = Math.hypot(ax, az);
       this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
@@ -1046,7 +1119,7 @@ export class IlmCityEngine {
   /** Where an area's main street meets its expressway. */
   private roadEnd(d: District): [number, number] {
     const side = d.origin.x > 0 ? -1 : 1;
-    return [d.origin.x + side * 106, d.origin.z];
+    return [d.origin.x + side * (halfOf(d).x - 6), d.origin.z];
   }
 
   private expressway(x0: number, z0: number, x1: number, z1: number, name: string) {
@@ -1087,13 +1160,19 @@ export class IlmCityEngine {
   /** The area the player is in, or null on an expressway. */
   areaAt(x: number, z: number) {
     return (
-      DISTRICTS.find((d) => Math.abs(x - d.origin.x) < 112 && Math.abs(z - d.origin.z) < 100) ??
-      null
+      DISTRICTS.find(
+        (d) => Math.abs(x - d.origin.x) < halfOf(d).x && Math.abs(z - d.origin.z) < halfOf(d).z,
+      ) ?? null
     );
   }
   /** Which expressway the player is on, if any. */
   private roadAt(x: number, z: number) {
     for (const d of DISTRICTS) {
+      if (d.parent) {
+        if (Math.abs(x - d.origin.x) < 12 && z > d.origin.z && z < districtById(d.parent).origin.z)
+          return d.highway;
+        continue;
+      }
       const [ax, az] = this.roadEnd(d);
       const t = Math.max(0, Math.min(1, (x * ax + z * az) / (ax * ax + az * az)));
       if (Math.hypot(x - ax * t, z - az * t) < 11) return d.highway;
@@ -1107,7 +1186,7 @@ export class IlmCityEngine {
   /** Every compound in the city (for rent, sale and visits). */
   plots: (Compound & {
     id: string;
-    kind: "house" | "land";
+    kind: "house" | "land" | "shops";
     toLet: boolean;
     district: string;
     street: string;
@@ -1132,7 +1211,232 @@ export class IlmCityEngine {
     if (l.kind === "masjid") this.buildMasjid(l.x, sz - 23, l);
     else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
     else if (l.kind === "home") this.buildHome(l.x, sz - 17);
-    else this.buildSouq(l.x, sz - 19, l);
+    else if (l.kind === "souq") this.buildSouq(l.x, sz - 19, l);
+    else if (l.kind === "market") this.buildMarket(D);
+    else {
+      const south = l.side === "s";
+      const d = l.depth ?? 30,
+        w = l.width ?? 30;
+      const cz = south ? sz + 11 + d / 2 : sz - 11 - d / 2;
+      const turn = south ? Math.PI : 0;
+      const b = this.curBatch;
+      const o = { x: l.x, z: cz, turn, width: w, depth: d, floors: l.floors ?? 2, name: l.name };
+      const built =
+        l.kind === "campus"
+          ? campus(b, { ...o, classes: l.classes ?? [] })
+          : l.kind === "mansion"
+            ? mansion(b, o)
+            : office(b, {
+                ...o,
+                color: l.brand?.color ?? 0x1f6f63,
+                accent: l.brand?.accent ?? 0xffffff,
+              });
+      for (const c of built.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+      for (const sp of built.spots) {
+        if (sp.key === "gate" && l.kind === "campus") {
+          const t = label(sp.label, { size: 1.1 });
+          t.position.set(sp.x, sp.labelY ?? 6, sp.z);
+          this.dg.add(t);
+          continue;
+        }
+        const id = l.kind === "campus" ? `campus:${l.id}:${sp.key}` : `${l.kind}:${l.id}`;
+        const text = l.kind === "campus" ? sp.label : "Visit " + l.name;
+        this.zones.push({
+          id,
+          label: text,
+          x: sp.x + this.ox,
+          z: sp.z + this.oz,
+          r: 2.6,
+          scene: "out",
+        });
+        const t = label(sp.label, { size: l.kind === "campus" ? 0.65 : 0.9 });
+        t.position.set(sp.x, sp.labelY ?? 4, sp.z);
+        this.dg.add(t);
+      }
+    }
+  }
+  private curBatch = new Batch();
+
+  /* ---------------- shops and market stalls ---------------- */
+  private shopFx = new Map<
+    string,
+    {
+      kind: "shop" | "stall";
+      sign: THREE.Mesh;
+      shutter?: THREE.Mesh;
+      zone: Zone;
+      district: string;
+      street: string;
+    }
+  >();
+  /** Where a shop's sign and shutter go, from its centre towards its front. */
+  private addShopUnit(
+    id: string,
+    kind: "shop" | "stall",
+    center: { x: number; z: number },
+    front: { x: number; z: number },
+    D: District,
+    street: string,
+  ) {
+    const dx = front.x - center.x,
+      dz = front.z - center.z,
+      L = Math.hypot(dx, dz);
+    const ux = dx / L,
+      uz = dz / L;
+    const ry = Math.atan2(ux, uz);
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(kind === "shop" ? 4.6 : 4.4, kind === "shop" ? 0.95 : 1.3),
+    );
+    const sd = kind === "shop" ? 3.95 : 2.15;
+    sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 2.75, center.z + uz * sd);
+    sign.rotation.y = ry;
+    this.dg.add(sign);
+    let shutter: THREE.Mesh | undefined;
+    if (kind === "shop") {
+      shutter = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 3.5), MAT2.shutter());
+      shutter.position.set(center.x + ux * 3.5, 1.75, center.z + uz * 3.5);
+      shutter.rotation.y = ry;
+      this.dg.add(shutter);
+    }
+    const zone: Zone = {
+      id: (kind === "shop" ? "shop:" : "stall:") + id,
+      label: "",
+      x: front.x + this.ox,
+      z: front.z + this.oz,
+      r: 2.4,
+      scene: "out",
+    };
+    this.zones.push(zone);
+    this.shopFx.set(id, { kind, sign, shutter, zone, district: D.id, street });
+  }
+  private shopTexCache = new Map<string, THREE.Texture>();
+  /** Paint a shop's signboard: its name and up to three product pictures. */
+  setShop(id: string, s: { name?: string; imgs?: string[]; open: boolean; label?: string }) {
+    const fx = this.shopFx.get(id);
+    if (!fx) return;
+    fx.zone.label =
+      s.label ??
+      (s.name ? `${s.name}` : fx.kind === "shop" ? "Shop to let" : "Market space for rent");
+    if (fx.shutter) {
+      fx.shutter.scale.y = s.open ? 0.18 : 1;
+      fx.shutter.position.y = s.open ? 3.2 : 1.75;
+    }
+    const cv = document.createElement("canvas");
+    cv.width = 512;
+    cv.height = fx.kind === "shop" ? 104 : 152;
+    const c = cv.getContext("2d")!;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const draw = (imgs: HTMLImageElement[]) => {
+      const W = cv.width,
+        H = cv.height;
+      if (!s.name) {
+        c.fillStyle = fx.kind === "shop" ? "#c62828" : "#fdfbf5";
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = fx.kind === "shop" ? "#fff" : "#c62828";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = "800 44px system-ui, sans-serif";
+        c.fillText(fx.kind === "shop" ? "SHOP TO LET" : "SPACE FOR RENT", W / 2, H * 0.42);
+        c.font = "600 22px system-ui, sans-serif";
+        c.fillText(
+          fx.kind === "shop" ? "Tap to view" : "₦2,000 a week · tap to rent",
+          W / 2,
+          H * 0.8,
+        );
+      } else {
+        c.fillStyle = "#1f6f63";
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = "#e6b84a";
+        c.fillRect(0, H - 8, W, 8);
+        const iw = imgs.length ? H - 20 : 0;
+        imgs.slice(0, 3).forEach((im, i) => {
+          const x = W - (i + 1) * (iw + 8);
+          c.fillStyle = "#fff";
+          c.fillRect(x - 3, 7, iw + 6, iw + 6);
+          const r = Math.max(iw / im.width, iw / im.height);
+          const sw = iw / r,
+            sh = iw / r;
+          c.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, x, 10, iw, iw);
+        });
+        const tw = W - Math.min(3, imgs.length) * (iw + 8) - 20;
+        c.fillStyle = "#fdf8ec";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        let size = 46;
+        c.font = `800 ${size}px system-ui, sans-serif`;
+        while (c.measureText(s.name).width > tw && size > 16) {
+          size -= 2;
+          c.font = `800 ${size}px system-ui, sans-serif`;
+        }
+        c.fillText(s.name, 10 + tw / 2, H / 2);
+      }
+      tex.needsUpdate = true;
+    };
+    const srcs = (s.imgs ?? []).slice(0, 3);
+    if (!srcs.length) draw([]);
+    else
+      Promise.all(
+        srcs.map(
+          (src) =>
+            new Promise<HTMLImageElement | null>((res) => {
+              const im = new Image();
+              im.onload = () => res(im);
+              im.onerror = () => res(null);
+              im.src = src;
+            }),
+        ),
+      ).then((list) => draw(list.filter((x): x is HTMLImageElement => !!x)));
+    const old = fx.sign.material as THREE.MeshStandardMaterial;
+    fx.sign.material = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 });
+    if (old && old.map && old !== fx.sign.material) {
+      old.map.dispose();
+      old.dispose();
+    }
+  }
+  shopInfo(id: string) {
+    const fx = this.shopFx.get(id);
+    if (!fx) return null;
+    return { id, kind: fx.kind, district: fx.district, street: fx.street };
+  }
+  shopIds() {
+    return [...this.shopFx.keys()];
+  }
+
+  /** Ikorodu Market: rows of stalls along Souq Road and two lanes behind it. */
+  private buildMarket(D: District) {
+    const H = halfOf(D);
+    const b = this.curBatch;
+    let k = 0;
+    const lanes: [number, number][] = [
+      [-14, 0],
+      [14, Math.PI],
+      [-38, 0],
+      [38, Math.PI],
+    ];
+    for (const [z, turn] of lanes) {
+      for (const [x0, x1] of [
+        [-(H.x - 20), -10],
+        [10, H.x - 20],
+      ]) {
+        const row = stallRow(b, { x0, x1, z, turn });
+        for (const c of row.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+        for (const u of row.units)
+          this.addShopUnit(`m${k++}`, "stall", u.center, u.front, D, "Souq Road");
+      }
+      // a paved walkway in front of the inner rows
+      if (Math.abs(z) > 20) {
+        const walk = new THREE.Mesh(groundGeo(H.x * 2 - 30, 7, 2), MAT.pavement());
+        walk.position.set(0, 0.03, z + (turn === 0 ? 5.5 : -5.5));
+        b.addObject(walk);
+      }
+    }
+    this.reserved.push({
+      x0: this.ox - H.x,
+      x1: this.ox + H.x,
+      z0: this.oz - 48,
+      z1: this.oz + 48,
+    });
   }
 
   private buildBusPark(x: number, z: number) {
@@ -1195,16 +1499,22 @@ export class IlmCityEngine {
     const W = (x: number, z: number) => new THREE.Vector3(D.origin.x + x, 0, D.origin.z + z);
     let vehicle: THREE.Group;
     let path: THREE.Vector3[];
+    const Hz = halfOf(D).z,
+      Hx = halfOf(D).x;
     if (byCar) {
       vehicle = this.car;
-      path = [W(side * 150, -3), W(side * 40, -3), W(-4, 9.8), W(-16, 9.8)];
+      path = D.parent
+        ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
+        : [W(side * (Hx + 38), -3), W(side * 40, -3), W(-4, 9.8), W(-16, 9.8)];
     } else {
       vehicle = makeBus();
       this.scene.add(vehicle);
-      path = [W(side * 150, 3), W(side * 40, 3), W(-6, 9.6), W(-52, 9.6)];
+      path = D.parent
+        ? [W(3, Hz + 40), W(3, 20), W(-6, 9.6), W(-52, 9.6)]
+        : [W(side * (Hx + 38), 3), W(side * 40, 3), W(-6, 9.6), W(-52, 9.6)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = side > 0 ? Math.PI : 0;
+    vehicle.rotation.y = D.parent ? Math.PI / 2 : side > 0 ? Math.PI : 0;
     this.player.position.copy(path[0]);
     this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
     this.ev.onCinematic?.(true);
@@ -1267,10 +1577,12 @@ export class IlmCityEngine {
   }
 
   private welcomeGate(D: District, side: number) {
-    const gx = side * 94;
+    const H = halfOf(D);
+    const gx = D.parent ? 0 : side * (H.x - 18);
+    const gz = D.parent ? H.z - 14 : 0;
     const g = new THREE.Group();
-    g.position.set(gx, 0, 0);
-    g.rotation.y = (side * Math.PI) / 2;
+    g.position.set(gx, 0, gz);
+    g.rotation.y = D.parent ? 0 : (side * Math.PI) / 2;
     for (const x of [-8.6, 8.6]) {
       g.add(box(1.4, 7.5, 1.4, 0xece6d6, x, 0, 0));
       const cap = new THREE.Mesh(new THREE.ConeGeometry(1, 1.6, 8), mat(PALETTE.dome));
@@ -1281,7 +1593,8 @@ export class IlmCityEngine {
       c.scale.setScalar(0.6);
       c.position.set(x - 0.1, 9.6, 0);
       g.add(c);
-      this.addCollider("out", gx - 0.8, gx + 0.8, -x * side - 0.8, -x * side + 0.8);
+      if (D.parent) this.addCollider("out", x - 0.8, x + 0.8, gz - 0.8, gz + 0.8);
+      else this.addCollider("out", gx - 0.8, gx + 0.8, -x * side - 0.8, -x * side + 0.8);
     }
     g.add(box(18.6, 2.6, 0.7, 0x1f6f63, 0, 5.4, 0));
     const { mesh } = canvasPlane(
@@ -1298,6 +1611,12 @@ export class IlmCityEngine {
         c.textBaseline = "middle";
         c.font = `800 ${Math.round(H * 0.42)}px "Work Sans", system-ui, sans-serif`;
         c.fillText(`Welcome to ${D.name}`, W / 2, H * 0.42);
+        if (D.parent) {
+          c.fillStyle = "#e6b84a";
+          c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
+          c.fillText(`Ikorodu · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
+          return;
+        }
         c.fillStyle = "#e6b84a";
         c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
         c.fillText(`${D.state} State · IlmCity`, W / 2, H * 0.78);
@@ -2309,7 +2628,7 @@ export class IlmCityEngine {
       const g = new THREE.Group();
       g.position.set(st.x, 0, st.z);
       // the shelter's back faces away from the road
-      g.rotation.y = st.z > districtById(st.district).origin.z ? 0 : Math.PI;
+      g.rotation.y = st.rot;
       const frame = MAT.plain(0x5a5f66, 0.5);
       for (const x of [-2, 2]) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), frame);
@@ -2563,7 +2882,7 @@ export class IlmCityEngine {
         best = { id: "car", label: "Get in your car", x: 0, z: 0, r: 0, scene: "out" };
     }
     const ctx: Context = best ? { id: best.id, label: best.label } : null;
-    if (ctx?.id !== this.ctx?.id) {
+    if (ctx?.id !== this.ctx?.id || ctx?.label !== this.ctx?.label) {
       this.ctx = ctx;
       this.ev.onContext(ctx);
     }
@@ -2580,10 +2899,10 @@ export class IlmCityEngine {
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
-      place = `${area.name} · ${area.state}`;
+      place = `${fullName(area)} · ${area.state}`;
       const lz = pos.z - area.origin.z;
       const st = area.streets.find((s2) => Math.abs(lz - s2.z) < 7);
-      if (st) place = `${STREETS[st.id]?.name ?? ""}, ${area.name}`;
+      if (st) place = `${STREETS[st.id]?.name ?? ""}, ${fullName(area)}`;
     } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
     if (place !== this.place) {
       this.place = place;

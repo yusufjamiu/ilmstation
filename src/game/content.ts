@@ -46,13 +46,49 @@ export const STREETS: Record<string, Street> = {
   rahmah: { id: "rahmah", name: "Rahmah Street", bio: HOMES },
   taqwa: { id: "taqwa", name: "Taqwa Close", bio: HOMES },
   sabr: { id: "sabr", name: "Sabr Avenue", bio: HOMES },
+  // Ikorodu
+  agbabiaka: { id: "agbabiaka", name: "Sheikh Dr Habeebullahi Agbabiaka Street", bio: COMING_SOON },
+  devjaytech: {
+    id: "devjaytech",
+    name: "Techie Jamiu Adewuyi (Devjaytech) Street",
+    bio: "Named after Jamiu Adewuyi (Devjaytech), the developer who built IlmStation, OutingStation and IlmCity. His offices are on this street.",
+  },
+  jabata: { id: "jabata", name: "Sheikh Alli Jabata Street", bio: COMING_SOON },
+  najeeb: { id: "najeeb", name: "Imam Najeeb Street", bio: COMING_SOON },
+  souq: {
+    id: "souq",
+    name: "Souq Road",
+    bio: "The road through Ikorodu Market. Businesses rent stalls here and show their products to every player who walks by.",
+  },
+  ummah: { id: "ummah", name: "Ummah Close", bio: HOMES },
+  iman: { id: "iman", name: "Iman Street", bio: HOMES },
+  firdaus: { id: "firdaus", name: "Firdaus Close", bio: HOMES },
+  huda: { id: "huda", name: "Huda Avenue", bio: HOMES },
 };
 
 /* ---------------- areas ----------------
    To add an area: copy one block, give it streets (main street first, z = 0;
    a second street sits at z = -55) and landmarks placed along a street by x. */
-export type LandmarkKind = "masjid" | "school" | "home" | "souq";
-export type Landmark = { id: string; kind: LandmarkKind; name: string; street: string; x: number };
+export type LandmarkKind =
+  "masjid" | "school" | "home" | "souq" | "campus" | "mansion" | "office" | "market";
+export type Landmark = {
+  id: string;
+  kind: LandmarkKind;
+  name: string;
+  street: string;
+  x: number;
+  /** which side of the street: north (default) or south */
+  side?: "n" | "s";
+  /** width along the street and depth away from it (campus, mansion, office) */
+  width?: number;
+  depth?: number;
+  /** classes in a school campus */
+  classes?: string[];
+  floors?: number;
+  /** a short description for the info panel */
+  about?: string;
+  brand?: { color: number; accent: number; link?: string };
+};
 export type District = {
   id: string;
   name: string;
@@ -62,6 +98,15 @@ export type District = {
   /** The expressway that joins this area to the City Junction. */
   highway: string;
   lagoon?: boolean;
+  /** half the area's size (default 112 × 100) */
+  half?: { x: number; z: number };
+  /** reached by road from this area instead of by its own expressway */
+  parent?: string;
+  /** the name of its bus stop */
+  busStop?: string;
+  /** share of empty plots that are shops and land (default 0.08 and 0.13) */
+  shops?: number;
+  land?: number;
   streets: { id: string; z: number }[];
   landmarks: Landmark[];
 };
@@ -127,10 +172,13 @@ export const DISTRICTS: District[] = [
     state: "Lagos",
     origin: { x: 575, z: -425 },
     highway: "Ikorodu Road",
+    busStop: "Igbe Laara",
+    half: { x: 112, z: 170 },
+    shops: 0.3,
     streets: [
-      { id: "habeebadewuyi", z: 0 },
-      { id: "hikmah", z: -66 },
-      { id: "ihsan", z: 63 },
+      { id: "devjaytech", z: 0 },
+      { id: "habeebadewuyi", z: -110 },
+      { id: "agbabiaka", z: 110 },
     ],
     landmarks: [
       {
@@ -138,9 +186,210 @@ export const DISTRICTS: District[] = [
         kind: "masjid",
         name: "Maktab (Saudi) Mosque",
         street: "habeebadewuyi",
-        x: -36,
+        x: -40,
       },
-      { id: "manaar", kind: "school", name: "Manaar Schools", street: "habeebadewuyi", x: 32 },
+      {
+        id: "habeeb-house",
+        kind: "mansion",
+        name: "House of Sheikh Habeeb Adewuyi",
+        street: "habeebadewuyi",
+        x: 50,
+        width: 48,
+        depth: 34,
+        floors: 3,
+      },
+      {
+        id: "manaar",
+        kind: "campus",
+        name: "Manaar Schools",
+        street: "habeebadewuyi",
+        x: -42,
+        side: "s",
+        width: 76,
+        depth: 50,
+        floors: 3,
+        classes: [
+          "Primary 1",
+          "Primary 2",
+          "Primary 3",
+          "Primary 4",
+          "Primary 5",
+          "JSS 1",
+          "JSS 2",
+          "JSS 3",
+          "SS 1",
+          "SS 2",
+          "SS 3",
+        ],
+        about:
+          "Manaar Schools teaches the Qur'an, Arabic and Islamic studies alongside English, Mathematics and the other school subjects, from Primary 1 to SS 3.",
+      },
+      {
+        id: "ilmstation",
+        kind: "office",
+        name: "IlmStation",
+        street: "devjaytech",
+        x: -48,
+        width: 28,
+        depth: 26,
+        floors: 5,
+        brand: { color: 0x1f6f63, accent: 0xe6b84a, link: "https://ilmstation.com" },
+        about:
+          "IlmStation is a learning app for Muslims: Qur'an, Islamic studies and quizzes with rewards. IlmCity is part of IlmStation.",
+      },
+      {
+        id: "outingstation",
+        kind: "office",
+        name: "OutingStation",
+        street: "devjaytech",
+        x: 50,
+        width: 28,
+        depth: 26,
+        floors: 4,
+        brand: { color: 0xf2b84b, accent: 0x2a1c05, link: "https://outingstation.com" },
+        about:
+          "OutingStation helps you discover events, experiences, shortlets and rides near you. Made by OutingStation Limited.",
+      },
+      {
+        id: "devjaytech-hq",
+        kind: "office",
+        name: "Devjaytech",
+        street: "devjaytech",
+        x: -36,
+        side: "s",
+        width: 24,
+        depth: 24,
+        floors: 3,
+        brand: { color: 0x10201e, accent: 0x45b8a8 },
+        about:
+          "The office of Techie Jamiu Adewuyi (Devjaytech), the developer behind IlmStation, OutingStation and IlmCity.",
+      },
+      {
+        id: "daarulquran-mosque",
+        kind: "masjid",
+        name: "Daarul Quran Mosque",
+        street: "agbabiaka",
+        x: 50,
+      },
+      {
+        id: "daarulquran",
+        kind: "campus",
+        name: "Daarul Quran Madrasah",
+        street: "agbabiaka",
+        x: -44,
+        width: 60,
+        depth: 40,
+        floors: 2,
+        classes: ["Primary 1", "Primary 2", "Primary 3", "JSS 1", "JSS 2", "JSS 3"],
+        about:
+          "Daarul Quran Madrasah teaches Qur'an memorisation, Tajweed, Arabic and Islamic studies, with English and Mathematics.",
+      },
+      {
+        id: "agbabiaka-house",
+        kind: "mansion",
+        name: "House of Sheikh Dr Habeebullahi Agbabiaka",
+        street: "agbabiaka",
+        x: -44,
+        side: "s",
+        width: 46,
+        depth: 32,
+        floors: 3,
+      },
+    ],
+  },
+  {
+    id: "agric",
+    name: "Agric",
+    state: "Lagos",
+    origin: { x: 575, z: -735 },
+    highway: "Ikorodu Road",
+    parent: "ikorodu",
+    busStop: "Agric",
+    half: { x: 112, z: 110 },
+    shops: 0.3,
+    land: 0.25,
+    streets: [
+      { id: "jabata", z: 0 },
+      { id: "ummah", z: -66 },
+      { id: "iman", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "jabata-mosque",
+        kind: "masjid",
+        name: "Sheikh Alli Jabata Mosque",
+        street: "jabata",
+        x: -40,
+      },
+      {
+        id: "jabata-house",
+        kind: "mansion",
+        name: "House of Sheikh Alli Jabata",
+        street: "jabata",
+        x: -42,
+        side: "s",
+        width: 44,
+        depth: 30,
+        floors: 2,
+      },
+    ],
+  },
+  {
+    id: "secondgate",
+    name: "Second Gate",
+    state: "Lagos",
+    origin: { x: 575, z: -975 },
+    highway: "Ikorodu Road",
+    parent: "agric",
+    busStop: "Second Gate",
+    half: { x: 112, z: 110 },
+    shops: 0.25,
+    land: 0.22,
+    streets: [
+      { id: "najeeb", z: 0 },
+      { id: "firdaus", z: -66 },
+      { id: "huda", z: 66 },
+    ],
+    landmarks: [
+      { id: "banualli-mosque", kind: "masjid", name: "Banu Alli Mosque", street: "najeeb", x: -40 },
+      {
+        id: "banualli",
+        kind: "campus",
+        name: "Banu Alli School",
+        street: "najeeb",
+        x: -40,
+        side: "s",
+        width: 58,
+        depth: 40,
+        floors: 2,
+        classes: [
+          "Primary 1",
+          "Primary 2",
+          "Primary 3",
+          "Primary 4",
+          "Primary 5",
+          "Primary 6",
+          "JSS 1",
+          "JSS 2",
+          "JSS 3",
+        ],
+        about:
+          "Banu Alli School gives children a strong Islamic and Western education on Imam Najeeb Street.",
+      },
+    ],
+  },
+  {
+    id: "market",
+    name: "Ikorodu Market",
+    state: "Lagos",
+    origin: { x: 575, z: -1215 },
+    highway: "Ikorodu Road",
+    parent: "secondgate",
+    busStop: "Ikorodu Market",
+    half: { x: 112, z: 100 },
+    streets: [{ id: "souq", z: 0 }],
+    landmarks: [
+      { id: "souq-ikorodu", kind: "market", name: "Ikorodu Market", street: "souq", x: 0 },
     ],
   },
   {
@@ -166,6 +415,9 @@ export const DISTRICTS: District[] = [
   },
 ];
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
+export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
+/** "Agric, Ikorodu" for areas inside Ikorodu. */
+export const fullName = (d: District) => (d.parent ? `${d.name}, Ikorodu` : d.name);
 export const BUS_FARE = 5;
 
 export const BILLBOARDS: Billboard[] = [
@@ -296,6 +548,30 @@ export type Lecture = {
 };
 export const LECTURES: Lecture[] = [
   {
+    id: "daarulquran-tafsir",
+    mosque: "daarulquran-mosque",
+    title: "Tafsir of Juz 'Amma",
+    speaker: "Guest Imam",
+    start: "16:45",
+    minutes: 45,
+  },
+  {
+    id: "jabata-fiqh",
+    mosque: "jabata-mosque",
+    title: "Fiqh of Purification",
+    speaker: "Guest Imam",
+    start: "10:30",
+    minutes: 45,
+  },
+  {
+    id: "banualli-seerah",
+    mosque: "banualli-mosque",
+    title: "Stories of the Prophets",
+    speaker: "Guest Imam",
+    start: "17:15",
+    minutes: 40,
+  },
+  {
     id: "lekki-tafsir",
     mosque: "lekki-central",
     title: "Tafsir of Surah Al-Kahf",
@@ -419,4 +695,73 @@ export const TENANTS = [
   "Brother Rasheed",
   "The Adeyemi family",
   "Sister Fatimah and her children",
+];
+
+/* ---------------- shops and market stalls ---------------- */
+export const SHOP_PRICES = {
+  shop: {
+    week: { days: 7, points: 200, naira: 2000 },
+    month: { days: 30, points: 700, naira: 7000 },
+  },
+  /** market stalls are paid in naira with Paystack */
+  stall: { week: { days: 7, naira: 2000 } },
+};
+/** Traders already selling in Ikorodu Market (every third stall). */
+export const MARKET_TRADERS: { name: string; items: [string, string, string][] }[] = [
+  {
+    name: "Mama Aisha Dates",
+    items: [
+      ["🌴", "Ajwa dates", "₦4,500"],
+      ["🍯", "Pure honey", "₦3,000"],
+    ],
+  },
+  {
+    name: "Barakah Books",
+    items: [
+      ["📗", "Mushaf (Qur'an)", "₦6,000"],
+      ["📚", "Islamic storybooks", "₦2,500"],
+    ],
+  },
+  {
+    name: "Al-Noor Perfumes",
+    items: [
+      ["🧴", "Oud oil", "₦5,000"],
+      ["🌸", "White musk", "₦2,000"],
+    ],
+  },
+  {
+    name: "Sister Halimah Abayas",
+    items: [
+      ["👗", "Abaya", "₦18,000"],
+      ["🧕", "Jersey hijab", "₦3,500"],
+    ],
+  },
+  {
+    name: "Iya Basira Foodstuff",
+    items: [
+      ["🍚", "Rice (5kg)", "₦9,000"],
+      ["🫘", "Beans (paint)", "₦7,500"],
+    ],
+  },
+  {
+    name: "Prayer Mat Corner",
+    items: [
+      ["🕌", "Prayer mat", "₦6,500"],
+      ["📿", "Tasbih", "₦1,000"],
+    ],
+  },
+  {
+    name: "Fresh Fruits",
+    items: [
+      ["🍉", "Watermelon", "₦2,500"],
+      ["🍌", "Banana (bunch)", "₦1,500"],
+    ],
+  },
+  {
+    name: "Phone Gadgets",
+    items: [
+      ["📱", "Phone case", "₦2,000"],
+      ["🔌", "Fast charger", "₦4,000"],
+    ],
+  },
 ];

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import { loadHumans } from "./humans";
+import { SCHOOL_POINTS, SUBJECTS, quizFor, type Q as SchoolQ } from "./school";
 import {
   AD_EMAIL,
   BILLBOARDS,
@@ -15,6 +16,9 @@ import {
   SMALL_TALK,
   ECONOMY,
   TENANTS,
+  SHOP_PRICES,
+  MARKET_TRADERS,
+  fullName,
   districtById,
   type Lecture,
   type Question,
@@ -44,6 +48,8 @@ type Save = {
   world?: boolean;
   lectureMin?: number;
   plots?: Record<string, PlotOwn>;
+  shops?: Record<string, ShopOwn>;
+  schoolPts?: number;
 };
 const landmarkName = (lid: string) => {
   for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return l.name;
@@ -183,7 +189,7 @@ export default function IlmCityGame() {
   // new day resets the daily salah tracker
   useEffect(() => {
     if (save.day !== clock.key)
-      update((s) => ({ ...s, day: clock.key, prayed: {}, asked: [], lectureMin: 0 }));
+      update((s) => ({ ...s, day: clock.key, prayed: {}, asked: [], lectureMin: 0, schoolPts: 0 }));
   }, [clock.key, save.day, update]);
 
   const openLecture = useCallback(
@@ -284,6 +290,93 @@ export default function IlmCityGame() {
     [toast, update],
   );
 
+  /** Paint every shop and stall: yours, the market's traders, or "for rent". */
+  const paintShop = useCallback((e: IlmCityEngine, sid: string) => {
+    const own = saveRef.current.shops?.[sid];
+    const info = e.shopInfo(sid);
+    const trader = traderAt(sid);
+    if (own && own.until > Date.now())
+      e.setShop(sid, {
+        name: own.name || "My shop",
+        imgs: own.products.map((p) => p.img),
+        open: true,
+      });
+    else if (trader && info?.kind === "stall")
+      e.setShop(sid, {
+        name: trader.name,
+        imgs: trader.items.map(([em]) => emojiPic(em)),
+        open: true,
+      });
+    else e.setShop(sid, { open: false });
+  }, []);
+  const openShop = useCallback(
+    (sid: string) => {
+      const e = engine.current;
+      const info = e?.shopInfo(sid);
+      if (!e || !info) return;
+      const D = districtById(info.district);
+      const render = () => {
+        const own = saveRef.current.shops?.[sid];
+        const trader = info.kind === "stall" ? traderAt(sid) : null;
+        setPanel({
+          kind: "info",
+          title: trader
+            ? trader.name
+            : own && own.until > Date.now()
+              ? own.name || (info.kind === "shop" ? "Your shop" : "Your stall")
+              : info.kind === "shop"
+                ? "Shop to let"
+                : "Market space for rent",
+          body: (
+            <ShopView
+              key={sid + (own?.until ?? 0)}
+              kind={info.kind}
+              where={`${info.street}, ${fullName(D)}`}
+              own={own}
+              trader={trader}
+              points={saveRef.current.coins}
+              onRent={(days, pts) => {
+                if (saveRef.current.coins < pts) return;
+                const prev = saveRef.current.shops?.[sid];
+                const next: ShopOwn = {
+                  until: Math.max(Date.now(), prev?.until ?? 0) + days * 86400000,
+                  name: prev?.name ?? "",
+                  products: prev?.products ?? [],
+                };
+                update((x) => ({ ...x, coins: x.coins - pts, shops: { ...x.shops, [sid]: next } }));
+                saveRef.current = {
+                  ...saveRef.current,
+                  shops: { ...saveRef.current.shops, [sid]: next },
+                };
+                paintShop(e, sid);
+                toast(
+                  "The keys are yours! Give your business a name and add product photos.",
+                  "good",
+                );
+                setTimeout(render, 0);
+              }}
+              onPaystack={(amount, what) =>
+                toast(`Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next.`)
+              }
+              onSave={(o) => {
+                update((x) => ({ ...x, shops: { ...x.shops, [sid]: o } }));
+                saveRef.current = {
+                  ...saveRef.current,
+                  shops: { ...saveRef.current.shops, [sid]: o },
+                };
+                paintShop(e, sid);
+                toast(`${o.name} is open for business!`, "good");
+                setPanel(null);
+              }}
+            />
+          ),
+        });
+      };
+      render();
+    },
+    [toast, update, paintShop],
+  );
+
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
     (id: string) => {
@@ -291,6 +384,129 @@ export default function IlmCityGame() {
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
+      if (id.startsWith("campus:")) {
+        const [, lid, key, idx] = id.split(":");
+        const L = landmarkById(lid);
+        if (!L) return;
+        const { l, d } = L;
+        if (key === "admin") {
+          setPanel({
+            kind: "info",
+            title: `${l.name} · Admin block`,
+            body: (
+              <div className="space-y-2">
+                <p>{l.about ?? `${l.name} on ${STREETS[l.street].name}, ${fullName(d)}.`}</p>
+                <p>
+                  <b>Classes:</b> {(l.classes ?? []).join(", ")}.
+                </p>
+                <p>
+                  <b>Subjects:</b> {SUBJECTS.map((x) => x.name).join(", ")}.
+                </p>
+                <p className="text-[13px] opacity-75">
+                  Walk round the courtyard: every class has its own door. Enter a class to see its
+                  books and take the quizzes.
+                </p>
+              </div>
+            ),
+          });
+        } else if (key === "office") {
+          const r = REMINDERS[Math.floor(Math.random() * REMINDERS.length)];
+          setPanel({
+            kind: "info",
+            title: "The Sheikh's office",
+            body: (
+              <div className="space-y-2">
+                <p>
+                  Assalamu alaykum! The Sheikh is teaching a class right now. Please leave your
+                  question with the admin block.
+                </p>
+                <p className="rounded-xl bg-white p-3 text-[14px]">
+                  A reminder on the notice board: the Prophet ﷺ said, "{r.text}" ({r.source})
+                </p>
+              </div>
+            ),
+          });
+        } else if (key === "class") {
+          const cls = l.classes?.[Number(idx)];
+          if (!cls) return;
+          e.enterInterior("madrasah", `${cls} · ${l.name}`);
+          setInside(true);
+          setPanel({
+            kind: "info",
+            title: `${cls} · ${l.name}`,
+            body: (
+              <ClassView
+                cls={cls}
+                school={l.name}
+                earnedToday={saveRef.current.schoolPts ?? 0}
+                onCorrect={() => {
+                  if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
+                  update((x) => ({
+                    ...x,
+                    coins: x.coins + SCHOOL_POINTS.perCorrect,
+                    ilm: x.ilm + 3,
+                    schoolPts: (x.schoolPts ?? 0) + SCHOOL_POINTS.perCorrect,
+                  }));
+                  return true;
+                }}
+              />
+            ),
+          });
+        }
+        return;
+      }
+      if (id.startsWith("mansion:")) {
+        const L = landmarkById(id.slice(8));
+        if (!L) return;
+        setPanel({
+          kind: "info",
+          title: L.l.name,
+          body: (
+            <div className="space-y-2">
+              <p>
+                {L.l.name} on {STREETS[L.l.street].name}, {fullName(L.d)}.
+              </p>
+              <p>{COMING_SOON_BIO}</p>
+              <p className="text-[13px] opacity-75">
+                The family welcomes visitors with good manners. You can greet the household and make
+                du'a for them.
+              </p>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("office:")) {
+        const L = landmarkById(id.slice(7));
+        if (!L) return;
+        setPanel({
+          kind: "info",
+          title: L.l.name,
+          body: (
+            <div className="space-y-3">
+              <p>{L.l.about}</p>
+              <p className="text-[13px] opacity-75">
+                {STREETS[L.l.street].name}, {fullName(L.d)}
+              </p>
+              {L.l.brand?.link && (
+                <a
+                  href={L.l.brand.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block w-full rounded-xl bg-[#1f6f63] py-3 text-center font-bold text-[#fdf8ec]"
+                >
+                  Visit {L.l.brand.link.replace("https://", "")}
+                </a>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("shop:") || id.startsWith("stall:")) {
+        openShop(id.slice(id.indexOf(":") + 1));
+        return;
+      }
       if (id.startsWith("plot:")) {
         openPlot(id.slice(5));
         return;
@@ -619,7 +835,7 @@ export default function IlmCityGame() {
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update, openLecture, openPlot],
+    [toast, update, openLecture, openPlot, openShop],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -670,6 +886,7 @@ export default function IlmCityGame() {
         if (k) st[pid] = k;
       }
       e.initPlots(st);
+      for (const sid of e.shopIds()) paintShop(e, sid);
     }
     const iv = setInterval(() => {
       const c = clockFor(city, Date.now() + offset);
@@ -728,7 +945,7 @@ export default function IlmCityGame() {
       e.dispose();
       engine.current = null;
     };
-  }, [offset, toast, update, peopleReady]);
+  }, [offset, toast, update, peopleReady, paintShop]);
   const onActionRef = useRef(onAction);
   onActionRef.current = onAction;
 
@@ -1528,7 +1745,7 @@ function PlotView({
 }: {
   plot: {
     id: string;
-    kind: "house" | "land";
+    kind: "house" | "land" | "shops";
     number: number;
     street: string;
     district: string;
@@ -1702,6 +1919,380 @@ function PlotView({
       <button className={secondary} onClick={onEnter}>
         Go inside
       </button>
+    </div>
+  );
+}
+
+/* ---------------- schools ---------------- */
+const COMING_SOON_BIO =
+  "A biography of the Sheikh is coming soon. The IlmStation team will add it after review by our scholars panel.";
+const landmarkById = (lid: string) => {
+  for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return { l, d };
+  return null;
+};
+
+/** Inside a class: the subjects with their books, and a quiz for each. */
+function ClassView({
+  cls,
+  school,
+  earnedToday,
+  onCorrect,
+}: {
+  cls: string;
+  school: string;
+  earnedToday: number;
+  onCorrect: () => boolean;
+}) {
+  const [sub, setSub] = useState<string | null>(null);
+  const [qs, setQs] = useState<SchoolQ[]>([]);
+  const [i, setI] = useState(0);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  const [earned, setEarned] = useState(earnedToday);
+  if (!sub)
+    return (
+      <div className="space-y-2">
+        <p className="text-[13px] opacity-80">
+          Welcome to {cls} at {school}. Pick a subject to see the book and take its quiz.
+        </p>
+        {SUBJECTS.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => {
+              setSub(s.id);
+              setQs(quizFor(s.id, cls));
+              setI(0);
+              setPicked(null);
+              setScore(0);
+            }}
+            className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left"
+          >
+            <div className="text-[14px] font-bold">{s.name}</div>
+            <div className="text-[12px] opacity-75">📖 {s.book(cls)}</div>
+          </button>
+        ))}
+        <p className="text-[12px] opacity-70">
+          +{SCHOOL_POINTS.perCorrect} points per correct answer, up to {SCHOOL_POINTS.dailyCap} a
+          day ({earned} today).
+        </p>
+      </div>
+    );
+  const subject = SUBJECTS.find((s) => s.id === sub)!;
+  if (i >= qs.length)
+    return (
+      <div className="space-y-3 text-center">
+        <div className="font-serif text-2xl">
+          {score} / {qs.length}
+        </div>
+        <p>
+          {score === qs.length
+            ? "Excellent! Masha Allah."
+            : score >= 3
+              ? "Well done!"
+              : "Keep studying, you will get there in shaa Allah."}
+        </p>
+        <button
+          onClick={() => setSub(null)}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+        >
+          Back to subjects
+        </button>
+      </div>
+    );
+  const q = qs[i];
+  return (
+    <div className="space-y-2">
+      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+        {subject.name} · {cls} · question {i + 1} of {qs.length}
+      </div>
+      <p className="text-[16px] font-semibold">{q.q}</p>
+      {q.o.map((o, k) => {
+        const state =
+          picked === null
+            ? ""
+            : k === q.a
+              ? "bg-[#1f6f63] text-[#fdf8ec]"
+              : k === picked
+                ? "bg-[#b8573a] text-white"
+                : "opacity-60";
+        return (
+          <button
+            key={k}
+            disabled={picked !== null}
+            onClick={() => {
+              setPicked(k);
+              if (k === q.a) {
+                setScore((x) => x + 1);
+                if (onCorrect()) setEarned((x) => x + SCHOOL_POINTS.perCorrect);
+              }
+            }}
+            className={`w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left text-[14px] ${state}`}
+          >
+            {o}
+          </button>
+        );
+      })}
+      {picked !== null && (
+        <button
+          onClick={() => {
+            setI((x) => x + 1);
+            setPicked(null);
+          }}
+          className="w-full rounded-xl bg-[#10201e] py-3 font-bold text-[#fdf8ec]"
+        >
+          {i + 1 < qs.length ? "Next question" : "See my score"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- shops and stalls ---------------- */
+type ShopOwn = {
+  until: number;
+  name: string;
+  products: { name: string; price: string; img: string }[];
+};
+
+/** Shrink a photo so it fits in the game's storage (about 20 KB). */
+function shrinkPhoto(file: File): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onerror = rej;
+    r.onload = () => {
+      const im = new Image();
+      im.onerror = rej;
+      im.onload = () => {
+        const s = Math.min(1, 320 / Math.max(im.width, im.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(im.width * s);
+        cv.height = Math.round(im.height * s);
+        cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height);
+        res(cv.toDataURL("image/jpeg", 0.72));
+      };
+      im.src = r.result as string;
+    };
+    r.readAsDataURL(file);
+  });
+}
+const emojiCache = new Map<string, string>();
+/** A product picture drawn from an emoji, for the market's own traders. */
+function emojiPic(e: string) {
+  const hit = emojiCache.get(e);
+  if (hit) return hit;
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 128;
+  const c = cv.getContext("2d")!;
+  c.fillStyle = "#fdf8ec";
+  c.fillRect(0, 0, 128, 128);
+  c.font = "88px system-ui, 'Apple Color Emoji', 'Noto Color Emoji', sans-serif";
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillText(e, 64, 70);
+  const url = cv.toDataURL("image/png");
+  emojiCache.set(e, url);
+  return url;
+}
+/** The market's own traders sit at every third stall. */
+const traderAt = (id: string) => {
+  const n = Number(id.replace(/\D/g, ""));
+  if (!id.startsWith("m") || n % 3 !== 0) return null;
+  return MARKET_TRADERS[(n / 3) % MARKET_TRADERS.length];
+};
+
+function ShopView({
+  kind,
+  where,
+  own,
+  trader,
+  points,
+  onRent,
+  onPaystack,
+  onSave,
+}: {
+  kind: "shop" | "stall";
+  where: string;
+  own?: ShopOwn;
+  trader: (typeof MARKET_TRADERS)[number] | null;
+  points: number;
+  onRent: (days: number, pts: number) => void;
+  onPaystack: (amount: number, what: string) => void;
+  onSave: (o: ShopOwn) => void;
+}) {
+  const now = Date.now();
+  const mine = own && own.until > now;
+  const [name, setName] = useState(own?.name ?? "");
+  const [products, setProducts] = useState(own?.products ?? []);
+  const [busy, setBusy] = useState(false);
+  const btn = "w-full rounded-xl px-4 py-3 text-left text-[14px] font-bold";
+  const primary = `${btn} bg-[#1f6f63] text-[#fdf8ec] disabled:opacity-50`;
+  const secondary = `${btn} border border-[#1f6f63]/30 bg-white text-[#10201e]`;
+  if (trader)
+    return (
+      <div className="space-y-2">
+        <p className="text-[13px] opacity-80">{where}</p>
+        {trader.items.map(([e, n, p]) => (
+          <div key={n} className="flex items-center gap-3 rounded-xl bg-white p-2">
+            <img src={emojiPic(e)} alt="" className="size-14 rounded-lg object-cover" />
+            <div>
+              <div className="font-bold">{n}</div>
+              <div className="text-[13px] text-[#1f6f63]">{p}</div>
+            </div>
+          </div>
+        ))}
+        <p className="text-[12px] opacity-70">
+          Want your own stall? Empty spaces cost ₦2,000 a week.
+        </p>
+      </div>
+    );
+  if (!mine) {
+    const P = SHOP_PRICES;
+    return (
+      <div className="space-y-2">
+        <p>
+          {kind === "shop"
+            ? `A lock-up shop on ${where}, with a counter and a roller shutter. Rent it, give it a name and show your products to every player who passes.`
+            : `A market stall in ${where}. ₦2,000 a week. Add your business name and product photos, and they show on your stall for everyone to see.`}
+        </p>
+        {kind === "shop" ? (
+          <>
+            <p className="text-[13px] opacity-75">You have {points} points.</p>
+            {(["week", "month"] as const).map((k) => (
+              <button
+                key={k}
+                disabled={points < P.shop[k].points}
+                className={primary}
+                onClick={() => onRent(P.shop[k].days, P.shop[k].points)}
+              >
+                Rent {k === "week" ? "7 days" : "1 month"} · {P.shop[k].points} points
+              </button>
+            ))}
+            <button
+              className={secondary}
+              onClick={() => onPaystack(P.shop.week.naira, "7 days shop rent")}
+            >
+              Pay {naira(P.shop.week.naira)} (7 days) with Paystack
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className={primary}
+              onClick={() => onPaystack(P.stall.week.naira, "a market stall for 7 days")}
+            >
+              Pay {naira(P.stall.week.naira)} for 7 days with Paystack
+            </button>
+            {import.meta.env.DEV && (
+              <button className={secondary} onClick={() => onRent(7, 0)}>
+                Test mode: take the stall free for 7 days
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+  const days = Math.ceil((own!.until - now) / 86400000);
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] opacity-80">
+        Your {kind} on {where}. {days} day{days === 1 ? "" : "s"} left.
+      </p>
+      <label className="block text-[13px] font-semibold">
+        Business name
+        <input
+          value={name}
+          maxLength={28}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Barakah Fabrics"
+          className="mt-1 w-full rounded-xl border border-[#1f6f63]/30 bg-white px-3 py-2 text-[15px] font-normal"
+        />
+      </label>
+      <div className="space-y-2">
+        {products.map((p, k) => (
+          <div key={k} className="flex items-center gap-2 rounded-xl bg-white p-2">
+            <img src={p.img} alt="" className="size-14 shrink-0 rounded-lg object-cover" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <input
+                value={p.name}
+                onChange={(e) =>
+                  setProducts((ps) =>
+                    ps.map((x, j) => (j === k ? { ...x, name: e.target.value } : x)),
+                  )
+                }
+                placeholder="Product name"
+                className="w-full rounded-lg border border-black/10 px-2 py-1 text-[13px]"
+              />
+              <input
+                value={p.price}
+                onChange={(e) =>
+                  setProducts((ps) =>
+                    ps.map((x, j) => (j === k ? { ...x, price: e.target.value } : x)),
+                  )
+                }
+                placeholder="Price, e.g. ₦3,500"
+                className="w-full rounded-lg border border-black/10 px-2 py-1 text-[13px]"
+              />
+            </div>
+            <button
+              onClick={() => setProducts((ps) => ps.filter((_, j) => j !== k))}
+              className="px-2 text-[18px] opacity-60"
+              aria-label="Remove product"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      {products.length < 6 && (
+        <label className={`${secondary} block cursor-pointer text-center`}>
+          {busy ? "Adding photo…" : "📷 Add a product photo"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              setBusy(true);
+              try {
+                const img = await shrinkPhoto(f);
+                setProducts((ps) => [...ps, { name: "", price: "", img }]);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        </label>
+      )}
+      <button
+        disabled={!name.trim()}
+        className={primary}
+        onClick={() => onSave({ until: own!.until, name: name.trim(), products })}
+      >
+        Save and open my {kind}
+      </button>
+      {kind === "shop" ? (
+        <button
+          disabled={points < SHOP_PRICES.shop.week.points}
+          className={secondary}
+          onClick={() => onRent(7, SHOP_PRICES.shop.week.points)}
+        >
+          Extend 7 days · {SHOP_PRICES.shop.week.points} points
+        </button>
+      ) : (
+        <button
+          className={secondary}
+          onClick={() => onPaystack(SHOP_PRICES.stall.week.naira, "7 more days")}
+        >
+          Extend 7 days · {naira(SHOP_PRICES.stall.week.naira)} with Paystack
+        </button>
+      )}
+      <p className="text-[12px] opacity-70">
+        Photos are saved on this phone for now. When accounts arrive, every player in IlmCity will
+        see them.
+      </p>
     </div>
   );
 }
