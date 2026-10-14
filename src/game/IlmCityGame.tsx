@@ -27,6 +27,13 @@ import {
   SMALL_TALK,
   ECONOMY,
   TENANTS,
+  HOME_ITEMS,
+  itemPoints,
+  DAY_TASKS,
+  TASK_POINTS,
+  DAY_BONUS,
+  ADHKAR,
+  WUDU_STEPS,
   SHOP_PRICES,
   MARKET_TRADERS,
   fullName,
@@ -38,6 +45,7 @@ import {
 import {
   CITIES,
   clockFor,
+  cityGreeting,
   currentPrayer,
   fmtTime,
   masjidStatus,
@@ -64,8 +72,15 @@ type Save = {
   schoolPts?: number;
   /** who you are in the city */
   profile?: Look;
-  /** guided start: 1–4 in progress, 5 finished */
+  /** guided start: steps in progress; past the last step means finished */
   guide?: number;
+  /** the area of your flat */
+  homeArea?: string;
+  items?: string[];
+  needs?: Needs;
+  tasks?: Record<string, boolean>;
+  wudu?: boolean;
+  salams?: number;
 };
 type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
 const landmarkName = (lid: string) => {
@@ -283,6 +298,15 @@ function CityGame({
   });
   const saveRef = useRef(save);
   saveRef.current = save;
+  useEffect(() => {
+    if (save.profile && !save.homeArea)
+      setSave((x) => ({
+        ...x,
+        homeArea: x.district ?? "lekki",
+        items: x.items ?? [],
+        needs: x.needs ?? freshNeeds(),
+      }));
+  }, [save.profile, save.homeArea]);
   const offset = useTestOffset();
   const [clock, setClock] = useState<Clock>(() => clockFor(city, Date.now() + offset));
   const clockRef = useRef(clock);
@@ -308,6 +332,7 @@ function CityGame({
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
   const presenceAt = useRef(0);
+  const needHintAt = useRef(Date.now());
   const lastSent = useRef({ x: 0, z: 0, area: "" });
   const watchedArea = useRef<string | null>(null);
   const offArea = useRef<(() => void) | null>(null);
@@ -364,6 +389,46 @@ function CityGame({
     },
     [toast, update],
   );
+  /** Tick off a task in My Day. */
+  const doTask = useCallback(
+    (id: string) => {
+      const t = saveRef.current.tasks ?? {};
+      if (t[id]) return;
+      const next = { ...t, [id]: true };
+      const all = DAY_TASKS.every((d) => next[d.id]);
+      saveRef.current = { ...saveRef.current, tasks: next };
+      update((x) => ({ ...x, tasks: next, coins: x.coins + TASK_POINTS + (all ? DAY_BONUS : 0) }));
+      const task = DAY_TASKS.find((d) => d.id === id);
+      toast(
+        all
+          ? `Masha Allah! You completed your whole day. +${TASK_POINTS + DAY_BONUS} points`
+          : `✅ ${task?.text ?? "Task"} · +${TASK_POINTS} points`,
+        "good",
+      );
+    },
+    [toast, update],
+  );
+  /** Raise (or lower) your needs. */
+  const need = useCallback(
+    (d: Partial<Needs>) =>
+      update((x) => {
+        const n = { ...(x.needs ?? freshNeeds()) };
+        for (const k of Object.keys(d) as (keyof Needs)[])
+          n[k] = Math.max(0, Math.min(100, n[k] + (d[k] ?? 0)));
+        return { ...x, needs: n };
+      }),
+    [update],
+  );
+  /** Each person you greet counts towards "Greet 3 people with salam". */
+  const greeted = useCallback(() => {
+    const n = (saveRef.current.salams ?? 0) + 1;
+    saveRef.current = { ...saveRef.current, salams: n };
+    update((x) => ({ ...x, salams: n }));
+    need({ social: 12 });
+    if (n >= 3) doTask("salam");
+  }, [update, need, doTask]);
+  const greetedRef = useRef(greeted);
+  greetedRef.current = greeted;
   const loggedInRef = useRef(loggedIn);
   loggedInRef.current = loggedIn;
 
@@ -390,12 +455,22 @@ function CityGame({
   // new day resets the daily salah tracker
   useEffect(() => {
     if (save.day !== clock.key)
-      update((s) => ({ ...s, day: clock.key, prayed: {}, asked: [], lectureMin: 0, schoolPts: 0 }));
+      update((s) => ({
+        ...s,
+        day: clock.key,
+        prayed: {},
+        asked: [],
+        lectureMin: 0,
+        schoolPts: 0,
+        tasks: {},
+        salams: 0,
+      }));
   }, [clock.key, save.day, update]);
 
   const openLecture = useCallback(
     (lec: Lecture, live: boolean) => {
-      advance(2);
+      advance(3);
+      doTask("learn");
       setPanel({
         kind: "info",
         title: live ? "Lecture time" : "Lecture",
@@ -420,7 +495,7 @@ function CityGame({
         ),
       });
     },
-    [update, advance],
+    [update, advance, doTask],
   );
 
   const openPlot = useCallback(
@@ -534,6 +609,7 @@ function CityGame({
         return;
       }
       const D = districtById(info.district);
+      if (info.kind === "stall") doTask("market");
       const render = () => {
         const own = saveRef.current.shops?.[sid];
         const trader = info.kind === "stall" ? traderAt(sid) : null;
@@ -553,6 +629,17 @@ function CityGame({
               where={`${info.street}, ${fullName(D)}`}
               own={own}
               trader={trader}
+              onFood={() => {
+                if (saveRef.current.coins < 5) {
+                  toast("A meal costs 5 points.", "warn");
+                  return;
+                }
+                update((x) => ({ ...x, coins: x.coins - 5 }));
+                need({ hunger: 40 });
+                doTask("eat");
+                setPanel(null);
+                toast("Bismillah… delicious! Alhamdulillah. −5 points", "good");
+              }}
               points={saveRef.current.coins}
               onRent={(days, pts) => {
                 if (saveRef.current.coins < pts) return;
@@ -593,10 +680,56 @@ function CityGame({
       };
       render();
     },
-    [toast, update, paintShop],
-  ); /** Pray in the masjid: the obligatory prayer if it is due, or two voluntary rak'ahs. */
+    [toast, update, paintShop, doTask, need],
+  );
+
+  /** Step-by-step wudu; `then` runs after (for example, the prayer you were about to start). */
+  const openWudu = useCallback(
+    (then?: () => void) =>
+      setPanel({
+        kind: "info",
+        title: "Wudu",
+        body: (
+          <WuduView
+            onDone={() => {
+              saveRef.current = { ...saveRef.current, wudu: true };
+              update((x) => ({
+                ...x,
+                wudu: true,
+                needs: { ...(x.needs ?? freshNeeds()), clean: 100 },
+              }));
+              doTask("wudu");
+              advance(1);
+              setPanel(null);
+              if (then) setTimeout(then, 50);
+            }}
+          />
+        ),
+      }),
+    [update, doTask, advance],
+  );
+
+  /** Pray in the masjid: the obligatory prayer if it is due, or two voluntary rak'ahs. */
   const startPrayer = useCallback(
     (voluntary: boolean) => {
+      if (!saveRef.current.wudu) {
+        setPanel({
+          kind: "info",
+          title: "Wudu first",
+          body: (
+            <div className="space-y-3">
+              <p>Salah needs wudu. Make it now, then pray.</p>
+              <button
+                onClick={() => openWudu(() => startPrayerRef.current(voluntary))}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                💧 Make wudu
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       const c = clockRef.current;
       const p = currentPrayer(c);
       const fard = !voluntary && p && !saveRef.current.prayed[p.id] ? p : null;
@@ -612,8 +745,10 @@ function CityGame({
             onFinish={() => {
               setPanel(null);
               engine.current?.prayPose(null);
-              advance(2);
+              advance(3);
+              need({ iman: 15 });
               if (fard) {
+                if (Object.keys(saveRef.current.prayed).length + 1 >= 5) doTask("salah");
                 update((x) => ({
                   ...x,
                   prayed: { ...x.prayed, [fard.id]: true },
@@ -633,8 +768,10 @@ function CityGame({
         ),
       });
     },
-    [toast, update, advance],
+    [toast, update, advance, openWudu, need, doTask],
   );
+  const startPrayerRef = useRef(startPrayer);
+  startPrayerRef.current = startPrayer;
 
   /* ---------- other real players ---------- */
   const onlineRef = useRef<Online | null>(null);
@@ -763,6 +900,7 @@ function CityGame({
       const chatId = await o.openChat(other, myName);
       markChatSeen(chatId);
       setSeenTick((x) => x + 1);
+      greetedRef.current();
       setPanel({
         kind: "info",
         title: other.name,
@@ -967,6 +1105,40 @@ function CityGame({
         openPlot(id.slice(5));
         return;
       }
+      if (id === "keke") {
+        const area = e.districtId();
+        setPanel({
+          kind: "info",
+          title: "Where to? · Keke",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Any place in {fullName(districtById(area))} for 3 points.
+              </p>
+              <PlacesView
+                area={area}
+                onGo={(prefix) => {
+                  if (saveRef.current.coins < 3) {
+                    toast("The keke fare is 3 points. Earn points at a mosque or school.", "warn");
+                    return;
+                  }
+                  setPanel(null);
+                  if (e.kekeTo(prefix)) {
+                    update((x) => ({ ...x, coins: x.coins - 3 }));
+                    advance(4);
+                    toast("Off we go! Hold on tight.", "good");
+                  } else toast("The keke can't go there from here.");
+                }}
+              />
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "keke-done") {
+        toast('Keke driver: "We don reach! Safe journey."', "good");
+        return;
+      }
       if (id.startsWith("player:")) {
         const puid = id.slice(7);
         void openChatWith({ uid: puid, name: e.remoteName(puid) ?? "Player" });
@@ -977,6 +1149,7 @@ function CityGame({
         const who = e.talkTo(i);
         if (!who) return;
         talkingRef.current = i;
+        greeted();
         setPanel({
           kind: "info",
           title: who.name,
@@ -1002,7 +1175,7 @@ function CityGame({
           return;
         }
         if (e.boardBus()) {
-          advance(3);
+          advance(4);
           update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
           toast(`Bismillah! You paid ${BUS_FARE} points. Tap "Get off" before your stop.`, "good");
         }
@@ -1013,7 +1186,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:masjid:")) {
-        advance(1);
+        advance(2);
         const lid = id.slice(12);
         const name = landmarkName(lid);
         e.enterInterior("masjid", name);
@@ -1066,8 +1239,61 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:home:")) {
-        e.enterInterior("home", "Your Home");
+        const which = id.slice(10) === "home" ? "lekki" : id.slice(10);
+        const mine = saveRef.current.homeArea ?? "lekki";
+        if (which !== mine) {
+          toast(
+            `Your flat is in ${districtById(mine).name} ${mine === "lekki" ? "(Your Home)" : "Estate"}. Take a danfo or keke there.`,
+          );
+          return;
+        }
+        e.enterInterior("home", `Your flat · ${districtById(mine).name}`);
         setInside(true);
+        return;
+      }
+      if (id === "bath") {
+        setPanel({
+          kind: "info",
+          title: "Bathroom",
+          body: (
+            <div className="space-y-2">
+              <button
+                onClick={() => openWudu()}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
+              >
+                💧 Make wudu
+              </button>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  update((x) => ({ ...x, wudu: false }));
+                  toast(
+                    'Entering: "Allahumma inni a\'udhu bika minal-khubuthi wal-khaba\'ith." Leaving: "Ghufranak."',
+                  );
+                }}
+                className="w-full rounded-xl border border-[#1f6f63]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                🚽 Use the toilet
+              </button>
+              <button
+                onClick={() => {
+                  setPanel({
+                    kind: "busy",
+                    title: "Taking a bath",
+                    ms: 3000,
+                    done: () => {
+                      need({ clean: 100 });
+                      toast("Fresh and clean. Cleanliness is half of faith.", "good");
+                    },
+                  });
+                }}
+                className="w-full rounded-xl border border-[#1f6f63]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                🚿 Take a bath
+              </button>
+            </div>
+          ),
+        });
         return;
       }
       if (id.startsWith("door:madrasah:")) {
@@ -1107,6 +1333,7 @@ function CityGame({
           const d = districtById(to);
           arriveRef.current = () => {
             e.travel(to, byCar);
+            advance(4);
             advance(3);
             setDriving(false);
             setInside(false);
@@ -1209,55 +1436,95 @@ function CityGame({
           ),
         });
         update((x) => ({ ...x, ilm: x.ilm + 1 }));
+        doTask("quran");
+        need({ iman: 12 });
+        return;
+      }
+      if (id === "quranhome") {
+        onActionRef.current("quran");
+        return;
+      }
+      if (id === "radio") {
+        setPanel({
+          kind: "info",
+          title: "Radio · lectures",
+          body: (
+            <div className="space-y-2">
+              {LECTURES.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => openLecture(l, false)}
+                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left"
+                >
+                  <div className="font-bold">🎧 {l.title}</div>
+                  <div className="text-[12px] opacity-70">{l.speaker}</div>
+                </button>
+              ))}
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "sofa") {
+        setPanel({
+          kind: "busy",
+          title: "Resting on the sofa",
+          ms: 2500,
+          done: () => {
+            need({ energy: 15 });
+            toast("A short rest. SubhanAllah.", "good");
+          },
+        });
         return;
       }
       if (id === "sleep") {
         setPanel({
-          kind: "busy",
-          title: "Resting",
-          ms: 3000,
-          done: () =>
-            toast(
-              "Rested. In real life, set your alarm for Fajr at " + fmtTime(c.times.fajr) + ".",
-              "good",
-            ),
+          kind: "info",
+          title: "Before you sleep",
+          body: (
+            <AdhkarView
+              kind="sleep"
+              onDone={() =>
+                setPanel({
+                  kind: "busy",
+                  title: "Sleeping",
+                  ms: 3500,
+                  done: () => {
+                    const late = c.min >= c.times.isha || c.min < c.times.fajr;
+                    update((x) => ({
+                      ...x,
+                      wudu: false,
+                      needs: { ...(x.needs ?? freshNeeds()), energy: 100 },
+                    }));
+                    if (late) doTask("sleep");
+                    toast(
+                      `Rested. On waking, say the du'a in My Day. Fajr is at ${fmtTime(c.times.fajr)}.`,
+                      "good",
+                    );
+                  },
+                })
+              }
+            />
+          ),
         });
         return;
       }
       if (id === "eat") {
         setPanel({
           kind: "busy",
-          title: "Cooking jollof rice",
+          title: "Bismillah… cooking jollof rice",
           ms: 3000,
-          done: () => toast("Alhamdulillah. You ate well.", "good"),
+          done: () => {
+            need({ hunger: 60 });
+            doTask("eat");
+            toast("Alhamdulillah. You ate well.", "good");
+          },
         });
         return;
       }
       if (id === "prayermat") {
         const p = currentPrayer(c);
-        setPanel({
-          kind: "info",
-          title: "Prayer corner",
-          body: p ? (
-            s.prayed[p.id] ? (
-              <p>You have prayed {p.name}. May Allah accept it.</p>
-            ) : (
-              <PrayCheck
-                prayer={p}
-                onYes={() => {
-                  update((x) => ({ ...x, prayed: { ...x.prayed, [p.id]: true } }));
-                  setPanel(null);
-                  toast(`${p.name} marked as prayed. May Allah accept it.`, "good");
-                }}
-              />
-            )
-          ) : (
-            <p>
-              No prayer time right now. Next is {nextPrayer(c)?.name ?? "Fajr"} at{" "}
-              {fmtTime(nextPrayer(c)?.start ?? c.times.fajr)}.
-            </p>
-          ),
-        });
+        startPrayer(!(p && !s.prayed[p.id]));
         return;
       }
       if (id === "quiz") {
@@ -1287,7 +1554,20 @@ function CityGame({
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update, openLecture, openPlot, openShop, startPrayer, advance, openChatWith],
+    [
+      greeted,
+      toast,
+      update,
+      openLecture,
+      openPlot,
+      openShop,
+      startPrayer,
+      advance,
+      openChatWith,
+      openWudu,
+      doTask,
+      need,
+    ],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -1321,7 +1601,8 @@ function CityGame({
           z: saveRef.current.pos?.z,
         },
       );
-    } catch {
+    } catch (err) {
+      console.error("IlmCity could not start", err);
       setWebgl(false);
       return;
     }
@@ -1329,6 +1610,7 @@ function CityGame({
     if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
+    e.setHomeItems(saveRef.current.items ?? []);
     const startedAt = performance.now();
     {
       const st: Record<
@@ -1360,6 +1642,23 @@ function CityGame({
         }));
       setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
       setRide(e.rideInfo());
+      // needs fall slowly while you play
+      if (saveRef.current.profile && !document.hidden) {
+        update((x) => {
+          const n = { ...(x.needs ?? freshNeeds()) };
+          for (const k of Object.keys(n) as (keyof Needs)[])
+            n[k] = Math.max(0, n[k] - NEED_DECAY[k] / 60);
+          return { ...x, needs: n };
+        });
+        const n = saveRef.current.needs;
+        if (n && Date.now() - needHintAt.current > 240000) {
+          const low = NEED_META.find((m) => n[m.id] < 25);
+          if (low) {
+            needHintAt.current = Date.now();
+            toast(`${low.icon} Your ${low.name.toLowerCase()} is low. ${low.tip}`);
+          }
+        }
+      }
       // tell other players where you are (every 2 seconds)
       const o = onlineRef.current;
       const prof = saveRef.current.profile;
@@ -1396,7 +1695,7 @@ function CityGame({
         if (ar && ar !== areaRef.current) {
           if (areaRef.current !== null && saveRef.current.profile) {
             setNewArea(ar);
-            setTimeout(() => setNewArea((x) => (x === ar ? null : x)), 12000);
+            setTimeout(() => setNewArea((x) => (x === ar ? null : x)), 7000);
           }
           areaRef.current = ar;
         }
@@ -1417,7 +1716,7 @@ function CityGame({
           }
         }
         // an officer walking past stops you with a question
-        const quiet = panelRef.current || e.isRiding() || performance.now() - startedAt < 45000;
+        const quiet = panelRef.current || e.isRiding() || performance.now() - startedAt < 180000;
         const walkerIdx = quiet ? null : e.hisbahBeside(6);
         const cp2 = currentPrayer(c);
         const key = cp2 ? `${c.key}-${cp2.id}` : `${c.key}-quran`;
@@ -1516,7 +1815,7 @@ function CityGame({
             <div className="font-serif text-4xl">
               Ilm<span className="text-[#45b8a8]">City</span>
             </div>
-            <p className="mt-2 text-sm opacity-70">Bismillah… the city is waking up</p>
+            <p className="mt-2 text-sm opacity-70">{cityGreeting()}</p>
           </div>
         </div>
       )}
@@ -1528,6 +1827,18 @@ function CityGame({
         <div className="pointer-events-auto flex min-w-0 items-center gap-3 rounded-2xl border border-[#1f6f63]/20 bg-[#fdf8ec]/95 p-2 pr-4 shadow-lg backdrop-blur">
           <SalahRing clock={clock} prayed={save.prayed} />
           <div className="min-w-0 leading-tight">
+            {save.profile && (
+              <NeedsBars
+                needs={save.needs ?? freshNeeds()}
+                onTap={() =>
+                  setPanel({
+                    kind: "info",
+                    title: "Your needs",
+                    body: <NeedsView needs={saveRef.current.needs ?? freshNeeds()} />,
+                  })
+                }
+              />
+            )}
             <div className="text-[17px] font-bold tabular-nums">{fmtTime(clock.min)}</div>
             <div className="truncate text-[12px] font-medium opacity-80">{clock.gregorian}</div>
             <div className="truncate text-[12px] font-semibold text-[#1f6f63]">{clock.hijri}</div>
@@ -1567,6 +1878,85 @@ function CityGame({
             className="pointer-events-auto rounded-xl bg-[#f2c230] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
           >
             Travel
+          </button>
+          <button
+            onClick={() =>
+              setPanel({
+                kind: "info",
+                title: "My Day",
+                body: (
+                  <MyDayView
+                    tasks={saveRef.current.tasks ?? {}}
+                    prayedCount={Object.keys(saveRef.current.prayed).length}
+                    salamCount={saveRef.current.salams ?? 0}
+                    onAdhkar={(k) =>
+                      setPanel({
+                        kind: "info",
+                        title:
+                          k === "wake"
+                            ? "Waking up"
+                            : k === "morning"
+                              ? "Morning adhkar"
+                              : "Evening adhkar",
+                        body: (
+                          <AdhkarView
+                            kind={k}
+                            onDone={() => {
+                              setPanel(null);
+                              need({ iman: 15 });
+                              doTask(
+                                k === "wake" ? "wake" : k === "morning" ? "adhkarM" : "adhkarE",
+                              );
+                            }}
+                          />
+                        ),
+                      })
+                    }
+                  />
+                ),
+              })
+            }
+            className="pointer-events-auto relative rounded-xl bg-[#e6b84a] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
+          >
+            📋 My Day
+            {save.profile && (
+              <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-[#1f6f63] text-[10px] text-white">
+                {DAY_TASKS.filter((t) => !(save.tasks ?? {})[t.id]).length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() =>
+              setPanel({
+                kind: "info",
+                title: "Furnish your home",
+                body: (
+                  <HomeShopView
+                    owned={saveRef.current.items ?? []}
+                    points={saveRef.current.coins}
+                    onBuy={(ids, pts) => {
+                      if (saveRef.current.coins < pts) return;
+                      const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
+                      update((x) => ({ ...x, coins: x.coins - pts, items }));
+                      engine.current?.setHomeItems(items);
+                      setPanel(null);
+                      toast(
+                        `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${pts} points`,
+                        "good",
+                      );
+                    }}
+                    onNaira={(_ids, naira) =>
+                      toast(
+                        `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, use points.`,
+                      )
+                    }
+                  />
+                ),
+              })
+            }
+            className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+          >
+            🛋️ Home
           </button>
           <button
             onClick={openInbox}
@@ -1645,14 +2035,23 @@ function CityGame({
             engine.current?.setPlayerLook(look);
             engine.current?.setPreview(false);
             engine.current?.startIn(area);
+            engine.current?.startAtHome(area, `Your flat · ${districtById(area).name}`);
+            setInside(true);
             update((x) => ({
               ...x,
               profile: look,
               guide: 1,
               coins: x.coins + 100,
               district: area,
+              homeArea: area,
+              items: [],
+              needs: freshNeeds(),
+              wudu: false,
             }));
-            toast(`Welcome to IlmCity, ${look.name}! Here is a gift of 100 points.`, "good");
+            toast(
+              `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of 100 points to start.`,
+              "good",
+            );
           }}
         />
       )}
@@ -1777,7 +2176,8 @@ function CityGame({
             talkingRef.current = null;
           }}
           onQuizPick={(i) => {
-            advance(2);
+            advance(3);
+            doTask("learn");
             if (panel.kind !== "quiz" || panel.picked !== undefined) return;
             const ok = i === panel.q.a;
             setPanel({ ...panel, picked: i });
@@ -2850,6 +3250,7 @@ function ShopView({
   where,
   own,
   trader,
+  onFood,
   points,
   onRent,
   onPaystack,
@@ -2859,6 +3260,7 @@ function ShopView({
   where: string;
   own?: ShopOwn;
   trader: (typeof MARKET_TRADERS)[number] | null;
+  onFood: () => void;
   points: number;
   onRent: (days: number, pts: number) => void;
   onPaystack: (amount: number, what: string) => void;
@@ -2885,6 +3287,14 @@ function ShopView({
             </div>
           </div>
         ))}
+        {/food|fruit|date/i.test(trader.name) && (
+          <button
+            onClick={onFood}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            🍽️ Buy something to eat · 5 points
+          </button>
+        )}
         <p className="text-[12px] opacity-70">
           Want your own stall? Empty spaces cost ₦2,000 a week.
         </p>
@@ -3480,22 +3890,27 @@ function Onboarding({
 /* ---------------- guided first minutes ---------------- */
 const GUIDE: { title: string; text: string; go?: { prefix: string; label: string } }[] = [
   {
+    title: "Make wudu",
+    text: "You are home. Walk to the bathroom and make wudu, step by step.",
+    go: { prefix: "bath", label: "Show me the bathroom" },
+  },
+  {
     title: "Visit the masjid",
-    text: "Walk to the nearest mosque. Follow the marker on the ground.",
+    text: "Go outside and walk to the nearest mosque. Follow the marker on the ground.",
     go: { prefix: "door:masjid:", label: "Show me the way" },
   },
   {
-    title: "Learn or pray",
-    text: "Inside, take the quiz, listen to a lecture or pray. Learning earns points.",
+    title: "Pray or learn",
+    text: "Inside, pray, listen to a lecture or take the quiz. It all earns points.",
   },
   {
-    title: "Ride a danfo",
-    text: "Walk to a bus stop and wait for the yellow danfo, or tap Travel at the top.",
+    title: "Ride a keke or danfo",
+    text: "Stand by the road and a keke will stop for you, or wait at a bus stop for a danfo.",
     go: { prefix: "busstop:", label: "Show me a bus stop" },
   },
   {
-    title: "Your points",
-    text: "Points at the top pay for rides, rent and shops. Earn them by learning and praying. The Hisbah may stop you to ask about your salah!",
+    title: "Your day",
+    text: "Tap 📋 My Day for today's tasks, and watch your needs under the clock: food, energy, iman, friends and clean. Buy furniture with 🛋️ Home.",
   },
 ];
 
@@ -3927,6 +4342,298 @@ function FineView({
       >
         Pay ₦{fine.toLocaleString()} with Paystack
       </button>
+    </div>
+  );
+}
+
+/* ---------------- daily life ---------------- */
+type Needs = { hunger: number; energy: number; iman: number; social: number; clean: number };
+const NEED_META: { id: keyof Needs; icon: string; name: string; tip: string }[] = [
+  { id: "hunger", icon: "🍽️", name: "Food", tip: "Cook at home or buy food at a market." },
+  { id: "energy", icon: "⚡", name: "Energy", tip: "Sleep or rest on a sofa." },
+  { id: "iman", icon: "🕌", name: "Iman", tip: "Pray, read the Qur'an, make dhikr or learn." },
+  { id: "social", icon: "👥", name: "Friends", tip: "Greet neighbours and chat with players." },
+  { id: "clean", icon: "💧", name: "Clean", tip: "Make wudu or bathe." },
+];
+const freshNeeds = (): Needs => ({ hunger: 80, energy: 90, iman: 70, social: 60, clean: 80 });
+/** How fast each need falls, per real minute of play. */
+const NEED_DECAY: Needs = { hunger: 1.2, energy: 0.8, iman: 0.6, social: 0.9, clean: 0.7 };
+
+function NeedsBars({ needs, onTap }: { needs: Needs; onTap: () => void }) {
+  return (
+    <button onClick={onTap} className="mb-0.5 flex gap-1" aria-label="Your needs">
+      {NEED_META.map((n) => {
+        const v = Math.round(needs[n.id]);
+        return (
+          <span key={n.id} className="flex items-center gap-0.5">
+            <span className="text-[9px]">{n.icon}</span>
+            <span className="h-1.5 w-3 overflow-hidden rounded-full bg-[#10201e]/15">
+              <span
+                className={`block h-full rounded-full ${v < 25 ? "bg-[#b8573a]" : v < 50 ? "bg-[#e6b84a]" : "bg-[#1f6f63]"}`}
+                style={{ width: `${v}%` }}
+              />
+            </span>
+          </span>
+        );
+      })}
+    </button>
+  );
+}
+
+function NeedsView({ needs }: { needs: Needs }) {
+  return (
+    <div className="space-y-2">
+      {NEED_META.map((n) => (
+        <div key={n.id} className="rounded-xl bg-white p-2.5">
+          <div className="flex items-center justify-between text-[14px] font-bold">
+            <span>
+              {n.icon} {n.name}
+            </span>
+            <span className="tabular-nums">{Math.round(needs[n.id])}%</span>
+          </div>
+          <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#10201e]/10">
+            <div
+              className="h-full rounded-full bg-[#1f6f63]"
+              style={{ width: `${needs[n.id]}%` }}
+            />
+          </div>
+          <div className="mt-1 text-[12px] opacity-70">{n.tip}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdhkarView({ kind, onDone }: { kind: keyof typeof ADHKAR; onDone: () => void }) {
+  const list = ADHKAR[kind];
+  const [counts, setCounts] = useState(() => list.map(() => 0));
+  const done = counts.every((c, i) => c >= list[i].times);
+  return (
+    <div className="space-y-2">
+      {list.map((d, i) => {
+        const full = counts[i] >= d.times;
+        return (
+          <div key={i} className={`rounded-xl p-3 ${full ? "bg-[#1f6f63]/10" : "bg-white"}`}>
+            <div className="text-[15px] font-semibold leading-snug">{d.ar}</div>
+            <div className="mt-1 text-[13px] opacity-80">{d.en}</div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] opacity-60">{d.src}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-[13px] font-bold tabular-nums">
+                  {Math.min(counts[i], d.times)} / {d.times}
+                </span>
+                {!full && (
+                  <button
+                    onClick={() => setCounts((c) => c.map((x, j) => (j === i ? x + 1 : x)))}
+                    className="rounded-lg bg-[#1f6f63] px-3 py-1.5 text-[13px] font-bold text-[#fdf8ec]"
+                  >
+                    Said it
+                  </button>
+                )}
+                {!full && d.times >= 10 && (
+                  <button
+                    onClick={() => setCounts((c) => c.map((x, j) => (j === i ? x + 10 : x)))}
+                    className="rounded-lg border border-[#1f6f63]/40 px-2 py-1.5 text-[13px] font-bold text-[#1f6f63]"
+                  >
+                    +10
+                  </button>
+                )}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      <button
+        disabled={!done}
+        onClick={onDone}
+        className="w-full rounded-xl bg-[#e6b84a] py-3 font-extrabold text-[#2a1c05] disabled:opacity-50"
+      >
+        {done ? "Done · Alhamdulillah" : "Say each one to finish"}
+      </button>
+    </div>
+  );
+}
+
+function WuduView({ onDone }: { onDone: () => void }) {
+  const [k, setK] = useState(0);
+  const [n, setN] = useState(0);
+  const step = WUDU_STEPS[k];
+  if (!step)
+    return (
+      <div className="space-y-3 text-center">
+        <div className="text-[40px]">💧</div>
+        <p className="text-[15px]">Your wudu is complete. You are ready for salah.</p>
+        <button
+          onClick={onDone}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+        >
+          Alhamdulillah
+        </button>
+      </div>
+    );
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1">
+        {WUDU_STEPS.map((_, i) => (
+          <span
+            key={i}
+            className={`h-1.5 flex-1 rounded-full ${i < k ? "bg-[#1f6f63]" : i === k ? "bg-[#e6b84a]" : "bg-[#10201e]/10"}`}
+          />
+        ))}
+      </div>
+      <div className="rounded-xl bg-white p-4">
+        <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+          Step {k + 1} of {WUDU_STEPS.length}
+        </div>
+        <div className="font-serif text-2xl leading-tight">{step.name}</div>
+        <p className="mt-1 text-[14px] opacity-80">{step.how}</p>
+      </div>
+      <button
+        onClick={() => {
+          if (n + 1 >= step.times) {
+            setK(k + 1);
+            setN(0);
+          } else setN(n + 1);
+        }}
+        className="w-full rounded-xl bg-[#1f6f63] py-4 text-[16px] font-extrabold text-[#fdf8ec]"
+      >
+        {step.times > 1 ? `Wash · ${n + 1} of ${step.times}` : "Done"}
+      </button>
+    </div>
+  );
+}
+
+function MyDayView({
+  tasks,
+  prayedCount,
+  salamCount,
+  onAdhkar,
+}: {
+  tasks: Record<string, boolean>;
+  prayedCount: number;
+  salamCount: number;
+  onAdhkar: (k: "wake" | "morning" | "evening") => void;
+}) {
+  const doneN = DAY_TASKS.filter((t) => tasks[t.id]).length;
+  return (
+    <div className="space-y-2">
+      <div className="h-2 overflow-hidden rounded-full bg-[#10201e]/10">
+        <div
+          className="h-full rounded-full bg-[#e6b84a]"
+          style={{ width: `${(doneN / DAY_TASKS.length) * 100}%` }}
+        />
+      </div>
+      <p className="text-[12px] opacity-70">
+        {doneN} of {DAY_TASKS.length} done · +{TASK_POINTS} points each, +{DAY_BONUS} when you
+        finish them all
+      </p>
+      {DAY_TASKS.map((t) => (
+        <div
+          key={t.id}
+          className={`flex items-center gap-3 rounded-xl px-3 py-2 ${tasks[t.id] ? "bg-[#1f6f63]/10" : "bg-white"}`}
+        >
+          <span className="text-[18px]">{tasks[t.id] ? "✅" : "⬜"}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14px] font-bold leading-tight">
+              {t.text}
+              {t.id === "salah"
+                ? ` (${prayedCount}/5)`
+                : t.id === "salam"
+                  ? ` (${Math.min(3, salamCount)}/3)`
+                  : ""}
+            </span>
+            <span className="block text-[12px] opacity-65">{t.hint}</span>
+          </span>
+          {!tasks[t.id] && (t.id === "wake" || t.id === "adhkarM" || t.id === "adhkarE") && (
+            <button
+              onClick={() =>
+                onAdhkar(t.id === "wake" ? "wake" : t.id === "adhkarM" ? "morning" : "evening")
+              }
+              className="rounded-lg bg-[#1f6f63] px-2.5 py-1 text-[12px] font-bold text-[#fdf8ec]"
+            >
+              Start
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HomeShopView({
+  owned,
+  points,
+  onBuy,
+  onNaira,
+}: {
+  owned: string[];
+  points: number;
+  onBuy: (ids: string[], pts: number) => void;
+  onNaira: (ids: string[], naira: number) => void;
+}) {
+  const left = HOME_ITEMS.filter((i) => !owned.includes(i.id));
+  const [pick, setPick] = useState<string[]>([]);
+  const chosen = left.filter((i) => pick.includes(i.id));
+  const pts = chosen.reduce((a, i) => a + itemPoints(i), 0);
+  const naira = chosen.reduce((a, i) => a + i.naira, 0);
+  if (!left.length) return <p>Masha Allah, your home is fully furnished!</p>;
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] opacity-75">
+        Your flat has a bed and a bathroom. Pick what to add. You have {points} points.
+      </p>
+      <button
+        onClick={() => setPick(pick.length === left.length ? [] : left.map((i) => i.id))}
+        className="text-[13px] font-bold text-[#1f6f63] underline"
+      >
+        {pick.length === left.length ? "Clear" : "Pick everything"}
+      </button>
+      <div className="grid grid-cols-2 gap-2">
+        {left.map((i) => {
+          const on = pick.includes(i.id);
+          return (
+            <button
+              key={i.id}
+              onClick={() => setPick((p) => (on ? p.filter((x) => x !== i.id) : [...p, i.id]))}
+              className={`rounded-xl border-2 p-2 text-left ${on ? "border-[#1f6f63] bg-[#1f6f63]/10" : "border-transparent bg-white"}`}
+            >
+              <div className="text-[22px]">{i.icon}</div>
+              <div className="text-[13px] font-bold leading-tight">{i.name}</div>
+              <div className="text-[11px] opacity-70">{i.does}</div>
+              <div className="mt-1 text-[12px] font-bold text-[#1f6f63]">
+                ₦{i.naira} · {itemPoints(i)} pts
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        disabled={!chosen.length || points < pts}
+        onClick={() =>
+          onBuy(
+            chosen.map((i) => i.id),
+            pts,
+          )
+        }
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
+      >
+        {chosen.length
+          ? `Buy ${chosen.length} item${chosen.length > 1 ? "s" : ""} · ${pts} points`
+          : "Pick items to buy"}
+      </button>
+      {chosen.length > 0 && (
+        <button
+          onClick={() =>
+            onNaira(
+              chosen.map((i) => i.id),
+              naira,
+            )
+          }
+          className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+        >
+          Pay ₦{naira.toLocaleString()} with Paystack
+        </button>
+      )}
     </div>
   );
 }

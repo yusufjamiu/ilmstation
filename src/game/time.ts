@@ -251,3 +251,15 @@ export function darkness(c: Clock) {
   if (m > t.maghrib) return (m - t.maghrib) / (t.isha - t.maghrib);
   return 0;
 }
+
+/** A greeting for the loading screen that fits the time of day in Lagos. */
+export function cityGreeting(ms = Date.now()) {
+  const c = clockFor(CITIES.lagos, ms);
+  const h = c.min / 60;
+  if (c.min < c.times.fajr || h >= 22) return "Bismillah… the city rests under the stars";
+  if (c.min < c.times.sunrise + 30) return "Bismillah… the city wakes for Fajr";
+  if (h < 12) return "Good morning… the city is busy and bright";
+  if (c.min < c.times.asr) return "Good afternoon… the city is at work";
+  if (c.min < c.times.maghrib) return "Good evening… the sun is going down over Lagos";
+  return "Good evening… the street lights are on";
+}

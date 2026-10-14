@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { cityGreeting } from "@/game/time";
 
 // The 3D game only runs in the browser, and only downloads when someone opens IlmCity.
 const IlmCityGame = lazy(() => import("@/game/IlmCityGame"));
@@ -45,7 +46,7 @@ function Loading() {
         <div className="font-serif text-4xl">
           Ilm<span className="text-[#45b8a8]">City</span>
         </div>
-        <p className="mt-2 text-sm opacity-70">Bismillah… building Lekki</p>
+        <p className="mt-2 text-sm opacity-70">{cityGreeting()}</p>
       </div>
     </div>
   );

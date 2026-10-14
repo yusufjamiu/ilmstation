@@ -1183,3 +1183,172 @@ export const MARKET_TRADERS: { name: string; items: [string, string, string][] }
     ],
   },
 ];
+
+/* ---------------- your home ---------------- */
+export type HomeItem = { id: string; name: string; icon: string; naira: number; does: string };
+/** Furniture for your flat. Points price = naira ÷ 10. */
+export const HOME_ITEMS: HomeItem[] = [
+  { id: "prayermat", name: "Prayer mat", icon: "🕌", naira: 100, does: "Pray at home" },
+  { id: "rug", name: "Rug", icon: "🟥", naira: 100, does: "A warm floor" },
+  { id: "fan", name: "Standing fan", icon: "🌀", naira: 100, does: "Cool air" },
+  { id: "curtains", name: "Curtains", icon: "🪟", naira: 100, does: "Privacy" },
+  { id: "clock", name: "Wall clock", icon: "🕰️", naira: 100, does: "Never miss salah" },
+  {
+    id: "bookshelf",
+    name: "Bookshelf and Qur'an",
+    icon: "📖",
+    naira: 200,
+    does: "Read the Qur'an at home",
+  },
+  { id: "radio", name: "Radio", icon: "📻", naira: 200, does: "Listen to lectures at home" },
+  { id: "table", name: "Dining table", icon: "🍽️", naira: 200, does: "Eat with family" },
+  { id: "wardrobe", name: "Wardrobe", icon: "🚪", naira: 200, does: "Keep your clothes" },
+  {
+    id: "kitchen",
+    name: "Kitchen and cooker",
+    icon: "🍳",
+    naira: 500,
+    does: "Cook and eat at home",
+  },
+  { id: "fridge", name: "Fridge", icon: "🧊", naira: 500, does: "Food stays fresh" },
+  { id: "sofa", name: "Sofa", icon: "🛋️", naira: 500, does: "Rest and receive guests" },
+];
+export const itemPoints = (i: HomeItem) => i.naira / 10;
+
+/* ---------------- a Muslim's day ---------------- */
+export const DAY_TASKS: { id: string; text: string; hint: string }[] = [
+  { id: "wake", text: "Say the du'a for waking up", hint: "Open My Day → Morning adhkar" },
+  { id: "adhkarM", text: "Morning adhkar", hint: "Before Dhuhr" },
+  { id: "wudu", text: "Make wudu", hint: "Bathroom at home, or the masjid" },
+  { id: "salah", text: "Pray the prayers on time", hint: "Each prayer counts" },
+  {
+    id: "eat",
+    text: "Eat a halal meal (say Bismillah)",
+    hint: "Cook at home or buy food at a market",
+  },
+  { id: "market", text: "Visit a market", hint: "Every area has one" },
+  { id: "learn", text: "Learn something", hint: "Lecture, mosque quiz or a class" },
+  { id: "salam", text: "Greet 3 people with salam", hint: "Talk to neighbours or players" },
+  { id: "quran", text: "Read the Qur'an", hint: "At home or in the masjid" },
+  { id: "adhkarE", text: "Evening adhkar", hint: "After Asr" },
+  { id: "sleep", text: "Sleep early after Isha", hint: "Your bed at home" },
+];
+export const TASK_POINTS = 3;
+export const DAY_BONUS = 20;
+
+/** Adhkar for morning and evening, with how many times each is said. */
+export const ADHKAR: Record<
+  "wake" | "morning" | "evening" | "sleep",
+  { ar: string; en: string; times: number; src: string }[]
+> = {
+  wake: [
+    {
+      ar: "Alhamdu lillahil-ladhi ahyana ba'da ma amatana wa ilayhin-nushur",
+      en: "All praise is for Allah who gave us life after causing us to die, and to Him is the return.",
+      times: 1,
+      src: "Bukhari",
+    },
+  ],
+  morning: [
+    {
+      ar: "Ayat al-Kursi (Al-Baqarah 2:255)",
+      en: "Allah — there is no god except Him, the Ever-Living, the Sustainer of all existence…",
+      times: 1,
+      src: "Qur'an",
+    },
+    {
+      ar: "Surah Al-Ikhlas, Al-Falaq and An-Nas",
+      en: "The three protecting surahs.",
+      times: 3,
+      src: "Abu Dawud, Tirmidhi",
+    },
+    {
+      ar: "Bismillahil-ladhi la yadurru ma'asmihi shay'un fil-ardi wa la fis-sama'i wa huwas-sami'ul-'alim",
+      en: "In the name of Allah, with whose name nothing on earth or in the heavens can cause harm, and He is the All-Hearing, the All-Knowing.",
+      times: 3,
+      src: "Abu Dawud, Tirmidhi",
+    },
+    {
+      ar: "SubhanAllahi wa bihamdihi",
+      en: "Glory be to Allah and praise be to Him.",
+      times: 100,
+      src: "Muslim",
+    },
+  ],
+  evening: [
+    {
+      ar: "Ayat al-Kursi (Al-Baqarah 2:255)",
+      en: "Allah — there is no god except Him, the Ever-Living, the Sustainer of all existence…",
+      times: 1,
+      src: "Qur'an",
+    },
+    {
+      ar: "Surah Al-Ikhlas, Al-Falaq and An-Nas",
+      en: "The three protecting surahs.",
+      times: 3,
+      src: "Abu Dawud, Tirmidhi",
+    },
+    {
+      ar: "A'udhu bikalimatillahit-tammati min sharri ma khalaq",
+      en: "I seek refuge in the perfect words of Allah from the evil of what He has created.",
+      times: 3,
+      src: "Muslim",
+    },
+  ],
+  sleep: [
+    {
+      ar: "Bismika Allahumma amutu wa ahya",
+      en: "In Your name, O Allah, I die and I live.",
+      times: 1,
+      src: "Bukhari",
+    },
+  ],
+};
+
+/** The steps of wudu, in order. */
+export const WUDU_STEPS: { name: string; how: string; times: number }[] = [
+  {
+    name: "Intention and Bismillah",
+    how: "Make the intention in your heart and say Bismillah.",
+    times: 1,
+  },
+  { name: "Wash your hands", how: "Wash both hands up to the wrists.", times: 3 },
+  { name: "Rinse your mouth", how: "Take water into your mouth and rinse it.", times: 3 },
+  { name: "Rinse your nose", how: "Sniff water into the nose and blow it out.", times: 3 },
+  { name: "Wash your face", how: "From the hairline to the chin, ear to ear.", times: 3 },
+  {
+    name: "Wash your right arm",
+    how: "From the fingertips up to and including the elbow.",
+    times: 3,
+  },
+  {
+    name: "Wash your left arm",
+    how: "From the fingertips up to and including the elbow.",
+    times: 3,
+  },
+  {
+    name: "Wipe your head",
+    how: "Wet hands from the front of the head to the back and return.",
+    times: 1,
+  },
+  {
+    name: "Wipe your ears",
+    how: "Inside with the index fingers, behind with the thumbs.",
+    times: 1,
+  },
+  {
+    name: "Wash your right foot",
+    how: "Up to and including the ankle, between the toes.",
+    times: 3,
+  },
+  {
+    name: "Wash your left foot",
+    how: "Up to and including the ankle, between the toes.",
+    times: 3,
+  },
+  {
+    name: "The du'a after wudu",
+    how: "Ash-hadu an la ilaha illallah wahdahu la sharika lah, wa ash-hadu anna Muhammadan 'abduhu wa rasuluh. (Muslim)",
+    times: 1,
+  },
+];

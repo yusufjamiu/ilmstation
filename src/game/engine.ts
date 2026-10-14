@@ -29,6 +29,7 @@ import {
   type Compound,
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
+import { vehicleMesh } from "./vehicles";
 import {
   forgetHuman,
   gesture,
@@ -59,6 +60,8 @@ export type EngineEvents = {
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
 type Zone = {
+  /** a zone for something not yet bought is switched off */
+  off?: boolean;
   id: string;
   label: string;
   x: number;
@@ -473,6 +476,7 @@ export class IlmCityEngine {
   private input = new THREE.Vector2();
   private keys = new Set<string>();
   private tapTarget: THREE.Vector3 | null = null;
+  private tapPlanned: THREE.Vector3 | null = null;
   private walkT = 0;
   private ctx: Context = null;
   private place = "";
@@ -757,6 +761,7 @@ export class IlmCityEngine {
     // landmarks along their streets, front doors facing the street
     D.landmarks.forEach((l) => this.buildLandmark(l, D));
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
+    if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
 
     // bus park
     this.buildBusPark(-72, 15);
@@ -895,6 +900,13 @@ export class IlmCityEngine {
           for (const side of [-1, 1]) {
             const z = st.z + side * 10.5;
             if (!this.boxFree(x - 0.8, x + 0.8, z - 0.8, z + 0.8)) continue;
+            this.addCollider(
+              "out",
+              x - (k % 2 ? 1.2 : 0.4),
+              x + (k % 2 ? 1.2 : 0.4),
+              z - 0.45,
+              z + 0.45,
+            );
             if (k % 2 === 0) batch.addObject(palm(x, z, 0.85));
             else {
               const bed = new THREE.Mesh(
@@ -946,6 +958,7 @@ export class IlmCityEngine {
     const headMesh = new THREE.InstancedMesh(lampHead, this.lampMat, lamps.length);
     const m4 = new THREE.Matrix4();
     lamps.forEach(([x, z], i) => {
+      this.addCollider("out", x - 0.2, x + 0.2, z - 0.2, z + 0.2);
       m4.makeTranslation(x, 2.5, z);
       poleMesh.setMatrixAt(i, m4);
       m4.makeTranslation(x, 5.1, z);
@@ -967,6 +980,7 @@ export class IlmCityEngine {
         z = north + rnd() * (southEdge - 8 - north);
       if (!clear(x, z)) continue;
       batch.addObject(rnd() < 0.55 ? palm(x, z, 0.8 + rnd() * 0.3) : tree(x, z, 0.9 + rnd() * 0.4));
+      this.addCollider("out", x - 0.45, x + 0.45, z - 0.45, z + 0.45);
       n++;
     }
 
@@ -1263,6 +1277,15 @@ export class IlmCityEngine {
     for (let t = -len / 2 + 14; t < len / 2 - 14; t += 26) {
       g.add(palm(-12.5, t, 0.9));
       g.add(palm(12.5, t + 13, 0.9));
+      for (const [lx, lt] of [
+        [-12.5, t],
+        [12.5, t + 13],
+      ]) {
+        const a = g.rotation.y;
+        const wx = g.position.x + lx * Math.cos(a) + lt * Math.sin(a),
+          wz = g.position.z - lx * Math.sin(a) + lt * Math.cos(a);
+        this.colliders.out.push({ x0: wx - 0.45, x1: wx + 0.45, z0: wz - 0.45, z1: wz + 0.45 });
+      }
     }
     this.worldBatch.addObject(g);
     for (const f of [0.2, 0.5, 0.8]) {
@@ -1564,6 +1587,70 @@ export class IlmCityEngine {
   }
   marketSpot = new Map<string, { x: number; z: number }>();
 
+  /** A block of flats near the market where new players live. */
+  private buildEstate(D: District, XR: number, rnd: () => number) {
+    const m = this.marketSpot.get(D.id);
+    const streets = [...D.streets].sort(
+      (a, b) => Math.abs(a.z - (m?.z ?? 0)) - Math.abs(b.z - (m?.z ?? 0)),
+    );
+    for (const st of streets)
+      for (const north of [true, false]) {
+        const xs: number[] = [];
+        for (let x = -(XR - 14); x <= XR - 14; x += 6) if (Math.abs(x) > 16) xs.push(x);
+        xs.sort((a, b) => Math.abs(a - (m?.x ?? 0)) - Math.abs(b - (m?.x ?? 0)));
+        for (const cx of xs) {
+          const cz = north ? st.z - 21.5 : st.z + 21.5;
+          if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
+          const c = compound(this.curBatch, {
+            x: cx,
+            z: cz,
+            turn: north ? 0 : Math.PI,
+            number: 1,
+            rnd,
+            floors: 3,
+            width: 24,
+            wall: 0xe8dcb5,
+          });
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + cx - 12,
+            x1: this.ox + cx + 12,
+            z0: this.oz + cz - 10.5,
+            z1: this.oz + cz + 10.5,
+          });
+          this.zones.push({
+            id: "door:home:" + D.id,
+            label: `${D.name} Estate`,
+            x: this.ox + c.door.x,
+            z: this.oz + c.door.z,
+            r: 3,
+            scene: "out",
+          });
+          const t = label(`${D.name} Estate · flats`, { size: 1, bg: "rgba(31,111,99,0.92)" });
+          t.position.set(c.gate.x, 5, c.gate.z);
+          this.dg.add(t);
+          return;
+        }
+      }
+  }
+  /** Where the door of an area's estate (or Lekki's home) is. */
+  homeDoor(area: string) {
+    return (
+      this.zones.find(
+        (z) => z.id === "door:home:" + area || (area === "lekki" && z.id === "door:home:home"),
+      ) ?? null
+    );
+  }
+  /** Begin the day inside your flat; walking out puts you at the estate gate. */
+  startAtHome(area: string, name: string) {
+    const d = this.homeDoor(area);
+    if (d) {
+      this.player.position.set(d.x, 0, d.z);
+      this.district = districtById(area);
+    }
+    this.enterInterior("home", name);
+  }
+
   /** Ikorodu Market: rows of stalls along Souq Road and two lanes behind it. */
   private buildMarket(D: District) {
     const H = halfOf(D);
@@ -1827,10 +1914,10 @@ export class IlmCityEngine {
   /** Walk to this area's bus park and open the travel menu on arrival. Returns false if not possible. */
   /** Walk to the nearest place whose id starts with `prefix` (used by the guided start). */
   goToZone(prefix: string) {
-    if (this.where !== "out" || this.driving || this.riding) return false;
+    if (this.driving || this.riding || this.kekeTrip) return false;
     const p = this.player.position;
     const z = this.zones
-      .filter((zz) => zz.scene === "out" && zz.id.startsWith(prefix))
+      .filter((zz) => zz.scene === this.where && !zz.off && zz.id.startsWith(prefix))
       .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
     if (!z) return false;
     this.tapZone = z.id;
@@ -1864,6 +1951,284 @@ export class IlmCityEngine {
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
   }
+  /** Is someone (you, a neighbour, another player) just in front of this walker? */
+  private personAhead(x: number, z: number, ux: number, uz: number, self: THREE.Object3D) {
+    const check = (px: number, pz: number) => {
+      const dx = px - x,
+        dz = pz - z;
+      const fwd = dx * ux + dz * uz,
+        lat = Math.abs(-dx * uz + dz * ux);
+      return fwd > 0 && fwd < 1.6 && lat < 0.8;
+    };
+    if (
+      this.where === "out" &&
+      this.player.visible &&
+      check(this.player.position.x, this.player.position.z)
+    )
+      return true;
+    for (const o of this.walkers) {
+      if (o.g === self || !o.g.parent?.visible) continue;
+      if (check(o.g.position.x + o.g.parent.position.x, o.g.position.z + o.g.parent.position.z))
+        return true;
+    }
+    for (const r of this.remotes.values()) if (check(r.g.position.x, r.g.position.z)) return true;
+    return false;
+  }
+  /** True if a person stands where you are about to step. */
+  private bumpsPerson(x: number, z: number) {
+    const ox = this.player.position.x,
+      oz = this.player.position.z;
+    // blocked only when stepping closer to someone already very near
+    const hits = (px: number, pz: number) => {
+      const dn = (px - x) ** 2 + (pz - z) ** 2;
+      return dn < 0.55 && dn < (px - ox) ** 2 + (pz - oz) ** 2;
+    };
+    for (const o of this.walkers) {
+      if (!o.g.parent?.visible) continue;
+      if (hits(o.g.position.x + o.g.parent.position.x, o.g.position.z + o.g.parent.position.z))
+        return true;
+    }
+    for (const r of this.remotes.values()) if (hits(r.g.position.x, r.g.position.z)) return true;
+    return false;
+  }
+
+  /* ---------------- keke rides ---------------- */
+  private kekeTrip: {
+    mesh: THREE.Mesh;
+    pts: THREE.Vector3[];
+    k: number;
+    hailed: Vehicle | null;
+    dest: { x: number; z: number; id: string };
+  } | null = null;
+  /** The keke stopped beside you, if any. */
+  private kekeBeside() {
+    if (this.where !== "out" || this.driving || this.riding || this.cine || this.kekeTrip)
+      return null;
+    const p = this.player.position;
+    for (const v of this.traffic.vehicles)
+      if (v.kind === "keke" && Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z) < 4.5)
+        return v;
+    return null;
+  }
+  isOnKeke() {
+    return !!this.kekeTrip;
+  }
+  /** Ride a keke along the streets to a place in this area, then walk to its door. */
+  kekeTo(prefix: string) {
+    const hailed = this.kekeBeside();
+    const D = this.areaAt(this.player.position.x, this.player.position.z);
+    if (!D) return false;
+    const p = this.player.position;
+    const z = this.zones
+      .filter((zz) => zz.scene === "out" && zz.id.startsWith(prefix))
+      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+    if (!z) return false;
+    const XR = halfOf(D).x - 16;
+    const ox = D.origin.x,
+      oz = D.origin.z;
+    const near = (lz: number) =>
+      D.streets.reduce((a, b) => (Math.abs(b.z - lz) < Math.abs(a.z - lz) ? b : a)).z;
+    const clampX = (x: number) => Math.max(-XR, Math.min(XR, x));
+    const sP = near(p.z - oz),
+      sT = near(z.z - oz);
+    const L = (x: number, lz: number) => new THREE.Vector3(ox + x, 0, oz + lz);
+    const px = clampX(p.x - ox),
+      tx = clampX(z.x - ox);
+    const pts = [L(px, sP + 2)];
+    if (sP !== sT) pts.push(L(-2, sP + 2), L(-2, sT + 2));
+    pts.push(L(tx, sT + 2));
+    const mesh = vehicleMesh("keke", 0xf2c230);
+    mesh.position.copy(hailed ? hailed.mesh.position : pts[0]);
+    this.scene.add(mesh);
+    if (hailed) {
+      hailed.mesh.visible = false;
+      hailed.dwell = 999;
+    }
+    this.player.visible = false;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.kekeTrip = { mesh, pts, k: 0, hailed, dest: { x: z.x, z: z.z, id: z.id } };
+    return true;
+  }
+  private stepKeke(dt: number) {
+    const t = this.kekeTrip!;
+    const target = t.pts[t.k];
+    const m = t.mesh.position;
+    const dx = target.x - m.x,
+      dz = target.z - m.z,
+      d = Math.hypot(dx, dz);
+    const step = 11 * dt;
+    if (d <= step) {
+      m.set(target.x, 0, target.z);
+      t.k++;
+      if (t.k >= t.pts.length) {
+        // drop off: put the keke back into traffic and walk you to the door
+        t.mesh.removeFromParent();
+        if (t.hailed) {
+          t.hailed.mesh.visible = true;
+          t.hailed.dwell = 2;
+        }
+        this.player.position.set(m.x, 0, m.z + 2.2);
+        this.player.visible = true;
+        this.kekeTrip = null;
+        this.tapZone = t.dest.id;
+        this.tapTarget = new THREE.Vector3(t.dest.x, 0, t.dest.z);
+        this.marker.position.set(t.dest.x, 0.05, t.dest.z);
+        this.marker.visible = true;
+        this.ev.onAction("keke-done");
+        return;
+      }
+    } else {
+      m.x += (dx / d) * step;
+      m.z += (dz / d) * step;
+      const want = Math.atan2(-dz, dx);
+      t.mesh.rotation.y = lerpAngle(t.mesh.rotation.y, want, Math.min(1, dt * 8));
+    }
+    this.player.position.set(m.x, 0, m.z);
+  }
+
+  /* ---------------- finding a way round walls ---------------- */
+  private tapPath: THREE.Vector3[] = [];
+  private lineFree(a: THREE.Vector3, b: THREE.Vector3) {
+    const d = Math.hypot(b.x - a.x, b.z - a.z);
+    const n = Math.ceil(d / 0.4);
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      if (!this.free(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, 0.45)) return false;
+    }
+    return true;
+  }
+  /** A* on a 1-metre grid round the walls between you and where you tapped. */
+  private planTap() {
+    this.tapPath = [];
+    const t = this.tapTarget;
+    if (!t) return;
+    const a = this.player.position.clone();
+    if (this.lineFree(a, t)) {
+      this.tapPath = [t.clone()];
+      return;
+    }
+    const pad = 24,
+      C = 1;
+    const x0 = Math.floor(Math.min(a.x, t.x) - pad),
+      z0 = Math.floor(Math.min(a.z, t.z) - pad);
+    const W = Math.min(220, Math.ceil(Math.abs(a.x - t.x) + pad * 2)),
+      H = Math.min(220, Math.ceil(Math.abs(a.z - t.z) + pad * 2));
+    const boxes = this.colliders[this.where].filter(
+      (b) => b.x1 > x0 - 1 && b.x0 < x0 + W + 1 && b.z1 > z0 - 1 && b.z0 < z0 + H + 1,
+    );
+    const r = 0.5;
+    const blocked = new Uint8Array(W * H);
+    for (let j = 0; j < H; j++)
+      for (let i = 0; i < W; i++) {
+        const x = x0 + i * C + 0.5,
+          z = z0 + j * C + 0.5;
+        for (const b of boxes)
+          if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) {
+            blocked[j * W + i] = 1;
+            break;
+          }
+      }
+    const cell = (x: number, z: number) => [Math.floor(x - x0), Math.floor(z - z0)] as const;
+    const [si, sj] = cell(a.x, a.z);
+    let [ti, tj] = cell(t.x, t.z);
+    const inside = (i: number, j: number) => i >= 0 && j >= 0 && i < W && j < H;
+    if (!inside(si, sj) || !inside(ti, tj)) return;
+    // if the target is inside something, use the nearest open spot
+    if (blocked[tj * W + ti]) {
+      let best = -1,
+        bd = 1e9;
+      for (let j = Math.max(0, tj - 5); j <= Math.min(H - 1, tj + 5); j++)
+        for (let i = Math.max(0, ti - 5); i <= Math.min(W - 1, ti + 5); i++)
+          if (!blocked[j * W + i]) {
+            const d = (i - ti) ** 2 + (j - tj) ** 2;
+            if (d < bd) {
+              bd = d;
+              best = j * W + i;
+            }
+          }
+      if (best < 0) return;
+      ti = best % W;
+      tj = Math.floor(best / W);
+    }
+    blocked[sj * W + si] = 0;
+    const g = new Float32Array(W * H).fill(Infinity);
+    const from = new Int32Array(W * H).fill(-1);
+    const open: number[] = [];
+    const f = new Float32Array(W * H).fill(Infinity);
+    const h = (i: number, j: number) => {
+      const dx = Math.abs(i - ti),
+        dz = Math.abs(j - tj);
+      return Math.max(dx, dz) + 0.414 * Math.min(dx, dz);
+    };
+    const start = sj * W + si,
+      goal = tj * W + ti;
+    g[start] = 0;
+    f[start] = h(si, sj);
+    open.push(start);
+    const closed = new Uint8Array(W * H);
+    let found = false;
+    let iter = 0;
+    while (open.length && iter++ < 40000) {
+      let bi = 0;
+      for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
+      const c = open[bi];
+      open[bi] = open[open.length - 1];
+      open.pop();
+      if (c === goal) {
+        found = true;
+        break;
+      }
+      if (closed[c]) continue;
+      closed[c] = 1;
+      const ci = c % W,
+        cj = (c - ci) / W;
+      for (let dj = -1; dj <= 1; dj++)
+        for (let di = -1; di <= 1; di++) {
+          if (!di && !dj) continue;
+          const ni = ci + di,
+            nj = cj + dj;
+          if (!inside(ni, nj)) continue;
+          const n = nj * W + ni;
+          if (blocked[n] || closed[n]) continue;
+          if (di && dj && (blocked[cj * W + ni] || blocked[nj * W + ci])) continue;
+          const ng = g[c] + (di && dj ? 1.414 : 1);
+          if (ng < g[n]) {
+            g[n] = ng;
+            f[n] = ng + h(ni, nj);
+            from[n] = c;
+            open.push(n);
+          }
+        }
+    }
+    if (!found) return;
+    const pts: THREE.Vector3[] = [];
+    for (let c = goal; c !== -1 && c !== start; c = from[c]) {
+      const i = c % W,
+        j = (c - i) / W;
+      pts.unshift(new THREE.Vector3(x0 + i + 0.5, 0, z0 + j + 0.5));
+    }
+    pts[pts.length - 1] = blocked[Math.floor(t.z - z0) * W + Math.floor(t.x - x0)]
+      ? pts[pts.length - 1]
+      : t.clone();
+    // keep only the corners you need
+    const out: THREE.Vector3[] = [];
+    let cur = a;
+    let k = 0;
+    while (k < pts.length) {
+      let far = k;
+      for (let m = pts.length - 1; m > k; m--)
+        if (this.lineFree(cur, pts[m])) {
+          far = m;
+          break;
+        }
+      out.push(pts[far]);
+      cur = pts[far];
+      k = far + 1;
+    }
+    this.tapPath = out;
+  }
+
   /* ---------------- other real players ---------------- */
   private remotes = new Map<
     string,
@@ -2380,6 +2745,20 @@ export class IlmCityEngine {
     });
     return { g, o };
   }
+  private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zone?: Zone }>();
+  private homeBase: Box[] | null = null;
+  /** Show the furniture you own; everything else stays out of the flat. */
+  setHomeItems(owned: string[]) {
+    if (!this.homeBase) this.homeBase = [...this.colliders.home];
+    const boxes = [...this.homeBase];
+    for (const [id, it] of this.homeItems) {
+      const has = owned.includes(id);
+      it.obj.visible = has;
+      if (it.zone) it.zone.off = !has;
+      if (has) boxes.push(...it.boxes);
+    }
+    this.colliders.home = boxes;
+  }
   private solid(kind: InteriorKind, g: THREE.Group, m: THREE.Object3D, w: number, d: number) {
     g.add(m);
     const o = this.interiorOrigin[kind];
@@ -2469,73 +2848,221 @@ export class IlmCityEngine {
         g.add(p);
       });
     }
-    // Home
+    // Home: a flat with a bed and a bathroom. Everything else is bought.
     {
       const { g, o } = this.room("home", 20, 14, 0xe9dcc4, 0xb98d5e);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      // bed (always there)
       const bed = new THREE.Group();
-      bed.add(box(3.2, 0.6, 4.2, 0x6d4a2b));
-      bed.add(box(3, 0.4, 4, 0xf4efe4, 0, 0.6));
-      bed.add(box(1, 0.3, 0.6, 0xe0d4c0, -0.8, 1, -1.6));
-      bed.add(box(1, 0.3, 0.6, 0xe0d4c0, 0.8, 1, -1.6));
-      bed.add(box(3.1, 0.15, 2.4, 0x1f6f63, 0, 1, 0.7));
+      bed.add(B(3.2, 0.6, 4.2, 0x6d4a2b, 0, 0, 0));
+      bed.add(B(3, 0.4, 4, 0xf4efe4, 0, 0.6, 0));
+      bed.add(B(1, 0.3, 0.6, 0xe0d4c0, -0.8, 1, -1.6));
+      bed.add(B(1, 0.3, 0.6, 0xe0d4c0, 0.8, 1, -1.6));
+      bed.add(B(3.1, 0.15, 2.4, 0x1f6f63, 0, 1, 0.7));
       bed.position.set(-7, 0, -4);
       this.solid("home", g, bed, 3.4, 4.4);
-      const k = new THREE.Group();
-      k.add(box(6, 1.8, 1.2, 0xf1ece0));
-      k.add(box(6, 0.12, 1.3, 0x3a3f46, 0, 1.8));
-      k.add(box(1.6, 0.6, 0.9, 0x9a9fa6, 1.6, 1.92));
-      k.add(box(1, 3.6, 1.2, 0xd9dde0, 3.6, 0));
-      k.position.set(5.5, 0, -6);
-      this.solid("home", g, k, 8.6, 1.4);
-      const rug = new THREE.Mesh(new THREE.PlaneGeometry(6, 4), mat(0x7d2f3a));
-      rug.rotation.x = -Math.PI / 2;
-      rug.position.set(1, 0.02, 1);
-      g.add(rug);
-      const rugB = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 3.2), mat(0xe6b84a));
-      rugB.rotation.x = -Math.PI / 2;
-      rugB.position.set(1, 0.03, 1);
-      g.add(rugB);
-      const rugC = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 2.6), mat(0x7d2f3a));
-      rugC.rotation.x = -Math.PI / 2;
-      rugC.position.set(1, 0.04, 1);
-      g.add(rugC);
-      [
-        [-2.4, 1],
-        [4.4, 1],
-      ].forEach(([x, z]) => {
-        const c = box(0.9, 0.5, 3.4, 0x1f6f63, x, 0, z);
-        this.solid("home", g, c, 1, 3.6);
-      });
-      const pmat = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), mat(0x2f8f83));
-      pmat.rotation.x = -Math.PI / 2;
-      pmat.position.set(-7.5, 0.03, 3.5);
-      g.add(pmat);
-      const tbl = box(1.6, 0.5, 1, 0x8a5a3a, 1, 0, 1);
-      this.solid("home", g, tbl, 1.6, 1);
+      // bathroom corner (always there): partition walls, toilet, tap and bucket for wudu
+      g.add(B(0.25, 3, 4.2, 0xdfe6e2, 5, 0, -4.9));
+      g.add(B(2.2, 3, 0.25, 0xdfe6e2, 8.9, 0, -2.8));
+      this.addCollider("home", o.x + 4.85, o.x + 5.15, o.z - 7, o.z - 2.8);
+      this.addCollider("home", o.x + 7.8, o.x + 10, o.z - 2.95, o.z - 2.65);
+      const tiles = new THREE.Mesh(new THREE.PlaneGeometry(5, 4.2), mat(0xcfe0e6));
+      tiles.rotation.x = -Math.PI / 2;
+      tiles.position.set(7.5, 0.02, -4.9);
+      g.add(tiles);
+      const wc = new THREE.Group();
+      wc.add(B(0.7, 0.45, 0.9, 0xf7f7f4, 0, 0, 0), B(0.8, 0.9, 0.3, 0xf7f7f4, 0, 0.2, -0.5));
+      wc.position.set(8.9, 0, -6.2);
+      this.solid("home", g, wc, 0.9, 1.2);
+      const tap = new THREE.Group();
+      tap.add(B(1, 0.9, 0.5, 0xf7f7f4, 0, 0, 0), B(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.9, -0.1));
+      const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.25, 0.5, 12), mat(0x2f6fb0));
+      bucket.position.set(0.9, 0.25, 0.2);
+      tap.add(bucket);
+      tap.position.set(6.3, 0, -6.4);
+      this.solid("home", g, tap, 1.2, 0.6);
       this.zones.push({
         id: "sleep",
-        label: "Rest in bed",
+        label: "Sleep / rest",
         x: o.x - 7,
         z: o.z - 1.2,
         r: 2,
         scene: "home",
       });
       this.zones.push({
-        id: "eat",
-        label: "Cook and eat",
-        x: o.x + 5.5,
+        id: "bath",
+        label: "Bathroom · wudu",
+        x: o.x + 7.2,
         z: o.z - 4.6,
-        r: 2.2,
-        scene: "home",
-      });
-      this.zones.push({
-        id: "prayermat",
-        label: "Prayer corner",
-        x: o.x - 7.5,
-        z: o.z + 3.5,
         r: 1.8,
         scene: "home",
       });
+
+      // things you can buy, hidden until bought
+      const item = (
+        id: string,
+        m: THREE.Object3D,
+        w = 0,
+        d = 0,
+        zone?: Omit<Zone, "scene" | "x" | "z"> & { dx?: number; dz?: number },
+      ) => {
+        m.visible = false;
+        g.add(m);
+        const boxes: Box[] = w
+          ? [
+              {
+                x0: o.x + m.position.x - w / 2,
+                x1: o.x + m.position.x + w / 2,
+                z0: o.z + m.position.z - d / 2,
+                z1: o.z + m.position.z + d / 2,
+              },
+            ]
+          : [];
+        let zz: Zone | undefined;
+        if (zone) {
+          zz = {
+            id: zone.id,
+            label: zone.label,
+            r: zone.r,
+            scene: "home",
+            x: o.x + m.position.x + (zone.dx ?? 0),
+            z: o.z + m.position.z + (zone.dz ?? 0),
+            off: true,
+          };
+          this.zones.push(zz);
+        }
+        this.homeItems.set(id, { obj: m, boxes, zone: zz });
+      };
+      {
+        const k = new THREE.Group();
+        k.add(
+          B(5, 1.8, 1.2, 0xf1ece0, 0, 0, 0),
+          B(5, 0.12, 1.3, 0x3a3f46, 0, 1.8, 0),
+          B(1.4, 0.15, 0.9, 0x1d1f22, 1.2, 1.92, 0),
+        );
+        k.position.set(0, 0, -6.2);
+        item("kitchen", k, 5, 1.4, { id: "eat", label: "Cook and eat", r: 2, dz: 1.6 });
+      }
+      {
+        const f = new THREE.Group();
+        f.add(B(1.1, 3.2, 1, 0xd9dde0, 0, 0, 0), B(0.05, 0.6, 0.05, 0x9a9fa6, 0.4, 1.8, 0.52));
+        f.position.set(3.4, 0, -6.3);
+        item("fridge", f, 1.2, 1.1);
+      }
+      {
+        const t = new THREE.Group();
+        t.add(B(2.4, 0.9, 1.4, 0x8a5a3a, 0, 0, 0));
+        for (const [cx, cz] of [
+          [-0.8, 1.1],
+          [0.8, 1.1],
+          [-0.8, -1.1],
+          [0.8, -1.1],
+        ])
+          t.add(B(0.6, 0.55, 0.6, 0x6d4a2b, cx, 0, cz));
+        t.position.set(0, 0, -2.6);
+        item("table", t, 2.6, 3.4);
+      }
+      {
+        const s = new THREE.Group();
+        s.add(
+          B(3.6, 0.6, 1.2, 0x1f6f63, 0, 0, 0),
+          B(3.6, 0.9, 0.3, 0x1f6f63, 0, 0.6, 0.45),
+          B(0.3, 0.8, 1.2, 0x1f6f63, -1.8, 0.3, 0),
+          B(0.3, 0.8, 1.2, 0x1f6f63, 1.8, 0.3, 0),
+        );
+        s.position.set(-2, 0, 4.4);
+        item("sofa", s, 3.9, 1.3, { id: "sofa", label: "Sit and rest", r: 1.8, dz: -1.4 });
+      }
+      {
+        const r = new THREE.Group();
+        for (const [w, d, c, y] of [
+          [6, 4, 0x7d2f3a, 0.02],
+          [5.2, 3.2, 0xe6b84a, 0.03],
+          [4.6, 2.6, 0x7d2f3a, 0.04],
+        ] as const) {
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(c));
+          m.rotation.x = -Math.PI / 2;
+          m.position.y = y;
+          r.add(m);
+        }
+        r.position.set(0, 0, 2.2);
+        item("rug", r);
+      }
+      {
+        const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), mat(0x2f8f83));
+        pm.rotation.x = -Math.PI / 2;
+        pm.position.set(-7.6, 0.03, 3.6);
+        item("prayermat", pm, 0, 0, { id: "prayermat", label: "Prayer mat", r: 1.6 });
+      }
+      {
+        const sh = new THREE.Group();
+        sh.add(B(0.5, 2.6, 2.2, 0x6d4a2b, 0, 0, 0));
+        for (let i = 0; i < 4; i++)
+          sh.add(
+            B(
+              0.35,
+              0.4,
+              0.25,
+              [0x1f6f63, 0x7d2f3a, 0xe6b84a, 0x2a4a6a][i],
+              0.1,
+              1.8,
+              -0.75 + i * 0.5,
+            ),
+          );
+        sh.position.set(-9.6, 0, 0.4);
+        item("bookshelf", sh, 0.6, 2.3, {
+          id: "quranhome",
+          label: "Read the Qur'an",
+          r: 1.8,
+          dx: 1.4,
+        });
+      }
+      {
+        const rd = new THREE.Group();
+        rd.add(B(0.8, 0.7, 0.8, 0x8a5a3a, 0, 0, 0), B(0.6, 0.35, 0.25, 0x2a2c30, 0, 0.7, 0));
+        rd.position.set(2.6, 0, 5.4);
+        item("radio", rd, 0.9, 0.9, {
+          id: "radio",
+          label: "Listen to a lecture",
+          r: 1.6,
+          dz: -1.2,
+        });
+      }
+      {
+        const wd = new THREE.Group();
+        wd.add(B(0.7, 3.2, 2.4, 0xb98d5e, 0, 0, 0), B(0.05, 2.8, 0.05, 0x6d4a2b, -0.36, 0.2, 0));
+        wd.position.set(9.6, 0, 1.4);
+        item("wardrobe", wd, 0.8, 2.5);
+      }
+      {
+        const fn = new THREE.Group();
+        fn.add(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 0.1, 10), mat(0x2a2c30)));
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 6), mat(0x2a2c30));
+        pole.position.y = 0.8;
+        fn.add(pole);
+        const head = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.45, 0.45, 0.15, 16),
+          mat(0xe9ecee),
+        );
+        head.rotation.x = Math.PI / 2;
+        head.position.y = 1.7;
+        fn.add(head);
+        fn.position.set(7.4, 0, 4.6);
+        item("fan", fn, 0.6, 0.6);
+      }
+      {
+        const cu = new THREE.Group();
+        for (const x of [-4.6, -3.4, 3.4, 4.6]) cu.add(B(1, 2.6, 0.08, 0x2f8f83, x, 0.8, 0));
+        cu.position.set(-2, 0, -6.8);
+        item("curtains", cu);
+      }
+      {
+        const cl = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20), mat(0xfdf8ec));
+        cl.rotation.x = Math.PI / 2;
+        cl.position.set(-2, 3.6, -6.85);
+        item("clock", cl);
+      }
     }
     // Madrasah
     {
@@ -2609,6 +3136,7 @@ export class IlmCityEngine {
   private camTarget() {
     if (this.cine) return this.cine.vehicle.position;
     if (this.riding) return this.riding.mesh.position;
+    if (this.kekeTrip) return this.kekeTrip.mesh.position;
     return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
@@ -3110,6 +3638,10 @@ export class IlmCityEngine {
       obs.push({ x: this.player.position.x, z: this.player.position.z, r: 0.7 });
     if (this.car.visible && !this.cine)
       obs.push({ x: this.car.position.x, z: this.car.position.z, r: 1.6 });
+    this.traffic.hail =
+      this.where === "out" && !this.driving && !this.riding && !this.kekeTrip && !this.cine
+        ? { x: this.player.position.x, z: this.player.position.z }
+        : null;
     this.traffic.update(dt, obs, this.camera.position);
     if (this.riding) {
       this.player.position.copy(this.riding.mesh.position);
@@ -3135,6 +3667,7 @@ export class IlmCityEngine {
     const v = this.moveVec();
     if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
+    else if (this.kekeTrip) this.stepKeke(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
     this.stepTraffic(dt);
@@ -3172,9 +3705,21 @@ export class IlmCityEngine {
         w.wait = 1 + Math.random() * 3;
         continue;
       }
-      const s = Math.min(d, 2.2 * dt);
-      w.g.position.x += (dx / d) * s;
-      w.g.position.z += (dz / d) * s;
+      let s = Math.min(d, 2.2 * dt);
+      // step aside for anyone in the way instead of walking through them
+      const ox = w.g.parent?.position.x ?? 0,
+        oz = w.g.parent?.position.z ?? 0;
+      const wx = w.g.position.x + ox,
+        wz = w.g.position.z + oz;
+      const ux = dx / d,
+        uz = dz / d;
+      if (this.personAhead(wx, wz, ux, uz, w.g)) {
+        s *= 0.25;
+        w.g.position.x += -uz * 1.6 * dt;
+        w.g.position.z += ux * 1.6 * dt;
+      }
+      w.g.position.x += ux * s;
+      w.g.position.z += uz * s;
       w.g.rotation.y = Math.atan2(dx, dz);
       w.t += dt;
       animatePerson(w.g, w.t * 7, 1);
@@ -3231,14 +3776,14 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding) best = null;
+    if (this.cine || this.riding || this.kekeTrip) best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
       best = { id: "car-exit", label: "Get out of the car", x: 0, z: 0, r: 0, scene: "out" };
     else
       for (const z of this.zones) {
-        if (z.scene !== this.where) continue;
+        if (z.scene !== this.where || z.off) continue;
         const dd =
           z.id === "car"
             ? Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z)
@@ -3268,6 +3813,10 @@ export class IlmCityEngine {
           bd = dr;
         }
       }
+    if (!best || bd > 2) {
+      const kk = this.kekeBeside();
+      if (kk) best = { id: "keke", label: "Take a keke", x: 0, z: 0, r: 0, scene: "out" };
+    }
     if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
       if (dc < 3.4 && dc < bd)
@@ -3316,12 +3865,21 @@ export class IlmCityEngine {
     if (this.where !== "out") dir = new THREE.Vector3(v.x, 0, -v.y);
     this.followYaw = null;
     if (dir.lengthSq() === 0 && this.tapTarget) {
-      const d = this.tapTarget.clone().sub(this.player.position);
+      if (this.tapPlanned !== this.tapTarget) {
+        this.tapPlanned = this.tapTarget;
+        this.planTap();
+      }
+      const next = this.tapPath[0] ?? this.tapTarget;
+      const d = next.clone().sub(this.player.position);
       d.y = 0;
       if (d.length() < 0.35) {
-        this.tapTarget = null;
-        this.marker.visible = false;
-        this.pendingUse = true;
+        if (this.tapPath.length > 1) this.tapPath.shift();
+        else {
+          this.tapTarget = null;
+          this.tapPath = [];
+          this.marker.visible = false;
+          this.pendingUse = true;
+        }
       } else dir = d.normalize();
     }
     const moving = dir.lengthSq() > 0.001;
@@ -3330,8 +3888,16 @@ export class IlmCityEngine {
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
-      if (this.free(nx, this.player.position.z, 0.5)) this.player.position.x = nx;
-      if (this.free(this.player.position.x, nz, 0.5)) this.player.position.z = nz;
+      if (
+        this.free(nx, this.player.position.z, 0.5) &&
+        !this.bumpsPerson(nx, this.player.position.z)
+      )
+        this.player.position.x = nx;
+      if (
+        this.free(this.player.position.x, nz, 0.5) &&
+        !this.bumpsPerson(this.player.position.x, nz)
+      )
+        this.player.position.z = nz;
       const targetRot = Math.atan2(n.x, n.z);
       this.player.rotation.y = lerpAngle(this.player.rotation.y, targetRot, Math.min(1, dt * 12));
       // the camera swings round behind you when you walk forward

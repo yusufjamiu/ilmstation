@@ -173,6 +173,7 @@ export type Vehicle = {
   lastStop: number;
   /** a passenger asked to get off at the next stop */
   stopNext?: boolean;
+  lastHail: number;
   half: number;
 };
 export type BusStop = {
@@ -200,6 +201,8 @@ export class Traffic {
   /** set by the game: the bus the player is riding */
   riding: Vehicle | null = null;
   fast = false;
+  /** where a walking player stands (kekes stop for them) */
+  hail: { x: number; z: number } | null = null;
   onStop?: (bus: Vehicle, stop: BusStop) => void;
   private rnd: () => number;
 
@@ -345,6 +348,7 @@ export class Traffic {
         vmax,
         dwell: 0,
         lastStop: -1,
+        lastHail: 0,
         half: VEHICLE_INFO[kind].length / 2,
       });
     };
@@ -406,8 +410,16 @@ export class Traffic {
     const soon = buses.find((b) => ahead(b) < 160);
     if (soon) return;
     const b = buses.sort((x, y) => ahead(x) - ahead(y))[buses.length - 1];
-    b.s = stop.s - 90;
-    b.v = 14;
+    // drop it in somewhere on the road with no other vehicle there
+    for (const back of [90, 105, 120, 140, 160, 75, 60]) {
+      const p = stop.path.at(stop.s - back);
+      const clear = this.vehicles.every(
+        (u) => u === b || Math.hypot(u.mesh.position.x - p.x, u.mesh.position.z - p.z) > 12,
+      );
+      b.s = (((stop.s - back) % L) + L) % L;
+      if (clear) break;
+    }
+    b.v = 10;
     b.dwell = 0;
     this.place(b);
   }
@@ -452,16 +464,27 @@ export class Traffic {
       let target = Math.min(v.vmax, p.v * (v.kind === "keke" ? 0.8 : 1));
       if (v === this.riding && this.fast) target *= 2.2;
       const look = 3 + v.half + v.v * 0.9;
-      const block = (x: number, z: number, r: number) => {
+      // r: how far the thing reaches along the road; w: half its width
+      const block = (x: number, z: number, r: number, w: number) => {
         const dx = x - v.mesh.position.x,
           dz = z - v.mesh.position.z;
         const fwd = dx * fx + dz * fz,
           lat = Math.abs(-dx * fz + dz * fx);
-        if (fwd > 0 && fwd < look + r && lat < 1.3 + r)
-          target = Math.min(target, Math.max(0, (fwd - v.half - r - 1.5) * 1.6));
+        if (fwd > 0 && fwd < look + r && lat < 1.1 + w)
+          target = Math.min(target, Math.max(0, (fwd - v.half - r - 2) * 1.6));
       };
-      for (const o of obstacles) block(o.x, o.z, o.r);
-      for (const u of vs) if (u !== v) block(u.mesh.position.x, u.mesh.position.z, u.half * 0.6);
+      for (const o of obstacles) block(o.x, o.z, o.r, o.r);
+      // a keke slows down beside someone standing at the roadside, in case they want a ride
+      if (v.kind === "keke" && this.hail && v.mesh.visible) {
+        const d = Math.hypot(this.hail.x - v.mesh.position.x, this.hail.z - v.mesh.position.z);
+        if (d < 5 && v.lastHail < performance.now() - 15000) {
+          v.dwell = 5;
+          v.lastHail = performance.now();
+        }
+      }
+      for (const u of vs)
+        if (u !== v && u.mesh.visible !== false)
+          block(u.mesh.position.x, u.mesh.position.z, u.half, 1);
       // danfos stop at bus stops
       if (v.kind === "danfo") {
         const L = v.path.length;
@@ -490,8 +513,26 @@ export class Traffic {
       }
       const acc = target > v.v ? 6 : 14;
       v.v += THREE.MathUtils.clamp(target - v.v, -acc * dt, acc * dt);
-      v.s += v.v * dt;
-      if (v.s > v.path.length) v.s -= v.path.length;
+      // never drive into the vehicle in front
+      const ns = (v.s + v.v * dt) % v.path.length;
+      const np = v.path.at(ns);
+      let hit = false;
+      for (const u of vs) {
+        if (u === v) continue;
+        const dx = u.mesh.position.x - np.x,
+          dz = u.mesh.position.z - np.z;
+        const fwd = dx * fx + dz * fz,
+          lat = Math.abs(-dx * fz + dz * fx);
+        if (fwd > 0 && fwd < v.half + u.half + 0.6 && lat < 2.1) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) {
+        v.v = 0;
+        continue;
+      }
+      v.s = ns;
       const q = v.path.at(v.s);
       v.mesh.position.set(q.x, 0, q.z);
       // turn smoothly
