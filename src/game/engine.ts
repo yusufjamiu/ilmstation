@@ -756,6 +756,7 @@ export class IlmCityEngine {
 
     // landmarks along their streets, front doors facing the street
     D.landmarks.forEach((l) => this.buildLandmark(l, D));
+    if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
 
     // bus park
     this.buildBusPark(-72, 15);
@@ -795,7 +796,7 @@ export class IlmCityEngine {
           const id = `${D.id}-${num}`;
           const r1 = rnd();
           const land = r1 < (D.land ?? 0.13);
-          const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.08);
+          const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.2);
           const toLet = !land && !shops && rnd() < 0.3;
           const turn = north ? 0 : Math.PI;
           let c: Compound;
@@ -1069,8 +1070,8 @@ export class IlmCityEngine {
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
   private buildWorld() {
     const S = this.scene;
-    const ground = new THREE.Mesh(groundGeo(2000, 2400, 10), MAT.grass());
-    ground.position.set(50, -0.01, -330);
+    const ground = new THREE.Mesh(groundGeo(2300, 2400, 10), MAT.grass());
+    ground.position.set(150, -0.01, -330);
     ground.receiveShadow = true;
     S.add(ground);
     const water = (w: number, d: number, x: number, z: number, round = false) => {
@@ -1094,7 +1095,7 @@ export class IlmCityEngine {
     this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
     // world edges
     this.colliders.out.push({ x0: -1100, x1: -800, z0: -1600, z1: 900 });
-    this.colliders.out.push({ x0: 860, x1: 1200, z0: -1600, z1: 900 });
+    this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1600, z1: 900 });
     // the north edge: Ikorodu reaches further north than the rest of the city
     this.colliders.out.push({ x0: -1100, x1: 420, z0: -1600, z1: -680 });
     this.colliders.out.push({ x0: 420, x1: 1200, z0: -1600, z1: -1330 });
@@ -1520,6 +1521,49 @@ export class IlmCityEngine {
     return [...this.shopFx.keys()];
   }
 
+  /** A small neighbourhood market: a row of stalls facing a street, on the first free plot. */
+  private buildLocalMarket(D: District, XR: number) {
+    const streets = [...D.streets].sort((a, b) => Number(a.z === 0) - Number(b.z === 0));
+    for (const st of streets)
+      for (const north of [true, false])
+        for (let cx = -(XR - 26); cx <= XR - 26; cx += 8) {
+          if (Math.abs(cx) < 40) continue;
+          const z = north ? st.z - 15 : st.z + 15;
+          const band = north ? [st.z - 32, st.z - 10] : [st.z + 10, st.z + 32];
+          if (!this.boxFree(cx - 25, cx + 25, band[0], band[1])) continue;
+          const turn = north ? 0 : Math.PI;
+          const row = stallRow(this.curBatch, {
+            x0: north ? cx - 23 : -(cx + 23),
+            x1: north ? cx + 23 : -(cx - 23),
+            z,
+            turn,
+          });
+          for (const c of row.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+          row.units.forEach((u, k) =>
+            this.addShopUnit(
+              `${D.id}-m${k}`,
+              "stall",
+              u.center,
+              u.front,
+              D,
+              STREETS[st.id]?.name ?? D.name,
+            ),
+          );
+          this.reserved.push({
+            x0: this.ox + cx - 25,
+            x1: this.ox + cx + 25,
+            z0: this.oz + band[0],
+            z1: this.oz + band[1],
+          });
+          const t = label(`${D.name} Market`, { size: 1.1, bg: "rgba(31,111,99,0.92)" });
+          t.position.set(cx, 5.2, z);
+          this.dg.add(t);
+          this.marketSpot.set(D.id, { x: cx, z });
+          return;
+        }
+  }
+  marketSpot = new Map<string, { x: number; z: number }>();
+
   /** Ikorodu Market: rows of stalls along Souq Road and two lanes behind it. */
   private buildMarket(D: District) {
     const H = halfOf(D);
@@ -1539,7 +1583,7 @@ export class IlmCityEngine {
         const row = stallRow(b, { x0, x1, z, turn });
         for (const c of row.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
         for (const u of row.units)
-          this.addShopUnit(`m${k++}`, "stall", u.center, u.front, D, "Souq Road");
+          this.addShopUnit(`${D.id}-m${k++}`, "stall", u.center, u.front, D, "Souq Road");
       }
       // a paved walkway in front of the inner rows
       if (Math.abs(z) > 20) {
@@ -1699,7 +1743,6 @@ export class IlmCityEngine {
   private welcomeGate(D: District, side: number) {
     const H = halfOf(D);
     const north = !!D.parent && D.link !== "east";
-    if (D.link === "east") side = 1;
     const gx = north ? 0 : side * (H.x - 18);
     const gz = north ? H.z - 14 : 0;
     const g = new THREE.Group();
@@ -2803,6 +2846,22 @@ export class IlmCityEngine {
       if (Math.hypot(x - p.x, z - p.z) < radius) return i;
     }
     return null;
+  }
+  /** If the Hisbah van is near you, it pulls over and waits while the officer speaks. */
+  stopHisbahVan(radius = 16) {
+    if (this.where !== "out" || this.riding || this.cine) return false;
+    const p = this.driving ? this.car.position : this.player.position;
+    for (const v of this.traffic.vehicles)
+      if (
+        v.kind === "hisbah" &&
+        Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z) < radius
+      ) {
+        v.dwell = 14;
+        v.v = 0;
+        if (this.driving) this.carSpeed = 0;
+        return true;
+      }
+    return false;
   }
   /** Are you inside an area (not on an expressway)? */
   inArea() {
