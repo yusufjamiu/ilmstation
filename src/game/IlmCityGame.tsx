@@ -349,6 +349,7 @@ function CityGame({
     () => `${districtById(save.district ?? "lekki").name} · Lagos`,
   );
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [bigClock, setBigClock] = useState(false);
   const panelRef = useRef<Panel | null>(null);
   panelRef.current = panel;
   const [toasts, setToasts] = useState<{ id: number; text: string; tone?: "good" | "warn" }[]>([]);
@@ -2121,10 +2122,20 @@ function CityGame({
         data-game-ui
         className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-2 p-3 pt-[max(12px,env(safe-area-inset-top))]"
       >
-        <div className="pointer-events-auto flex min-w-0 items-center gap-3 rounded-2xl border border-[#1f6f63]/20 bg-[#fdf8ec]/95 p-2 pr-4 shadow-lg backdrop-blur">
-          <SalahRing clock={clock} prayed={save.prayed} />
+        <div
+          onClick={() => setBigClock((b) => !b)}
+          className={`pointer-events-auto flex min-w-0 cursor-pointer items-center rounded-2xl border border-[#1f6f63]/20 bg-[#fdf8ec]/95 shadow-lg backdrop-blur ${bigClock ? "gap-3 p-2 pr-4" : "gap-1.5 p-1 pr-2.5"}`}
+        >
+          <span className="relative">
+            <SalahRing clock={clock} prayed={save.prayed} size={bigClock ? 64 : 34} />
+            {!bigClock &&
+              save.profile &&
+              Object.values(save.needs ?? freshNeeds()).some((v) => v < 25) && (
+                <i className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border border-white bg-[#b8573a]" />
+              )}
+          </span>
           <div className="min-w-0 leading-tight">
-            {save.profile && (
+            {bigClock && save.profile && (
               <NeedsBars
                 needs={save.needs ?? freshNeeds()}
                 onTap={() =>
@@ -2136,10 +2147,18 @@ function CityGame({
                 }
               />
             )}
-            <div className="text-[17px] font-bold tabular-nums">{fmtTime(clock.min)}</div>
-            <div className="truncate text-[12px] font-medium opacity-80">{clock.gregorian}</div>
-            <div className="truncate text-[12px] font-semibold text-[#1f6f63]">{clock.hijri}</div>
-            <div className="mt-0.5 truncate text-[11.5px]">
+            <div className={`font-bold tabular-nums ${bigClock ? "text-[17px]" : "text-[13px]"}`}>
+              {fmtTime(clock.min)}
+            </div>
+            {bigClock && (
+              <>
+                <div className="truncate text-[12px] font-medium opacity-80">{clock.gregorian}</div>
+                <div className="truncate text-[12px] font-semibold text-[#1f6f63]">
+                  {clock.hijri}
+                </div>
+              </>
+            )}
+            <div className={`truncate ${bigClock ? "mt-0.5 text-[11.5px]" : "text-[10.5px]"}`}>
               {cur && !save.prayed[cur.id] ? (
                 <span className="font-semibold text-[#b8573a]">
                   {cur.name} now · until {fmtTime(cur.end)}
@@ -2508,7 +2527,15 @@ function Chip({ children }: { children: ReactNode }) {
 }
 
 /** The salah ring: the whole day as a circle, the five prayers marked, the sun moving round. */
-function SalahRing({ clock, prayed }: { clock: Clock; prayed: Record<string, boolean> }) {
+function SalahRing({
+  clock,
+  prayed,
+  size = 64,
+}: {
+  clock: Clock;
+  prayed: Record<string, boolean>;
+  size?: number;
+}) {
   const R = 26,
     C = 32;
   const pt = (m: number, r = R) => {
@@ -2524,7 +2551,7 @@ function SalahRing({ clock, prayed }: { clock: Clock; prayed: Record<string, boo
   const [sx, sy] = pt(clock.min);
   const day = clock.min > clock.times.sunrise && clock.min < clock.times.maghrib;
   return (
-    <svg width="64" height="64" viewBox="0 0 64 64" aria-label="Salah ring">
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-label="Salah ring">
       <circle
         cx={C}
         cy={C}
@@ -4711,7 +4738,14 @@ const NEED_DECAY: Needs = { hunger: 1.2, energy: 0.8, iman: 0.6, social: 0.9, cl
 
 function NeedsBars({ needs, onTap }: { needs: Needs; onTap: () => void }) {
   return (
-    <button onClick={onTap} className="mb-0.5 flex gap-1" aria-label="Your needs">
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onTap();
+      }}
+      className="mb-0.5 flex gap-1"
+      aria-label="Your needs"
+    >
       {NEED_META.map((n) => {
         const v = Math.round(needs[n.id]);
         return (
