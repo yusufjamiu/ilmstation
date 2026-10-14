@@ -237,10 +237,12 @@ export class Traffic {
     // shuttles along the roads that join linked areas: up Ikorodu Road to the market,
     // Isheri–Igando Road to Powerline, Ajah–Badore Road to Badore
     this.shuttles = [];
-    for (const root of DISTRICTS.filter(
-      (d) => !d.parent && DISTRICTS.some((c) => c.parent === d.id),
-    )) {
-      const chain: District[] = [root];
+    const branches: [District, District][] = [];
+    for (const root of DISTRICTS.filter((d) => !d.parent))
+      for (const child of DISTRICTS.filter((c) => c.parent === root.id))
+        branches.push([root, child]);
+    for (const [root, first] of branches) {
+      const chain: District[] = [root, first];
       for (;;) {
         const next = DISTRICTS.find((d) => d.parent === chain[chain.length - 1].id);
         if (!next) break;

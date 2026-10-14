@@ -21,6 +21,7 @@ import {
   fullName,
   districtById,
   type Lecture,
+  type District,
   type Question,
 } from "./content";
 import {
@@ -255,6 +256,9 @@ function CityGame({
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
+  const areaRef = useRef<string | null>(null);
+  const [newArea, setNewArea] = useState<string | null>(null);
+
   const hisbahRef = useRef<{
     reminded: Set<string>;
     commended: Set<string>;
@@ -306,6 +310,26 @@ function CityGame({
   );
   const loggedInRef = useRef(loggedIn);
   loggedInRef.current = loggedIn;
+
+  const openPlaces = useCallback(
+    (area: string) => {
+      setNewArea(null);
+      setPanel({
+        kind: "info",
+        title: `Places in ${fullName(districtById(area))}`,
+        body: (
+          <PlacesView
+            area={area}
+            onGo={(prefix) => {
+              setPanel(null);
+              if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
+            }}
+          />
+        ),
+      });
+    },
+    [toast],
+  );
 
   // new day resets the daily salah tracker
   useEffect(() => {
@@ -615,6 +639,7 @@ function CityGame({
             title: `${cls} · ${l.name}`,
             body: (
               <ClassView
+                subjects={l.subjects}
                 cls={cls}
                 school={l.name}
                 earnedToday={saveRef.current.schoolPts ?? 0}
@@ -658,6 +683,7 @@ function CityGame({
       if (id.startsWith("office:")) {
         const L = landmarkById(id.slice(7));
         if (!L) return;
+        const classes = L.l.classes ?? [];
         setPanel({
           kind: "info",
           title: L.l.name,
@@ -676,6 +702,20 @@ function CityGame({
                 >
                   Visit {L.l.brand.link.replace("https://", "")}
                 </a>
+              )}
+              {classes.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[13px] font-semibold">Join a halaqah:</div>
+                  {classes.map((c, k) => (
+                    <button
+                      key={c}
+                      onClick={() => onActionRef.current(`campus:${L.l.id}:class:${k}`)}
+                      className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left font-bold"
+                    >
+                      📖 {c}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           ),
@@ -1078,6 +1118,16 @@ function CityGame({
         }));
       setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
       setRide(e.rideInfo());
+      if (e.playerPos().where === "out") {
+        const ar = e.areaAt(e.playerPos().x, e.playerPos().z)?.id ?? null;
+        if (ar && ar !== areaRef.current) {
+          if (areaRef.current !== null && saveRef.current.profile) {
+            setNewArea(ar);
+            setTimeout(() => setNewArea((x) => (x === ar ? null : x)), 12000);
+          }
+          areaRef.current = ar;
+        }
+      }
       {
         const h = hisbahRef.current;
         const ms2 = masjidStatus(c);
@@ -1094,17 +1144,18 @@ function CityGame({
           }
         }
         // an officer walking past stops you with a question
-        const hi =
-          panelRef.current || e.isRiding() || performance.now() - startedAt < 45000
-            ? null
-            : e.hisbahBeside(6);
+        const quiet = panelRef.current || e.isRiding() || performance.now() - startedAt < 45000;
+        const walkerIdx = quiet ? null : e.hisbahBeside(6);
+        const cp2 = currentPrayer(c);
+        const key = cp2 ? `${c.key}-${cp2.id}` : `${c.key}-quran`;
+        // the Hisbah van pulls over beside you
+        const van = !quiet && walkerIdx === null && !h.asked.has(key) && e.stopHisbahVan(16);
+        const hi = walkerIdx ?? (van ? -1 : null);
         if (hi !== null) {
-          const cp2 = currentPrayer(c);
-          const key = cp2 ? `${c.key}-${cp2.id}` : `${c.key}-quran`;
           if (!h.asked.has(key)) {
             h.asked.add(key);
-            const who = e.talkTo(hi);
-            talkingRef.current = hi;
+            const who = hi >= 0 ? e.talkTo(hi) : { name: "Hisbah patrol officer" };
+            talkingRef.current = hi >= 0 ? hi : null;
             const ask = cp2
               ? ({ kind: "prayer", name: cp2.name } as const)
               : ({ kind: "quran" } as const);
@@ -1244,6 +1295,12 @@ function CityGame({
           >
             Travel
           </button>
+          <button
+            onClick={() => openPlaces(engine.current?.districtId() ?? "lekki")}
+            className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+          >
+            Places
+          </button>
           <a
             href="/app"
             className="pointer-events-auto rounded-xl bg-[#10201e]/80 px-3 py-1.5 text-[12px] font-semibold text-[#fdf8ec]"
@@ -1329,6 +1386,32 @@ function CityGame({
             onSkip={() => update((x) => ({ ...x, guide: GUIDE.length + 1 }))}
           />
         )}
+      {newArea && !panel && !ride && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 top-[200px] z-10 flex justify-center px-4"
+        >
+          <button
+            onClick={() => openPlaces(newArea)}
+            className="pointer-events-auto rounded-2xl border-2 border-[#e6b84a] bg-[#1f6f63] px-4 py-3 text-left text-[#fdf8ec] shadow-2xl"
+          >
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#e6b84a]">
+              You are in {fullName(districtById(newArea))}
+            </div>
+            <div className="text-[15px] font-bold">
+              {
+                placesIn(newArea).filter(
+                  (p) =>
+                    !p.prefix.startsWith("busstop") &&
+                    !p.prefix.startsWith("plot") &&
+                    !p.prefix.startsWith("shop"),
+                ).length
+              }{" "}
+              places to visit · tap to see
+            </div>
+          </button>
+        </div>
+      )}
       {ride && (
         <div
           data-game-ui
@@ -1873,6 +1956,7 @@ function TalkView({
     { text: "Assalamu alaykum wa rahmatullah!" },
   ]);
   const [asked, setAsked] = useState<string[]>([]);
+  const [typed, setTyped] = useState("");
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" });
@@ -1990,8 +2074,110 @@ function TalkView({
             </button>
           ))}
       </div>
+      <form
+        className="flex gap-2 pt-1"
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          const t = typed.trim();
+          if (!t) return;
+          setTyped("");
+          const r = npcReply(t, {
+            who,
+            D,
+            nextPrayer: nxt ? `${nxt.name} at ${fmtTime(nxt.start)}` : "",
+          });
+          setLines((l) => [...l, { me: true, text: t }, { text: r.text }]);
+          nod(r.nod);
+        }}
+      >
+        <input
+          value={typed}
+          maxLength={200}
+          onChange={(ev) => setTyped(ev.target.value)}
+          placeholder={`Write to ${who.name.split(" ").slice(-1)[0]}…`}
+          className="min-w-0 flex-1 rounded-xl border border-[#1f6f63]/30 bg-white px-3 py-2 text-[14px]"
+        />
+        <button className="rounded-xl bg-[#1f6f63] px-4 font-bold text-[#fdf8ec]">Send</button>
+      </form>
     </div>
   );
+}
+
+/** What a passer-by says back to something you typed. */
+function npcReply(
+  text: string,
+  c: { who: { name: string; hisbah?: boolean }; D: District; nextPrayer: string },
+): { text: string; nod: "agree" | "headShake" } {
+  const t = text.toLowerCase();
+  const greet = ["salam", "salaam", "assalam"].some((w) => t.includes(w));
+  const r = topicReply(t, c);
+  if (greet && !r) return { text: "Wa alaykum salam wa rahmatullahi wa barakatuh!", nod: "agree" };
+  if (greet && r) return { ...r, text: "Wa alaykum salam! " + r.text };
+  return (
+    r ?? {
+      text: "Hmm, I'm not sure. Ask at the masjid or the school's admin block, they will help you.",
+      nod: "headShake",
+    }
+  );
+}
+function topicReply(
+  t: string,
+  c: { who: { name: string; hisbah?: boolean }; D: District; nextPrayer: string },
+): { text: string; nod: "agree" | "headShake" } | null {
+  const has = (...w: string[]) => w.some((x) => t.includes(x));
+  const masjid = c.D.landmarks.find((l) => l.kind === "masjid");
+  const school = c.D.landmarks.find((l) => l.kind === "campus" || l.kind === "school");
+  if (has("stupid", "idiot", "fool", "mumu", "ode", "mad ", "useless", "shut up"))
+    return {
+      text: "Subhanallah! Let us speak with good words, my dear. The Prophet ﷺ was never harsh in speech.",
+      nod: "headShake",
+    };
+  if (has("jazak", "thank", "e se", "shukran"))
+    return { text: "Wa iyyakum! May Allah bless you too.", nod: "agree" };
+  if (has("your name", "who are you"))
+    return { text: `I am ${c.who.name}. I live here in ${c.D.name}.`, nod: "agree" };
+  if (has("how are", "how you", "how far", "kedu", "bawo", "how is"))
+    return { text: "Alhamdulillah, I am well. And you?", nod: "agree" };
+  if (has("masjid", "mosque", "pray", "salah", "solah", "jumu", "adhan"))
+    return {
+      text: masjid
+        ? `${masjid.name} is on ${STREETS[masjid.street]?.name}. ${c.nextPrayer ? `The next prayer is ${c.nextPrayer}.` : ""}`
+        : "There is no masjid in this area yet. Take a danfo to the next area.",
+      nod: masjid ? "agree" : "headShake",
+    };
+  if (has("rent", "house", "land", "flat", "apartment"))
+    return {
+      text: "Look for the red TO LET signs on the gates, and the white LAND FOR SALE boards.",
+      nod: "agree",
+    };
+  if (has("shop", "market", "buy", "sell", "stall", "business"))
+    return {
+      text: `${c.D.name} Market has stalls for ₦2,000 a week, and there are shops to let on the streets.`,
+      nod: "agree",
+    };
+  if (has("bus", "danfo", "travel", "go to", "keke", "road"))
+    return {
+      text: "Wait at the blue bus stop and a danfo will come. Or tap Travel at the top.",
+      nod: "agree",
+    };
+  if (has("school", "learn", "quiz", "class", "study", "madrasah"))
+    return {
+      text: school
+        ? `Go to ${school.name}. Every class has its books and a quiz.`
+        : "Every mosque has a quiz, and there are big schools in Ikorodu and Ajegunle.",
+      nod: "agree",
+    };
+  if (has("quran", "qur'an", "hadith", "advice", "remind", "nasiha"))
+    return {
+      text: `The Prophet ﷺ said: "${REMINDERS[0].text}" (${REMINDERS[0].source})`,
+      nod: "agree",
+    };
+  if (has("marry", "marriage", "wife", "husband"))
+    return {
+      text: "May Allah bless you with a righteous spouse. Speak to the imam at the masjid, he will guide you.",
+      nod: "agree",
+    };
+  return null;
 }
 
 /* ---------------- houses and land ---------------- */
@@ -2208,7 +2394,9 @@ function ClassView({
   school,
   earnedToday,
   onCorrect,
+  subjects,
 }: {
+  subjects?: string[];
   cls: string;
   school: string;
   earnedToday: number;
@@ -2226,7 +2414,7 @@ function ClassView({
         <p className="text-[13px] opacity-80">
           Welcome to {cls} at {school}. Pick a subject to see the book and take its quiz.
         </p>
-        {SUBJECTS.map((s) => (
+        {SUBJECTS.filter((x) => !subjects || subjects.includes(x.id)).map((s) => (
           <button
             key={s.id}
             onClick={() => {
@@ -2366,9 +2554,10 @@ function emojiPic(e: string) {
 }
 /** The market's own traders sit at every third stall. */
 const traderAt = (id: string) => {
-  const n = Number(id.replace(/\D/g, ""));
-  if (!id.startsWith("m") || n % 3 !== 0) return null;
-  return MARKET_TRADERS[(n / 3) % MARKET_TRADERS.length];
+  const m = /-m(\d+)$/.exec(id);
+  if (!m || Number(m[1]) % 3 !== 0) return null;
+  const n = Number(m[1]) + id.length;
+  return MARKET_TRADERS[n % MARKET_TRADERS.length];
 };
 
 function ShopView({
@@ -3092,6 +3281,89 @@ function LoginFirst({ what }: { what: string }) {
       >
         Create a free account
       </button>
+    </div>
+  );
+}
+
+/* ---------------- places to visit ---------------- */
+type Place = { icon: string; name: string; sub: string; prefix: string };
+const ICON: Record<string, string> = {
+  masjid: "🕌",
+  school: "🏫",
+  campus: "🏫",
+  home: "🏠",
+  souq: "🛍️",
+  mansion: "🏡",
+  office: "🏢",
+  market: "🛒",
+};
+function placesIn(id: string): Place[] {
+  const D = districtById(id);
+  const out: Place[] = D.landmarks.map((l) => ({
+    icon: ICON[l.kind] ?? "📍",
+    name: l.name,
+    sub: STREETS[l.street]?.name ?? "",
+    prefix:
+      l.kind === "masjid"
+        ? `door:masjid:${l.id}`
+        : l.kind === "school"
+          ? `door:madrasah:${l.id}`
+          : l.kind === "home"
+            ? "door:home:"
+            : l.kind === "souq"
+              ? "souq"
+              : l.kind === "campus"
+                ? `campus:${l.id}:admin`
+                : l.kind === "market"
+                  ? `stall:${D.id}-m`
+                  : `${l.kind}:${l.id}`,
+  }));
+  if (!D.landmarks.some((l) => l.kind === "market"))
+    out.push({
+      icon: "🛒",
+      name: `${D.name} Market`,
+      sub: "Stalls for rent · ₦2,000 a week",
+      prefix: `stall:${D.id}-m`,
+    });
+  out.push({
+    icon: "🏪",
+    name: "Shops to let",
+    sub: "Lock-up shops on the streets",
+    prefix: `shop:${D.id}-`,
+  });
+  out.push({
+    icon: "🏘️",
+    name: "Houses to let and land for sale",
+    sub: "Look for the red and white signs",
+    prefix: `plot:${D.id}-`,
+  });
+  out.push({
+    icon: "🚌",
+    name: `${D.busStop ?? D.name} Bus Stop`,
+    sub: "Danfo to other areas",
+    prefix: "busstop:",
+  });
+  return out;
+}
+function PlacesView({ area, onGo }: { area: string; onGo: (prefix: string) => void }) {
+  return (
+    <div className="space-y-2">
+      {placesIn(area).map((p) => (
+        <button
+          key={p.name}
+          onClick={() => onGo(p.prefix)}
+          className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+        >
+          <span className="text-[22px]">{p.icon}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14px] font-bold leading-tight">{p.name}</span>
+            <span className="block truncate text-[12px] opacity-70">{p.sub}</span>
+          </span>
+          <span className="rounded-lg bg-[#1f6f63] px-2.5 py-1 text-[12px] font-bold text-[#fdf8ec]">
+            Go
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
