@@ -60,6 +60,8 @@ export type EngineEvents = {
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
 type Zone = {
+  /** a zone for something not yet bought is switched off */
+  off?: boolean;
   id: string;
   label: string;
   x: number;
@@ -759,6 +761,7 @@ export class IlmCityEngine {
     // landmarks along their streets, front doors facing the street
     D.landmarks.forEach((l) => this.buildLandmark(l, D));
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
+    if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
 
     // bus park
     this.buildBusPark(-72, 15);
@@ -1584,6 +1587,70 @@ export class IlmCityEngine {
   }
   marketSpot = new Map<string, { x: number; z: number }>();
 
+  /** A block of flats near the market where new players live. */
+  private buildEstate(D: District, XR: number, rnd: () => number) {
+    const m = this.marketSpot.get(D.id);
+    const streets = [...D.streets].sort(
+      (a, b) => Math.abs(a.z - (m?.z ?? 0)) - Math.abs(b.z - (m?.z ?? 0)),
+    );
+    for (const st of streets)
+      for (const north of [true, false]) {
+        const xs: number[] = [];
+        for (let x = -(XR - 14); x <= XR - 14; x += 6) if (Math.abs(x) > 16) xs.push(x);
+        xs.sort((a, b) => Math.abs(a - (m?.x ?? 0)) - Math.abs(b - (m?.x ?? 0)));
+        for (const cx of xs) {
+          const cz = north ? st.z - 21.5 : st.z + 21.5;
+          if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
+          const c = compound(this.curBatch, {
+            x: cx,
+            z: cz,
+            turn: north ? 0 : Math.PI,
+            number: 1,
+            rnd,
+            floors: 3,
+            width: 24,
+            wall: 0xe8dcb5,
+          });
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + cx - 12,
+            x1: this.ox + cx + 12,
+            z0: this.oz + cz - 10.5,
+            z1: this.oz + cz + 10.5,
+          });
+          this.zones.push({
+            id: "door:home:" + D.id,
+            label: `${D.name} Estate`,
+            x: this.ox + c.door.x,
+            z: this.oz + c.door.z,
+            r: 3,
+            scene: "out",
+          });
+          const t = label(`${D.name} Estate · flats`, { size: 1, bg: "rgba(31,111,99,0.92)" });
+          t.position.set(c.gate.x, 5, c.gate.z);
+          this.dg.add(t);
+          return;
+        }
+      }
+  }
+  /** Where the door of an area's estate (or Lekki's home) is. */
+  homeDoor(area: string) {
+    return (
+      this.zones.find(
+        (z) => z.id === "door:home:" + area || (area === "lekki" && z.id === "door:home:home"),
+      ) ?? null
+    );
+  }
+  /** Begin the day inside your flat; walking out puts you at the estate gate. */
+  startAtHome(area: string, name: string) {
+    const d = this.homeDoor(area);
+    if (d) {
+      this.player.position.set(d.x, 0, d.z);
+      this.district = districtById(area);
+    }
+    this.enterInterior("home", name);
+  }
+
   /** Ikorodu Market: rows of stalls along Souq Road and two lanes behind it. */
   private buildMarket(D: District) {
     const H = halfOf(D);
@@ -1847,10 +1914,10 @@ export class IlmCityEngine {
   /** Walk to this area's bus park and open the travel menu on arrival. Returns false if not possible. */
   /** Walk to the nearest place whose id starts with `prefix` (used by the guided start). */
   goToZone(prefix: string) {
-    if (this.where !== "out" || this.driving || this.riding) return false;
+    if (this.driving || this.riding || this.kekeTrip) return false;
     const p = this.player.position;
     const z = this.zones
-      .filter((zz) => zz.scene === "out" && zz.id.startsWith(prefix))
+      .filter((zz) => zz.scene === this.where && !zz.off && zz.id.startsWith(prefix))
       .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
     if (!z) return false;
     this.tapZone = z.id;
@@ -2678,6 +2745,20 @@ export class IlmCityEngine {
     });
     return { g, o };
   }
+  private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zone?: Zone }>();
+  private homeBase: Box[] | null = null;
+  /** Show the furniture you own; everything else stays out of the flat. */
+  setHomeItems(owned: string[]) {
+    if (!this.homeBase) this.homeBase = [...this.colliders.home];
+    const boxes = [...this.homeBase];
+    for (const [id, it] of this.homeItems) {
+      const has = owned.includes(id);
+      it.obj.visible = has;
+      if (it.zone) it.zone.off = !has;
+      if (has) boxes.push(...it.boxes);
+    }
+    this.colliders.home = boxes;
+  }
   private solid(kind: InteriorKind, g: THREE.Group, m: THREE.Object3D, w: number, d: number) {
     g.add(m);
     const o = this.interiorOrigin[kind];
@@ -2767,73 +2848,221 @@ export class IlmCityEngine {
         g.add(p);
       });
     }
-    // Home
+    // Home: a flat with a bed and a bathroom. Everything else is bought.
     {
       const { g, o } = this.room("home", 20, 14, 0xe9dcc4, 0xb98d5e);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      // bed (always there)
       const bed = new THREE.Group();
-      bed.add(box(3.2, 0.6, 4.2, 0x6d4a2b));
-      bed.add(box(3, 0.4, 4, 0xf4efe4, 0, 0.6));
-      bed.add(box(1, 0.3, 0.6, 0xe0d4c0, -0.8, 1, -1.6));
-      bed.add(box(1, 0.3, 0.6, 0xe0d4c0, 0.8, 1, -1.6));
-      bed.add(box(3.1, 0.15, 2.4, 0x1f6f63, 0, 1, 0.7));
+      bed.add(B(3.2, 0.6, 4.2, 0x6d4a2b, 0, 0, 0));
+      bed.add(B(3, 0.4, 4, 0xf4efe4, 0, 0.6, 0));
+      bed.add(B(1, 0.3, 0.6, 0xe0d4c0, -0.8, 1, -1.6));
+      bed.add(B(1, 0.3, 0.6, 0xe0d4c0, 0.8, 1, -1.6));
+      bed.add(B(3.1, 0.15, 2.4, 0x1f6f63, 0, 1, 0.7));
       bed.position.set(-7, 0, -4);
       this.solid("home", g, bed, 3.4, 4.4);
-      const k = new THREE.Group();
-      k.add(box(6, 1.8, 1.2, 0xf1ece0));
-      k.add(box(6, 0.12, 1.3, 0x3a3f46, 0, 1.8));
-      k.add(box(1.6, 0.6, 0.9, 0x9a9fa6, 1.6, 1.92));
-      k.add(box(1, 3.6, 1.2, 0xd9dde0, 3.6, 0));
-      k.position.set(5.5, 0, -6);
-      this.solid("home", g, k, 8.6, 1.4);
-      const rug = new THREE.Mesh(new THREE.PlaneGeometry(6, 4), mat(0x7d2f3a));
-      rug.rotation.x = -Math.PI / 2;
-      rug.position.set(1, 0.02, 1);
-      g.add(rug);
-      const rugB = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 3.2), mat(0xe6b84a));
-      rugB.rotation.x = -Math.PI / 2;
-      rugB.position.set(1, 0.03, 1);
-      g.add(rugB);
-      const rugC = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 2.6), mat(0x7d2f3a));
-      rugC.rotation.x = -Math.PI / 2;
-      rugC.position.set(1, 0.04, 1);
-      g.add(rugC);
-      [
-        [-2.4, 1],
-        [4.4, 1],
-      ].forEach(([x, z]) => {
-        const c = box(0.9, 0.5, 3.4, 0x1f6f63, x, 0, z);
-        this.solid("home", g, c, 1, 3.6);
-      });
-      const pmat = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), mat(0x2f8f83));
-      pmat.rotation.x = -Math.PI / 2;
-      pmat.position.set(-7.5, 0.03, 3.5);
-      g.add(pmat);
-      const tbl = box(1.6, 0.5, 1, 0x8a5a3a, 1, 0, 1);
-      this.solid("home", g, tbl, 1.6, 1);
+      // bathroom corner (always there): partition walls, toilet, tap and bucket for wudu
+      g.add(B(0.25, 3, 4.2, 0xdfe6e2, 5, 0, -4.9));
+      g.add(B(2.2, 3, 0.25, 0xdfe6e2, 8.9, 0, -2.8));
+      this.addCollider("home", o.x + 4.85, o.x + 5.15, o.z - 7, o.z - 2.8);
+      this.addCollider("home", o.x + 7.8, o.x + 10, o.z - 2.95, o.z - 2.65);
+      const tiles = new THREE.Mesh(new THREE.PlaneGeometry(5, 4.2), mat(0xcfe0e6));
+      tiles.rotation.x = -Math.PI / 2;
+      tiles.position.set(7.5, 0.02, -4.9);
+      g.add(tiles);
+      const wc = new THREE.Group();
+      wc.add(B(0.7, 0.45, 0.9, 0xf7f7f4, 0, 0, 0), B(0.8, 0.9, 0.3, 0xf7f7f4, 0, 0.2, -0.5));
+      wc.position.set(8.9, 0, -6.2);
+      this.solid("home", g, wc, 0.9, 1.2);
+      const tap = new THREE.Group();
+      tap.add(B(1, 0.9, 0.5, 0xf7f7f4, 0, 0, 0), B(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.9, -0.1));
+      const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.25, 0.5, 12), mat(0x2f6fb0));
+      bucket.position.set(0.9, 0.25, 0.2);
+      tap.add(bucket);
+      tap.position.set(6.3, 0, -6.4);
+      this.solid("home", g, tap, 1.2, 0.6);
       this.zones.push({
         id: "sleep",
-        label: "Rest in bed",
+        label: "Sleep / rest",
         x: o.x - 7,
         z: o.z - 1.2,
         r: 2,
         scene: "home",
       });
       this.zones.push({
-        id: "eat",
-        label: "Cook and eat",
-        x: o.x + 5.5,
+        id: "bath",
+        label: "Bathroom · wudu",
+        x: o.x + 7.2,
         z: o.z - 4.6,
-        r: 2.2,
-        scene: "home",
-      });
-      this.zones.push({
-        id: "prayermat",
-        label: "Prayer corner",
-        x: o.x - 7.5,
-        z: o.z + 3.5,
         r: 1.8,
         scene: "home",
       });
+
+      // things you can buy, hidden until bought
+      const item = (
+        id: string,
+        m: THREE.Object3D,
+        w = 0,
+        d = 0,
+        zone?: Omit<Zone, "scene" | "x" | "z"> & { dx?: number; dz?: number },
+      ) => {
+        m.visible = false;
+        g.add(m);
+        const boxes: Box[] = w
+          ? [
+              {
+                x0: o.x + m.position.x - w / 2,
+                x1: o.x + m.position.x + w / 2,
+                z0: o.z + m.position.z - d / 2,
+                z1: o.z + m.position.z + d / 2,
+              },
+            ]
+          : [];
+        let zz: Zone | undefined;
+        if (zone) {
+          zz = {
+            id: zone.id,
+            label: zone.label,
+            r: zone.r,
+            scene: "home",
+            x: o.x + m.position.x + (zone.dx ?? 0),
+            z: o.z + m.position.z + (zone.dz ?? 0),
+            off: true,
+          };
+          this.zones.push(zz);
+        }
+        this.homeItems.set(id, { obj: m, boxes, zone: zz });
+      };
+      {
+        const k = new THREE.Group();
+        k.add(
+          B(5, 1.8, 1.2, 0xf1ece0, 0, 0, 0),
+          B(5, 0.12, 1.3, 0x3a3f46, 0, 1.8, 0),
+          B(1.4, 0.15, 0.9, 0x1d1f22, 1.2, 1.92, 0),
+        );
+        k.position.set(0, 0, -6.2);
+        item("kitchen", k, 5, 1.4, { id: "eat", label: "Cook and eat", r: 2, dz: 1.6 });
+      }
+      {
+        const f = new THREE.Group();
+        f.add(B(1.1, 3.2, 1, 0xd9dde0, 0, 0, 0), B(0.05, 0.6, 0.05, 0x9a9fa6, 0.4, 1.8, 0.52));
+        f.position.set(3.4, 0, -6.3);
+        item("fridge", f, 1.2, 1.1);
+      }
+      {
+        const t = new THREE.Group();
+        t.add(B(2.4, 0.9, 1.4, 0x8a5a3a, 0, 0, 0));
+        for (const [cx, cz] of [
+          [-0.8, 1.1],
+          [0.8, 1.1],
+          [-0.8, -1.1],
+          [0.8, -1.1],
+        ])
+          t.add(B(0.6, 0.55, 0.6, 0x6d4a2b, cx, 0, cz));
+        t.position.set(0, 0, -2.6);
+        item("table", t, 2.6, 3.4);
+      }
+      {
+        const s = new THREE.Group();
+        s.add(
+          B(3.6, 0.6, 1.2, 0x1f6f63, 0, 0, 0),
+          B(3.6, 0.9, 0.3, 0x1f6f63, 0, 0.6, 0.45),
+          B(0.3, 0.8, 1.2, 0x1f6f63, -1.8, 0.3, 0),
+          B(0.3, 0.8, 1.2, 0x1f6f63, 1.8, 0.3, 0),
+        );
+        s.position.set(-2, 0, 4.4);
+        item("sofa", s, 3.9, 1.3, { id: "sofa", label: "Sit and rest", r: 1.8, dz: -1.4 });
+      }
+      {
+        const r = new THREE.Group();
+        for (const [w, d, c, y] of [
+          [6, 4, 0x7d2f3a, 0.02],
+          [5.2, 3.2, 0xe6b84a, 0.03],
+          [4.6, 2.6, 0x7d2f3a, 0.04],
+        ] as const) {
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(c));
+          m.rotation.x = -Math.PI / 2;
+          m.position.y = y;
+          r.add(m);
+        }
+        r.position.set(0, 0, 2.2);
+        item("rug", r);
+      }
+      {
+        const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), mat(0x2f8f83));
+        pm.rotation.x = -Math.PI / 2;
+        pm.position.set(-7.6, 0.03, 3.6);
+        item("prayermat", pm, 0, 0, { id: "prayermat", label: "Prayer mat", r: 1.6 });
+      }
+      {
+        const sh = new THREE.Group();
+        sh.add(B(0.5, 2.6, 2.2, 0x6d4a2b, 0, 0, 0));
+        for (let i = 0; i < 4; i++)
+          sh.add(
+            B(
+              0.35,
+              0.4,
+              0.25,
+              [0x1f6f63, 0x7d2f3a, 0xe6b84a, 0x2a4a6a][i],
+              0.1,
+              1.8,
+              -0.75 + i * 0.5,
+            ),
+          );
+        sh.position.set(-9.6, 0, 0.4);
+        item("bookshelf", sh, 0.6, 2.3, {
+          id: "quranhome",
+          label: "Read the Qur'an",
+          r: 1.8,
+          dx: 1.4,
+        });
+      }
+      {
+        const rd = new THREE.Group();
+        rd.add(B(0.8, 0.7, 0.8, 0x8a5a3a, 0, 0, 0), B(0.6, 0.35, 0.25, 0x2a2c30, 0, 0.7, 0));
+        rd.position.set(2.6, 0, 5.4);
+        item("radio", rd, 0.9, 0.9, {
+          id: "radio",
+          label: "Listen to a lecture",
+          r: 1.6,
+          dz: -1.2,
+        });
+      }
+      {
+        const wd = new THREE.Group();
+        wd.add(B(0.7, 3.2, 2.4, 0xb98d5e, 0, 0, 0), B(0.05, 2.8, 0.05, 0x6d4a2b, -0.36, 0.2, 0));
+        wd.position.set(9.6, 0, 1.4);
+        item("wardrobe", wd, 0.8, 2.5);
+      }
+      {
+        const fn = new THREE.Group();
+        fn.add(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 0.1, 10), mat(0x2a2c30)));
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 6), mat(0x2a2c30));
+        pole.position.y = 0.8;
+        fn.add(pole);
+        const head = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.45, 0.45, 0.15, 16),
+          mat(0xe9ecee),
+        );
+        head.rotation.x = Math.PI / 2;
+        head.position.y = 1.7;
+        fn.add(head);
+        fn.position.set(7.4, 0, 4.6);
+        item("fan", fn, 0.6, 0.6);
+      }
+      {
+        const cu = new THREE.Group();
+        for (const x of [-4.6, -3.4, 3.4, 4.6]) cu.add(B(1, 2.6, 0.08, 0x2f8f83, x, 0.8, 0));
+        cu.position.set(-2, 0, -6.8);
+        item("curtains", cu);
+      }
+      {
+        const cl = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20), mat(0xfdf8ec));
+        cl.rotation.x = Math.PI / 2;
+        cl.position.set(-2, 3.6, -6.85);
+        item("clock", cl);
+      }
     }
     // Madrasah
     {
@@ -3554,7 +3783,7 @@ export class IlmCityEngine {
       best = { id: "car-exit", label: "Get out of the car", x: 0, z: 0, r: 0, scene: "out" };
     else
       for (const z of this.zones) {
-        if (z.scene !== this.where) continue;
+        if (z.scene !== this.where || z.off) continue;
         const dd =
           z.id === "car"
             ? Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z)
