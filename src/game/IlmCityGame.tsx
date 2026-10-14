@@ -867,11 +867,18 @@ function CityGame({
       .catch(() => {});
     const bye = () => onlineRef.current?.leave();
     window.addEventListener("pagehide", bye);
+    // leaving the tab or locking the phone takes you off the street for others
+    const vis = () => {
+      if (document.hidden) bye();
+      else presenceAt.current = 0;
+    };
+    document.addEventListener("visibilitychange", vis);
     return () => {
       live = false;
       offInbox?.();
       bye();
       window.removeEventListener("pagehide", bye);
+      document.removeEventListener("visibilitychange", vis);
       onlineRef.current = null;
     };
   }, [uid, adult]);
@@ -1782,6 +1789,17 @@ function CityGame({
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
+    // every visit starts at home: you are only out in the city while you are playing
+    {
+      const sv = saveRef.current;
+      if (sv.profile) {
+        const home = sv.homeArea ?? sv.district ?? "lekki";
+        const nm = districtById(home).name;
+        if (sv.homePlot) e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
+        else e.startAtHome(home, `Your flat · ${nm}`);
+        setInside(true);
+      }
+    }
     const startedAt = performance.now();
     {
       const st: Record<
@@ -1839,7 +1857,12 @@ function CityGame({
         Math.hypot(pr.x - lastSent.current.x, pr.z - lastSent.current.z) > 0.5 ||
         ar !== lastSent.current.area;
       // send when you move (every 3 s at most) or every 20 s while standing, to keep costs low
-      if (o && prof && Date.now() - presenceAt.current > (moved ? 3000 : 20000)) {
+      if (
+        o &&
+        prof &&
+        !document.hidden &&
+        Date.now() - presenceAt.current > (moved ? 3000 : 20000)
+      ) {
         presenceAt.current = Date.now();
         lastSent.current = { x: pr.x, z: pr.z, area: ar };
         e.presenceSent();
