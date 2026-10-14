@@ -152,6 +152,11 @@ export default function IlmCityGame() {
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
+  const hisbahRef = useRef<{ reminded: Set<string>; commended: Set<string>; speedAt: number }>({
+    reminded: new Set(),
+    commended: new Set(),
+    speedAt: 0,
+  });
   const [arriving, setArriving] = useState<string | null>(null);
   const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
     null,
@@ -160,7 +165,10 @@ export default function IlmCityGame() {
   const toast = useCallback((text: string, tone?: "good" | "warn") => {
     const id = Math.random();
     setToasts((t) => [{ id, text, tone }, ...t].slice(0, 3));
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3800);
+    setTimeout(
+      () => setToasts((t) => t.filter((x) => x.id !== id)),
+      Math.min(7500, 2600 + text.length * 45),
+    );
   }, []);
   const update = useCallback(
     (fn: (s: Save) => Save) =>
@@ -333,6 +341,18 @@ export default function IlmCityGame() {
         setInside(true);
         const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
+        if (ms.open && ms.prayer) {
+          const k = `${c.key}-${ms.prayer.id}`;
+          const h = hisbahRef.current;
+          if (h.reminded.has(k) && !h.commended.has(k)) {
+            h.commended.add(k);
+            update((x) => ({ ...x, ilm: x.ilm + 5 }));
+            setTimeout(
+              () => toast('The Hisbah officer smiles: "May Allah accept from you!" +5 Ilm', "good"),
+              1200,
+            );
+          }
+        }
         if (lec) openLecture(lec, true);
         else if (ms.open)
           toast(
@@ -669,6 +689,29 @@ export default function IlmCityGame() {
         }));
       setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
       setRide(e.rideInfo());
+      {
+        const h = hisbahRef.current;
+        const ms2 = masjidStatus(c);
+        const cp = currentPrayer(c);
+        if (ms2.open && ms2.prayer && cp && !saveRef.current.prayed[cp.id]) {
+          const k = `${c.key}-${ms2.prayer.id}`;
+          const who = !h.reminded.has(k) && e.nearHisbah(28);
+          if (who) {
+            h.reminded.add(k);
+            toast(
+              `${who}: "It's time for ${ms2.prayer.name}! The masjid is open. Go and pray, may Allah bless you."`,
+              "warn",
+            );
+          }
+        }
+        if (e.isDriving() && e.carSpeedKmh() > 75 && e.inArea() && Date.now() - h.speedAt > 60000) {
+          const who = e.nearHisbah(45);
+          if (who) {
+            h.speedAt = Date.now();
+            toast(`${who}: "Slow down, please! People walk here. Safety is part of iman."`, "warn");
+          }
+        }
+      }
       for (const [pid, o] of Object.entries(saveRef.current.plots ?? {}))
         if (o.kind === "building" && o.done <= Date.now()) {
           const next: PlotOwn = { kind: "built", floors: o.floors };
@@ -1331,7 +1374,7 @@ function TalkView({
   nod,
   onIlm,
 }: {
-  who: { name: string; female: boolean; district: string };
+  who: { name: string; female: boolean; district: string; hisbah?: boolean };
   clock: Clock;
   nod: (k: "agree" | "headShake") => void;
   onIlm: (n: number) => void;
@@ -1400,7 +1443,30 @@ function TalkView({
         ),
     },
   ];
-  if (school)
+  if (who.hisbah) {
+    options.splice(3, 1);
+    options.unshift({
+      key: "hisbah",
+      label: "What does the Hisbah do?",
+      run: () =>
+        say(
+          "hisbah",
+          "What does the Hisbah do?",
+          "We remind people about salah, help keep the streets clean and safe, and settle small quarrels with good words. Respect everyone, brothers and sisters alike.",
+        ),
+    });
+    options.push({
+      key: "report",
+      label: "I want to report a problem",
+      run: () =>
+        say(
+          "report",
+          "I want to report a problem.",
+          "JazakAllahu khayran. Write to admin@ilmstation.com and the team will look into it, in shaa Allah.",
+        ),
+    });
+  }
+  if (school && !who.hisbah)
     options.push({
       key: "school",
       label: `Tell me about ${school.name}`,

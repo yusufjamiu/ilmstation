@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BILLBOARDS,
   STREETS,
@@ -55,6 +56,7 @@ type Walker = {
   female?: boolean;
   district?: string;
   talking?: boolean;
+  hisbah?: boolean;
 };
 
 const PALETTE = {
@@ -919,11 +921,11 @@ export class IlmCityEngine {
       const g = person(
         robes[k],
         female
-          ? { hijab: [0xe9e2d0, 0xf1ece0, 0xe8d9b0][i % 3], seed: i }
+          ? { hijab: [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0x3d5a4a, 0x1d1d26][i % 6], seed: i }
           : { cap: 0xffffff, seed: i },
       );
       const tag = label(names[k], { size: 0.7, bold: false });
-      tag.position.y = 2.25;
+      tag.position.y = 2.65;
       g.add(tag);
       g.position.set(route[0][0], 0, route[0][1]);
       S.add(g);
@@ -938,6 +940,32 @@ export class IlmCityEngine {
         district: D.id,
       });
     });
+
+    // the Hisbah officer on patrol
+    {
+      const officers = ["Musa", "Abubakar", "Sulaiman", "Idris", "Yunus"];
+      const name =
+        "Hisbah Officer " + officers[DISTRICTS.findIndex((d) => d.id === D.id) % officers.length];
+      const g = person(0x5f6b48, {
+        outfit: "hisbah",
+        cap: 0x2e5b2e,
+        trousers: 0x5f6b48,
+        beard: true,
+        seed: 3,
+      });
+      const tag = label(name, { size: 0.7, bg: "rgba(46,91,46,0.92)" });
+      tag.position.y = 2.65;
+      g.add(tag);
+      const route: [number, number][] = [
+        [side * 60, 9],
+        [-side * 70, 9],
+        [-side * 70, -9],
+        [side * 60, -9],
+      ];
+      g.position.set(route[0][0], 0, route[0][1]);
+      S.add(g);
+      this.walkers.push({ g, route, k: 1, wait: 2, t: 0, name, district: D.id, hisbah: true });
+    }
 
     for (const m of batch.build()) S.add(m);
     this.ox = 0;
@@ -2214,8 +2242,32 @@ export class IlmCityEngine {
     return {
       name: w.name ?? "Neighbour",
       female: !!w.female,
+      hisbah: !!w.hisbah,
       district: w.district ?? this.district.id,
     };
+  }
+  /** The Hisbah officer or van near you, if any. */
+  nearHisbah(radius = 30) {
+    const p = this.driving ? this.car.position : this.player.position;
+    if (this.where !== "out") return null;
+    for (const w of this.walkers) {
+      if (!w.hisbah || !w.g.parent) continue;
+      const x = w.g.position.x + w.g.parent.position.x,
+        z = w.g.position.z + w.g.parent.position.z;
+      if (Math.hypot(x - p.x, z - p.z) < radius) return w.name ?? "Hisbah";
+    }
+    for (const v of this.traffic.vehicles)
+      if (
+        v.kind === "hisbah" &&
+        Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z) < radius
+      )
+        return "The Hisbah patrol";
+    return null;
+  }
+  /** Are you inside an area (not on an expressway)? */
+  inArea() {
+    const p = this.driving ? this.car.position : this.player.position;
+    return !!this.areaAt(p.x, p.z);
   }
   /** The passer-by nods or shakes their head while talking. */
   talkGesture(i: number, kind: "agree" | "headShake") {
@@ -2290,6 +2342,12 @@ export class IlmCityEngine {
       });
     }
     for (const m of b.build()) this.scene.add(m);
+    for (const v of this.traffic.vehicles)
+      if (v.kind === "hisbah") {
+        const t = label("HISBAH", { size: 0.8, bg: "rgba(29,122,58,0.92)" });
+        t.position.y = 3.6;
+        v.mesh.add(t);
+      }
     this.traffic.onStop = (bus, stop) => {
       if (bus === this.riding && bus.stopNext) {
         bus.stopNext = false;
@@ -2457,6 +2515,7 @@ export class IlmCityEngine {
     this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
     this.camera.lookAt(target.x, this.where === "out" ? 1.6 : 1, target.z);
     this.sun.target.position.set(target.x, 0, target.z);
+    this.sky?.position.set(this.camera.position.x, 0, this.camera.position.z);
     const sunDir =
       (this.sun.userData.dir as THREE.Vector3 | undefined) ?? new THREE.Vector3(0.4, 1, 0.3);
     this.sun.position.copy(this.sun.target.position).addScaledVector(sunDir, 80);
@@ -2599,9 +2658,74 @@ export class IlmCityEngine {
   }
 
   /* ---------------- light ---------------- */
+  /** A sky dome that fades from the horizon colour to a deeper blue, with clouds. */
+  private sky: THREE.Group | null = null;
+  private skyDome: THREE.Mesh | null = null;
+  private buildSky() {
+    const g = new THREE.Group();
+    const geo = new THREE.SphereGeometry(560, 32, 16);
+    geo.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 3), 3),
+    );
+    const dome = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        side: THREE.BackSide,
+        fog: false,
+        depthWrite: false,
+      }),
+    );
+    dome.renderOrder = -1;
+    g.add(dome);
+    const cloudMat = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      emissive: 0x8a96a8,
+      fog: false,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const rnd = mulberry(5);
+    const parts: THREE.BufferGeometry[] = [];
+    for (let i = 0; i < 26; i++) {
+      const a = rnd() * Math.PI * 2,
+        r = 180 + rnd() * 300;
+      const cx = Math.cos(a) * r,
+        cz = Math.sin(a) * r,
+        cy = 110 + rnd() * 70;
+      const n = 3 + Math.floor(rnd() * 4);
+      for (let k = 0; k < n; k++) {
+        const b = new THREE.IcosahedronGeometry(10 + rnd() * 10, 1);
+        b.scale(1.6, 0.55, 1);
+        b.translate(cx + (k - n / 2) * 12 + rnd() * 6, cy + rnd() * 5, cz + rnd() * 10);
+        parts.push(b);
+      }
+    }
+    const clouds = new THREE.Mesh(mergeGeometries(parts, false)!, cloudMat);
+    g.add(clouds);
+    this.scene.add(g);
+    this.sky = g;
+    this.skyDome = dome;
+  }
+  private paintSky(horizon: THREE.Color, zenith: THREE.Color) {
+    const dome = this.skyDome;
+    if (!dome) return;
+    const p = dome.geometry.attributes.position as THREE.BufferAttribute;
+    const col = dome.geometry.attributes.color as THREE.BufferAttribute;
+    const c = new THREE.Color();
+    for (let i = 0; i < p.count; i++) {
+      const y = Math.max(0, p.getY(i) / 560);
+      c.copy(horizon).lerp(zenith, Math.pow(y, 0.55));
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+    col.needsUpdate = true;
+  }
+
   private applyLight() {
     const c = this.clock;
     if (!c) return;
+    if (this.sky) this.sky.visible = this.where === "out";
     if (this.where !== "out") {
       this.sun.castShadow = false;
       this.sun.intensity = 0.5;
@@ -2631,6 +2755,17 @@ export class IlmCityEngine {
       night = new THREE.Color(0x0e1a33);
     const sky = day.clone().lerp(dusk, Math.min(1, golden)).lerp(night, dk);
     this.scene.background = sky;
+    if (!this.sky) this.buildSky();
+    const zenith = new THREE.Color(0x3f86c8)
+      .lerp(new THREE.Color(0x5a5f9a), Math.min(1, golden) * 0.6)
+      .lerp(new THREE.Color(0x050b1c), dk);
+    this.paintSky(sky, zenith);
+    const cm = (this.sky!.children[1] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+    cm.emissive
+      .set(0x8a96a8)
+      .lerp(new THREE.Color(0xd08a5a), Math.min(1, golden) * 0.7)
+      .multiplyScalar(1 - dk * 0.85);
+    cm.opacity = 0.92 - dk * 0.5;
     (this.scene.fog as THREE.Fog).color.copy(sky);
     this.sun.intensity = 2.4 * (1 - dk) + 0.45 * dk;
     this.sun.color
