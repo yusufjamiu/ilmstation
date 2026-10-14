@@ -38,6 +38,7 @@ import {
 import {
   CITIES,
   clockFor,
+  cityGreeting,
   currentPrayer,
   fmtTime,
   masjidStatus,
@@ -967,6 +968,39 @@ function CityGame({
         openPlot(id.slice(5));
         return;
       }
+      if (id === "keke") {
+        const area = e.districtId();
+        setPanel({
+          kind: "info",
+          title: "Where to? · Keke",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Any place in {fullName(districtById(area))} for 3 points.
+              </p>
+              <PlacesView
+                area={area}
+                onGo={(prefix) => {
+                  if (saveRef.current.coins < 3) {
+                    toast("The keke fare is 3 points. Earn points at a mosque or school.", "warn");
+                    return;
+                  }
+                  setPanel(null);
+                  if (e.kekeTo(prefix)) {
+                    update((x) => ({ ...x, coins: x.coins - 3 }));
+                    toast("Off we go! Hold on tight.", "good");
+                  } else toast("The keke can't go there from here.");
+                }}
+              />
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "keke-done") {
+        toast('Keke driver: "We don reach! Safe journey."', "good");
+        return;
+      }
       if (id.startsWith("player:")) {
         const puid = id.slice(7);
         void openChatWith({ uid: puid, name: e.remoteName(puid) ?? "Player" });
@@ -1396,7 +1430,7 @@ function CityGame({
         if (ar && ar !== areaRef.current) {
           if (areaRef.current !== null && saveRef.current.profile) {
             setNewArea(ar);
-            setTimeout(() => setNewArea((x) => (x === ar ? null : x)), 12000);
+            setTimeout(() => setNewArea((x) => (x === ar ? null : x)), 7000);
           }
           areaRef.current = ar;
         }
@@ -1417,7 +1451,7 @@ function CityGame({
           }
         }
         // an officer walking past stops you with a question
-        const quiet = panelRef.current || e.isRiding() || performance.now() - startedAt < 45000;
+        const quiet = panelRef.current || e.isRiding() || performance.now() - startedAt < 180000;
         const walkerIdx = quiet ? null : e.hisbahBeside(6);
         const cp2 = currentPrayer(c);
         const key = cp2 ? `${c.key}-${cp2.id}` : `${c.key}-quran`;
@@ -1516,7 +1550,7 @@ function CityGame({
             <div className="font-serif text-4xl">
               Ilm<span className="text-[#45b8a8]">City</span>
             </div>
-            <p className="mt-2 text-sm opacity-70">Bismillah… the city is waking up</p>
+            <p className="mt-2 text-sm opacity-70">{cityGreeting()}</p>
           </div>
         </div>
       )}

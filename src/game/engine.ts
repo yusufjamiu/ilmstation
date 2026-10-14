@@ -29,6 +29,7 @@ import {
   type Compound,
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
+import { vehicleMesh } from "./vehicles";
 import {
   forgetHuman,
   gesture,
@@ -473,6 +474,7 @@ export class IlmCityEngine {
   private input = new THREE.Vector2();
   private keys = new Set<string>();
   private tapTarget: THREE.Vector3 | null = null;
+  private tapPlanned: THREE.Vector3 | null = null;
   private walkT = 0;
   private ctx: Context = null;
   private place = "";
@@ -895,6 +897,13 @@ export class IlmCityEngine {
           for (const side of [-1, 1]) {
             const z = st.z + side * 10.5;
             if (!this.boxFree(x - 0.8, x + 0.8, z - 0.8, z + 0.8)) continue;
+            this.addCollider(
+              "out",
+              x - (k % 2 ? 1.2 : 0.4),
+              x + (k % 2 ? 1.2 : 0.4),
+              z - 0.45,
+              z + 0.45,
+            );
             if (k % 2 === 0) batch.addObject(palm(x, z, 0.85));
             else {
               const bed = new THREE.Mesh(
@@ -946,6 +955,7 @@ export class IlmCityEngine {
     const headMesh = new THREE.InstancedMesh(lampHead, this.lampMat, lamps.length);
     const m4 = new THREE.Matrix4();
     lamps.forEach(([x, z], i) => {
+      this.addCollider("out", x - 0.2, x + 0.2, z - 0.2, z + 0.2);
       m4.makeTranslation(x, 2.5, z);
       poleMesh.setMatrixAt(i, m4);
       m4.makeTranslation(x, 5.1, z);
@@ -967,6 +977,7 @@ export class IlmCityEngine {
         z = north + rnd() * (southEdge - 8 - north);
       if (!clear(x, z)) continue;
       batch.addObject(rnd() < 0.55 ? palm(x, z, 0.8 + rnd() * 0.3) : tree(x, z, 0.9 + rnd() * 0.4));
+      this.addCollider("out", x - 0.45, x + 0.45, z - 0.45, z + 0.45);
       n++;
     }
 
@@ -1263,6 +1274,15 @@ export class IlmCityEngine {
     for (let t = -len / 2 + 14; t < len / 2 - 14; t += 26) {
       g.add(palm(-12.5, t, 0.9));
       g.add(palm(12.5, t + 13, 0.9));
+      for (const [lx, lt] of [
+        [-12.5, t],
+        [12.5, t + 13],
+      ]) {
+        const a = g.rotation.y;
+        const wx = g.position.x + lx * Math.cos(a) + lt * Math.sin(a),
+          wz = g.position.z - lx * Math.sin(a) + lt * Math.cos(a);
+        this.colliders.out.push({ x0: wx - 0.45, x1: wx + 0.45, z0: wz - 0.45, z1: wz + 0.45 });
+      }
     }
     this.worldBatch.addObject(g);
     for (const f of [0.2, 0.5, 0.8]) {
@@ -1864,6 +1884,284 @@ export class IlmCityEngine {
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
   }
+  /** Is someone (you, a neighbour, another player) just in front of this walker? */
+  private personAhead(x: number, z: number, ux: number, uz: number, self: THREE.Object3D) {
+    const check = (px: number, pz: number) => {
+      const dx = px - x,
+        dz = pz - z;
+      const fwd = dx * ux + dz * uz,
+        lat = Math.abs(-dx * uz + dz * ux);
+      return fwd > 0 && fwd < 1.6 && lat < 0.8;
+    };
+    if (
+      this.where === "out" &&
+      this.player.visible &&
+      check(this.player.position.x, this.player.position.z)
+    )
+      return true;
+    for (const o of this.walkers) {
+      if (o.g === self || !o.g.parent?.visible) continue;
+      if (check(o.g.position.x + o.g.parent.position.x, o.g.position.z + o.g.parent.position.z))
+        return true;
+    }
+    for (const r of this.remotes.values()) if (check(r.g.position.x, r.g.position.z)) return true;
+    return false;
+  }
+  /** True if a person stands where you are about to step. */
+  private bumpsPerson(x: number, z: number) {
+    const ox = this.player.position.x,
+      oz = this.player.position.z;
+    // blocked only when stepping closer to someone already very near
+    const hits = (px: number, pz: number) => {
+      const dn = (px - x) ** 2 + (pz - z) ** 2;
+      return dn < 0.55 && dn < (px - ox) ** 2 + (pz - oz) ** 2;
+    };
+    for (const o of this.walkers) {
+      if (!o.g.parent?.visible) continue;
+      if (hits(o.g.position.x + o.g.parent.position.x, o.g.position.z + o.g.parent.position.z))
+        return true;
+    }
+    for (const r of this.remotes.values()) if (hits(r.g.position.x, r.g.position.z)) return true;
+    return false;
+  }
+
+  /* ---------------- keke rides ---------------- */
+  private kekeTrip: {
+    mesh: THREE.Mesh;
+    pts: THREE.Vector3[];
+    k: number;
+    hailed: Vehicle | null;
+    dest: { x: number; z: number; id: string };
+  } | null = null;
+  /** The keke stopped beside you, if any. */
+  private kekeBeside() {
+    if (this.where !== "out" || this.driving || this.riding || this.cine || this.kekeTrip)
+      return null;
+    const p = this.player.position;
+    for (const v of this.traffic.vehicles)
+      if (v.kind === "keke" && Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z) < 4.5)
+        return v;
+    return null;
+  }
+  isOnKeke() {
+    return !!this.kekeTrip;
+  }
+  /** Ride a keke along the streets to a place in this area, then walk to its door. */
+  kekeTo(prefix: string) {
+    const hailed = this.kekeBeside();
+    const D = this.areaAt(this.player.position.x, this.player.position.z);
+    if (!D) return false;
+    const p = this.player.position;
+    const z = this.zones
+      .filter((zz) => zz.scene === "out" && zz.id.startsWith(prefix))
+      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+    if (!z) return false;
+    const XR = halfOf(D).x - 16;
+    const ox = D.origin.x,
+      oz = D.origin.z;
+    const near = (lz: number) =>
+      D.streets.reduce((a, b) => (Math.abs(b.z - lz) < Math.abs(a.z - lz) ? b : a)).z;
+    const clampX = (x: number) => Math.max(-XR, Math.min(XR, x));
+    const sP = near(p.z - oz),
+      sT = near(z.z - oz);
+    const L = (x: number, lz: number) => new THREE.Vector3(ox + x, 0, oz + lz);
+    const px = clampX(p.x - ox),
+      tx = clampX(z.x - ox);
+    const pts = [L(px, sP + 2)];
+    if (sP !== sT) pts.push(L(-2, sP + 2), L(-2, sT + 2));
+    pts.push(L(tx, sT + 2));
+    const mesh = vehicleMesh("keke", 0xf2c230);
+    mesh.position.copy(hailed ? hailed.mesh.position : pts[0]);
+    this.scene.add(mesh);
+    if (hailed) {
+      hailed.mesh.visible = false;
+      hailed.dwell = 999;
+    }
+    this.player.visible = false;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.kekeTrip = { mesh, pts, k: 0, hailed, dest: { x: z.x, z: z.z, id: z.id } };
+    return true;
+  }
+  private stepKeke(dt: number) {
+    const t = this.kekeTrip!;
+    const target = t.pts[t.k];
+    const m = t.mesh.position;
+    const dx = target.x - m.x,
+      dz = target.z - m.z,
+      d = Math.hypot(dx, dz);
+    const step = 11 * dt;
+    if (d <= step) {
+      m.set(target.x, 0, target.z);
+      t.k++;
+      if (t.k >= t.pts.length) {
+        // drop off: put the keke back into traffic and walk you to the door
+        t.mesh.removeFromParent();
+        if (t.hailed) {
+          t.hailed.mesh.visible = true;
+          t.hailed.dwell = 2;
+        }
+        this.player.position.set(m.x, 0, m.z + 2.2);
+        this.player.visible = true;
+        this.kekeTrip = null;
+        this.tapZone = t.dest.id;
+        this.tapTarget = new THREE.Vector3(t.dest.x, 0, t.dest.z);
+        this.marker.position.set(t.dest.x, 0.05, t.dest.z);
+        this.marker.visible = true;
+        this.ev.onAction("keke-done");
+        return;
+      }
+    } else {
+      m.x += (dx / d) * step;
+      m.z += (dz / d) * step;
+      const want = Math.atan2(-dz, dx);
+      t.mesh.rotation.y = lerpAngle(t.mesh.rotation.y, want, Math.min(1, dt * 8));
+    }
+    this.player.position.set(m.x, 0, m.z);
+  }
+
+  /* ---------------- finding a way round walls ---------------- */
+  private tapPath: THREE.Vector3[] = [];
+  private lineFree(a: THREE.Vector3, b: THREE.Vector3) {
+    const d = Math.hypot(b.x - a.x, b.z - a.z);
+    const n = Math.ceil(d / 0.4);
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      if (!this.free(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, 0.45)) return false;
+    }
+    return true;
+  }
+  /** A* on a 1-metre grid round the walls between you and where you tapped. */
+  private planTap() {
+    this.tapPath = [];
+    const t = this.tapTarget;
+    if (!t) return;
+    const a = this.player.position.clone();
+    if (this.lineFree(a, t)) {
+      this.tapPath = [t.clone()];
+      return;
+    }
+    const pad = 24,
+      C = 1;
+    const x0 = Math.floor(Math.min(a.x, t.x) - pad),
+      z0 = Math.floor(Math.min(a.z, t.z) - pad);
+    const W = Math.min(220, Math.ceil(Math.abs(a.x - t.x) + pad * 2)),
+      H = Math.min(220, Math.ceil(Math.abs(a.z - t.z) + pad * 2));
+    const boxes = this.colliders[this.where].filter(
+      (b) => b.x1 > x0 - 1 && b.x0 < x0 + W + 1 && b.z1 > z0 - 1 && b.z0 < z0 + H + 1,
+    );
+    const r = 0.5;
+    const blocked = new Uint8Array(W * H);
+    for (let j = 0; j < H; j++)
+      for (let i = 0; i < W; i++) {
+        const x = x0 + i * C + 0.5,
+          z = z0 + j * C + 0.5;
+        for (const b of boxes)
+          if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) {
+            blocked[j * W + i] = 1;
+            break;
+          }
+      }
+    const cell = (x: number, z: number) => [Math.floor(x - x0), Math.floor(z - z0)] as const;
+    const [si, sj] = cell(a.x, a.z);
+    let [ti, tj] = cell(t.x, t.z);
+    const inside = (i: number, j: number) => i >= 0 && j >= 0 && i < W && j < H;
+    if (!inside(si, sj) || !inside(ti, tj)) return;
+    // if the target is inside something, use the nearest open spot
+    if (blocked[tj * W + ti]) {
+      let best = -1,
+        bd = 1e9;
+      for (let j = Math.max(0, tj - 5); j <= Math.min(H - 1, tj + 5); j++)
+        for (let i = Math.max(0, ti - 5); i <= Math.min(W - 1, ti + 5); i++)
+          if (!blocked[j * W + i]) {
+            const d = (i - ti) ** 2 + (j - tj) ** 2;
+            if (d < bd) {
+              bd = d;
+              best = j * W + i;
+            }
+          }
+      if (best < 0) return;
+      ti = best % W;
+      tj = Math.floor(best / W);
+    }
+    blocked[sj * W + si] = 0;
+    const g = new Float32Array(W * H).fill(Infinity);
+    const from = new Int32Array(W * H).fill(-1);
+    const open: number[] = [];
+    const f = new Float32Array(W * H).fill(Infinity);
+    const h = (i: number, j: number) => {
+      const dx = Math.abs(i - ti),
+        dz = Math.abs(j - tj);
+      return Math.max(dx, dz) + 0.414 * Math.min(dx, dz);
+    };
+    const start = sj * W + si,
+      goal = tj * W + ti;
+    g[start] = 0;
+    f[start] = h(si, sj);
+    open.push(start);
+    const closed = new Uint8Array(W * H);
+    let found = false;
+    let iter = 0;
+    while (open.length && iter++ < 40000) {
+      let bi = 0;
+      for (let k = 1; k < open.length; k++) if (f[open[k]] < f[open[bi]]) bi = k;
+      const c = open[bi];
+      open[bi] = open[open.length - 1];
+      open.pop();
+      if (c === goal) {
+        found = true;
+        break;
+      }
+      if (closed[c]) continue;
+      closed[c] = 1;
+      const ci = c % W,
+        cj = (c - ci) / W;
+      for (let dj = -1; dj <= 1; dj++)
+        for (let di = -1; di <= 1; di++) {
+          if (!di && !dj) continue;
+          const ni = ci + di,
+            nj = cj + dj;
+          if (!inside(ni, nj)) continue;
+          const n = nj * W + ni;
+          if (blocked[n] || closed[n]) continue;
+          if (di && dj && (blocked[cj * W + ni] || blocked[nj * W + ci])) continue;
+          const ng = g[c] + (di && dj ? 1.414 : 1);
+          if (ng < g[n]) {
+            g[n] = ng;
+            f[n] = ng + h(ni, nj);
+            from[n] = c;
+            open.push(n);
+          }
+        }
+    }
+    if (!found) return;
+    const pts: THREE.Vector3[] = [];
+    for (let c = goal; c !== -1 && c !== start; c = from[c]) {
+      const i = c % W,
+        j = (c - i) / W;
+      pts.unshift(new THREE.Vector3(x0 + i + 0.5, 0, z0 + j + 0.5));
+    }
+    pts[pts.length - 1] = blocked[Math.floor(t.z - z0) * W + Math.floor(t.x - x0)]
+      ? pts[pts.length - 1]
+      : t.clone();
+    // keep only the corners you need
+    const out: THREE.Vector3[] = [];
+    let cur = a;
+    let k = 0;
+    while (k < pts.length) {
+      let far = k;
+      for (let m = pts.length - 1; m > k; m--)
+        if (this.lineFree(cur, pts[m])) {
+          far = m;
+          break;
+        }
+      out.push(pts[far]);
+      cur = pts[far];
+      k = far + 1;
+    }
+    this.tapPath = out;
+  }
+
   /* ---------------- other real players ---------------- */
   private remotes = new Map<
     string,
@@ -2609,6 +2907,7 @@ export class IlmCityEngine {
   private camTarget() {
     if (this.cine) return this.cine.vehicle.position;
     if (this.riding) return this.riding.mesh.position;
+    if (this.kekeTrip) return this.kekeTrip.mesh.position;
     return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
@@ -3110,6 +3409,10 @@ export class IlmCityEngine {
       obs.push({ x: this.player.position.x, z: this.player.position.z, r: 0.7 });
     if (this.car.visible && !this.cine)
       obs.push({ x: this.car.position.x, z: this.car.position.z, r: 1.6 });
+    this.traffic.hail =
+      this.where === "out" && !this.driving && !this.riding && !this.kekeTrip && !this.cine
+        ? { x: this.player.position.x, z: this.player.position.z }
+        : null;
     this.traffic.update(dt, obs, this.camera.position);
     if (this.riding) {
       this.player.position.copy(this.riding.mesh.position);
@@ -3135,6 +3438,7 @@ export class IlmCityEngine {
     const v = this.moveVec();
     if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
+    else if (this.kekeTrip) this.stepKeke(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
     this.stepTraffic(dt);
@@ -3172,9 +3476,21 @@ export class IlmCityEngine {
         w.wait = 1 + Math.random() * 3;
         continue;
       }
-      const s = Math.min(d, 2.2 * dt);
-      w.g.position.x += (dx / d) * s;
-      w.g.position.z += (dz / d) * s;
+      let s = Math.min(d, 2.2 * dt);
+      // step aside for anyone in the way instead of walking through them
+      const ox = w.g.parent?.position.x ?? 0,
+        oz = w.g.parent?.position.z ?? 0;
+      const wx = w.g.position.x + ox,
+        wz = w.g.position.z + oz;
+      const ux = dx / d,
+        uz = dz / d;
+      if (this.personAhead(wx, wz, ux, uz, w.g)) {
+        s *= 0.25;
+        w.g.position.x += -uz * 1.6 * dt;
+        w.g.position.z += ux * 1.6 * dt;
+      }
+      w.g.position.x += ux * s;
+      w.g.position.z += uz * s;
       w.g.rotation.y = Math.atan2(dx, dz);
       w.t += dt;
       animatePerson(w.g, w.t * 7, 1);
@@ -3231,7 +3547,7 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding) best = null;
+    if (this.cine || this.riding || this.kekeTrip) best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
@@ -3268,6 +3584,10 @@ export class IlmCityEngine {
           bd = dr;
         }
       }
+    if (!best || bd > 2) {
+      const kk = this.kekeBeside();
+      if (kk) best = { id: "keke", label: "Take a keke", x: 0, z: 0, r: 0, scene: "out" };
+    }
     if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
       if (dc < 3.4 && dc < bd)
@@ -3316,12 +3636,21 @@ export class IlmCityEngine {
     if (this.where !== "out") dir = new THREE.Vector3(v.x, 0, -v.y);
     this.followYaw = null;
     if (dir.lengthSq() === 0 && this.tapTarget) {
-      const d = this.tapTarget.clone().sub(this.player.position);
+      if (this.tapPlanned !== this.tapTarget) {
+        this.tapPlanned = this.tapTarget;
+        this.planTap();
+      }
+      const next = this.tapPath[0] ?? this.tapTarget;
+      const d = next.clone().sub(this.player.position);
       d.y = 0;
       if (d.length() < 0.35) {
-        this.tapTarget = null;
-        this.marker.visible = false;
-        this.pendingUse = true;
+        if (this.tapPath.length > 1) this.tapPath.shift();
+        else {
+          this.tapTarget = null;
+          this.tapPath = [];
+          this.marker.visible = false;
+          this.pendingUse = true;
+        }
       } else dir = d.normalize();
     }
     const moving = dir.lengthSq() > 0.001;
@@ -3330,8 +3659,16 @@ export class IlmCityEngine {
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
-      if (this.free(nx, this.player.position.z, 0.5)) this.player.position.x = nx;
-      if (this.free(this.player.position.x, nz, 0.5)) this.player.position.z = nz;
+      if (
+        this.free(nx, this.player.position.z, 0.5) &&
+        !this.bumpsPerson(nx, this.player.position.z)
+      )
+        this.player.position.x = nx;
+      if (
+        this.free(this.player.position.x, nz, 0.5) &&
+        !this.bumpsPerson(this.player.position.x, nz)
+      )
+        this.player.position.z = nz;
       const targetRot = Math.atan2(n.x, n.z);
       this.player.rotation.y = lerpAngle(this.player.rotation.y, targetRot, Math.min(1, dt * 12));
       // the camera swings round behind you when you walk forward
