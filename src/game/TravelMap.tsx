@@ -11,6 +11,7 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   agege: { name: "Agege", lat: 6.622, lng: 3.325 },
   ajegunle: { name: "Ajegunle", lat: 6.455, lng: 3.335 },
   ikorodu: { name: "Ikorodu", lat: 6.615, lng: 3.505 },
+  egbeda: { name: "Egbeda", lat: 6.592, lng: 3.29 },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -25,11 +26,13 @@ const ROADS: [string, string][] = [
   ["ketu", "agege"],
   ["ketu", "ikorodu"],
   ["yaba", "ajegunle"],
+  ["ketu", "egbeda"],
+  ["egbeda", "agege"],
 ];
 
 const W = 400,
   H = 380;
-const X = (lng: number) => ((lng - 3.27) / (3.56 - 3.27)) * (W - 40) + 20;
+const X = (lng: number) => ((lng - 3.25) / (3.56 - 3.25)) * (W - 40) + 20;
 const Y = (lat: number) => ((6.67 - lat) / (6.67 - 6.39)) * (H - 40) + 20;
 const pt = (id: string) => ({ x: X(PLACES[id].lng), y: Y(PLACES[id].lat) });
 

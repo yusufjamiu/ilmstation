@@ -3,6 +3,7 @@ import {
   BILLBOARDS,
   STREETS,
   AD_EMAIL,
+  DISTRICTS,
   districtById,
   type Billboard,
   type District,
@@ -368,7 +369,7 @@ export class IlmCityEngine {
   private walkers: Walker[] = [];
   private dg = new THREE.Group();
   private district!: District;
-  private carDistrict = "lekki";
+  private camYaw = 0;
   private interiorName = "";
   private player = person(0xf4efe4, { cap: 0x2f8f83 });
   private car = new THREE.Group();
@@ -407,7 +408,12 @@ export class IlmCityEngine {
   constructor(
     private host: HTMLElement,
     private ev: EngineEvents,
-    start?: { district?: string; x?: number; z?: number; carDistrict?: string },
+    start?: {
+      district?: string;
+      x?: number;
+      z?: number;
+      car?: { x: number; z: number; heading: number };
+    },
   ) {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -423,7 +429,7 @@ export class IlmCityEngine {
     host.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color(0x9fd3e8);
-    this.scene.fog = new THREE.Fog(0x9fd3e8, 90, 230);
+    this.scene.fog = new THREE.Fog(0x9fd3e8, 70, 260);
     this.scene.add(this.hemi);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
@@ -437,10 +443,17 @@ export class IlmCityEngine {
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
 
-    this.carDistrict = start?.carDistrict ?? "lekki";
     this.buildCar();
     this.buildInteriors();
-    this.buildDistrict(start?.district ?? "lekki");
+    this.buildWorld();
+    this.district = districtById(start?.district ?? "lekki");
+    const home = districtById("lekki").origin;
+    if (start?.car) {
+      this.car.position.set(start.car.x, 0, start.car.z);
+      this.carHeading = start.car.heading;
+      this.car.rotation.y = start.car.heading;
+    } else this.car.position.set(home.x - 16, 0, home.z + 9.8);
+    this.outPos.set(this.district.origin.x - 60, 0, this.district.origin.z + 10);
 
     this.scene.add(this.player);
     if (start?.x !== undefined && start.z !== undefined && this.free(start.x, start.z, 0.6))
@@ -454,7 +467,10 @@ export class IlmCityEngine {
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(host);
     this.resize();
-    this.renderer.domElement.addEventListener("pointerdown", this.onPointer);
+    const el = this.renderer.domElement;
+    el.addEventListener("pointerdown", this.onPointerDown);
+    el.addEventListener("pointermove", this.onPointerMove);
+    el.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKeyUp);
     this.raf = requestAnimationFrame(this.loop);
@@ -525,7 +541,10 @@ export class IlmCityEngine {
     this.resizeObs.disconnect();
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKeyUp);
-    this.renderer.domElement.removeEventListener("pointerdown", this.onPointer);
+    const el = this.renderer.domElement;
+    el.removeEventListener("pointerdown", this.onPointerDown);
+    el.removeEventListener("pointermove", this.onPointerMove);
+    el.removeEventListener("pointerup", this.onPointerUp);
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
@@ -542,41 +561,28 @@ export class IlmCityEngine {
     z0: number,
     z1: number,
   ) {
-    this.colliders[scene].push({ x0, x1, z0, z1 });
+    const ox = scene === "out" ? this.ox : 0,
+      oz = scene === "out" ? this.oz : 0;
+    this.colliders[scene].push({ x0: x0 + ox, x1: x1 + ox, z0: z0 + oz, z1: z1 + oz });
   }
 
-  /** Clears the current area and builds another one from its data. */
+  /** Builds one area into its own group at its place on the Lagos map. */
   private buildDistrict(id: string) {
-    this.dg.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.geometry) m.geometry.dispose();
-      const sm = (o as THREE.Sprite).material as THREE.SpriteMaterial | undefined;
-      if (sm && (o as THREE.Sprite).isSprite) {
-        sm.map?.dispose();
-        sm.dispose();
-      }
-    });
-    this.scene.remove(this.dg);
-    this.dg = new THREE.Group();
-    this.scene.add(this.dg);
-    this.colliders.out = [];
-    this.reserved = [
-      { x0: -84, x1: -60, z0: 8, z1: 22 },
-      { x0: -22, x1: -10, z0: 7, z1: 13 },
-    ];
-    this.zones = this.zones.filter((z) => z.scene !== "out");
-    this.tappables = [];
-    this.walkers = [];
     const D = districtById(id);
-    this.district = D;
+    this.ox = D.origin.x;
+    this.oz = D.origin.z;
+    this.dg = new THREE.Group();
+    this.dg.position.set(D.origin.x, 0, D.origin.z);
+    this.scene.add(this.dg);
+    const side = D.origin.x > 0 ? -1 : 1; // the end of the main street facing the City Junction
+    this.reserved.push(
+      { x0: this.ox - 84, x1: this.ox - 60, z0: this.oz + 8, z1: this.oz + 22 },
+      { x0: this.ox - 22, x1: this.ox - 10, z0: this.oz + 7, z1: this.oz + 13 },
+    );
     const S = this.dg;
     const rnd = mulberry(D.id.length * 97 + D.name.charCodeAt(0));
 
-    // ground, edges, and Lekki's lagoon
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 240), mat(PALETTE.grass));
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    S.add(ground);
+    // Lekki's beach and the ocean
     const southEdge = D.lagoon ? 76 : 99;
     if (D.lagoon) {
       const beach = new THREE.Mesh(new THREE.PlaneGeometry(260, 14), mat(PALETTE.sand));
@@ -594,10 +600,7 @@ export class IlmCityEngine {
       for (let x = -94; x < 94; x += 9)
         S.add(palm(x + rnd() * 3, 68 + rnd() * 4, 0.9 + rnd() * 0.3));
     }
-    this.addCollider("out", -200, 200, southEdge, 300);
-    this.addCollider("out", -200, -99, -200, 200);
-    this.addCollider("out", 99, 200, -200, 200);
-    this.addCollider("out", -200, 200, -200, -99);
+    if (D.lagoon) this.addCollider("out", -200, 200, southEdge, 300);
 
     // roads: each named street runs east-west; one link road crosses them
     const road = (x: number, z: number, w: number, d: number) => {
@@ -615,7 +618,7 @@ export class IlmCityEngine {
     const dashMat = new THREE.MeshBasicMaterial({ color: PALETTE.line });
     const zs = D.streets.map((st) => st.z);
     D.streets.forEach((st) => {
-      road(0, st.z, 200, 12);
+      road(0, st.z, st.z === 0 ? 214 : 200, 12);
       for (let x = -96; x < 96; x += 6) {
         if (Math.abs(x) < 8) continue;
         const d = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.25), dashMat);
@@ -724,8 +727,9 @@ export class IlmCityEngine {
 
     // greenery
     const clear = (x: number, z: number) =>
-      this.free(x, z, 3) &&
+      this.free(x + this.ox, z + this.oz, 3) &&
       Math.abs(x) > 10 &&
+      Math.abs(z) > 12 &&
       zs.every((sz) => Math.abs(z - sz) > 11) &&
       z < southEdge - 8;
     let n = 0;
@@ -737,8 +741,8 @@ export class IlmCityEngine {
       n++;
     }
 
-    // welcome gate over the road into the area
-    this.welcomeGate(D, 34);
+    // welcome gate where the expressway meets the main street
+    this.welcomeGate(D, side);
 
     // neighbours walking the pavements
     const names = [
@@ -794,12 +798,149 @@ export class IlmCityEngine {
       this.walkers.push({ g, route, k: 1, wait: i * 0.8, t: 0 });
     });
 
-    // your car is here only if you drove here
-    this.car.visible = this.carDistrict === D.id;
+    this.ox = 0;
+    this.oz = 0;
+  }
+
+  /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
+  private buildWorld() {
+    const S = this.scene;
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1700), mat(PALETTE.grass));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(50, -0.01, 0);
+    ground.receiveShadow = true;
+    S.add(ground);
+    const water = (w: number, d: number, x: number, z: number, round = false) => {
+      const m = new THREE.Mesh(
+        round ? new THREE.CircleGeometry(1, 48) : new THREE.PlaneGeometry(w, d),
+        new THREE.MeshStandardMaterial({ color: PALETTE.water, roughness: 0.25, metalness: 0.1 }),
+      );
+      m.rotation.x = -Math.PI / 2;
+      if (round) m.scale.set(w, d, 1);
+      m.position.set(x, -0.005, z);
+      S.add(m);
+    };
+    // Atlantic Ocean along the south, Lagos Lagoon between Ikorodu and Lekki
+    water(2000, 500, 50, 790);
+    const sand = new THREE.Mesh(new THREE.PlaneGeometry(2000, 16), mat(PALETTE.sand));
+    sand.rotation.x = -Math.PI / 2;
+    sand.position.set(50, 0, 534);
+    S.add(sand);
+    this.colliders.out.push({ x0: -1000, x1: 1100, z0: 541, z1: 1200 });
+    water(150, 105, 540, 20, true);
+    this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
+    // world edges
+    this.colliders.out.push({ x0: -1100, x1: -800, z0: -900, z1: 900 });
+    this.colliders.out.push({ x0: 860, x1: 1200, z0: -900, z1: 900 });
+    this.colliders.out.push({ x0: -1100, x1: 1200, z0: -900, z1: -680 });
+
+    DISTRICTS.forEach((d) => this.buildDistrict(d.id));
+
+    // City Junction roundabout
+    const ring = new THREE.Mesh(new THREE.RingGeometry(16, 30, 48), mat(PALETTE.road));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04;
+    ring.receiveShadow = true;
+    S.add(ring);
+    const island = new THREE.Mesh(new THREE.CircleGeometry(16, 40), mat(0x7f9e52));
+    island.rotation.x = -Math.PI / 2;
+    island.position.y = 0.05;
+    S.add(island);
+    const monument = new THREE.Group();
+    monument.add(box(3, 1, 3, 0xd9d1bd));
+    const pillar = cyl(0.8, 1.1, 9, 0xece6d6, 8);
+    pillar.position.y = 5.5;
+    monument.add(pillar);
+    const top = crescent();
+    top.scale.setScalar(2);
+    top.position.set(-0.4, 11.4, 0);
+    monument.add(top);
+    S.add(monument);
+    this.colliders.out.push({ x0: -3, x1: 3, z0: -3, z1: 3 });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      S.add(palm(Math.cos(a) * 11, Math.sin(a) * 11, 0.9));
+    }
+    const jl = label("City Junction", { bg: "rgba(31,111,99,0.9)", size: 1.6 });
+    jl.position.set(0, 14, 0);
+    S.add(jl);
+
+    // expressways from the junction to the end of each main street
+    DISTRICTS.forEach((d) => {
+      const [ax, az] = this.roadEnd(d);
+      const len0 = Math.hypot(ax, az);
+      this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
+    });
+  }
+
+  /** Where an area's main street meets its expressway. */
+  private roadEnd(d: District): [number, number] {
+    const side = d.origin.x > 0 ? -1 : 1;
+    return [d.origin.x + side * 106, d.origin.z];
+  }
+
+  private expressway(x0: number, z0: number, x1: number, z1: number, name: string) {
+    const S = this.scene;
+    const dx = x1 - x0,
+      dz = z1 - z0,
+      len = Math.hypot(dx, dz);
+    const g = new THREE.Group();
+    g.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
+    g.rotation.y = Math.atan2(dx, dz);
+    const k = new THREE.Mesh(new THREE.PlaneGeometry(18, len + 2), mat(PALETTE.kerb));
+    k.rotation.x = -Math.PI / 2;
+    k.position.y = 0.02;
+    k.receiveShadow = true;
+    g.add(k);
+    const r = new THREE.Mesh(new THREE.PlaneGeometry(15, len), mat(PALETTE.road));
+    r.rotation.x = -Math.PI / 2;
+    r.position.y = 0.04;
+    r.receiveShadow = true;
+    g.add(r);
+    const dash = new THREE.MeshBasicMaterial({ color: PALETTE.line });
+    for (let t = -len / 2 + 4; t < len / 2 - 4; t += 8) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 4), dash);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(0, 0.06, t);
+      g.add(m);
+    }
+    for (let t = -len / 2 + 14; t < len / 2 - 14; t += 26) {
+      g.add(palm(-12.5, t, 0.9));
+      g.add(palm(12.5, t + 13, 0.9));
+    }
+    S.add(g);
+    for (const f of [0.2, 0.5, 0.8]) {
+      const t = label(name, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
+      t.position.set(x0 + dx * f, 6.5, z0 + dz * f);
+      S.add(t);
+    }
+  }
+
+  /** The area the player is in, or null on an expressway. */
+  areaAt(x: number, z: number) {
+    return (
+      DISTRICTS.find((d) => Math.abs(x - d.origin.x) < 112 && Math.abs(z - d.origin.z) < 100) ??
+      null
+    );
+  }
+  /** Which expressway the player is on, if any. */
+  private roadAt(x: number, z: number) {
+    for (const d of DISTRICTS) {
+      const [ax, az] = this.roadEnd(d);
+      const t = Math.max(0, Math.min(1, (x * ax + z * az) / (ax * ax + az * az)));
+      if (Math.hypot(x - ax * t, z - az * t) < 11) return d.highway;
+    }
+    return Math.hypot(x, z) < 34 ? "City Junction" : null;
   }
 
   private reserved: Box[] = [];
+  private ox = 0;
+  private oz = 0;
   private boxFree(x0: number, x1: number, z0: number, z1: number) {
+    x0 += this.ox;
+    x1 += this.ox;
+    z0 += this.oz;
+    z1 += this.oz;
     for (const b of [...this.colliders.out, ...this.reserved])
       if (x0 < b.x1 && x1 > b.x0 && z0 < b.z1 && z1 > b.z0) return false;
     return true;
@@ -852,48 +993,39 @@ export class IlmCityEngine {
     this.zones.push({
       id: "bus",
       label: "Travel to another area",
-      x: x - 6,
-      z: z + 6,
+      x: x - 6 + this.ox,
+      z: z + 6 + this.oz,
       r: 3.6,
       scene: "out",
     });
   }
 
-  /** Move to another area; arriving by bus puts you at the bus park, by car at the roadside. */
+  /** Fast travel by bus or car: the trip plays on the Lagos map, then the vehicle drives in
+      under the area's welcome gate and along the main street. */
   travel(id: string, byCar: boolean) {
+    const D = districtById(id);
     this.where = "out";
-    if (byCar) this.carDistrict = id;
-    this.buildDistrict(id);
+    this.district = D;
     this.driving = false;
     this.player.visible = false;
     this.tapTarget = null;
     this.marker.visible = false;
-    // the vehicle drives in from the south, under the welcome gate, then along the main street
+    const side = D.origin.x > 0 ? -1 : 1;
+    const W = (x: number, z: number) => new THREE.Vector3(D.origin.x + x, 0, D.origin.z + z);
     let vehicle: THREE.Group;
     let path: THREE.Vector3[];
     if (byCar) {
       vehicle = this.car;
-      this.car.visible = true;
-      path = [
-        new THREE.Vector3(3, 0, 58),
-        new THREE.Vector3(3, 0, 13),
-        new THREE.Vector3(-4, 0, 9.8),
-        new THREE.Vector3(-16, 0, 9.8),
-      ];
+      path = [W(side * 150, -3), W(side * 40, -3), W(-4, 9.8), W(-16, 9.8)];
     } else {
       vehicle = makeBus();
-      this.dg.add(vehicle);
-      path = [
-        new THREE.Vector3(3, 0, 58),
-        new THREE.Vector3(3, 0, 13),
-        new THREE.Vector3(-6, 0, 9.6),
-        new THREE.Vector3(-52, 0, 9.6),
-      ];
+      this.scene.add(vehicle);
+      path = [W(side * 150, 3), W(side * 40, 3), W(-6, 9.6), W(-52, 9.6)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = Math.PI / 2;
+    vehicle.rotation.y = side > 0 ? Math.PI : 0;
     this.player.position.copy(path[0]);
-    this.cine = { vehicle, path, k: 1, byCar, hold: 0.8 };
+    this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
     this.ev.onCinematic?.(true);
     this.applyLight();
     this.snapCamera();
@@ -938,22 +1070,26 @@ export class IlmCityEngine {
   private endCinematic() {
     const c = this.cine!;
     this.cine = null;
+    const o = this.district.origin;
     if (c.byCar) {
       this.carHeading = Math.PI;
       this.car.rotation.y = Math.PI;
-      this.player.position.set(-16, 0, 13);
+      this.player.position.set(o.x - 16, 0, o.z + 13);
     } else {
       c.vehicle.removeFromParent();
-      this.player.position.set(-54, 0, 13.5);
+      this.player.position.set(o.x - 54, 0, o.z + 13.5);
     }
-    this.player.rotation.y = 0;
+    this.player.rotation.y = Math.PI;
+    this.camYaw = 0;
     this.player.visible = true;
     this.ev.onCinematic?.(false);
   }
 
-  private welcomeGate(D: District, z: number) {
+  private welcomeGate(D: District, side: number) {
+    const gx = side * 94;
     const g = new THREE.Group();
-    g.position.set(0, 0, z);
+    g.position.set(gx, 0, 0);
+    g.rotation.y = (side * Math.PI) / 2;
     for (const x of [-8.6, 8.6]) {
       g.add(box(1.4, 7.5, 1.4, 0xece6d6, x, 0, 0));
       const cap = new THREE.Mesh(new THREE.ConeGeometry(1, 1.6, 8), mat(PALETTE.dome));
@@ -964,7 +1100,7 @@ export class IlmCityEngine {
       c.scale.setScalar(0.6);
       c.position.set(x - 0.1, 9.6, 0);
       g.add(c);
-      this.addCollider("out", x - 0.8, x + 0.8, z - 0.8, z + 0.8);
+      this.addCollider("out", gx - 0.8, gx + 0.8, -x * side - 0.8, -x * side + 0.8);
     }
     g.add(box(18.6, 2.6, 0.7, 0x1f6f63, 0, 5.4, 0));
     const { mesh } = canvasPlane(
@@ -994,10 +1130,17 @@ export class IlmCityEngine {
   districtId() {
     return this.district.id;
   }
+  /** Areas sit far apart now, so "here" means the car is within this area. */
+  private carArea() {
+    return this.areaAt(this.car.position.x, this.car.position.z)?.id ?? null;
+  }
   /** Walk to this area's bus park and open the travel menu on arrival. Returns false if not possible. */
   goToBusPark() {
     if (this.where !== "out" || this.driving) return false;
-    const z = this.zones.find((zz) => zz.id === "bus");
+    const p = this.player.position;
+    const z = this.zones
+      .filter((zz) => zz.id === "bus")
+      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
     if (!z) return false;
     if (Math.hypot(z.x - this.player.position.x, z.z - this.player.position.z) < z.r) {
       this.ev.onAction("bus");
@@ -1010,7 +1153,13 @@ export class IlmCityEngine {
     return true;
   }
   carHere() {
-    return this.carDistrict === this.district.id;
+    return this.carArea() === this.district.id;
+  }
+  carAreaId() {
+    return this.carArea();
+  }
+  carPos() {
+    return { x: this.car.position.x, z: this.car.position.z, heading: this.carHeading };
   }
 
   private windowRow(
@@ -1031,7 +1180,7 @@ export class IlmCityEngine {
   }
 
   private door(x: number, z: number, id: string, text: string, labelY: number) {
-    this.zones.push({ id, label: text, x, z, r: 3.2, scene: "out" });
+    this.zones.push({ id, label: text, x: x + this.ox, z: z + this.oz, r: 3.2, scene: "out" });
     const t = label(text.replace(/^Enter /, ""), { size: 0.85 });
     t.position.set(x, labelY, z - 0.5);
     this.dg.add(t);
@@ -1178,8 +1327,8 @@ export class IlmCityEngine {
     this.zones.push({
       id: "souq",
       label: `Shop at ${l.name}`,
-      x: cx,
-      z: cz + D / 2 + 1.5,
+      x: cx + this.ox,
+      z: cz + D / 2 + 1.5 + this.oz,
       r: 6,
       scene: "out",
     });
@@ -1590,26 +1739,38 @@ export class IlmCityEngine {
     this.renderer.domElement.style.width = "100%";
     this.renderer.domElement.style.height = "100%";
     this.camera.aspect = w / h;
-    this.camera.fov = w / h < 0.8 ? 50 : 42;
+    this.camera.fov = w / h < 0.8 ? 62 : 52;
     this.camera.updateProjectionMatrix();
   }
 
+  /** Close third-person camera: behind you outdoors, behind the car when driving,
+      and a view from above indoors. Drag the screen to look around. */
+  private camDist() {
+    const portrait = this.camera.aspect < 0.8;
+    if (this.cine) return { d: 14, h: 5.5 };
+    if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
+    return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
+  }
   private camOffset() {
     const portrait = this.camera.aspect < 0.8;
-    if (this.cine) return portrait ? new THREE.Vector3(0, 15, 30) : new THREE.Vector3(0, 11, 22);
-    if (this.where !== "out")
+    if (this.where !== "out" && !this.cine)
       return portrait ? new THREE.Vector3(0, 22, 19) : new THREE.Vector3(0, 13, 13);
-    if (this.driving) return portrait ? new THREE.Vector3(0, 44, 36) : new THREE.Vector3(0, 30, 26);
-    return portrait ? new THREE.Vector3(0, 32, 27) : new THREE.Vector3(0, 22, 19);
+    const { d, h } = this.camDist();
+    return new THREE.Vector3(Math.sin(this.camYaw) * d, h, Math.cos(this.camYaw) * d);
+  }
+  private camTarget() {
+    if (this.cine) return this.cine.vehicle.position;
+    return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
-    const t = this.cine
-      ? new THREE.Vector3(this.cine.vehicle.position.x * 0.35, 0, this.cine.vehicle.position.z)
-      : this.driving
-        ? this.car.position
-        : this.player.position;
+    if (this.cine)
+      this.camYaw = Math.atan2(
+        -Math.cos(this.cine.vehicle.rotation.y),
+        Math.sin(this.cine.vehicle.rotation.y),
+      );
+    const t = this.camTarget();
     this.camera.position.copy(t).add(this.camOffset());
-    this.camera.lookAt(t.x, t.y + 1, t.z);
+    this.camera.lookAt(t.x, t.y + 1.5, t.z);
   }
 
   private free(x: number, z: number, r: number) {
@@ -1635,7 +1796,32 @@ export class IlmCityEngine {
     this.keys.delete(e.key.toLowerCase());
   };
 
-  private onPointer = (e: PointerEvent) => {
+  private drag: { id: number; x: number; y: number; moved: boolean } | null = null;
+  private onPointerDown = (e: PointerEvent) => {
+    this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+    this.lastDrag = performance.now();
+  };
+  private onPointerMove = (e: PointerEvent) => {
+    const d = this.drag;
+    if (!d || d.id !== e.pointerId) return;
+    const dx = e.clientX - d.x;
+    if (!d.moved && Math.hypot(dx, e.clientY - d.y) > 8) d.moved = true;
+    if (d.moved && this.where === "out") {
+      this.camYaw -= dx * 0.008;
+      this.lastDrag = performance.now();
+    }
+    d.x = e.clientX;
+    d.y = e.clientY;
+  };
+  private onPointerUp = (e: PointerEvent) => {
+    const d = this.drag;
+    this.drag = null;
+    if (!d || d.id !== e.pointerId || d.moved) return;
+    this.onTap(e);
+  };
+  private lastDrag = 0;
+
+  private onTap(e: PointerEvent) {
     if (this.cine) return;
     const r = this.renderer.domElement.getBoundingClientRect();
     const p = new THREE.Vector2(
@@ -1674,7 +1860,7 @@ export class IlmCityEngine {
       this.marker.position.set(this.tapTarget.x, 0.05, this.tapTarget.z);
       this.marker.visible = true;
     }
-  };
+  }
 
   private loop = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
@@ -1725,14 +1911,35 @@ export class IlmCityEngine {
     }
 
     // camera
-    const target = this.cine
-      ? new THREE.Vector3(this.cine.vehicle.position.x * 0.35, 0, this.cine.vehicle.position.z)
-      : this.driving
-        ? this.car.position
-        : this.player.position;
+    if (this.cine) {
+      const r = this.cine.vehicle.rotation.y;
+      this.camYaw = lerpAngle(
+        this.camYaw,
+        Math.atan2(-Math.cos(r), Math.sin(r)),
+        1 - Math.exp(-dt * 3),
+      );
+    } else if (
+      this.driving &&
+      Math.abs(this.carSpeed) > 1 &&
+      performance.now() - this.lastDrag > 1500
+    ) {
+      const h = this.carHeading + (this.carSpeed < 0 ? Math.PI : 0);
+      this.camYaw = lerpAngle(
+        this.camYaw,
+        Math.atan2(-Math.cos(h), Math.sin(h)),
+        1 - Math.exp(-dt * 2.5),
+      );
+    } else if (
+      !this.driving &&
+      this.followYaw !== null &&
+      performance.now() - this.lastDrag > 1500
+    ) {
+      this.camYaw = lerpAngle(this.camYaw, this.followYaw, 1 - Math.exp(-dt * 1.6));
+    }
+    const target = this.camTarget();
     const want = target.clone().add(this.camOffset());
-    this.camera.position.lerp(want, 1 - Math.exp(-dt * 5));
-    this.camera.lookAt(target.x, 1, target.z);
+    this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
+    this.camera.lookAt(target.x, this.where === "out" ? 1.6 : 1, target.z);
     this.sun.target.position.set(target.x, 0, target.z);
     const sunDir =
       (this.sun.userData.dir as THREE.Vector3 | undefined) ?? new THREE.Vector3(0.4, 1, 0.3);
@@ -1779,12 +1986,16 @@ export class IlmCityEngine {
     }
 
     // place name
-    let place = `${this.district.name} · ${this.district.state}`;
+    let place = "Lagos";
+    const area = this.areaAt(pos.x, pos.z);
+    if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
-    else {
-      const st = this.district.streets.find((s2) => Math.abs(pos.z - s2.z) < 7);
-      if (st) place = `${STREETS[st.id]?.name ?? ""}, ${this.district.name}`;
-    }
+    else if (area) {
+      place = `${area.name} · ${area.state}`;
+      const lz = pos.z - area.origin.z;
+      const st = area.streets.find((s2) => Math.abs(lz - s2.z) < 7);
+      if (st) place = `${STREETS[st.id]?.name ?? ""}, ${area.name}`;
+    } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
     if (place !== this.place) {
       this.place = place;
       this.ev.onPlace(place);
@@ -1793,8 +2004,17 @@ export class IlmCityEngine {
   private pendingUse = false;
   private tapZone: string | null = null;
 
+  private followYaw: number | null = null;
+
   private walk(v: THREE.Vector2, dt: number, t: number) {
-    let dir = new THREE.Vector3(v.x, 0, -v.y);
+    // the stick moves you relative to where the camera looks
+    const fx = -Math.sin(this.camYaw),
+      fz = -Math.cos(this.camYaw);
+    const rx = Math.cos(this.camYaw),
+      rz = -Math.sin(this.camYaw);
+    let dir = new THREE.Vector3(rx * v.x + fx * v.y, 0, rz * v.x + fz * v.y);
+    if (this.where !== "out") dir = new THREE.Vector3(v.x, 0, -v.y);
+    this.followYaw = null;
     if (dir.lengthSq() === 0 && this.tapTarget) {
       const d = this.tapTarget.clone().sub(this.player.position);
       d.y = 0;
@@ -1806,17 +2026,17 @@ export class IlmCityEngine {
     }
     const moving = dir.lengthSq() > 0.001;
     if (moving) {
-      const speed = 7 * Math.min(1, dir.length());
+      const speed = 7.5 * Math.min(1, dir.length());
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
       if (this.free(nx, this.player.position.z, 0.5)) this.player.position.x = nx;
       if (this.free(this.player.position.x, nz, 0.5)) this.player.position.z = nz;
       const targetRot = Math.atan2(n.x, n.z);
-      let dr = targetRot - this.player.rotation.y;
-      while (dr > Math.PI) dr -= Math.PI * 2;
-      while (dr < -Math.PI) dr += Math.PI * 2;
-      this.player.rotation.y += dr * Math.min(1, dt * 12);
+      this.player.rotation.y = lerpAngle(this.player.rotation.y, targetRot, Math.min(1, dt * 12));
+      // the camera swings round behind you when you walk forward
+      if (this.where === "out" && (v.y > 0.4 || (v.lengthSq() === 0 && this.tapTarget)))
+        this.followYaw = targetRot + Math.PI;
       this.walkT += dt;
       animatePerson(this.player, this.walkT * 9, 1);
     } else {
@@ -1825,22 +2045,16 @@ export class IlmCityEngine {
     }
   }
 
+  /** Stick up = accelerate, down = brake and reverse, left and right = steer. */
   private drive(v: THREE.Vector2, dt: number) {
-    const mag = Math.min(1, v.length());
-    if (mag > 0.15) {
-      const desired = Math.atan2(v.y, v.x); // 0 = east, PI/2 = north
-      let dh = desired - this.carHeading;
-      while (dh > Math.PI) dh -= Math.PI * 2;
-      while (dh < -Math.PI) dh += Math.PI * 2;
-      const reverse = Math.abs(dh) > Math.PI * 0.75 && this.carSpeed < 2;
-      if (reverse) this.carSpeed = Math.max(-6, this.carSpeed - 14 * dt);
-      else {
-        this.carHeading +=
-          Math.sign(dh) *
-          Math.min(Math.abs(dh), dt * 2.4 * Math.min(1, Math.abs(this.carSpeed) / 4 + 0.25));
-        this.carSpeed = Math.min(22 * mag, this.carSpeed + 14 * dt);
-      }
-    } else this.carSpeed *= Math.pow(0.25, dt);
+    const max = 34;
+    if (v.y > 0.1) this.carSpeed = Math.min(max * v.y, this.carSpeed + 16 * dt);
+    else if (v.y < -0.1)
+      this.carSpeed =
+        this.carSpeed > 0.5 ? this.carSpeed - 30 * dt : Math.max(-8, this.carSpeed - 10 * dt);
+    else this.carSpeed *= Math.pow(0.35, dt);
+    const grip = Math.min(1, Math.abs(this.carSpeed) / 6);
+    this.carHeading -= v.x * 1.9 * grip * Math.sign(this.carSpeed || 1) * dt;
     const nx = this.car.position.x + Math.cos(this.carHeading) * this.carSpeed * dt;
     const nz = this.car.position.z - Math.sin(this.carHeading) * this.carSpeed * dt;
     if (this.free(nx, nz, 1.8)) {
@@ -1849,6 +2063,9 @@ export class IlmCityEngine {
     } else this.carSpeed *= -0.3;
     this.car.rotation.y = this.carHeading;
     this.player.position.set(this.car.position.x, 0, this.car.position.z);
+  }
+  carSpeedKmh() {
+    return Math.round(Math.abs(this.carSpeed) * 3.6);
   }
 
   /* ---------------- light ---------------- */
@@ -1895,6 +2112,13 @@ export class IlmCityEngine {
     this.winMat.emissiveIntensity = dk * 1.6;
     this.lampMat.emissiveIntensity = dk * 2.2;
   }
+}
+
+function lerpAngle(a: number, b: number, t: number) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
 }
 
 function mulberry(seed: number) {

@@ -32,6 +32,7 @@ export const STREETS: Record<string, Street> = {
   adewuyi: { id: "adewuyi", name: "Sheikh Yusuf Adewuyi Street", bio: COMING_SOON },
   ahmadsad: { id: "ahmadsad", name: "Sheikh Ahmad Sad Street", bio: COMING_SOON },
   habeebadewuyi: { id: "habeebadewuyi", name: "Sheikh Habeeb Adewuyi Street", bio: COMING_SOON },
+  najmudeen: { id: "najmudeen", name: "Sheikh Najmudeen Street", bio: COMING_SOON },
 };
 
 /* ---------------- areas ----------------
@@ -43,6 +44,10 @@ export type District = {
   id: string;
   name: string;
   state: string;
+  /** Where the area sits on the one big Lagos map (world units, north is negative z). */
+  origin: { x: number; z: number };
+  /** The expressway that joins this area to the City Junction. */
+  highway: string;
   lagoon?: boolean;
   streets: { id: string; z: number }[];
   landmarks: Landmark[];
@@ -53,6 +58,8 @@ export const DISTRICTS: District[] = [
     id: "lekki",
     name: "Lekki",
     state: "Lagos",
+    origin: { x: 425, z: 450 },
+    highway: "Lekki–Epe Expressway",
     lagoon: true,
     streets: [{ id: "ridwanjamiu", z: 0 }],
     landmarks: [
@@ -71,6 +78,8 @@ export const DISTRICTS: District[] = [
     id: "agege",
     name: "Agege",
     state: "Lagos",
+    origin: { x: -325, z: -450 },
+    highway: "Agege Motor Road",
     streets: [{ id: "alilory", z: 0 }],
     landmarks: [
       { id: "markaz", kind: "school", name: "Markaz Arabic School", street: "alilory", x: -32 },
@@ -80,6 +89,8 @@ export const DISTRICTS: District[] = [
     id: "ajegunle",
     name: "Ajegunle",
     state: "Lagos",
+    origin: { x: -275, z: 375 },
+    highway: "Apapa–Oshodi Expressway",
     streets: [
       { id: "adewuyi", z: 0 },
       { id: "ahmadsad", z: -55 },
@@ -93,6 +104,8 @@ export const DISTRICTS: District[] = [
     id: "ikorodu",
     name: "Ikorodu",
     state: "Lagos",
+    origin: { x: 575, z: -425 },
+    highway: "Ikorodu Road",
     streets: [{ id: "habeebadewuyi", z: 0 }],
     landmarks: [
       {
@@ -103,6 +116,23 @@ export const DISTRICTS: District[] = [
         x: -36,
       },
       { id: "manaar", kind: "school", name: "Manaar Schools", street: "habeebadewuyi", x: 32 },
+    ],
+  },
+  {
+    id: "egbeda",
+    name: "Egbeda",
+    state: "Lagos",
+    origin: { x: -560, z: -195 },
+    highway: "Egbeda–Idimu Road",
+    streets: [{ id: "najmudeen", z: 0 }],
+    landmarks: [
+      {
+        id: "abdulazeez",
+        kind: "masjid",
+        name: "Abdulazeez Central Mosque",
+        street: "najmudeen",
+        x: -36,
+      },
     ],
   },
 ];
@@ -141,6 +171,8 @@ export const BILLBOARDS: Billboard[] = [
   { id: "ajegunle-market", name: "Ajegunle Market Road", district: "ajegunle" },
   { id: "ikorodu-garage", name: "Ikorodu Garage", district: "ikorodu" },
   { id: "ikorodu-junction", name: "Ikorodu Junction", district: "ikorodu" },
+  { id: "egbeda-junction", name: "Egbeda Junction", district: "egbeda" },
+  { id: "egbeda-market", name: "Egbeda Market Road", district: "egbeda" },
 ];
 
 export type Question = { q: string; o: string[]; a: number; e: string };
@@ -218,3 +250,70 @@ export const QUESTIONS: Question[] = [
     e: "The Hijrah to Madinah marks the start of the Islamic calendar.",
   },
 ];
+
+/* ---------------- mosque lectures ----------------
+   At these times the lecture plays when a player enters that mosque. Add the audio
+   file link (for example from Firebase Storage) once you have the speaker's permission.
+   days: 0 = Sunday … 6 = Saturday; leave empty for every day. */
+export type Lecture = {
+  id: string;
+  mosque: string; // landmark id
+  title: string;
+  speaker: string;
+  start: string; // "HH:MM" local time
+  minutes: number;
+  days?: number[];
+  audioUrl?: string;
+};
+export const LECTURES: Lecture[] = [
+  {
+    id: "lekki-tafsir",
+    mosque: "lekki-central",
+    title: "Tafsir of Surah Al-Kahf",
+    speaker: "Guest Imam",
+    start: "10:00",
+    minutes: 60,
+    days: [5],
+  },
+  {
+    id: "lekki-evening",
+    mosque: "lekki-central",
+    title: "Lessons from the Seerah",
+    speaker: "Guest Imam",
+    start: "17:00",
+    minutes: 45,
+  },
+  {
+    id: "ibaadullah-fiqh",
+    mosque: "ibaadullah",
+    title: "Fiqh of Salah",
+    speaker: "Guest Imam",
+    start: "16:30",
+    minutes: 45,
+  },
+  {
+    id: "maktab-hadith",
+    mosque: "maktab",
+    title: "Forty Hadith of Imam Nawawi",
+    speaker: "Guest Imam",
+    start: "11:00",
+    minutes: 60,
+  },
+  {
+    id: "abdulazeez-quran",
+    mosque: "abdulazeez",
+    title: "Tajweed for beginners",
+    speaker: "Guest Imam",
+    start: "15:00",
+    minutes: 45,
+  },
+];
+
+/** Learning pays points, but slowly: these are the daily limits. */
+export const POINTS = {
+  perLectureMinute: 1,
+  lectureDailyCap: 30,
+  perCorrectAnswer: 2,
+  quizPerDay: 5,
+  start: 20,
+};

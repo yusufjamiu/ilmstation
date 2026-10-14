@@ -8,7 +8,10 @@ import {
   DISTRICTS,
   QUESTIONS,
   STREETS,
+  LECTURES,
+  POINTS,
   districtById,
+  type Lecture,
   type Question,
 } from "./content";
 import {
@@ -31,21 +34,44 @@ type Save = {
   asked: number[];
   pos?: { x: number; z: number };
   district?: string;
-  carDistrict?: string;
+  car?: { x: number; z: number; heading: number };
+  /** positions are on the one connected Lagos map */
+  world?: boolean;
+  lectureMin?: number;
 };
 const landmarkName = (lid: string) => {
   for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return l.name;
   return "";
 };
+const hm = (s: string) => {
+  const [h, m] = s.split(":").map(Number);
+  return h * 60 + m;
+};
+const weekday = (c: Clock) => new Date(c.key + "T12:00:00Z").getUTCDay();
+const lecturesAt = (mosque: string, c: Clock) =>
+  LECTURES.filter((l) => l.mosque === mosque && (!l.days?.length || l.days.includes(weekday(c))));
+/** The lecture playing in this mosque right now, if any. */
+function lectureNow(mosque: string, c: Clock) {
+  return lecturesAt(mosque, c).find((l) => c.min >= hm(l.start) && c.min < hm(l.start) + l.minutes);
+}
+/** The next lecture today in this mosque. */
+function lectureNext(mosque: string, c: Clock) {
+  return lecturesAt(mosque, c)
+    .filter((l) => hm(l.start) > c.min)
+    .sort((a, b) => hm(a.start) - hm(b.start))[0];
+}
 const KEY = "ilmcity-3d-v1";
 function loadSave(): Save {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? "null") as Save | null;
-    if (s && typeof s.coins === "number") return s;
+    if (s && typeof s.coins === "number") {
+      if (!s.world) return { ...s, pos: undefined, car: undefined, world: true };
+      return s;
+    }
   } catch {
     /* first visit */
   }
-  return { coins: 20, ilm: 0, day: "", prayed: {}, asked: [] };
+  return { coins: POINTS.start, ilm: 0, day: "", prayed: {}, asked: [], world: true };
 }
 function writeSave(s: Save) {
   try {
@@ -55,7 +81,7 @@ function writeSave(s: Save) {
   }
 }
 
-const QUIZ_CAP = 5;
+const QUIZ_CAP = POINTS.quizPerDay;
 const city = CITIES.lagos;
 
 /** `?time=19:30` lets you test any time of day; without it the game runs on real Lagos time. */
@@ -94,6 +120,7 @@ export default function IlmCityGame() {
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
   const [webgl, setWebgl] = useState(true);
+  const [speed, setSpeed] = useState<number | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const [arriving, setArriving] = useState<string | null>(null);
   const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
@@ -117,8 +144,37 @@ export default function IlmCityGame() {
 
   // new day resets the daily salah tracker
   useEffect(() => {
-    if (save.day !== clock.key) update((s) => ({ ...s, day: clock.key, prayed: {}, asked: [] }));
+    if (save.day !== clock.key)
+      update((s) => ({ ...s, day: clock.key, prayed: {}, asked: [], lectureMin: 0 }));
   }, [clock.key, save.day, update]);
+
+  const openLecture = useCallback(
+    (lec: Lecture, live: boolean) =>
+      setPanel({
+        kind: "info",
+        title: live ? "Lecture time" : "Lecture",
+        body: (
+          <LectureView
+            lecture={lec}
+            live={live}
+            earnedToday={saveRef.current.lectureMin ?? 0}
+            onMinute={() =>
+              update((x) => {
+                const m = x.lectureMin ?? 0;
+                if (m >= POINTS.lectureDailyCap) return x;
+                return {
+                  ...x,
+                  lectureMin: m + POINTS.perLectureMinute,
+                  coins: x.coins + POINTS.perLectureMinute,
+                  ilm: x.ilm + 1,
+                };
+              })
+            }
+          />
+        ),
+      }),
+    [update],
+  );
 
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
@@ -128,20 +184,34 @@ export default function IlmCityGame() {
       const c = clockRef.current,
         s = saveRef.current;
       if (id.startsWith("door:masjid:")) {
+        const lid = id.slice(12);
+        const name = landmarkName(lid);
+        e.enterInterior("masjid", name);
+        setInside(true);
+        const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
-        const name = landmarkName(id.slice(12));
-        if (ms.open) {
-          e.enterInterior("masjid", name);
-          setInside(true);
+        if (lec) openLecture(lec, true);
+        else if (ms.open)
           toast(
             `Assalamu alaykum. ${ms.prayer!.name} jama'ah ${c.min < ms.prayer!.start ? `starts at ${fmtTime(ms.prayer!.start)}` : "is on"}.`,
             "good",
           );
-        } else
-          toast(
-            `${name} is closed. It opens for ${ms.next ? `${ms.next.name} at ${fmtTime(ms.next.start - 10)}` : "Fajr tomorrow"}.`,
-            "warn",
-          );
+        else
+          setPanel({
+            kind: "info",
+            title: `Welcome to ${name}`,
+            body: (
+              <LearnChoice
+                mosque={lid}
+                clock={c}
+                onLecture={(l) => openLecture(l, false)}
+                onQuiz={() => {
+                  setPanel(null);
+                  setTimeout(() => onActionRef.current("quiz"), 50);
+                }}
+              />
+            ),
+          });
         return;
       }
       if (id.startsWith("door:home:")) {
@@ -176,7 +246,10 @@ export default function IlmCityGame() {
         const inCar = e.isDriving();
         const go = (to: string, byCar: boolean) => {
           if (!byCar && saveRef.current.coins < BUS_FARE) {
-            toast(`The bus fare is ${BUS_FARE} coins. Earn coins at the madrasah quiz.`, "warn");
+            toast(
+              `The bus fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`,
+              "warn",
+            );
             return;
           }
           setPanel(null);
@@ -189,7 +262,7 @@ export default function IlmCityGame() {
               ...x,
               coins: byCar ? x.coins : x.coins - BUS_FARE,
               district: to,
-              carDistrict: byCar ? to : (x.carDistrict ?? "lekki"),
+              car: byCar ? e.carPos() : x.car,
               pos: undefined,
             }));
             setTravelling(null);
@@ -219,7 +292,7 @@ export default function IlmCityGame() {
                         onClick={() => go(d.id, false)}
                         className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
                       >
-                        Bus · {BUS_FARE} coins
+                        Bus · {BUS_FARE} pts
                       </button>
                     )}
                     {carHere && (
@@ -235,7 +308,8 @@ export default function IlmCityGame() {
               ))}
               {!carHere && (
                 <p className="text-[12px] opacity-70">
-                  Your car is parked in {districtById(saveRef.current.carDistrict ?? "lekki").name}.
+                  Your car is parked{" "}
+                  {e.carAreaId() ? `in ${districtById(e.carAreaId()!).name}` : "on the expressway"}.
                 </p>
               )}
             </div>
@@ -382,7 +456,7 @@ export default function IlmCityGame() {
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update],
+    [toast, update, openLecture],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -402,7 +476,7 @@ export default function IlmCityGame() {
         },
         {
           district: saveRef.current.district,
-          carDistrict: saveRef.current.carDistrict,
+          car: saveRef.current.car,
           x: saveRef.current.pos?.x,
           z: saveRef.current.pos?.z,
         },
@@ -424,7 +498,13 @@ export default function IlmCityGame() {
       e.setClock(c);
       const pp = e.playerPos();
       if (pp.where === "out" && !e.isDriving())
-        update((s) => ({ ...s, pos: { x: pp.x, z: pp.z }, district: e.districtId() }));
+        update((s) => ({
+          ...s,
+          pos: { x: pp.x, z: pp.z },
+          district: e.districtId(),
+          car: e.carPos(),
+        }));
+      setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
     }, 1000);
     return () => {
       clearInterval(iv);
@@ -438,6 +518,10 @@ export default function IlmCityGame() {
   const cur = currentPrayer(clock),
     nxt = nextPrayer(clock),
     ms = masjidStatus(clock);
+  const areaLecture = districtById(save.district ?? "lekki")
+    .landmarks.filter((l) => l.kind === "masjid")
+    .map((l) => lectureNow(l.id, clock))
+    .find(Boolean);
 
   if (!webgl)
     return (
@@ -481,7 +565,7 @@ export default function IlmCityGame() {
           <div className="flex gap-1.5">
             <Chip>
               <i className="inline-block size-3 rounded-full bg-[radial-gradient(circle_at_35%_35%,#ffe3a0,#f2b84b_60%,#b07a1c)]" />
-              {save.coins}
+              {save.coins} pts
             </Chip>
             <Chip>
               <i className="inline-block size-2.5 rotate-45 rounded-[2px] bg-[#1f6f63]" />
@@ -516,15 +600,23 @@ export default function IlmCityGame() {
         <span className="rounded-full bg-[#10201e]/80 px-3 py-1 text-[12px] font-semibold text-[#fdf8ec]">
           {place}
         </span>
+        {speed !== null && (
+          <span className="rounded-full bg-[#f2c230] px-3 py-1 text-[12px] font-bold tabular-nums text-[#2a1c05]">
+            {speed} km/h
+          </span>
+        )}
         {!inside &&
+          !driving &&
           districtById(save.district ?? "lekki").landmarks.some((l) => l.kind === "masjid") && (
             <span
-              className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${ms.open ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#fdf8ec]/90 text-[#10201e]"}`}
+              className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${ms.open || areaLecture ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#fdf8ec]/90 text-[#10201e]"}`}
             >
               Masjid{" "}
-              {ms.open
-                ? `open · ${ms.prayer!.name}`
-                : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
+              {areaLecture
+                ? `· lecture on: ${areaLecture.title}`
+                : ms.open
+                  ? `open · ${ms.prayer!.name}`
+                  : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
             </span>
           )}
         {toasts.map((t) => (
@@ -553,7 +645,7 @@ export default function IlmCityGame() {
           data-game-ui
           className="pointer-events-none absolute bottom-[max(36px,env(safe-area-inset-bottom))] right-4 max-w-[46vw] rounded-xl bg-[#10201e]/70 px-3 py-2 text-[12px] text-[#fdf8ec]"
         >
-          Tap the ground to walk, or use the stick. Tap billboards and street signs.
+          Use the stick to walk. Drag the screen to look around. Tap signs and billboards.
         </div>
       )}
 
@@ -580,8 +672,8 @@ export default function IlmCityGame() {
             const ok = i === panel.q.a;
             setPanel({ ...panel, picked: i });
             if (ok) {
-              update((x) => ({ ...x, coins: x.coins + 5, ilm: x.ilm + 10 }));
-              toast("Correct! +5 coins, +10 Ilm", "good");
+              update((x) => ({ ...x, coins: x.coins + POINTS.perCorrectAnswer, ilm: x.ilm + 10 }));
+              toast(`Correct! +${POINTS.perCorrectAnswer} points, +10 Ilm`, "good");
             } else {
               update((x) => ({ ...x, ilm: x.ilm + 2 }));
               toast("Not quite. You still learned something. +2 Ilm");
@@ -889,6 +981,124 @@ function Joystick({ onMove }: { onMove: (x: number, y: number) => void }) {
         className="absolute left-1/2 top-1/2 size-14 rounded-full bg-[#fdf8ec]/90 shadow-lg"
         style={{ transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))` }}
       />
+    </div>
+  );
+}
+
+/** Outside lecture times the mosque asks: listen to a lecture, or take the quiz? */
+function LearnChoice({
+  mosque,
+  clock,
+  onLecture,
+  onQuiz,
+}: {
+  mosque: string;
+  clock: Clock;
+  onLecture: (l: Lecture) => void;
+  onQuiz: () => void;
+}) {
+  const all = LECTURES.filter((l) => l.mosque === mosque);
+  const next = lectureNext(mosque, clock);
+  return (
+    <div className="space-y-3">
+      <p>
+        There is no lecture on right now.
+        {next
+          ? ` Next live lecture: "${next.title}" at ${fmtTime(hm(next.start))}.`
+          : " No more live lectures here today."}{" "}
+        What would you like to do?
+      </p>
+      {all.map((l) => (
+        <button
+          key={l.id}
+          onClick={() => onLecture(l)}
+          className="w-full rounded-xl border border-[#1f6f63]/30 bg-white px-4 py-3 text-left"
+        >
+          <div className="font-bold">🎧 {l.title}</div>
+          <div className="text-[12px] opacity-75">
+            {l.speaker} · live daily{l.days?.length ? " on Fridays" : ""} at {fmtTime(hm(l.start))}{" "}
+            · recording
+          </div>
+        </button>
+      ))}
+      <button
+        onClick={onQuiz}
+        className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
+      >
+        ❓ Take the quiz · +{POINTS.perCorrectAnswer} points per correct answer
+      </button>
+      <p className="text-[12px] opacity-70">
+        Lectures pay {POINTS.perLectureMinute} point per minute you listen, up to{" "}
+        {POINTS.lectureDailyCap} a day.
+      </p>
+    </div>
+  );
+}
+
+/** A lecture playing in the mosque. Points come for each full minute of listening. */
+function LectureView({
+  lecture,
+  live,
+  earnedToday,
+  onMinute,
+}: {
+  lecture: Lecture;
+  live: boolean;
+  earnedToday: number;
+  onMinute: () => void;
+}) {
+  const [secs, setSecs] = useState(0);
+  const tick = useRef(onMinute);
+  tick.current = onMinute;
+  useEffect(() => {
+    const iv = setInterval(
+      () =>
+        setSecs((s) => {
+          if ((s + 1) % 60 === 0) tick.current();
+          return s + 1;
+        }),
+      1000,
+    );
+    return () => clearInterval(iv);
+  }, []);
+  const earned = Math.min(
+    POINTS.lectureDailyCap,
+    earnedToday + Math.floor(secs / 60) * POINTS.perLectureMinute,
+  );
+  const capped = earned >= POINTS.lectureDailyCap;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#1f6f63] p-4 text-[#fdf8ec]">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[#e6b84a]">
+          {live ? "Live now" : "Recorded lecture"}
+        </div>
+        <div className="font-serif text-xl leading-tight">{lecture.title}</div>
+        <div className="text-[13px] opacity-85">{lecture.speaker}</div>
+        {lecture.audioUrl ? (
+          <audio src={lecture.audioUrl} controls autoPlay className="mt-3 w-full" />
+        ) : (
+          <div className="mt-3 flex h-8 items-end gap-1" aria-hidden>
+            {Array.from({ length: 24 }, (_, i) => (
+              <span
+                key={i}
+                className="w-1.5 animate-pulse rounded-full bg-[#e6b84a]"
+                style={{ height: `${30 + ((i * 37) % 70)}%`, animationDelay: `${(i % 6) * 120}ms` }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="tabular-nums">
+        Listening {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} ·{" "}
+        {capped
+          ? "you have earned today's lecture points. Keep listening for the reward with Allah."
+          : `+${POINTS.perLectureMinute} point each minute (${earned}/${POINTS.lectureDailyCap} today)`}
+      </p>
+      {!lecture.audioUrl && (
+        <p className="text-[12px] opacity-70">
+          The audio will be added once the speaker gives permission.
+        </p>
+      )}
     </div>
   );
 }
