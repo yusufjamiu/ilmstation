@@ -346,3 +346,77 @@ export const POINTS = {
   quizPerDay: 5,
   start: 20,
 };
+
+/* ---------------- passers-by ----------------
+   Short, well-known authentic narrations a neighbour may share when you ask. */
+export const REMINDERS: { text: string; source: string }[] = [
+  { text: "Smiling in the face of your brother is charity.", source: "Tirmidhi" },
+  { text: "The best of you are those who learn the Quran and teach it.", source: "Bukhari" },
+  {
+    text: "None of you truly believes until he loves for his brother what he loves for himself.",
+    source: "Bukhari and Muslim",
+  },
+  {
+    text: "Whoever believes in Allah and the Last Day, let him say what is good or keep silent.",
+    source: "Bukhari and Muslim",
+  },
+  {
+    text: "The strong person is not the one who wrestles others down, but the one who controls himself when angry.",
+    source: "Bukhari",
+  },
+  { text: "Make things easy and do not make them difficult.", source: "Bukhari" },
+  {
+    text: "Whoever takes a path seeking knowledge, Allah makes easy for him a path to Paradise.",
+    source: "Muslim",
+  },
+  {
+    text: "Shall I not tell you something that, if you do it, you will love one another? Spread the salam among you.",
+    source: "Muslim",
+  },
+  {
+    text: "The deeds most loved by Allah are those done regularly, even if they are small.",
+    source: "Bukhari and Muslim",
+  },
+  {
+    text: "Allah does not look at your appearance or your wealth, but He looks at your hearts and your deeds.",
+    source: "Muslim",
+  },
+];
+
+/** What neighbours say about their day. */
+export const SMALL_TALK = [
+  "Alhamdulillah, I'm well. Just coming back from the market.",
+  "Alhamdulillah. I'm going to pick up my children from the madrasah.",
+  "Alhamdulillah, everything is fine. This traffic sha!",
+  "Alhamdulillah. I'm on my way to visit my mother.",
+  "Alhamdulillah. Business is moving, by Allah's grace.",
+  "I'm fine, alhamdulillah. Have you seen the new houses for rent on this street?",
+  "Alhamdulillah. I just finished my Quran revision for today.",
+];
+
+/* ---------------- houses and land ----------------
+   Prices in points (earned slowly) or naira (paid with Paystack). Rent you collect
+   from tenants is paid in points and cannot be withdrawn. */
+export const ECONOMY = {
+  rent: {
+    week: { days: 7, points: 150, naira: 1500 },
+    month: { days: 30, points: 500, naira: 5000 },
+  },
+  land: { points: 2000, naira: 20000 },
+  build: {
+    1: { name: "Bungalow", points: 1500, naira: 15000, minutes: 2, tenantPerDay: 10 },
+    2: { name: "Duplex", points: 3000, naira: 30000, minutes: 4, tenantPerDay: 20 },
+    3: { name: "Storey building", points: 5000, naira: 50000, minutes: 6, tenantPerDay: 35 },
+  } as Record<
+    number,
+    { name: string; points: number; naira: number; minutes: number; tenantPerDay: number }
+  >,
+};
+export const TENANTS = [
+  "Brother Kabir's family",
+  "Sister Halimah",
+  "Mallam Usman and family",
+  "Brother Rasheed",
+  "The Adeyemi family",
+  "Sister Fatimah and her children",
+];

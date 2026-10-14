@@ -11,6 +11,10 @@ import {
   STREETS,
   LECTURES,
   POINTS,
+  REMINDERS,
+  SMALL_TALK,
+  ECONOMY,
+  TENANTS,
   districtById,
   type Lecture,
   type Question,
@@ -39,6 +43,7 @@ type Save = {
   /** positions are on the one connected Lagos map */
   world?: boolean;
   lectureMin?: number;
+  plots?: Record<string, PlotOwn>;
 };
 const landmarkName = (lid: string) => {
   for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return l.name;
@@ -85,6 +90,16 @@ function writeSave(s: Save) {
 const QUIZ_CAP = POINTS.quizPerDay;
 const city = CITIES.lagos;
 
+/** How a saved plot should look in the world (an expired rental shows "To Let" again). */
+function plotStateFn(o?: PlotOwn) {
+  if (!o) return undefined;
+  if (o.kind === "rented") return o.until > Date.now() ? { kind: "rented" as const } : undefined;
+  if (o.kind === "owned") return { kind: "owned" as const };
+  if (o.kind === "building" && o.done <= Date.now())
+    return { kind: "built" as const, floors: o.floors };
+  return { kind: o.kind, floors: o.floors };
+}
+
 /** `?time=19:30` lets you test any time of day; without it the game runs on real Lagos time. */
 function useTestOffset() {
   return useMemo(() => {
@@ -105,7 +120,14 @@ type Panel =
 export default function IlmCityGame() {
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<IlmCityEngine | null>(null);
-  const [save, setSave] = useState<Save>(() => loadSave());
+  const [save, setSave] = useState<Save>(() => {
+    const s = loadSave();
+    // testing only: ?points=5000 on the dev server
+    const pts = import.meta.env.DEV
+      ? new URLSearchParams(window.location.search).get("points")
+      : null;
+    return pts ? { ...s, coins: Number(pts) } : s;
+  });
   const saveRef = useRef(save);
   saveRef.current = save;
   const offset = useTestOffset();
@@ -129,6 +151,7 @@ export default function IlmCityGame() {
     kmh: number;
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
+  const talkingRef = useRef<number | null>(null);
   const [arriving, setArriving] = useState<string | null>(null);
   const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
     null,
@@ -183,6 +206,76 @@ export default function IlmCityGame() {
     [update],
   );
 
+  const openPlot = useCallback(
+    (pid: string) => {
+      const e = engine.current;
+      const p = e?.plotInfo(pid);
+      if (!e || !p) return;
+      const setOwn = (next: PlotOwn) => {
+        update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
+        e.setPlot(pid, plotStateFn(next) ?? { kind: p.kind === "land" ? "land" : "tolet" });
+      };
+      const render = () => {
+        const own = saveRef.current.plots?.[pid];
+        setPanel({
+          kind: "info",
+          title:
+            p.kind === "land"
+              ? own?.kind === "built"
+                ? "Your property"
+                : own
+                  ? "Your land"
+                  : "Land for sale"
+              : own?.kind === "rented" && own.until > Date.now()
+                ? "Your house"
+                : "House to let",
+          body: (
+            <PlotView
+              plot={p}
+              own={own}
+              points={saveRef.current.coins}
+              onPay={(pts, next, msg) => {
+                if (saveRef.current.coins < pts) return;
+                update((x) => ({ ...x, coins: x.coins - pts }));
+                setOwn(next);
+                toast(msg, "good");
+                setTimeout(render, 0);
+              }}
+              onPaystack={(amount, what) =>
+                toast(
+                  `Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next. For now, use points.`,
+                )
+              }
+              onSet={(next) => {
+                setOwn(next);
+                toast("A tenant has moved in. Collect your rent here every few days.", "good");
+                setTimeout(render, 0);
+              }}
+              onEnter={() => {
+                setPanel(null);
+                e.enterInterior("home", `No. ${p.number}, ${p.street}`);
+                setInside(true);
+              }}
+              onCollect={() => {
+                const own2 = saveRef.current.plots?.[pid];
+                if (own2?.kind !== "built" || !own2.since) return;
+                const per = ECONOMY.build[own2.floors].tenantPerDay;
+                const due = Math.floor(((Date.now() - own2.since) / 86400000) * per);
+                if (due < 1) return;
+                update((x) => ({ ...x, coins: x.coins + due }));
+                setOwn({ ...own2, since: own2.since + (due / per) * 86400000 });
+                toast(`You collected ${due} points of rent. Alhamdulillah!`, "good");
+                setTimeout(render, 0);
+              }}
+            />
+          ),
+        });
+      };
+      render();
+    },
+    [toast, update],
+  );
+
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
     (id: string) => {
@@ -190,6 +283,29 @@ export default function IlmCityGame() {
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
+      if (id.startsWith("plot:")) {
+        openPlot(id.slice(5));
+        return;
+      }
+      if (id.startsWith("talk:")) {
+        const i = Number(id.slice(5));
+        const who = e.talkTo(i);
+        if (!who) return;
+        talkingRef.current = i;
+        setPanel({
+          kind: "info",
+          title: who.name,
+          body: (
+            <TalkView
+              who={who}
+              clock={c}
+              nod={(k) => engine.current?.talkGesture(i, k)}
+              onIlm={(n) => update((x) => ({ ...x, ilm: x.ilm + n }))}
+            />
+          ),
+        });
+        return;
+      }
       if (id.startsWith("busstop:")) {
         e.waitForBus(id.slice(8));
         toast("Waiting for a danfo… it's coming down the road.");
@@ -483,7 +599,7 @@ export default function IlmCityGame() {
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update, openLecture],
+    [toast, update, openLecture, openPlot],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -524,6 +640,17 @@ export default function IlmCityGame() {
     engine.current = e;
     if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
     e.setClock(clockRef.current);
+    {
+      const st: Record<
+        string,
+        { kind: "rented" | "owned" | "building" | "built"; floors?: number }
+      > = {};
+      for (const [pid, o] of Object.entries(saveRef.current.plots ?? {})) {
+        const k = plotStateFn(o);
+        if (k) st[pid] = k;
+      }
+      e.initPlots(st);
+    }
     const iv = setInterval(() => {
       const c = clockFor(city, Date.now() + offset);
       const prev = clockRef.current;
@@ -542,6 +669,16 @@ export default function IlmCityGame() {
         }));
       setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
       setRide(e.rideInfo());
+      for (const [pid, o] of Object.entries(saveRef.current.plots ?? {}))
+        if (o.kind === "building" && o.done <= Date.now()) {
+          const next: PlotOwn = { kind: "built", floors: o.floors };
+          update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
+          e.setPlot(pid, { kind: "built", floors: o.floors });
+          toast(
+            `Your ${ECONOMY.build[o.floors].name.toLowerCase()} is ready! Rent it out to earn points.`,
+            "good",
+          );
+        }
     }, 1000);
     return () => {
       clearInterval(iv);
@@ -746,7 +883,11 @@ export default function IlmCityGame() {
       {panel && (
         <Sheet
           panel={panel}
-          onClose={() => setPanel(null)}
+          onClose={() => {
+            setPanel(null);
+            if (talkingRef.current !== null) engine.current?.endTalk(talkingRef.current);
+            talkingRef.current = null;
+          }}
           onQuizPick={(i) => {
             if (panel.kind !== "quiz" || panel.picked !== undefined) return;
             const ok = i === panel.q.a;
@@ -1179,6 +1320,322 @@ function LectureView({
           The audio will be added once the speaker gives permission.
         </p>
       )}
+    </div>
+  );
+}
+
+/** A short chat with a neighbour: greetings, how they are, directions, a reminder. */
+function TalkView({
+  who,
+  clock,
+  nod,
+  onIlm,
+}: {
+  who: { name: string; female: boolean; district: string };
+  clock: Clock;
+  nod: (k: "agree" | "headShake") => void;
+  onIlm: (n: number) => void;
+}) {
+  const D = districtById(who.district);
+  const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+  const [lines, setLines] = useState<{ me?: boolean; text: string }[]>([
+    { text: "Assalamu alaykum wa rahmatullah!" },
+  ]);
+  const [asked, setAsked] = useState<string[]>([]);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" });
+  }, [lines]);
+  const say = (key: string, me: string, them: string, k: "agree" | "headShake" = "agree") => {
+    setAsked((a) => [...a, key]);
+    setLines((l) => [...l, { me: true, text: me }, { text: them }]);
+    nod(k);
+  };
+  const masjid = D.landmarks.find((l) => l.kind === "masjid");
+  const school = D.landmarks.find((l) => l.kind === "school");
+  const nxt = nextPrayer(clock);
+  const options: { key: string; label: string; run: () => void }[] = [
+    {
+      key: "salam",
+      label: "Wa alaykum salam! How is your day?",
+      run: () => {
+        say("salam", "Wa alaykum salam wa rahmatullah! How is your day?", pick(SMALL_TALK));
+        onIlm(1);
+      },
+    },
+    {
+      key: "masjid",
+      label: masjid ? "Where is the masjid?" : "Is there a masjid near here?",
+      run: () =>
+        say(
+          "masjid",
+          masjid ? "Where is the masjid?" : "Is there a masjid near here?",
+          masjid
+            ? `${masjid.name} is on ${STREETS[masjid.street].name}. ${nxt ? `${nxt.name} is at ${fmtTime(nxt.start)}, in shaa Allah.` : ""}`
+            : `Not in ${D.name} yet. Take a danfo to Lekki or Egbeda, they have big masjids.`,
+          masjid ? "agree" : "headShake",
+        ),
+    },
+    {
+      key: "remind",
+      label: "Please share a reminder",
+      run: () => {
+        const r = pick(REMINDERS);
+        say(
+          "remind",
+          "Please share a reminder with me.",
+          `The Prophet ﷺ said: "${r.text}" (${r.source})`,
+        );
+        onIlm(2);
+      },
+    },
+    {
+      key: "rent",
+      label: "Any house for rent around here?",
+      run: () =>
+        say(
+          "rent",
+          "Do you know any house for rent around here?",
+          `Look for the red TO LET signs on the gates in ${D.name}. And the white LAND FOR SALE boards if you want to build your own.`,
+        ),
+    },
+  ];
+  if (school)
+    options.push({
+      key: "school",
+      label: `Tell me about ${school.name}`,
+      run: () =>
+        say(
+          "school",
+          `Tell me about ${school.name}.`,
+          `It's on ${STREETS[school.street].name}. Go inside and answer the quiz to learn and earn points.`,
+        ),
+    });
+  return (
+    <div className="space-y-2">
+      <div ref={box} className="max-h-[38vh] space-y-2 overflow-y-auto">
+        {lines.map((l, i) => (
+          <div
+            key={i}
+            className={`max-w-[85%] rounded-2xl px-3 py-2 text-[14px] ${l.me ? "ml-auto bg-[#1f6f63] text-[#fdf8ec]" : "bg-white"}`}
+          >
+            {l.text}
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2 pt-1">
+        {options
+          .filter((o) => !asked.includes(o.key))
+          .map((o) => (
+            <button
+              key={o.key}
+              onClick={o.run}
+              className="rounded-full border border-[#1f6f63]/40 bg-[#fdf8ec] px-3 py-1.5 text-[13px] font-semibold text-[#1f6f63]"
+            >
+              {o.label}
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- houses and land ---------------- */
+type PlotOwn =
+  | { kind: "rented"; until: number }
+  | { kind: "owned" }
+  | { kind: "building"; floors: number; done: number }
+  | { kind: "built"; floors: number; tenant?: string; since?: number };
+
+const naira = (n: number) => "₦" + n.toLocaleString("en-NG");
+const floorsName = (f: number) => (f <= 1 ? "Bungalow" : f === 2 ? "Duplex" : "Storey building");
+
+function PlotView({
+  plot,
+  own,
+  points,
+  onPay,
+  onPaystack,
+  onSet,
+  onEnter,
+  onCollect,
+}: {
+  plot: {
+    id: string;
+    kind: "house" | "land";
+    number: number;
+    street: string;
+    district: string;
+    floors: number;
+  };
+  own?: PlotOwn;
+  points: number;
+  onPay: (pts: number, next: PlotOwn, msg: string) => void;
+  onPaystack: (amount: number, what: string) => void;
+  onSet: (next: PlotOwn) => void;
+  onEnter: () => void;
+  onCollect: () => void;
+}) {
+  const where = `No. ${plot.number}, ${plot.street}, ${districtById(plot.district).name}`;
+  const btn = "w-full rounded-xl px-4 py-3 text-left text-[14px] font-bold";
+  const primary = `${btn} bg-[#1f6f63] text-[#fdf8ec] disabled:opacity-50`;
+  const secondary = `${btn} border border-[#1f6f63]/30 bg-white text-[#10201e]`;
+  const now = Date.now();
+  const R = ECONOMY.rent;
+  const rentButtons = (extend: boolean) => (
+    <>
+      {(["week", "month"] as const).map((k) => (
+        <button
+          key={k}
+          disabled={points < R[k].points}
+          className={primary}
+          onClick={() =>
+            onPay(
+              R[k].points,
+              {
+                kind: "rented",
+                until: Math.max(now, own?.kind === "rented" ? own.until : 0) + R[k].days * 86400000,
+              },
+              `${extend ? "Extended" : "Rented"} for ${R[k].days} days. Welcome home!`,
+            )
+          }
+        >
+          {extend ? "Extend" : "Rent"} {k === "week" ? "7 days" : "1 month"} · {R[k].points} points
+        </button>
+      ))}
+      <button className={secondary} onClick={() => onPaystack(R.week.naira, "7 days rent")}>
+        Pay {naira(R.week.naira)} (7 days) with Paystack
+      </button>
+      <button className={secondary} onClick={() => onPaystack(R.month.naira, "1 month rent")}>
+        Pay {naira(R.month.naira)} (1 month) with Paystack
+      </button>
+    </>
+  );
+
+  if (plot.kind === "house") {
+    const beds = plot.floors * 2 + 1;
+    if (own?.kind === "rented" && own.until > now) {
+      const days = Math.ceil((own.until - now) / 86400000);
+      return (
+        <div className="space-y-2">
+          <p>
+            {where}. Your {floorsName(plot.floors).toLowerCase()} with {beds} bedrooms.{" "}
+            <b>
+              {days} day{days === 1 ? "" : "s"} left.
+            </b>
+          </p>
+          <button className={primary} onClick={onEnter}>
+            Go inside
+          </button>
+          {rentButtons(true)}
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-2">
+        <p>
+          {where}. {floorsName(plot.floors)} with {beds} bedrooms, a kitchen, a parlour and a fenced
+          compound.
+        </p>
+        <p className="text-[13px] opacity-75">You have {points} points.</p>
+        {rentButtons(false)}
+      </div>
+    );
+  }
+
+  // land
+  if (!own)
+    return (
+      <div className="space-y-2">
+        <p>
+          {where}. A dry plot of 22 m × 20 m with a C of O. Buy it, build a house, and rent it out
+          to earn points.
+        </p>
+        <p className="text-[13px] opacity-75">You have {points} points.</p>
+        <button
+          disabled={points < ECONOMY.land.points}
+          className={primary}
+          onClick={() =>
+            onPay(ECONOMY.land.points, { kind: "owned" }, "Alhamdulillah! The land is yours.")
+          }
+        >
+          Buy the land · {ECONOMY.land.points.toLocaleString()} points
+        </button>
+        <button className={secondary} onClick={() => onPaystack(ECONOMY.land.naira, "the land")}>
+          Pay {naira(ECONOMY.land.naira)} with Paystack
+        </button>
+      </div>
+    );
+  if (own.kind === "owned")
+    return (
+      <div className="space-y-2">
+        <p>Your land at {where}. What will you build?</p>
+        {[1, 2, 3].map((f) => {
+          const b = ECONOMY.build[f];
+          return (
+            <button
+              key={f}
+              disabled={points < b.points}
+              className={primary}
+              onClick={() =>
+                onPay(
+                  b.points,
+                  { kind: "building", floors: f, done: Date.now() + b.minutes * 60000 },
+                  `The builders have started your ${b.name.toLowerCase()}. Ready in ${b.minutes} minutes.`,
+                )
+              }
+            >
+              {b.name} · {b.points.toLocaleString()} points · {b.minutes} min
+              <span className="block text-[12px] font-medium opacity-80">
+                Tenants pay {b.tenantPerDay} points a day
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  if (own.kind === "building") {
+    const m = Math.max(0, Math.ceil((own.done - now) / 60000));
+    return (
+      <p>
+        The builders are working on your {ECONOMY.build[own.floors].name.toLowerCase()}. Ready in
+        about {m} minute
+        {m === 1 ? "" : "s"}, in shaa Allah.
+      </p>
+    );
+  }
+  if (own.kind !== "built") return null;
+  const b = ECONOMY.build[own.floors];
+  const due = own.since ? Math.floor(((now - own.since) / 86400000) * b.tenantPerDay) : 0;
+  return (
+    <div className="space-y-2">
+      <p>
+        Your {b.name.toLowerCase()} at {where}.{" "}
+        {own.tenant
+          ? `${own.tenant} live here and pay ${b.tenantPerDay} points a day.`
+          : "Nobody lives here yet."}
+      </p>
+      {own.tenant ? (
+        <button disabled={due < 1} className={primary} onClick={onCollect}>
+          Collect rent · {due} points
+        </button>
+      ) : (
+        <button
+          className={primary}
+          onClick={() =>
+            onSet({
+              ...own,
+              tenant: TENANTS[Math.floor(Math.random() * TENANTS.length)],
+              since: Date.now(),
+            })
+          }
+        >
+          Rent it out to a tenant
+        </button>
+      )}
+      <button className={secondary} onClick={onEnter}>
+        Go inside
+      </button>
     </div>
   );
 }

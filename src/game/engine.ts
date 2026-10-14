@@ -12,7 +12,15 @@ import {
 import { darkness, type Clock } from "./time";
 import { Batch, MAT, compound, groundGeo, powerLine, type Compound } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
-import { humansReady, makeHuman, setGait, sitHuman, tickHumans, type Outfit } from "./humans";
+import {
+  gesture,
+  humansReady,
+  makeHuman,
+  setGait,
+  sitHuman,
+  tickHumans,
+  type Outfit,
+} from "./humans";
 
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
@@ -37,7 +45,17 @@ type Zone = {
   r: number;
   scene: "out" | InteriorKind;
 };
-type Walker = { g: THREE.Group; route: [number, number][]; k: number; wait: number; t: number };
+type Walker = {
+  g: THREE.Group;
+  route: [number, number][];
+  k: number;
+  wait: number;
+  t: number;
+  name?: string;
+  female?: boolean;
+  district?: string;
+  talking?: boolean;
+};
 
 const PALETTE = {
   grass: 0x8fae5d,
@@ -745,15 +763,41 @@ export class IlmCityEngine {
           if (Math.abs(x) < 16) continue;
           if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
           if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
-          const c = compound(batch, {
-            x,
-            z: cz,
-            turn: north ? 0 : Math.PI,
-            number: num,
-            rnd,
-          });
+          const id = `${D.id}-${num}`;
+          const land = rnd() < 0.13;
+          const toLet = !land && rnd() < 0.3;
+          const turn = north ? 0 : Math.PI;
+          let c: Compound;
+          if (land) {
+            // an empty plot: bare earth and corner beacons
+            const earth = new THREE.Mesh(groundGeo(21, 19, 3), MAT.plain(0xc4a06a));
+            earth.position.set(x, 0.03, cz);
+            batch.addObject(earth);
+            for (const [bx, bz] of [
+              [-10.5, -9.5],
+              [10.5, -9.5],
+              [-10.5, 9.5],
+              [10.5, 9.5],
+            ]) {
+              const post = new THREE.Mesh(
+                new THREE.BoxGeometry(0.3, 0.6, 0.3),
+                MAT.plain(0xd8d2c2),
+              );
+              post.position.set(x + bx, 0.3, cz + bz);
+              batch.addObject(post);
+            }
+            const front = cz + (north ? 10 : -10);
+            c = {
+              colliders: [],
+              door: { x, z: front },
+              gate: { x, z: front + (north ? 0.5 : -0.5) },
+              floors: 0,
+              number: num,
+            };
+          } else c = compound(batch, { x, z: cz, turn, number: num, rnd });
           num += 2;
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+
           this.reserved.push({
             x0: this.ox + x - 11,
             x1: this.ox + x + 11,
@@ -762,11 +806,27 @@ export class IlmCityEngine {
           });
           this.plots.push({
             ...c,
+            id,
+            kind: land ? "land" : "house",
+            toLet,
             district: D.id,
             street: STREETS[D.streets[si].id].name,
+            streetZ: sz,
             x,
             z: cz,
           });
+          if (land || toLet) {
+            const zone: Zone = {
+              id: "plot:" + id,
+              label: "",
+              x: this.ox + c.gate.x,
+              z: this.oz + c.gate.z,
+              r: 3.4,
+              scene: "out",
+            };
+            this.zones.push(zone);
+            this.plotFx.set(id, { zone });
+          }
         }
       }
     });
@@ -799,6 +859,7 @@ export class IlmCityEngine {
     // greenery
     const clear = (x: number, z: number) =>
       this.free(x + this.ox, z + this.oz, 3) &&
+      this.boxFree(x - 2, x + 2, z - 2, z + 2) &&
       Math.abs(x) > 10 &&
       Math.abs(z) > 12 &&
       zs.every((sz) => Math.abs(z - sz) > 11) &&
@@ -866,7 +927,16 @@ export class IlmCityEngine {
       g.add(tag);
       g.position.set(route[0][0], 0, route[0][1]);
       S.add(g);
-      this.walkers.push({ g, route, k: 1, wait: i * 0.8, t: 0 });
+      this.walkers.push({
+        g,
+        route,
+        k: 1,
+        wait: i * 0.8,
+        t: 0,
+        name: names[k],
+        female,
+        district: D.id,
+      });
     });
 
     for (const m of batch.build()) S.add(m);
@@ -1007,7 +1077,16 @@ export class IlmCityEngine {
   private worldBatch = new Batch();
   private areaGroups: { g: THREE.Group; x: number; z: number }[] = [];
   /** Every compound in the city (for rent, sale and visits). */
-  plots: (Compound & { district: string; street: string; x: number; z: number })[] = [];
+  plots: (Compound & {
+    id: string;
+    kind: "house" | "land";
+    toLet: boolean;
+    district: string;
+    street: string;
+    streetZ: number;
+    x: number;
+    z: number;
+  })[] = [];
   private ox = 0;
   private oz = 0;
   private boxFree(x0: number, x1: number, z0: number, z1: number) {
@@ -1956,6 +2035,200 @@ export class IlmCityEngine {
     return v;
   }
 
+  /* ---------------- houses for rent and land for sale ---------------- */
+  private plotFx = new Map<string, { sign?: THREE.Object3D; build?: THREE.Group; zone: Zone }>();
+  private signMat(kind: "tolet" | "land" | "sold" | "building" | "mine") {
+    const key = "sign-" + kind;
+    let m = this.signCache.get(key);
+    if (m) return m;
+    const cv = document.createElement("canvas");
+    cv.width = 256;
+    cv.height = 160;
+    const c = cv.getContext("2d")!;
+    const [bg, fg, big, small] = {
+      tolet: ["#c62828", "#fff", "TO LET", "Tap to view"],
+      land: ["#fdfbf5", "#c62828", "LAND FOR SALE", "Tap to buy"],
+      sold: ["#1f6f63", "#fff", "SOLD", "Your land"],
+      building: ["#f2c230", "#2a1c05", "UNDER", "CONSTRUCTION"],
+      mine: ["#1f6f63", "#fff", "YOURS", "Tap to manage"],
+    }[kind];
+    c.fillStyle = bg;
+    c.fillRect(0, 0, 256, 160);
+    c.strokeStyle = fg;
+    c.lineWidth = 6;
+    c.strokeRect(8, 8, 240, 144);
+    c.fillStyle = fg;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.font = `800 ${big.length > 8 ? 34 : 54}px system-ui, sans-serif`;
+    c.fillText(big, 128, 66);
+    c.font = "600 24px system-ui, sans-serif";
+    c.fillText(small, 128, 118);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, side: THREE.DoubleSide });
+    this.signCache.set(key, m);
+    return m;
+  }
+  private signCache = new Map<string, THREE.Material>();
+
+  /** A signboard on two posts, standing just inside the plot's front. */
+  private signboard(
+    kind: "tolet" | "land" | "sold" | "building" | "mine",
+    x: number,
+    z: number,
+    turn: number,
+    high = false,
+  ) {
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = turn;
+    const post = MAT.plain(0x6b5a44);
+    for (const px of [-0.8, 0.8]) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.1, high ? 3.6 : 2.6, 0.1), post);
+      p.position.set(px, high ? 1.8 : 1.3, 0);
+      g.add(p);
+    }
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.3), this.signMat(kind));
+    board.position.set(0, high ? 3.0 : 2.0, 0.06);
+    board.castShadow = true;
+    g.add(board);
+    return g;
+  }
+
+  /** Show a plot as it now is: for rent, rented by you, land, building, or built. */
+  setPlot(
+    id: string,
+    state: { kind: "tolet" | "rented" | "land" | "owned" | "building" | "built"; floors?: number },
+  ) {
+    const p = this.plots.find((q) => q.id === id);
+    const fx = this.plotFx.get(id);
+    if (!p || !fx) return;
+    const D = districtById(p.district);
+    const turn = p.z < (p.streetZ ?? 0) ? 0 : Math.PI;
+    const front = p.z + (turn === 0 ? 10 : -10);
+    if (fx.sign) {
+      fx.sign.removeFromParent();
+      fx.sign = undefined;
+    }
+    const putSign = (k: "tolet" | "land" | "sold" | "building" | "mine", onWall = false) => {
+      fx.sign = this.signboard(
+        k,
+        p.x + (onWall ? -6 : 0),
+        front + (turn === 0 ? (onWall ? 0.35 : -1.2) : onWall ? -0.35 : 1.2),
+        turn,
+        onWall,
+      );
+      this.areaGroup(D.id).add(fx.sign);
+    };
+    const labels: Record<string, string> = {
+      tolet: `To Let · No. ${p.number}`,
+      rented: `Your house · No. ${p.number}`,
+      land: "Land for sale",
+      owned: "Your land",
+      building: "Your building site",
+      built: `Your property · No. ${p.number}`,
+    };
+    fx.zone.label = labels[state.kind];
+    if (state.kind === "tolet") putSign("tolet", true);
+    else if (state.kind === "rented") putSign("mine", true);
+    else if (state.kind === "land") putSign("land");
+    else if (state.kind === "owned") putSign("sold");
+    else if (state.kind === "building") putSign("building");
+    else if (state.kind === "built") putSign("mine", true);
+    // the house on a land plot
+    if (p.kind === "land") {
+      if (fx.build) {
+        fx.build.removeFromParent();
+        fx.build = undefined;
+        this.colliders.out = this.colliders.out.filter(
+          (b) => !(b as Box & { plot?: string }).plot || (b as Box & { plot?: string }).plot !== id,
+        );
+      }
+      if (state.kind === "building" || state.kind === "built") {
+        const g = new THREE.Group();
+        const b = new Batch();
+        const c = compound(b, {
+          x: p.x,
+          z: p.z,
+          turn,
+          number: p.number,
+          rnd: mulberry(p.number * 31 + p.district.length),
+          floors: state.floors ?? 1,
+        });
+        for (const m of b.build()) g.add(m);
+        if (state.kind === "building") {
+          // a site in progress: the walls stand, wrapped in bamboo scaffolding
+          g.scale.y = 0.55;
+          const sc = new THREE.Mesh(
+            new THREE.BoxGeometry(16, 7, 12),
+            new THREE.MeshStandardMaterial({ color: 0xb08a4a, wireframe: true }),
+          );
+          sc.position.set(p.x, 3.5 / 0.55, p.z + (turn === 0 ? -3 : 3));
+          g.add(sc);
+        }
+        for (const cb of c.colliders)
+          this.colliders.out.push({
+            ...cb,
+            x0: cb.x0 + D.origin.x,
+            x1: cb.x1 + D.origin.x,
+            z0: cb.z0 + D.origin.z,
+            z1: cb.z1 + D.origin.z,
+            plot: id,
+          } as Box);
+        this.areaGroup(D.id).add(g);
+        fx.build = g;
+        fx.zone.x = D.origin.x + c.gate.x;
+        fx.zone.z = D.origin.z + c.gate.z;
+      }
+    }
+  }
+  /** Put every rentable house and land plot in its saved state. */
+  initPlots(
+    states: Record<string, { kind: "rented" | "owned" | "building" | "built"; floors?: number }>,
+  ) {
+    for (const id of this.plotFx.keys()) {
+      const p = this.plots.find((q) => q.id === id)!;
+      this.setPlot(id, states[id] ?? { kind: p.kind === "land" ? "land" : "tolet" });
+    }
+  }
+  plotInfo(id: string) {
+    return this.plots.find((q) => q.id === id) ?? null;
+  }
+  private areaGroup(id: string) {
+    const D = districtById(id);
+    return this.areaGroups.find((a) => a.x === D.origin.x && a.z === D.origin.z)!.g;
+  }
+
+  /* ---------------- people ---------------- */
+  /** Stop a passer-by for a chat. */
+  talkTo(i: number) {
+    const w = this.walkers[i];
+    if (!w) return null;
+    w.talking = true;
+    gesture(w.g, "agree");
+    // face them
+    const wx = w.g.position.x + (w.g.parent?.position.x ?? 0),
+      wz = w.g.position.z + (w.g.parent?.position.z ?? 0);
+    this.player.rotation.y = Math.atan2(wx - this.player.position.x, wz - this.player.position.z);
+    return {
+      name: w.name ?? "Neighbour",
+      female: !!w.female,
+      district: w.district ?? this.district.id,
+    };
+  }
+  /** The passer-by nods or shakes their head while talking. */
+  talkGesture(i: number, kind: "agree" | "headShake") {
+    const w = this.walkers[i];
+    if (w) gesture(w.g, kind);
+  }
+  endTalk(i: number) {
+    const w = this.walkers[i];
+    if (!w) return;
+    w.talking = false;
+    w.wait = 1.5;
+  }
+
   /* ---------------- buses ---------------- */
   private traffic!: Traffic;
   private waitStop: string | null = null;
@@ -2113,6 +2386,17 @@ export class IlmCityEngine {
 
     // neighbours
     for (const w of this.walkers) {
+      if (w.talking) {
+        const px = this.player.position.x - (w.g.parent?.position.x ?? 0),
+          pz = this.player.position.z - (w.g.parent?.position.z ?? 0);
+        w.g.rotation.y = lerpAngle(
+          w.g.rotation.y,
+          Math.atan2(px - w.g.position.x, pz - w.g.position.z),
+          Math.min(1, dt * 6),
+        );
+        animatePerson(w.g, 0, 0);
+        continue;
+      }
       if (w.wait > 0) {
         w.wait -= dt;
         animatePerson(w.g, 0, 0);
@@ -2202,6 +2486,18 @@ export class IlmCityEngine {
           bd = dd;
         }
       }
+    if (!this.cine && !this.driving && !this.riding && this.where === "out")
+      this.walkers.forEach((w, i) => {
+        if (!w.name || !w.g.parent?.visible) return;
+        const dw = Math.hypot(
+          w.g.position.x + w.g.parent.position.x - pos.x,
+          w.g.position.z + w.g.parent.position.z - pos.z,
+        );
+        if (dw < 2.8 && dw < bd) {
+          best = { id: "talk:" + i, label: "Talk · " + w.name, x: 0, z: 0, r: 0, scene: "out" };
+          bd = dw;
+        }
+      });
     if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
       if (dc < 3.4 && dc < bd)
