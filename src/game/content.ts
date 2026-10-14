@@ -29,7 +29,7 @@ export const STREETS: Record<string, Street> = {
   ridwanjamiu: { id: "ridwanjamiu", name: "Imam Ridwan Jamiu Street", bio: COMING_SOON },
   alilory: {
     id: "alilory",
-    name: "Sheikh Adam Al-Ilory Street",
+    name: "Sheikh Adam Abdullahi Al-Ilory Street",
     bio: "Sheikh Adam Abdullahi Al-Ilory was a Nigerian scholar and author who founded the Markaz Arabic and Islamic Training Centre, later based in Agege, Lagos. He wrote many books in Arabic and trained generations of teachers. He passed away in 1992. May Allah have mercy on him.",
   },
   adewuyi: { id: "adewuyi", name: "Sheikh Yusuf Adewuyi Street", bio: COMING_SOON },
@@ -64,6 +64,11 @@ export const STREETS: Record<string, Street> = {
   iman: { id: "iman", name: "Iman Street", bio: HOMES },
   firdaus: { id: "firdaus", name: "Firdaus Close", bio: HOMES },
   huda: { id: "huda", name: "Huda Avenue", bio: HOMES },
+  kabir: { id: "kabir", name: "Sheikh Kabir Alasfar Street", bio: COMING_SOON },
+  eleha: { id: "eleha", name: "Sheikh Imran Eleha Street", bio: COMING_SOON },
+  ridwan: { id: "ridwan", name: "Ridwan Close", bio: HOMES },
+  falah: { id: "falah", name: "Falah Street", bio: HOMES },
+  amanah: { id: "amanah", name: "Amanah Close", bio: HOMES },
 };
 
 /* ---------------- areas ----------------
@@ -102,12 +107,15 @@ export type District = {
   half?: { x: number; z: number };
   /** reached by road from this area instead of by its own expressway */
   parent?: string;
+  /** which way the road runs from the parent area (default north) */
+  link?: "north" | "east";
   /** the name of its bus stop */
   busStop?: string;
   /** share of empty plots that are shops and land (default 0.08 and 0.13) */
   shops?: number;
   land?: number;
-  streets: { id: string; z: number }[];
+  /** decor: palms, flower beds and flags along a beautified street */
+  streets: { id: string; z: number; decor?: boolean }[];
   landmarks: Landmark[];
 };
 
@@ -141,13 +149,58 @@ export const DISTRICTS: District[] = [
     state: "Lagos",
     origin: { x: -325, z: -450 },
     highway: "Agege Motor Road",
+    half: { x: 112, z: 140 },
     streets: [
-      { id: "alilory", z: 0 },
-      { id: "salam", z: -66 },
-      { id: "nur", z: 63 },
+      { id: "alilory", z: 0, decor: true },
+      { id: "salam", z: -95 },
+      { id: "nur", z: 95 },
     ],
     landmarks: [
       { id: "markaz", kind: "school", name: "Markaz Arabic School", street: "alilory", x: -32 },
+      { id: "markaz-mosque", kind: "masjid", name: "Markaz Mosque", street: "alilory", x: 40 },
+      {
+        id: "adam-house",
+        kind: "mansion",
+        name: "House of Sheikh Adam Abdullahi Al-Ilory",
+        street: "alilory",
+        x: -35,
+        side: "s",
+        width: 44,
+        depth: 44,
+        floors: 3,
+      },
+      {
+        id: "habeeb-adam-house",
+        kind: "mansion",
+        name: "House of Sheikh Habeeb Adam Al-Ilory",
+        street: "alilory",
+        x: 30,
+        side: "s",
+        width: 30,
+        depth: 26,
+        floors: 2,
+      },
+      {
+        id: "thaoban-house",
+        kind: "mansion",
+        name: "House of Sheikh Thaoban",
+        street: "alilory",
+        x: 78,
+        side: "s",
+        width: 30,
+        depth: 26,
+        floors: 2,
+      },
+      {
+        id: "abdullah-house",
+        kind: "mansion",
+        name: "House of Sheikh Abdullah",
+        street: "alilory",
+        x: 85,
+        width: 26,
+        depth: 26,
+        floors: 2,
+      },
     ],
   },
   {
@@ -156,13 +209,90 @@ export const DISTRICTS: District[] = [
     state: "Lagos",
     origin: { x: -275, z: 375 },
     highway: "Apapa–Oshodi Expressway",
+    half: { x: 112, z: 150 },
     streets: [
-      { id: "adewuyi", z: 0 },
-      { id: "ahmadsad", z: -55 },
-      { id: "barakah", z: 63 },
+      { id: "adewuyi", z: 0, decor: true },
+      { id: "ahmadsad", z: -100 },
+      { id: "barakah", z: 100 },
     ],
     landmarks: [
-      { id: "ibaadullah", kind: "masjid", name: "Ibaadullah Mosque", street: "adewuyi", x: -36 },
+      { id: "ibaadullah", kind: "masjid", name: "Ibaadullah Mosque", street: "adewuyi", x: -40 },
+      {
+        id: "ibaadullah-school",
+        kind: "campus",
+        name: "Ibaadullah School",
+        street: "adewuyi",
+        x: -35,
+        side: "s",
+        width: 48,
+        depth: 44,
+        floors: 2,
+        classes: [
+          "Primary 1",
+          "Primary 2",
+          "Primary 3",
+          "Primary 4",
+          "Primary 5",
+          "Primary 6",
+          "JSS 1",
+          "JSS 2",
+          "JSS 3",
+        ],
+        about:
+          "Ibaadullah School on Sheikh Yusuf Adewuyi Street teaches the Qur'an, Arabic and Islamic studies with the school subjects.",
+      },
+      {
+        id: "alaruf-house",
+        kind: "mansion",
+        name: "House of Sheikh Alaruf",
+        street: "adewuyi",
+        x: 30,
+        width: 30,
+        depth: 26,
+        floors: 2,
+      },
+      {
+        id: "mudeer-house",
+        kind: "mansion",
+        name: "The Mudeer's House",
+        street: "adewuyi",
+        x: 75,
+        width: 30,
+        depth: 26,
+        floors: 2,
+      },
+      {
+        id: "abubakr-house",
+        kind: "mansion",
+        name: "House of Sheikh Abubakr",
+        street: "adewuyi",
+        x: -85,
+        width: 26,
+        depth: 26,
+        floors: 2,
+      },
+      {
+        id: "ummusoffiyah-house",
+        kind: "mansion",
+        name: "House of Ummu Soffiyah",
+        street: "adewuyi",
+        x: 30,
+        side: "s",
+        width: 30,
+        depth: 26,
+        floors: 2,
+      },
+      {
+        id: "habeeb-ajegunle-house",
+        kind: "mansion",
+        name: "House of Sheikh Habeeb Adewuyi",
+        street: "adewuyi",
+        x: 78,
+        side: "s",
+        width: 30,
+        depth: 26,
+        floors: 2,
+      },
       { id: "as-sirat", kind: "school", name: "As-Sirat Schools", street: "ahmadsad", x: 30 },
     ],
   },
@@ -413,11 +543,108 @@ export const DISTRICTS: District[] = [
       },
     ],
   },
+  {
+    id: "badore",
+    name: "Badore",
+    state: "Lagos",
+    origin: { x: 689, z: 450 },
+    highway: "Ajah–Badore Road",
+    parent: "lekki",
+    link: "east",
+    busStop: "Badore",
+    lagoon: true,
+    shops: 0.2,
+    land: 0.2,
+    streets: [
+      { id: "kabir", z: 0, decor: true },
+      { id: "ridwan", z: -66 },
+    ],
+    landmarks: [
+      {
+        id: "alasfar-mosque",
+        kind: "masjid",
+        name: "Sheikh Kabir Alasfar Mosque",
+        street: "kabir",
+        x: -40,
+      },
+      {
+        id: "alasfar-house",
+        kind: "mansion",
+        name: "House of Sheikh Kabir Alasfar",
+        street: "kabir",
+        x: 40,
+        side: "s",
+        width: 40,
+        depth: 30,
+        floors: 3,
+      },
+    ],
+  },
+  {
+    id: "powerline",
+    name: "Powerline",
+    state: "Lagos",
+    origin: { x: -560, z: -425 },
+    highway: "Isheri–Igando Road",
+    parent: "egbeda",
+    busStop: "Powerline",
+    shops: 0.2,
+    land: 0.2,
+    streets: [
+      { id: "eleha", z: 0, decor: true },
+      { id: "falah", z: -66 },
+      { id: "amanah", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "daarunnaim-mosque",
+        kind: "masjid",
+        name: "Daarul Na'im Central Mosque",
+        street: "eleha",
+        x: -40,
+      },
+      {
+        id: "daarunnaim-school",
+        kind: "campus",
+        name: "Daarul Na'im School",
+        street: "eleha",
+        x: -40,
+        side: "s",
+        width: 52,
+        depth: 40,
+        floors: 2,
+        classes: [
+          "Primary 1",
+          "Primary 2",
+          "Primary 3",
+          "Primary 4",
+          "Primary 5",
+          "Primary 6",
+          "JSS 1",
+          "JSS 2",
+          "JSS 3",
+        ],
+        about:
+          "Daarul Na'im School on Sheikh Imran Eleha Street, beside Daarul Na'im Central Mosque.",
+      },
+      {
+        id: "eleha-house",
+        kind: "mansion",
+        name: "House of Sheikh Imran Eleha",
+        street: "eleha",
+        x: 50,
+        width: 40,
+        depth: 28,
+        floors: 3,
+      },
+    ],
+  },
 ];
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
-/** "Agric, Ikorodu" for areas inside Ikorodu. */
-export const fullName = (d: District) => (d.parent ? `${d.name}, Ikorodu` : d.name);
+/** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */
+export const rootOf = (d: District): District => (d.parent ? rootOf(districtById(d.parent)) : d);
+export const fullName = (d: District) => (d.parent ? `${d.name}, ${rootOf(d).name}` : d.name);
 export const BUS_FARE = 5;
 
 export const BILLBOARDS: Billboard[] = [
@@ -455,6 +682,22 @@ export const BILLBOARDS: Billboard[] = [
   { id: "egbeda-junction", name: "Egbeda Junction", district: "egbeda" },
   { id: "egbeda-market", name: "Egbeda Market Road", district: "egbeda" },
 ];
+
+// two more boards in each area and three along each road into it
+for (const d of DISTRICTS) {
+  for (let k = 1; k <= 2; k++)
+    BILLBOARDS.push({
+      id: `${d.id}-street-${k}`,
+      name: `${d.name} Street Board ${k}`,
+      district: d.id,
+    });
+  for (let k = 1; k <= 3; k++)
+    BILLBOARDS.push({
+      id: `${d.id}-road-${k}`,
+      name: `${d.highway} Board ${k}`,
+      district: "road:" + d.id,
+    });
+}
 
 export type Question = { q: string; o: string[]; a: number; e: string };
 export const QUESTIONS: Question[] = [
@@ -547,6 +790,30 @@ export type Lecture = {
   audioUrl?: string;
 };
 export const LECTURES: Lecture[] = [
+  {
+    id: "alasfar-morning",
+    mosque: "alasfar-mosque",
+    title: "Tafsir with Sheikh Kabir Alasfar",
+    speaker: "Sheikh Kabir Alasfar",
+    start: "10:00",
+    minutes: 60,
+  },
+  {
+    id: "alasfar-evening",
+    mosque: "alasfar-mosque",
+    title: "Evening admonition (Wa'z)",
+    speaker: "Sheikh Kabir Alasfar",
+    start: "20:30",
+    minutes: 45,
+  },
+  {
+    id: "daarunnaim-fiqh",
+    mosque: "daarunnaim-mosque",
+    title: "Lessons in Fiqh",
+    speaker: "Guest Imam",
+    start: "16:30",
+    minutes: 45,
+  },
   {
     id: "daarulquran-tafsir",
     mosque: "daarulquran-mosque",

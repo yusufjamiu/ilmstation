@@ -145,6 +145,8 @@ export default function IlmCityGame() {
     () => `${districtById(save.district ?? "lekki").name} · Lagos`,
   );
   const [panel, setPanel] = useState<Panel | null>(null);
+  const panelRef = useRef<Panel | null>(null);
+  panelRef.current = panel;
   const [toasts, setToasts] = useState<{ id: number; text: string; tone?: "good" | "warn" }[]>([]);
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
@@ -158,9 +160,15 @@ export default function IlmCityGame() {
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
-  const hisbahRef = useRef<{ reminded: Set<string>; commended: Set<string>; speedAt: number }>({
+  const hisbahRef = useRef<{
+    reminded: Set<string>;
+    commended: Set<string>;
+    asked: Set<string>;
+    speedAt: number;
+  }>({
     reminded: new Set(),
     commended: new Set(),
+    asked: new Set(),
     speedAt: 0,
   });
   const [arriving, setArriving] = useState<string | null>(null);
@@ -375,6 +383,45 @@ export default function IlmCityGame() {
       render();
     },
     [toast, update, paintShop],
+  ); /** Pray in the masjid: the obligatory prayer if it is due, or two voluntary rak'ahs. */
+  const startPrayer = useCallback(
+    (voluntary: boolean) => {
+      const c = clockRef.current;
+      const p = currentPrayer(c);
+      const fard = !voluntary && p && !saveRef.current.prayed[p.id] ? p : null;
+      const rakahs = fard ? (fard.name === "Jumu'ah" ? 2 : RAKAHS[fard.id]) : 2;
+      setPanel({
+        kind: "info",
+        title: fard ? `${fard.name} in jama'ah` : "Two rak'ahs",
+        body: (
+          <PrayerSession
+            title={fard ? `${fard.name} · ${rakahs} rak'ahs` : "Tahiyyat al-Masjid · 2 rak'ahs"}
+            rakahs={rakahs}
+            onPose={(pose) => engine.current?.prayPose(pose)}
+            onFinish={() => {
+              setPanel(null);
+              engine.current?.prayPose(null);
+              if (fard) {
+                update((x) => ({
+                  ...x,
+                  prayed: { ...x.prayed, [fard.id]: true },
+                  ilm: x.ilm + 5,
+                  coins: x.coins + 2,
+                }));
+                toast(
+                  `You prayed ${fard.name} in jama'ah. May Allah accept it. +2 points, +5 Ilm`,
+                  "good",
+                );
+              } else {
+                update((x) => ({ ...x, ilm: x.ilm + 2 }));
+                toast("May Allah accept your prayer. +2 Ilm", "good");
+              }
+            }}
+          />
+        ),
+      });
+    },
+    [toast, update],
   );
 
   /* ---------- actions coming from the 3D world ---------- */
@@ -570,12 +617,9 @@ export default function IlmCityGame() {
           }
         }
         if (lec) openLecture(lec, true);
-        else if (ms.open)
-          toast(
-            `Assalamu alaykum. ${ms.prayer!.name} jama'ah ${c.min < ms.prayer!.start ? `starts at ${fmtTime(ms.prayer!.start)}` : "is on"}.`,
-            "good",
-          );
-        else
+        else {
+          const cp = currentPrayer(c);
+          const due = cp && !s.prayed[cp.id];
           setPanel({
             kind: "info",
             title: `Welcome to ${name}`,
@@ -588,9 +632,21 @@ export default function IlmCityGame() {
                   setPanel(null);
                   setTimeout(() => onActionRef.current("quiz"), 50);
                 }}
+                pray={
+                  due
+                    ? {
+                        label: ms.open ? `Pray ${cp!.name} in jama'ah` : `Pray ${cp!.name}`,
+                        run: () => startPrayer(false),
+                      }
+                    : {
+                        label: "Pray two rak'ahs (greeting the masjid)",
+                        run: () => startPrayer(true),
+                      }
+                }
               />
             ),
           });
+        }
         return;
       }
       if (id.startsWith("door:home:")) {
@@ -714,29 +770,8 @@ export default function IlmCityGame() {
       }
       if (id === "pray") {
         const p = currentPrayer(c);
-        if (p && !s.prayed[p.id]) {
-          setPanel({
-            kind: "busy",
-            title:
-              p.name === "Jumu'ah"
-                ? "Listening to the khutbah, then praying Jumu'ah"
-                : `Praying ${p.name} in jama'ah`,
-            ms: 4500,
-            done: () => {
-              update((x) => ({ ...x, prayed: { ...x.prayed, [p.id]: true } }));
-              toast(`You prayed ${p.name} in jama'ah. May Allah accept it.`, "good");
-            },
-          });
-        } else if (p)
-          toast(
-            `You already prayed ${p.name}. Next: ${nextPrayer(c)?.name ?? "Fajr"} at ${fmtTime(nextPrayer(c)?.start ?? c.times.fajr)}.`,
-          );
-        else {
-          const n = nextPrayer(c);
-          toast(
-            `The adhan for ${n?.name ?? "Fajr"} is at ${fmtTime(n?.start ?? c.times.fajr)}. Sit and make dhikr.`,
-          );
-        }
+        if (p && !s.prayed[p.id]) startPrayer(false);
+        else startPrayer(true);
         return;
       }
       if (id === "quran") {
@@ -835,7 +870,7 @@ export default function IlmCityGame() {
         setPanel({ kind: "info", title: st.name, body: <p>{st.bio}</p> });
       }
     },
-    [toast, update, openLecture, openPlot, openShop],
+    [toast, update, openLecture, openPlot, openShop, startPrayer],
   );
 
   /* ---------- engine lifecycle ---------- */
@@ -876,6 +911,7 @@ export default function IlmCityGame() {
     engine.current = e;
     if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
     e.setClock(clockRef.current);
+    const startedAt = performance.now();
     {
       const st: Record<
         string,
@@ -919,6 +955,50 @@ export default function IlmCityGame() {
               `${who}: "It's time for ${ms2.prayer.name}! The masjid is open. Go and pray, may Allah bless you."`,
               "warn",
             );
+          }
+        }
+        // an officer walking past stops you with a question
+        const hi =
+          panelRef.current || e.isRiding() || performance.now() - startedAt < 45000
+            ? null
+            : e.hisbahBeside(6);
+        if (hi !== null) {
+          const cp2 = currentPrayer(c);
+          const key = cp2 ? `${c.key}-${cp2.id}` : `${c.key}-quran`;
+          if (!h.asked.has(key)) {
+            h.asked.add(key);
+            const who = e.talkTo(hi);
+            talkingRef.current = hi;
+            const ask = cp2
+              ? ({ kind: "prayer", name: cp2.name } as const)
+              : ({ kind: "quran" } as const);
+            setPanel({
+              kind: "info",
+              title: who?.name ?? "Hisbah",
+              body: (
+                <HisbahStop
+                  who={who?.name ?? "Hisbah"}
+                  ask={ask}
+                  onAnswer={(yes) => {
+                    const gain = ask.kind === "prayer" ? 3 : 2;
+                    if (yes) {
+                      engine.current?.talkGesture(hi, "agree");
+                      update((x) => ({ ...x, coins: x.coins + gain }));
+                      toast(`+${gain} points from the Hisbah`, "good");
+                      return ask.kind === "prayer"
+                        ? `MashaAllah! May Allah accept it from you. Keep guarding your salah. (+${gain} points)`
+                        : `Barakallahu fik! The Qur'an will come on the Day of Judgement to intercede for its companions. (+${gain} points)`;
+                    }
+                    engine.current?.talkGesture(hi, "headShake");
+                    update((x) => ({ ...x, coins: Math.max(0, x.coins - gain) }));
+                    toast(`−${gain} points. Go and make it up, in shaa Allah.`, "warn");
+                    return ask.kind === "prayer"
+                      ? `Fear Allah, my brother! Salah is the first deed we will be asked about on the Day of Judgement. ${cp2 ? `${cp2.name} time ends at ${fmtTime(cp2.end)}.` : ""} Go to the masjid now. (−${gain} points)`
+                      : `Fear Allah, my brother. Do not leave the Qur'an behind. Read even one page today, in shaa Allah. (−${gain} points)`;
+                  }}
+                />
+              ),
+            });
           }
         }
         if (e.isDriving() && e.carSpeedKmh() > 75 && e.inArea() && Date.now() - h.speedAt > 60000) {
@@ -1472,11 +1552,13 @@ function LearnChoice({
   clock,
   onLecture,
   onQuiz,
+  pray,
 }: {
   mosque: string;
   clock: Clock;
   onLecture: (l: Lecture) => void;
   onQuiz: () => void;
+  pray?: { label: string; run: () => void };
 }) {
   const all = LECTURES.filter((l) => l.mosque === mosque);
   const next = lectureNext(mosque, clock);
@@ -1489,6 +1571,14 @@ function LearnChoice({
           : " No more live lectures here today."}{" "}
         What would you like to do?
       </p>
+      {pray && (
+        <button
+          onClick={pray.run}
+          className="w-full rounded-xl bg-[#e6b84a] px-4 py-3 text-left font-bold text-[#2a1c05]"
+        >
+          🕌 {pray.label}
+        </button>
+      )}
       {all.map((l) => (
         <button
           key={l.id}
@@ -2293,6 +2383,184 @@ function ShopView({
         Photos are saved on this phone for now. When accounts arrive, every player in IlmCity will
         see them.
       </p>
+    </div>
+  );
+}
+
+/* ---------------- salah ---------------- */
+type Step = { pose: "stand" | "ruku" | "sujud" | "sit"; name: string; say: string; secs: number };
+/** The steps of one rak'ah, with what is said in each position. */
+function rakahSteps(first: boolean, last: boolean, middleSitting: boolean): Step[] {
+  const s: Step[] = [];
+  if (first) s.push({ pose: "stand", name: "Takbir", say: "Allahu Akbar", secs: 5 });
+  s.push(
+    { pose: "stand", name: "Qiyam", say: "Al-Fatihah and a surah…", secs: 24 },
+    { pose: "ruku", name: "Ruku'", say: "Subhana Rabbiyal 'Adheem", secs: 8 },
+    {
+      pose: "stand",
+      name: "I'tidal",
+      say: "Sami'allahu liman hamidah · Rabbana wa lakal hamd",
+      secs: 5,
+    },
+    { pose: "sujud", name: "Sujud", say: "Subhana Rabbiyal A'la", secs: 8 },
+    { pose: "sit", name: "Jalsah", say: "Rabbighfir li", secs: 4 },
+    { pose: "sujud", name: "Sujud", say: "Subhana Rabbiyal A'la", secs: 8 },
+  );
+  if (middleSitting)
+    s.push({ pose: "sit", name: "Tashahhud", say: "At-tahiyyatu lillah…", secs: 14 });
+  if (last) {
+    s.push({
+      pose: "sit",
+      name: "Tashahhud",
+      say: "At-tahiyyatu lillah… Allahumma salli 'ala Muhammad…",
+      secs: 24,
+    });
+    s.push({ pose: "sit", name: "Taslim", say: "As-salamu 'alaykum wa rahmatullah", secs: 5 });
+  }
+  return s;
+}
+const RAKAHS: Record<string, number> = {
+  fajr: 2,
+  dhuhr: 4,
+  jumuah: 2,
+  asr: 4,
+  maghrib: 3,
+  isha: 4,
+};
+const MIN_PRAYER_MS = 3 * 60 * 1000;
+
+/** Praying: the steps play out with your character; you can finish after at least 3 minutes. */
+function PrayerSession({
+  title,
+  rakahs,
+  onPose,
+  onFinish,
+}: {
+  title: string;
+  rakahs: number;
+  onPose: (p: Step["pose"] | null) => void;
+  onFinish: () => void;
+}) {
+  const steps = useMemo(() => {
+    const out: Step[] = [];
+    for (let r = 1; r <= rakahs; r++)
+      out.push(...rakahSteps(r === 1, r === rakahs, r === 2 && rakahs > 2));
+    return out;
+  }, [rakahs]);
+  const total = steps.reduce((a, s) => a + s.secs, 0);
+  const [t0] = useState(() => Date.now());
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(iv);
+  }, []);
+  const el = (now - t0) / 1000;
+  let acc = 0,
+    idx = steps.length;
+  for (let i = 0; i < steps.length; i++) {
+    if (el < acc + steps[i].secs) {
+      idx = i;
+      break;
+    }
+    acc += steps[i].secs;
+  }
+  const step = steps[idx];
+  const pose = step?.pose ?? "sit";
+  const poseRef = useRef<string>("");
+  useEffect(() => {
+    if (poseRef.current !== pose) {
+      poseRef.current = pose;
+      onPose(pose);
+    }
+  }, [pose, onPose]);
+  useEffect(() => () => onPose(null), [onPose]);
+  let rakah = 1,
+    seen = 0;
+  for (let i = 0; i <= Math.min(idx, steps.length - 1); i++) if (steps[i].name === "Qiyam") seen++;
+  rakah = Math.max(1, Math.min(rakahs, seen));
+  const left = Math.max(0, MIN_PRAYER_MS - (now - t0));
+  const done = idx >= steps.length;
+  const mm = Math.floor(left / 60000),
+    ss = Math.floor((left % 60000) / 1000);
+  return (
+    <div className="space-y-3">
+      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+        {title}
+      </div>
+      {!done ? (
+        <div className="rounded-xl bg-[#1f6f63] p-4 text-[#fdf8ec]">
+          <div className="text-[12px] uppercase tracking-[0.15em] text-[#e6b84a]">
+            Rak'ah {rakah} of {rakahs} · {step.name}
+          </div>
+          <div className="mt-1 font-serif text-2xl leading-tight">{step.say}</div>
+        </div>
+      ) : (
+        <div className="rounded-xl bg-[#1f6f63] p-4 text-[#fdf8ec]">
+          <div className="text-[12px] uppercase tracking-[0.15em] text-[#e6b84a]">
+            Dhikr after salah
+          </div>
+          <div className="mt-1 font-serif text-xl leading-snug">
+            Astaghfirullah ×3 · SubhanAllah ×33 · Alhamdulillah ×33 · Allahu Akbar ×34
+          </div>
+        </div>
+      )}
+      <div className="h-2 overflow-hidden rounded-full bg-[#10201e]/10">
+        <div
+          className="h-full rounded-full bg-[#e6b84a]"
+          style={{ width: `${Math.min(100, (el / total) * 100)}%` }}
+        />
+      </div>
+      <button
+        disabled={left > 0}
+        onClick={onFinish}
+        className="w-full rounded-xl bg-[#10201e] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
+      >
+        {left > 0 ? `You can finish in ${mm}:${String(ss).padStart(2, "0")}` : "Finish my prayer"}
+      </button>
+      <p className="text-[12px] opacity-70">
+        Take your time. Salah takes at least 3 minutes here, and you can stay as long as you like.
+      </p>
+    </div>
+  );
+}
+
+/** The Hisbah officer stops you with one question. */
+function HisbahStop({
+  who,
+  ask,
+  onAnswer,
+}: {
+  who: string;
+  ask: { kind: "prayer"; name: string } | { kind: "quran" };
+  onAnswer: (yes: boolean) => string;
+}) {
+  const [reply, setReply] = useState<string | null>(null);
+  const q =
+    ask.kind === "prayer"
+      ? `Assalamu alaykum, my brother. Have you prayed ${ask.name}?`
+      : "Assalamu alaykum, my brother. Have you read the Qur'an today?";
+  return (
+    <div className="space-y-2">
+      <div className="max-w-[85%] rounded-2xl bg-white px-3 py-2 text-[14px]">{q}</div>
+      {reply ? (
+        <div className="max-w-[85%] rounded-2xl bg-white px-3 py-2 text-[14px]">{reply}</div>
+      ) : (
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => setReply(onAnswer(true))}
+            className="flex-1 rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Yes, alhamdulillah
+          </button>
+          <button
+            onClick={() => setReply(onAnswer(false))}
+            className="flex-1 rounded-xl bg-[#b8573a] py-3 font-bold text-white"
+          >
+            Not yet
+          </button>
+        </div>
+      )}
+      <p className="text-[12px] opacity-60">{who} · Hisbah</p>
     </div>
   );
 }

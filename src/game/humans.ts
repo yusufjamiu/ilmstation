@@ -749,8 +749,11 @@ function turn(b: THREE.Bone | undefined, axis: THREE.Vector3, angle: number) {
   b.updateMatrixWorld(true);
 }
 
-/** Sitting on the masjid carpet on the heels, hands on the thighs. */
-export function sitHuman(o: THREE.Object3D) {
+export type Pose = "stand" | "ruku" | "sujud" | "sit";
+const hipsY = new WeakMap<object, number>();
+/** Hold a still pose (praying or sitting). The person's own right-hand axis is used
+    so the pose works whichever way they face. */
+export function poseHuman(o: THREE.Object3D, pose: Pose) {
   const r = rigOf(o);
   if (!r) return false;
   r.posed = true;
@@ -759,18 +762,57 @@ export function sitHuman(o: THREE.Object3D) {
   r.act.run.setEffectiveWeight(0);
   r.mixer.update(0);
   const b = r.bones;
+  if (!hipsY.has(r)) hipsY.set(r, b.Hips.position.y);
+  b.Hips.position.y = hipsY.get(r)!;
   o.updateMatrixWorld(true);
-  const X = new THREE.Vector3(1, 0, 0);
-  b.Hips.position.y -= 72; // the skeleton is in centimetres
-  turn(b.LeftUpLeg, X, -1.5);
-  turn(b.RightUpLeg, X, -1.5);
-  turn(b.LeftLeg, X, 2.95);
-  turn(b.RightLeg, X, 2.95);
-  turn(b.LeftArm, X, -0.55);
-  turn(b.RightArm, X, -0.55);
-  turn(b.LeftForeArm, X, -0.5);
-  turn(b.RightForeArm, X, -0.5);
+  const q = new THREE.Quaternion();
+  r.root.getWorldQuaternion(q);
+  const X = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const kneel = () => {
+    turn(b.LeftUpLeg, X, -1.5);
+    turn(b.RightUpLeg, X, -1.5);
+    turn(b.LeftLeg, X, 2.95);
+    turn(b.RightLeg, X, 2.95);
+  };
+  if (pose === "ruku") {
+    turn(b.Spine, X, 0.75);
+    turn(b.Spine1, X, 0.5);
+    turn(b.Spine2, X, 0.3);
+    turn(b.Neck, X, -0.2);
+    turn(b.LeftArm, X, -0.35);
+    turn(b.RightArm, X, -0.35);
+  } else if (pose === "sujud") {
+    b.Hips.position.y -= 62; // the skeleton is in centimetres
+    kneel();
+    turn(b.Spine, X, 0.95);
+    turn(b.Spine1, X, 0.55);
+    turn(b.Spine2, X, 0.35);
+    turn(b.LeftArm, X, -1.1);
+    turn(b.RightArm, X, -1.1);
+    turn(b.LeftForeArm, X, 0.6);
+    turn(b.RightForeArm, X, 0.6);
+  } else if (pose === "sit") {
+    b.Hips.position.y -= 72;
+    kneel();
+    turn(b.LeftArm, X, -0.55);
+    turn(b.RightArm, X, -0.55);
+    turn(b.LeftForeArm, X, -0.5);
+    turn(b.RightForeArm, X, -0.5);
+  }
   return true;
+}
+/** Back to walking and standing normally. */
+export function releasePose(o: THREE.Object3D) {
+  const r = rigOf(o);
+  if (!r) return;
+  const h = hipsY.get(r);
+  if (h !== undefined) r.bones.Hips.position.y = h;
+  r.posed = false;
+}
+
+/** Sitting on the masjid carpet on the heels, hands on the thighs. */
+export function sitHuman(o: THREE.Object3D) {
+  return poseHuman(o, "sit");
 }
 
 const camPos = new THREE.Vector3(),

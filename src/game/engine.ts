@@ -8,6 +8,7 @@ import {
   districtById,
   halfOf,
   fullName,
+  rootOf,
   type Billboard,
   type District,
   type Landmark,
@@ -32,6 +33,9 @@ import {
   gesture,
   humansReady,
   makeHuman,
+  poseHuman,
+  releasePose,
+  type Pose,
   setGait,
   sitHuman,
   tickHumans,
@@ -756,19 +760,22 @@ export class IlmCityEngine {
     this.buildBusPark(-72, 15);
 
     // billboards beside the main street
-    const spots: [number, number][] = [
-      [14, -14],
-      [70, -14],
-      [-72, -14],
-      [44, -14],
-      [-14, 15],
-    ];
+    const spots: [number, number, number][] = [];
+    for (const sz of zs)
+      for (const [x, dz, r] of [
+        [14, -14, 0],
+        [-72, -14, 0],
+        [70, 14.5, Math.PI],
+        [44, -14, 0],
+        [-40, 14.5, Math.PI],
+      ] as [number, number, number][])
+        spots.push([x, sz + dz, r]);
     let si = 0;
     BILLBOARDS.filter((b) => b.district === D.id).forEach((b) => {
       while (si < spots.length) {
-        const [x, z] = spots[si++];
+        const [x, z, r] = spots[si++];
         if (this.boxFree(x - 6, x + 6, z - 1.5, z + 1.5)) {
-          this.billboard(b, x, z);
+          this.billboard(b, x, z, r);
           break;
         }
       }
@@ -875,6 +882,51 @@ export class IlmCityEngine {
     });
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
+    // beautified streets: palms, flower beds and green-and-white flags along the pavements
+    D.streets
+      .filter((st) => st.decor)
+      .forEach((st) => {
+        const flowers = [0xd23b6a, 0xf2c230, 0xf07a2a, 0xb05ad0];
+        let k = 0;
+        for (let x = -XR + 6; x <= XR - 6; x += 12) {
+          if (Math.abs(x) < 14) continue;
+          for (const side of [-1, 1]) {
+            const z = st.z + side * 10.5;
+            if (!this.boxFree(x - 0.8, x + 0.8, z - 0.8, z + 0.8)) continue;
+            if (k % 2 === 0) batch.addObject(palm(x, z, 0.85));
+            else {
+              const bed = new THREE.Mesh(
+                new THREE.BoxGeometry(2.4, 0.35, 0.9),
+                MAT.plain(0xd8d2c2),
+              );
+              bed.position.set(x, 0.17, z);
+              batch.addObject(bed);
+              for (let f = -1; f <= 1; f++) {
+                const fl = new THREE.Mesh(
+                  new THREE.IcosahedronGeometry(0.28, 0),
+                  MAT.plain(flowers[(k + f + 1) % 4]),
+                );
+                fl.position.set(x + f * 0.7, 0.55, z);
+                batch.addObject(fl);
+              }
+            }
+            if (k % 4 === 1) {
+              const pole = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.04, 0.05, 5.5, 6),
+                MAT.plain(0xd8dce0, 0.3),
+              );
+              pole.position.set(x + 1.6, 2.75, z);
+              batch.addObject(pole);
+              for (const [i, c] of [0x1f8a3a, 0xfdfdfd, 0x1f8a3a].entries()) {
+                const band = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.8), MAT.plain(c));
+                band.position.set(x + 1.6 + 0.21 + i * 0.42, 5.0, z);
+                batch.addObject(band);
+              }
+            }
+            k++;
+          }
+        }
+      });
     S.add(wires);
 
     // street lamps
@@ -1077,34 +1129,51 @@ export class IlmCityEngine {
     jl.position.set(0, 14, 0);
     S.add(jl);
 
-    // Ikorodu Road continues north, joining each Ikorodu area to the next
+    // roads joining linked areas (Ikorodu Road, Isheri–Igando Road, Ajah–Badore Road)
     for (const d of DISTRICTS) {
       if (!d.parent) continue;
       const p = districtById(d.parent);
-      const z0 = p.origin.z - (halfOf(p).z - 4),
-        z1 = d.origin.z + halfOf(d).z - 7;
-      const len = z0 - z1;
+      const east = d.link === "east";
+      // a = along the road, from the parent to this area
+      const a0 = east ? p.origin.x + halfOf(p).x - 6 : p.origin.z - (halfOf(p).z - 4);
+      const a1 = east ? d.origin.x - halfOf(d).x + 6 : d.origin.z + halfOf(d).z - 7;
+      const len = Math.abs(a1 - a0),
+        mid = (a0 + a1) / 2;
+      const at = (along: number, across: number): [number, number] =>
+        east ? [along, d.origin.z + across] : [d.origin.x + across, along];
+      const put = (m: THREE.Mesh, along: number, y: number) => {
+        const [x, z] = at(along, 0);
+        m.position.set(x, y, z);
+        if (east) m.rotation.y = Math.PI / 2;
+      };
       const k = new THREE.Mesh(groundGeo(22, len, 2), MAT.pavement());
-      k.position.set(d.origin.x, 0.02, (z0 + z1) / 2);
+      put(k, mid, 0.02);
       S.add(k);
       const r = new THREE.Mesh(groundGeo(12, len, 4), MAT.asphalt());
-      r.position.set(d.origin.x, 0.04, (z0 + z1) / 2);
+      put(r, mid, 0.04);
       S.add(r);
-      for (let z = z1 + 3; z < z0 - 3; z += 6) {
+      const lo = Math.min(a0, a1),
+        hi = Math.max(a0, a1);
+      for (let v = lo + 3; v < hi - 3; v += 6) {
         const m = new THREE.Mesh(
           new THREE.PlaneGeometry(0.25, 3),
           new THREE.MeshBasicMaterial({ color: PALETTE.line }),
         );
         m.rotation.x = -Math.PI / 2;
-        m.position.set(d.origin.x, 0.06, z);
+        const [x, z] = at(v, 0);
+        m.position.set(x, 0.06, z);
+        if (east) m.rotation.z = Math.PI / 2;
         this.worldBatch.addObject(m);
       }
-      const t = label("Ikorodu Road", { bg: "rgba(42,58,52,0.9)", size: 1.1 });
-      t.position.set(d.origin.x + 9, 6, (z0 + z1) / 2);
+      const t = label(d.highway, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
+      const [tx, tz] = at(mid, 9);
+      t.position.set(tx, 6, tz);
       S.add(t);
-      for (let z = z1 + 6; z < z0 - 6; z += 14) {
-        this.worldBatch.addObject(palm(d.origin.x - 13, z, 0.9));
-        this.worldBatch.addObject(palm(d.origin.x + 13, z + 7, 0.9));
+      for (let v = lo + 6; v < hi - 6; v += 14) {
+        const [x1, z1] = at(v, -13),
+          [x2, z2] = at(v + 7, 13);
+        this.worldBatch.addObject(palm(x1, z1, 0.9));
+        this.worldBatch.addObject(palm(x2, z2, 0.9));
       }
     }
     // expressways from the junction to the end of each main street
@@ -1113,6 +1182,50 @@ export class IlmCityEngine {
       const len0 = Math.hypot(ax, az);
       this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
     });
+    // big roadside billboards along every expressway and Ikorodu Road
+    const roadside = new THREE.Group();
+    this.scene.add(roadside);
+    const keepDg = this.dg;
+    this.dg = roadside;
+    for (const d of DISTRICTS) {
+      const boards = BILLBOARDS.filter((b) => b.district === "road:" + d.id);
+      if (!boards.length) continue;
+      let x0: number, z0: number, x1: number, z1: number;
+      if (d.parent) {
+        const p = districtById(d.parent);
+        [x0, z0, x1, z1] = [
+          d.origin.x,
+          p.origin.z - halfOf(p).z,
+          d.origin.x,
+          d.origin.z + halfOf(d).z,
+        ];
+        if (d.link === "east")
+          [x0, z0, x1, z1] = [
+            p.origin.x + halfOf(p).x,
+            p.origin.z,
+            d.origin.x - halfOf(d).x,
+            d.origin.z,
+          ];
+      } else {
+        const [ax, az] = this.roadEnd(d);
+        const L = Math.hypot(ax, az);
+        [x0, z0, x1, z1] = [(ax / L) * 40, (az / L) * 40, ax - (ax / L) * 30, az - (az / L) * 30];
+      }
+      const dx = x1 - x0,
+        dz = z1 - z0,
+        L = Math.hypot(dx, dz) || 1;
+      const nx = -dz / L,
+        nz = dx / L;
+      boards.forEach((b, i) => {
+        const f = (i + 1) / (boards.length + 1);
+        const side = i % 2 ? 1 : -1;
+        const off = d.parent ? 16 : 17;
+        const x = x0 + dx * f + nx * side * off,
+          z = z0 + dz * f + nz * side * off;
+        this.billboard(b, x, z, Math.atan2(-nx * side, -nz * side));
+      });
+    }
+    this.dg = keepDg;
     for (const m of this.worldBatch.build()) this.scene.add(m);
   }
 
@@ -1169,7 +1282,10 @@ export class IlmCityEngine {
   private roadAt(x: number, z: number) {
     for (const d of DISTRICTS) {
       if (d.parent) {
-        if (Math.abs(x - d.origin.x) < 12 && z > d.origin.z && z < districtById(d.parent).origin.z)
+        const p = districtById(d.parent);
+        if (d.link === "east") {
+          if (Math.abs(z - d.origin.z) < 12 && x > p.origin.x && x < d.origin.x) return d.highway;
+        } else if (Math.abs(x - d.origin.x) < 12 && z > d.origin.z && z < p.origin.z)
           return d.highway;
         continue;
       }
@@ -1501,20 +1617,23 @@ export class IlmCityEngine {
     let path: THREE.Vector3[];
     const Hz = halfOf(D).z,
       Hx = halfOf(D).x;
+    const dside = D.link === "east" ? -1 : side;
     if (byCar) {
       vehicle = this.car;
-      path = D.parent
-        ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
-        : [W(side * (Hx + 38), -3), W(side * 40, -3), W(-4, 9.8), W(-16, 9.8)];
+      path =
+        D.parent && D.link !== "east"
+          ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
+          : [W(dside * (Hx + 38), -3), W(dside * 40, -3), W(-4, 9.8), W(-16, 9.8)];
     } else {
       vehicle = makeBus();
       this.scene.add(vehicle);
-      path = D.parent
-        ? [W(3, Hz + 40), W(3, 20), W(-6, 9.6), W(-52, 9.6)]
-        : [W(side * (Hx + 38), 3), W(side * 40, 3), W(-6, 9.6), W(-52, 9.6)];
+      path =
+        D.parent && D.link !== "east"
+          ? [W(3, Hz + 40), W(3, 20), W(-6, 9.6), W(-52, 9.6)]
+          : [W(dside * (Hx + 38), 3), W(dside * 40, 3), W(-6, 9.6), W(-52, 9.6)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = D.parent ? Math.PI / 2 : side > 0 ? Math.PI : 0;
+    vehicle.rotation.y = D.parent && D.link !== "east" ? Math.PI / 2 : dside > 0 ? Math.PI : 0;
     this.player.position.copy(path[0]);
     this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
     this.ev.onCinematic?.(true);
@@ -1578,11 +1697,13 @@ export class IlmCityEngine {
 
   private welcomeGate(D: District, side: number) {
     const H = halfOf(D);
-    const gx = D.parent ? 0 : side * (H.x - 18);
-    const gz = D.parent ? H.z - 14 : 0;
+    const north = !!D.parent && D.link !== "east";
+    if (D.link === "east") side = 1;
+    const gx = north ? 0 : side * (H.x - 18);
+    const gz = north ? H.z - 14 : 0;
     const g = new THREE.Group();
     g.position.set(gx, 0, gz);
-    g.rotation.y = D.parent ? 0 : (side * Math.PI) / 2;
+    g.rotation.y = north ? 0 : (side * Math.PI) / 2;
     for (const x of [-8.6, 8.6]) {
       g.add(box(1.4, 7.5, 1.4, 0xece6d6, x, 0, 0));
       const cap = new THREE.Mesh(new THREE.ConeGeometry(1, 1.6, 8), mat(PALETTE.dome));
@@ -1593,7 +1714,7 @@ export class IlmCityEngine {
       c.scale.setScalar(0.6);
       c.position.set(x - 0.1, 9.6, 0);
       g.add(c);
-      if (D.parent) this.addCollider("out", x - 0.8, x + 0.8, gz - 0.8, gz + 0.8);
+      if (north) this.addCollider("out", x - 0.8, x + 0.8, gz - 0.8, gz + 0.8);
       else this.addCollider("out", gx - 0.8, gx + 0.8, -x * side - 0.8, -x * side + 0.8);
     }
     g.add(box(18.6, 2.6, 0.7, 0x1f6f63, 0, 5.4, 0));
@@ -1614,7 +1735,7 @@ export class IlmCityEngine {
         if (D.parent) {
           c.fillStyle = "#e6b84a";
           c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-          c.fillText(`Ikorodu · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
+          c.fillText(`${rootOf(D).name} · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
           return;
         }
         c.fillStyle = "#e6b84a";
@@ -1625,6 +1746,31 @@ export class IlmCityEngine {
     );
     mesh.position.set(0, 6.7, 0.37);
     g.add(mesh);
+    // the back of the gate shows where the road goes as you leave
+    const to = D.parent ? fullName(districtById(D.parent)) : "City Junction";
+    const back = canvasPlane(
+      17.6,
+      2.3,
+      (c, W, H) => {
+        c.fillStyle = "#1f6f63";
+        c.fillRect(0, 0, W, H);
+        c.strokeStyle = "#e6b84a";
+        c.lineWidth = 8;
+        c.strokeRect(10, 10, W - 20, H - 20);
+        c.fillStyle = "#fdf8ec";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `800 ${Math.round(H * 0.4)}px "Work Sans", system-ui, sans-serif`;
+        c.fillText(`To ${to}  →`, W / 2, H * 0.42);
+        c.fillStyle = "#e6b84a";
+        c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
+        c.fillText(`Ma'a as-salamah · thank you for visiting ${D.name}`, W / 2, H * 0.78);
+      },
+      1400,
+    );
+    back.mesh.position.set(0, 6.7, -0.37);
+    back.mesh.rotation.y = Math.PI;
+    g.add(back.mesh);
     this.dg.add(g);
   }
   districtId() {
@@ -1872,8 +2018,8 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     g.rotation.y = rot;
-    const pole = cyl(0.07, 0.07, 3.4, 0x5a5f66, 6);
-    pole.position.y = 1.7;
+    const pole = cyl(0.07, 0.07, 2.9, 0x5a5f66, 6);
+    pole.position.y = 1.45;
     g.add(pole);
     const { mesh } = canvasPlane(
       3.6,
@@ -1904,9 +2050,10 @@ export class IlmCityEngine {
     this.dg.add(g);
   }
 
-  private billboard(b: Billboard, bx: number, bz: number) {
+  private billboard(b: Billboard, bx: number, bz: number, rot = 0) {
     const g = new THREE.Group();
     g.position.set(bx, 0, bz);
+    g.rotation.y = rot;
     [-2.6, 2.6].forEach((px) => {
       const p = box(0.35, 4, 0.35, 0x5a5f66, px, 0, -0.3);
       g.add(p);
@@ -1963,7 +2110,9 @@ export class IlmCityEngine {
     }
     this.tappables.push(mesh);
     this.dg.add(g);
-    this.addCollider("out", bx - 5.5, bx + 5.5, bz - 1, bz + 1);
+    const ex = Math.abs(Math.cos(rot)) * 5.5 + Math.abs(Math.sin(rot)) * 1,
+      ez = Math.abs(Math.sin(rot)) * 5.5 + Math.abs(Math.cos(rot)) * 1;
+    this.addCollider("out", bx - ex, bx + ex, bz - ez, bz + ez);
   }
 
   private buildCar() {
@@ -2547,6 +2696,13 @@ export class IlmCityEngine {
     return this.areaGroups.find((a) => a.x === D.origin.x && a.z === D.origin.z)!.g;
   }
 
+  /* ---------------- prayer ---------------- */
+  /** Your character stands, bows, prostrates or sits during salah. */
+  prayPose(p: Pose | null) {
+    if (p) poseHuman(this.player, p);
+    else releasePose(this.player);
+  }
+
   /* ---------------- people ---------------- */
   /** Stop a passer-by for a chat. */
   talkTo(i: number) {
@@ -2581,6 +2737,19 @@ export class IlmCityEngine {
         Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z) < radius
       )
         return "The Hisbah patrol";
+    return null;
+  }
+  /** The Hisbah officer walking right next to you (index for talkTo), or null. */
+  hisbahBeside(radius = 6) {
+    if (this.where !== "out" || this.driving || this.riding || this.cine) return null;
+    const p = this.player.position;
+    for (let i = 0; i < this.walkers.length; i++) {
+      const w = this.walkers[i];
+      if (!w.hisbah || !w.g.parent || w.talking) continue;
+      const x = w.g.position.x + w.g.parent.position.x,
+        z = w.g.position.z + w.g.parent.position.z;
+      if (Math.hypot(x - p.x, z - p.z) < radius) return i;
+    }
     return null;
   }
   /** Are you inside an area (not on an expressway)? */

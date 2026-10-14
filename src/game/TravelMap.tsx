@@ -15,6 +15,8 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   agric: { name: "Agric", lat: 6.632, lng: 3.522 },
   secondgate: { name: "Second Gate", lat: 6.647, lng: 3.536 },
   market: { name: "Ikorodu Market", lat: 6.66, lng: 3.548 },
+  badore: { name: "Badore", lat: 6.468, lng: 3.548 },
+  powerline: { name: "Powerline", lat: 6.565, lng: 3.262 },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -34,6 +36,8 @@ const ROADS: [string, string][] = [
   ["ikorodu", "agric"],
   ["agric", "secondgate"],
   ["secondgate", "market"],
+  ["lekki", "badore"],
+  ["egbeda", "powerline"],
 ];
 
 const W = 400,

@@ -193,6 +193,7 @@ export class Traffic {
   vehicles: Vehicle[] = [];
   tour: Path;
   shuttle!: Path;
+  shuttles: Path[] = [];
   stops: BusStop[] = [];
   /** set by the game: the stop the player is waiting at */
   waitingAt: string | null = null;
@@ -233,53 +234,100 @@ export class Traffic {
         });
       }
     }
-    // the Ikorodu shuttle: up Ikorodu Road from Igbe Laara to the market and back
-    const chain: District[] = [districtById("ikorodu")];
-    for (;;) {
-      const next = DISTRICTS.find((d) => d.parent === chain[chain.length - 1].id);
-      if (!next) break;
-      chain.push(next);
-    }
-    const top = chain[chain.length - 1];
-    const cx = chain[0].origin.x;
-    const zs = chain[0].origin.z + 40,
-      ze = top.origin.z - (halfOf(top).z - 12);
-    const sp = [
-      ...lane(
-        [
-          [cx, zs],
-          [cx, ze],
-        ],
-        3.3,
-        14,
-      ),
-      ...lane(
-        [
-          [cx, ze],
-          [cx, zs],
-        ],
-        3.3,
-        14,
-      ),
-    ];
-    sp.push({ ...sp[0] });
-    this.shuttle = new Path(sp);
-    for (const d of chain)
-      for (const north of [true, false]) {
-        const x = cx + (north ? 8.6 : -8.6),
-          z = d.origin.z + 22;
-        this.stops.push({
-          id: `${d.id}-${north ? "n" : "s"}`,
-          path: this.shuttle,
-          rot: north ? Math.PI / 2 : -Math.PI / 2,
-          district: d.id,
-          name: `${d.busStop ?? d.name} Bus Stop`,
-          s: this.shuttle.nearest(cx + (north ? 3.3 : -3.3), z).s,
-          x,
-          z,
-          heading: north ? Math.PI / 2 : -Math.PI / 2,
-        });
+    // shuttles along the roads that join linked areas: up Ikorodu Road to the market,
+    // Isheri–Igando Road to Powerline, Ajah–Badore Road to Badore
+    this.shuttles = [];
+    for (const root of DISTRICTS.filter(
+      (d) => !d.parent && DISTRICTS.some((c) => c.parent === d.id),
+    )) {
+      const chain: District[] = [root];
+      for (;;) {
+        const next = DISTRICTS.find((d) => d.parent === chain[chain.length - 1].id);
+        if (!next) break;
+        chain.push(next);
       }
+      const east = chain[1].link === "east";
+      const top = chain[chain.length - 1];
+      let sp: P[];
+      if (east) {
+        const z = root.origin.z,
+          xs = root.origin.x + 30,
+          xe = top.origin.x + (halfOf(top).x - 22);
+        sp = [
+          ...lane(
+            [
+              [xs, z],
+              [xe, z],
+            ],
+            3.3,
+            13,
+          ),
+          ...lane(
+            [
+              [xe, z],
+              [xs, z],
+            ],
+            3.3,
+            13,
+          ),
+        ];
+      } else {
+        const cx = root.origin.x,
+          zs = root.origin.z + 40,
+          ze = top.origin.z - (halfOf(top).z - 12);
+        sp = [
+          ...lane(
+            [
+              [cx, zs],
+              [cx, ze],
+            ],
+            3.3,
+            14,
+          ),
+          ...lane(
+            [
+              [cx, ze],
+              [cx, zs],
+            ],
+            3.3,
+            14,
+          ),
+        ];
+      }
+      sp.push({ ...sp[0] });
+      const path = new Path(sp);
+      this.shuttles.push(path);
+      for (const d of chain)
+        for (const fwd of [true, false]) {
+          // fwd: travelling away from the root (north, or east)
+          let x: number, z: number, laneX: number, laneZ: number, rot: number;
+          if (east) {
+            x = d.origin.x + 22;
+            z = d.origin.z + (fwd ? 8.6 : -8.6);
+            laneX = x;
+            laneZ = d.origin.z + (fwd ? 3.3 : -3.3);
+            rot = fwd ? 0 : Math.PI;
+          } else {
+            x = root.origin.x + (fwd ? 8.6 : -8.6);
+            z = d.origin.z + 22;
+            laneX = root.origin.x + (fwd ? 3.3 : -3.3);
+            laneZ = z;
+            rot = fwd ? Math.PI / 2 : -Math.PI / 2;
+          }
+          this.stops.push({
+            id: `${d.id}-${east ? (fwd ? "e" : "w") : fwd ? "n" : "s"}`,
+            path,
+            rot,
+            district: d.id,
+            name: `${d.busStop ?? d.name} Bus Stop`,
+            s: path.nearest(laneX, laneZ).s,
+            x,
+            z,
+            heading: rot,
+          });
+        }
+    }
+    this.shuttle = this.shuttles[0];
     this.stops.sort((a, b) => a.s - b.s);
 
     const add = (kind: VehicleKind, path: Path, s: number, color?: number) => {
@@ -313,10 +361,13 @@ export class Traffic {
     ];
     for (let i = 0; i < 10; i++) add(kinds[i % kinds.length], this.tour, (L / 10) * i + 120);
     for (let i = 0; i < 8; i++) add(kinds[(i + 3) % kinds.length], tour2, (tour2.length / 8) * i);
-    const SL = this.shuttle.length;
-    add("danfo", this.shuttle, 30);
-    add("danfo", this.shuttle, SL / 2 + 30);
-    for (let i = 0; i < 5; i++) add(kinds[(i + 1) % kinds.length], this.shuttle, (SL / 5) * i + 80);
+    for (const sh of this.shuttles) {
+      const SL = sh.length;
+      add("danfo", sh, 30);
+      add("danfo", sh, SL / 2 + 30);
+      const n = Math.max(2, Math.round(SL / 300));
+      for (let i = 0; i < n; i++) add(kinds[(i + 1) % kinds.length], sh, (SL / n) * i + 80);
+    }
     for (const d of DISTRICTS) {
       d.streets.forEach((st, k) => {
         const p = streetLoop(d, st.z, k === 0 ? 11 : 8);
