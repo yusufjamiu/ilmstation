@@ -1641,6 +1641,14 @@ export class IlmCityEngine {
       ) ?? null
     );
   }
+  /** Begin inside the family house; walking out puts you at its gate. */
+  startAtPlot(id: string, name: string) {
+    const z = this.zones.find((zz) => zz.id === "plot:" + id);
+    const p = this.plots.find((q) => q.id === id);
+    if (z) this.player.position.set(z.x, 0, z.z);
+    if (p) this.district = districtById(p.district);
+    this.enterInterior("home", name);
+  }
   /** Begin the day inside your flat; walking out puts you at the estate gate. */
   startAtHome(area: string, name: string) {
     const d = this.homeDoor(area);

@@ -1352,3 +1352,295 @@ export const WUDU_STEPS: { name: string; how: string; times: number }[] = [
     times: 1,
   },
 ];
+
+/* ---------------- work ---------------- */
+export type JobQ = { q: string; o: string[]; a: number };
+export type Job = {
+  id: string;
+  name: string;
+  place: string;
+  /** where you report for work: a zone id prefix */
+  at: string;
+  area: string;
+  pay: number;
+  /** shift hours in Lagos time; null = any time */
+  hours: [number, number] | null;
+  about: string;
+  tasks: JobQ[];
+};
+const J = (q: string, a: string, ...w: string[]): JobQ => {
+  const o = [a, ...w];
+  const k = q.length % o.length;
+  [o[0], o[k]] = [o[k], o[0]];
+  return { q, o, a: k };
+};
+export const JOBS: Job[] = [
+  {
+    id: "teacher",
+    name: "Class teacher",
+    place: "Manaar International Primary School",
+    at: "campus:manaar-primary:admin",
+    area: "ikorodu",
+    pay: 50,
+    hours: [8, 15],
+    about: "Teach Primary pupils and mark their work.",
+    tasks: [
+      J(
+        "A pupil wrote 7 + 5 = 13. What do you say?",
+        "Kindly show them it is 12",
+        "Mark it right",
+        "Send them home",
+      ),
+      J(
+        "It is time for Dhuhr during school. You…",
+        "Lead the pupils to pray",
+        "Keep teaching",
+        "Close the school",
+      ),
+      J(
+        "Two pupils are fighting. First you…",
+        "Separate them and calm them",
+        "Shout at the class",
+        "Ignore it",
+      ),
+      J(
+        "A shy pupil has not spoken today. You…",
+        "Give them an easy question to answer",
+        "Mock them",
+        "Leave them out",
+      ),
+      J("Which is a noun?", "School", "Run", "Quickly", "Happy"),
+      J(
+        "The pupils finish early. You…",
+        "Revise a short surah together",
+        "Let them roam outside",
+        "End school",
+      ),
+    ],
+  },
+  {
+    id: "developer",
+    name: "App developer",
+    place: "IlmStation",
+    at: "office:ilmstation",
+    area: "ikorodu",
+    pay: 60,
+    hours: [9, 17],
+    about: "Fix bugs and build features for the IlmStation app.",
+    tasks: [
+      J(
+        "A user says the quiz shows the wrong answer. First you…",
+        "Reproduce the bug and check the data",
+        "Delete the quiz",
+        "Blame the user",
+      ),
+      J(
+        "Before releasing a feature you should…",
+        "Test it",
+        "Release it on Friday night untested",
+        "Hide it",
+      ),
+      J(
+        "Prayer times look wrong in Riyadh. You check…",
+        "The time zone and calculation method",
+        "The font",
+        "The colour",
+      ),
+      J("A teammate asks for help. You…", "Help them kindly", "Ignore them", "Laugh at them"),
+      J(
+        "Users' passwords should be…",
+        "Never stored in plain text",
+        "Shared in the group chat",
+        "Printed",
+      ),
+    ],
+  },
+  {
+    id: "events",
+    name: "Events coordinator",
+    place: "OutingStation",
+    at: "office:outingstation",
+    area: "ikorodu",
+    pay: 55,
+    hours: [9, 17],
+    about: "Help businesses list events and help people book them.",
+    tasks: [
+      J(
+        "An event clashes with Jumu'ah. You suggest…",
+        "Starting after Jumu'ah",
+        "Ignoring it",
+        "Cancelling Jumu'ah",
+      ),
+      J(
+        "A customer paid but got no ticket. You…",
+        "Check the payment and send the ticket",
+        "Tell them to pay again",
+        "Block them",
+      ),
+      J(
+        "A venue asks to list a mixed party with alcohol. You…",
+        "Politely decline",
+        "Approve it",
+        "Hide the details",
+      ),
+      J(
+        "A family wants a halal outing. You suggest…",
+        "A park picnic or a museum",
+        "A nightclub",
+        "Nothing",
+      ),
+      J(
+        "An event's photos look fake. You…",
+        "Ask the organiser for real photos",
+        "Approve it anyway",
+        "Post it twice",
+      ),
+    ],
+  },
+  {
+    id: "hajj",
+    name: "Hajj & Umrah consultant",
+    place: "Manaar Hajj & Umrah Company",
+    at: "office:manaar-hajj",
+    area: "ikorodu",
+    pay: 55,
+    hours: [9, 17],
+    about: "Guide pilgrims through their Hajj and Umrah plans.",
+    tasks: [
+      J("Ihram for Umrah starts at the…", "Miqat", "Hotel lobby", "Airport shop"),
+      J("Tawaf is going round the Ka'bah how many times?", "7", "3", "5"),
+      J("Sa'i is walking between…", "Safa and Marwah", "Mina and Arafah", "Makkah and Madinah"),
+      J(
+        "The most important day of Hajj is…",
+        "The day of Arafah",
+        "The day of travel",
+        "The last day of Ramadan",
+      ),
+      J(
+        "A pilgrim's passport expires next month. You…",
+        "Tell them to renew it first",
+        "Book them anyway",
+        "Ignore it",
+      ),
+    ],
+  },
+  {
+    id: "quranteacher",
+    name: "Qur'an teacher",
+    place: "Markaz Abdullateef",
+    at: "office:markaz-abdullateef",
+    area: "ikeja",
+    pay: 50,
+    hours: [7, 13],
+    about: "Listen to students recite and correct their memorisation.",
+    tasks: [
+      J(
+        "A student skips a verse. You…",
+        "Stop and help them repeat it",
+        "Let it pass",
+        "End the class",
+      ),
+      J("Noon sakinah before ب is read with…", "Iqlab", "Izhar", "Idgham"),
+      J("How many surahs are in Juz 'Amma?", "37", "30", "114"),
+      J(
+        "A student is tired. You…",
+        "Give a short break and encourage them",
+        "Shout",
+        "Send them away",
+      ),
+      J(
+        "The best revision is…",
+        "Little and often, every day",
+        "Once a month",
+        "Only before exams",
+      ),
+    ],
+  },
+  {
+    id: "counsellor",
+    name: "Counsellor",
+    place: "Alfaoz Counselling Home",
+    at: "office:alfaoz-counselling",
+    area: "okeeletu",
+    pay: 50,
+    hours: [10, 18],
+    about: "Listen to people and give gentle, private advice.",
+    tasks: [
+      J(
+        "Someone is sharing a problem. You first…",
+        "Listen without interrupting",
+        "Tell everyone",
+        "Judge them",
+      ),
+      J("What is said in counselling is…", "Kept private", "Posted online", "Told to neighbours"),
+      J(
+        "A couple argues about money. You suggest…",
+        "Make a budget together",
+        "Divorce",
+        "Borrow more",
+      ),
+      J(
+        "Someone feels low. You…",
+        "Show care and suggest they also see a doctor",
+        "Laugh it off",
+        "Ignore them",
+      ),
+    ],
+  },
+  {
+    id: "caretaker",
+    name: "Mosque caretaker",
+    place: "Any mosque",
+    at: "door:masjid:",
+    area: "",
+    pay: 35,
+    hours: null,
+    about: "Keep the mosque clean, lay the mats and help call the adhan.",
+    tasks: [
+      J(
+        "Before Jumu'ah you should…",
+        "Clean and lay out the mats",
+        "Lock the doors",
+        "Turn off the fans",
+      ),
+      J("Shoes go…", "On the shoe rack", "On the prayer mats", "In the mihrab"),
+      J(
+        "A traveller asks for the Qiblah. You…",
+        "Show them the direction",
+        "Ignore them",
+        "Point anywhere",
+      ),
+      J("The adhan begins with…", "Allahu Akbar", "Bismillah", "Alhamdulillah"),
+    ],
+  },
+  {
+    id: "porter",
+    name: "Market porter",
+    place: "Any market",
+    at: "stall:",
+    area: "",
+    pay: 25,
+    hours: null,
+    about: "Carry goods for traders and shoppers at the market.",
+    tasks: [
+      J(
+        "A woman has heavy bags. You…",
+        "Offer to help and agree a fair price",
+        "Grab them",
+        "Walk away",
+      ),
+      J("A trader gives you too much change. You…", "Give it back", "Keep it", "Run"),
+      J(
+        "Rice bags should be lifted with…",
+        "Bent knees and a straight back",
+        "Your back bent",
+        "One finger",
+      ),
+      J("It is time for salah. You…", "Pause and pray", "Keep working through it", "Sleep"),
+    ],
+  },
+];
+export const STREAK_REWARDS: Record<number, number> = { 3: 20, 7: 50, 14: 100, 30: 200 };
+export const STREAK_TASKS = 5;
+/** A trader's shop with a name and products sells this much a day. */
+export const SHOP_SALES_PER_DAY = 20;

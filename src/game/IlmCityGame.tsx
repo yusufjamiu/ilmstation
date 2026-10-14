@@ -28,6 +28,11 @@ import {
   ECONOMY,
   TENANTS,
   HOME_ITEMS,
+  JOBS,
+  STREAK_REWARDS,
+  STREAK_TASKS,
+  SHOP_SALES_PER_DAY,
+  type Job,
   itemPoints,
   DAY_TASKS,
   TASK_POINTS,
@@ -76,6 +81,13 @@ type Save = {
   guide?: number;
   /** the area of your flat */
   homeArea?: string;
+  /** the family house (rich family) */
+  homePlot?: string;
+  path?: LifePath;
+  job?: string;
+  /** the day you last worked a shift */
+  worked?: string;
+  streak?: { n: number; last: string };
   items?: string[];
   needs?: Needs;
   tasks?: Record<string, boolean>;
@@ -83,6 +95,27 @@ type Save = {
   salams?: number;
 };
 type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
+type LifePath = "rich" | "worker" | "trader";
+const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] = [
+  {
+    id: "worker",
+    icon: "💼",
+    name: "9-to-5 worker",
+    text: "A flat in the estate and a job with a daily salary: teacher, developer, Hajj consultant…",
+  },
+  {
+    id: "trader",
+    icon: "🏪",
+    name: "Trader",
+    text: "A flat and your first shop free for a week. Add products, then collect your sales.",
+  },
+  {
+    id: "rich",
+    icon: "🏡",
+    name: "Rich family",
+    text: "A big furnished family house on the street and 600 points to start.",
+  },
+];
 const landmarkName = (lid: string) => {
   for (const d of DISTRICTS) for (const l of d.landmarks) if (l.id === lid) return l.name;
   return "";
@@ -331,6 +364,7 @@ function CityGame({
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
+  const workSkip = useRef(false);
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
   const lastSent = useRef({ x: 0, z: 0, area: "" });
@@ -396,8 +430,32 @@ function CityGame({
       if (t[id]) return;
       const next = { ...t, [id]: true };
       const all = DAY_TASKS.every((d) => next[d.id]);
-      saveRef.current = { ...saveRef.current, tasks: next };
-      update((x) => ({ ...x, tasks: next, coins: x.coins + TASK_POINTS + (all ? DAY_BONUS : 0) }));
+      // a day with 5 tasks done keeps your streak going
+      const today = clockRef.current.key;
+      let streak = saveRef.current.streak ?? { n: 0, last: "" };
+      let streakBonus = 0;
+      if (Object.keys(next).length >= STREAK_TASKS && streak.last !== today) {
+        const y = new Date(today + "T12:00:00Z");
+        y.setUTCDate(y.getUTCDate() - 1);
+        const n = streak.last === y.toISOString().slice(0, 10) ? streak.n + 1 : 1;
+        streak = { n, last: today };
+        streakBonus = STREAK_REWARDS[n] ?? 0;
+        setTimeout(
+          () =>
+            toast(
+              `🔥 ${n}-day streak!${streakBonus ? ` Bonus +${streakBonus} points.` : " Come back tomorrow to keep it going."}`,
+              "good",
+            ),
+          1600,
+        );
+      }
+      saveRef.current = { ...saveRef.current, tasks: next, streak };
+      update((x) => ({
+        ...x,
+        tasks: next,
+        streak,
+        coins: x.coins + TASK_POINTS + (all ? DAY_BONUS : 0) + streakBonus,
+      }));
       const task = DAY_TASKS.find((d) => d.id === id);
       toast(
         all
@@ -641,6 +699,20 @@ function CityGame({
                 toast("Bismillah… delicious! Alhamdulillah. −5 points", "good");
               }}
               points={saveRef.current.coins}
+              onCollect={() => {
+                const o2 = saveRef.current.shops?.[sid];
+                if (!o2) return;
+                const due = salesDue(o2);
+                if (due < 1) return;
+                const next = { ...o2, salesAt: Date.now() };
+                update((x) => ({ ...x, coins: x.coins + due, shops: { ...x.shops, [sid]: next } }));
+                saveRef.current = {
+                  ...saveRef.current,
+                  shops: { ...saveRef.current.shops, [sid]: next },
+                };
+                toast(`Sales collected: +${due} points. May Allah bless your trade.`, "good");
+                setTimeout(render, 0);
+              }}
               onRent={(days, pts) => {
                 if (saveRef.current.coins < pts) return;
                 const prev = saveRef.current.shops?.[sid];
@@ -648,6 +720,7 @@ function CityGame({
                   until: Math.max(Date.now(), prev?.until ?? 0) + days * 86400000,
                   name: prev?.name ?? "",
                   products: prev?.products ?? [],
+                  salesAt: prev?.salesAt ?? Date.now(),
                 };
                 update((x) => ({ ...x, coins: x.coins - pts, shops: { ...x.shops, [sid]: next } }));
                 saveRef.current = {
@@ -955,6 +1028,70 @@ function CityGame({
   const inboxRef = useRef<ChatInfo[]>([]);
   inboxRef.current = inbox;
 
+  /* ---------- work ---------- */
+  const startWork = useCallback(
+    (job: Job) =>
+      setPanel({
+        kind: "info",
+        title: `Work · ${job.place}`,
+        body: (
+          <WorkView
+            job={job}
+            onDone={(right, total) => {
+              const pay = Math.round(job.pay * (0.5 + (0.5 * right) / total));
+              update((x) => ({
+                ...x,
+                coins: x.coins + pay,
+                ilm: x.ilm + 2,
+                worked: clockRef.current.key,
+              }));
+              need({ energy: -15, social: 10 });
+              setPanel(null);
+              toast(
+                `Salary paid: +${pay} points. Hard work is worship when the intention is right.`,
+                "good",
+              );
+            }}
+          />
+        ),
+      }),
+    [update, need, toast],
+  );
+  const openJobs = useCallback(
+    () =>
+      setPanel({
+        kind: "info",
+        title: "Work",
+        body: (
+          <JobsView
+            current={saveRef.current.job}
+            onTake={(j) => {
+              update((x) => ({ ...x, job: j.id }));
+              saveRef.current = { ...saveRef.current, job: j.id };
+              setPanel(null);
+              toast(
+                `You are now a ${j.name.toLowerCase()} at ${j.place}. Shift: ${hoursText(j)}. Pay: ${j.pay} points a day.`,
+                "good",
+              );
+            }}
+            onGo={(j) => {
+              setPanel(null);
+              if (j.area && engine.current?.districtId() !== j.area) {
+                toast(
+                  `Your work is in ${fullName(districtById(j.area))}. Take a danfo there (☰ Menu → Travel).`,
+                );
+                return;
+              }
+              if (!engine.current?.goToZone(j.at)) toast("Go outside first.");
+            }}
+          />
+        ),
+      }),
+    [update, toast],
+  );
+  const openJobsRef = useRef(openJobs);
+  openJobsRef.current = openJobs;
+
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
     (id: string) => {
@@ -962,6 +1099,39 @@ function CityGame({
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
+      const job = JOBS.find((j) => j.id === s.job);
+      if (job && id.startsWith(job.at) && s.worked !== c.key && !workSkip.current) {
+        if (!onShift(job, c)) {
+          toast(`Your shift is ${hoursText(job)}. Come back then, in shaa Allah.`);
+        } else {
+          setPanel({
+            kind: "info",
+            title: job.place,
+            body: (
+              <div className="space-y-2">
+                <button
+                  onClick={() => startWork(job)}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  💼 Start my shift · {job.pay} pts
+                </button>
+                <button
+                  onClick={() => {
+                    workSkip.current = true;
+                    setPanel(null);
+                    onActionRef.current(id);
+                    workSkip.current = false;
+                  }}
+                  className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+                >
+                  Just visit
+                </button>
+              </div>
+            ),
+          });
+          return;
+        }
+      }
       if (id.startsWith("campus:")) {
         const [, lid, key, idx] = id.split(":");
         const L = landmarkById(lid);
@@ -1556,6 +1726,7 @@ function CityGame({
     },
     [
       greeted,
+      startWork,
       toast,
       update,
       openLecture,
@@ -1797,6 +1968,109 @@ function CityGame({
     .map((l) => lectureNow(l.id, clock))
     .find(Boolean);
 
+  const goal =
+    save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride
+      ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? "lekki")
+      : null;
+  const runGoal = (g: Goal) => {
+    if (g.act === "jobs") return openJobs();
+    if (g.act === "travel") return travelNow();
+    if (g.act === "adhkarM" || g.act === "adhkarE") {
+      const k = g.act === "adhkarM" ? "morning" : "evening";
+      setPanel({
+        kind: "info",
+        title: k === "morning" ? "Morning adhkar" : "Evening adhkar",
+        body: (
+          <AdhkarView
+            kind={k}
+            onDone={() => {
+              setPanel(null);
+              need({ iman: 15 });
+              doTask(g.act!);
+            }}
+          />
+        ),
+      });
+      return;
+    }
+    if (g.prefix && !engine.current?.goToZone(g.prefix))
+      toast(
+        inside
+          ? "Go outside first: walk to the door and tap Go outside."
+          : "That place isn't in this area. Use ☰ Menu → Travel.",
+      );
+  };
+  const travelNow = () =>
+    (() => {
+      const e = engine.current;
+      if (!e) return;
+      if (inside) toast("Go outside first, then tap Travel.");
+      else if (driving) onAction("bus");
+      else if (e.goToBusPark()) toast("Walking to the Bus Park…");
+    })();
+  const openMyDay = () =>
+    (() =>
+      setPanel({
+        kind: "info",
+        title: "My Day",
+        body: (
+          <MyDayView
+            tasks={saveRef.current.tasks ?? {}}
+            prayedCount={Object.keys(saveRef.current.prayed).length}
+            salamCount={saveRef.current.salams ?? 0}
+            onAdhkar={(k) =>
+              setPanel({
+                kind: "info",
+                title:
+                  k === "wake"
+                    ? "Waking up"
+                    : k === "morning"
+                      ? "Morning adhkar"
+                      : "Evening adhkar",
+                body: (
+                  <AdhkarView
+                    kind={k}
+                    onDone={() => {
+                      setPanel(null);
+                      need({ iman: 15 });
+                      doTask(k === "wake" ? "wake" : k === "morning" ? "adhkarM" : "adhkarE");
+                    }}
+                  />
+                ),
+              })
+            }
+          />
+        ),
+      }))();
+  const openHomeShop = () =>
+    (() =>
+      setPanel({
+        kind: "info",
+        title: "Furnish your home",
+        body: (
+          <HomeShopView
+            owned={saveRef.current.items ?? []}
+            points={saveRef.current.coins}
+            onBuy={(ids, pts) => {
+              if (saveRef.current.coins < pts) return;
+              const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
+              update((x) => ({ ...x, coins: x.coins - pts, items }));
+              engine.current?.setHomeItems(items);
+              setPanel(null);
+              toast(
+                `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${pts} points`,
+                "good",
+              );
+            }}
+            onNaira={(_ids, naira) =>
+              toast(
+                `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, use points.`,
+              )
+            }
+          />
+        ),
+      }))();
+
   if (!webgl)
     return (
       <div className="grid h-full place-items-center bg-[#10201e] p-6 text-center text-[#eef3ee]">
@@ -1867,55 +2141,13 @@ function CityGame({
               {save.ilm}
             </Chip>
           </div>
+          {(save.streak?.n ?? 0) > 0 && (
+            <Chip>
+              🔥 {save.streak!.n} day{save.streak!.n > 1 ? "s" : ""}
+            </Chip>
+          )}
           <button
-            onClick={() => {
-              const e = engine.current;
-              if (!e) return;
-              if (inside) toast("Go outside first, then tap Travel.");
-              else if (driving) onAction("bus");
-              else if (e.goToBusPark()) toast("Walking to the Bus Park…");
-            }}
-            className="pointer-events-auto rounded-xl bg-[#f2c230] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
-          >
-            Travel
-          </button>
-          <button
-            onClick={() =>
-              setPanel({
-                kind: "info",
-                title: "My Day",
-                body: (
-                  <MyDayView
-                    tasks={saveRef.current.tasks ?? {}}
-                    prayedCount={Object.keys(saveRef.current.prayed).length}
-                    salamCount={saveRef.current.salams ?? 0}
-                    onAdhkar={(k) =>
-                      setPanel({
-                        kind: "info",
-                        title:
-                          k === "wake"
-                            ? "Waking up"
-                            : k === "morning"
-                              ? "Morning adhkar"
-                              : "Evening adhkar",
-                        body: (
-                          <AdhkarView
-                            kind={k}
-                            onDone={() => {
-                              setPanel(null);
-                              need({ iman: 15 });
-                              doTask(
-                                k === "wake" ? "wake" : k === "morning" ? "adhkarM" : "adhkarE",
-                              );
-                            }}
-                          />
-                        ),
-                      })
-                    }
-                  />
-                ),
-              })
-            }
+            onClick={openMyDay}
             className="pointer-events-auto relative rounded-xl bg-[#e6b84a] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
           >
             📋 My Day
@@ -1929,59 +2161,45 @@ function CityGame({
             onClick={() =>
               setPanel({
                 kind: "info",
-                title: "Furnish your home",
+                title: "Menu",
                 body: (
-                  <HomeShopView
-                    owned={saveRef.current.items ?? []}
-                    points={saveRef.current.coins}
-                    onBuy={(ids, pts) => {
-                      if (saveRef.current.coins < pts) return;
-                      const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
-                      update((x) => ({ ...x, coins: x.coins - pts, items }));
-                      engine.current?.setHomeItems(items);
-                      setPanel(null);
-                      toast(
-                        `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${pts} points`,
-                        "good",
-                      );
-                    }}
-                    onNaira={(_ids, naira) =>
-                      toast(
-                        `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, use points.`,
-                      )
-                    }
+                  <MenuView
+                    items={[
+                      { icon: "🚌", label: "Travel", run: () => (setPanel(null), travelNow()) },
+                      {
+                        icon: "📍",
+                        label: "Places",
+                        run: () => openPlaces(engine.current?.districtId() ?? "lekki"),
+                      },
+                      { icon: "💼", label: "Work", run: () => openJobsRef.current() },
+                      { icon: "🛋️", label: "Home shop", run: openHomeShop },
+                      { icon: "💬", label: "Chat", badge: unread, run: openInbox },
+                      {
+                        icon: "❤️",
+                        label: "Needs",
+                        run: () =>
+                          setPanel({
+                            kind: "info",
+                            title: "Your needs",
+                            body: <NeedsView needs={saveRef.current.needs ?? freshNeeds()} />,
+                          }),
+                      },
+                      { icon: "📋", label: "My Day", run: openMyDay },
+                      { icon: "🚪", label: "Exit", run: () => (window.location.href = "/app") },
+                    ]}
                   />
                 ),
               })
             }
-            className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
-          >
-            🛋️ Home
-          </button>
-          <button
-            onClick={openInbox}
             className="pointer-events-auto relative rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
-            aria-label="Messages"
           >
-            💬 Chat
+            ☰ Menu
             {unread > 0 && (
               <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-[#b8573a] text-[11px] text-white">
                 {unread}
               </span>
             )}
           </button>
-          <button
-            onClick={() => openPlaces(engine.current?.districtId() ?? "lekki")}
-            className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
-          >
-            Places
-          </button>
-          <a
-            href="/app"
-            className="pointer-events-auto rounded-xl bg-[#10201e]/80 px-3 py-1.5 text-[12px] font-semibold text-[#fdf8ec]"
-          >
-            Exit
-          </a>
         </div>
       </div>
       <div
@@ -2010,6 +2228,19 @@ function CityGame({
                   : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
             </span>
           )}
+        {goal && (
+          <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
+            <span className="text-[12.5px] font-semibold leading-tight">🎯 {goal.text}</span>
+            {(goal.prefix || goal.act) && (
+              <button
+                onClick={() => runGoal(goal)}
+                className="shrink-0 rounded-lg bg-[#e6b84a] px-2.5 py-1 text-[12px] font-bold text-[#2a1c05]"
+              >
+                Go
+              </button>
+            )}
+          </div>
+        )}
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -2031,27 +2262,72 @@ function CityGame({
             if (look) e.setPlayerLook(look);
             e.setPreview(!!look);
           }}
-          onDone={(look, area) => {
-            engine.current?.setPlayerLook(look);
-            engine.current?.setPreview(false);
-            engine.current?.startIn(area);
-            engine.current?.startAtHome(area, `Your flat · ${districtById(area).name}`);
+          onDone={(look, area, path) => {
+            const e = engine.current;
+            if (!e) return;
+            e.setPlayerLook(look);
+            e.setPreview(false);
+            e.startIn(area);
+            let items: string[] = [];
+            let bonus = 100;
+            let plots = saveRef.current.plots ?? {};
+            let shops = saveRef.current.shops ?? {};
+            let homePlot: string | undefined;
+            let msg = `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of 100 points to start.`;
+            if (path === "rich") {
+              // the family house: one of the big houses on the street, furnished
+              const p = e.plots.find((q) => q.district === area && q.kind === "house" && q.toLet);
+              if (p) {
+                homePlot = p.id;
+                plots = {
+                  ...plots,
+                  [p.id]: { kind: "rented", until: Date.now() + 3650 * 86400000 },
+                };
+                e.setPlot(p.id, { kind: "rented" });
+              }
+              items = HOME_ITEMS.map((i) => i.id);
+              bonus = 600;
+              msg = `Welcome to the family house, ${look.name}! It is fully furnished, and here are 600 points.`;
+            } else if (path === "trader") {
+              const sid = e.shopIds().find((id) => id.startsWith(area + "-") && !/-m\d+$/.test(id));
+              if (sid) {
+                shops = {
+                  ...shops,
+                  [sid]: {
+                    until: Date.now() + 7 * 86400000,
+                    name: "",
+                    products: [],
+                    salesAt: Date.now(),
+                  },
+                };
+              }
+              msg = `Welcome, ${look.name}! Your first shop is free for 7 days. Find it with Places → Shops, name it and add products.`;
+            } else
+              msg = `Welcome home, ${look.name}! Choose your job from ☰ Menu → Work. Here are 100 points to start.`;
+            e.setHomeItems(items);
+            if (homePlot) e.startAtPlot(homePlot, `Family house · ${districtById(area).name}`);
+            else e.startAtHome(area, `Your flat · ${districtById(area).name}`);
             setInside(true);
-            update((x) => ({
-              ...x,
+            const next = {
+              ...saveRef.current,
               profile: look,
               guide: 1,
-              coins: x.coins + 100,
+              coins: saveRef.current.coins + bonus,
               district: area,
               homeArea: area,
-              items: [],
+              homePlot,
+              items,
               needs: freshNeeds(),
               wudu: false,
-            }));
-            toast(
-              `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of 100 points to start.`,
-              "good",
-            );
+              plots,
+              shops,
+              path,
+            };
+            saveRef.current = next;
+            update(() => next);
+            for (const sid of Object.keys(shops)) paintShop(e, sid);
+            toast(msg, "good");
+            if (path === "worker") setTimeout(() => openJobsRef.current(), 600);
           }}
         />
       )}
@@ -3196,6 +3472,8 @@ type ShopOwn = {
   until: number;
   name: string;
   products: { name: string; price: string; img: string }[];
+  /** when sales were last collected */
+  salesAt?: number;
 };
 
 /** Shrink a photo so it fits in the game's storage (about 20 KB). */
@@ -3251,6 +3529,7 @@ function ShopView({
   own,
   trader,
   onFood,
+  onCollect,
   points,
   onRent,
   onPaystack,
@@ -3261,6 +3540,7 @@ function ShopView({
   own?: ShopOwn;
   trader: (typeof MARKET_TRADERS)[number] | null;
   onFood: () => void;
+  onCollect: () => void;
   points: number;
   onRent: (days: number, pts: number) => void;
   onPaystack: (amount: number, what: string) => void;
@@ -3421,10 +3701,25 @@ function ShopView({
           />
         </label>
       )}
+      {own!.name && own!.products.length > 0 && (
+        <button disabled={salesDue(own!) < 1} className={primary} onClick={onCollect}>
+          {salesDue(own!) >= 1
+            ? `💰 Collect sales · ${salesDue(own!)} points`
+            : `Customers are buying · about ${SHOP_SALES_PER_DAY} points a day`}
+        </button>
+      )}
       <button
         disabled={!name.trim()}
         className={primary}
-        onClick={() => onSave({ until: own!.until, name: name.trim(), products })}
+        onClick={() =>
+          onSave({
+            ...own!,
+            until: own!.until,
+            name: name.trim(),
+            products,
+            salesAt: own!.salesAt ?? Date.now(),
+          })
+        }
       >
         Save and open my {kind}
       </button>
@@ -3688,9 +3983,10 @@ function Onboarding({
   firstName: string;
   female: boolean;
   onPreview: (look: Look | null) => void;
-  onDone: (look: Look, area: string) => void;
+  onDone: (look: Look, area: string, path: LifePath) => void;
 }) {
-  const [step, setStep] = useState<"welcome" | "account" | "look" | "area">("welcome");
+  const [step, setStep] = useState<"welcome" | "account" | "look" | "area" | "life">("welcome");
+  const [area, setArea] = useState("lekki");
   const [look, setLook] = useState<Look>({
     name: firstName,
     female,
@@ -3712,6 +4008,34 @@ function Onboarding({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  if (step === "life")
+    return (
+      <div
+        data-game-ui
+        className="absolute inset-0 z-30 flex items-end bg-[#10201e]/70 p-3 pb-[max(14px,env(safe-area-inset-bottom))]"
+      >
+        <div className="mx-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+          <h2 className="font-serif text-2xl">Choose your life</h2>
+          <p className="text-[13px] opacity-75">You can take a job or open a shop later too.</p>
+          <div className="mt-3 space-y-2">
+            {LIFE_PATHS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onDone({ ...look, name: look.name.trim() }, area, p.id)}
+                className="flex w-full items-start gap-3 rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left active:bg-[#1f6f63]/10"
+              >
+                <span className="text-[28px] leading-none">{p.icon}</span>
+                <span>
+                  <span className="block text-[16px] font-bold">{p.name}</span>
+                  <span className="block text-[13px] opacity-75">{p.text}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+
   if (step === "area")
     return (
       <div
@@ -3725,7 +4049,10 @@ function Onboarding({
             {DISTRICTS.map((d) => (
               <button
                 key={d.id}
-                onClick={() => onDone({ ...look, name: look.name.trim() }, d.id)}
+                onClick={() => {
+                  setArea(d.id);
+                  setStep("life");
+                }}
                 className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
               >
                 <div className="text-[15px] font-bold">{fullName(d)}</div>
@@ -4636,4 +4963,201 @@ function HomeShopView({
       )}
     </div>
   );
+}
+
+/* ---------------- work ---------------- */
+const hourNow = (c: Clock) => c.min / 60;
+const onShift = (j: Job, c: Clock) =>
+  !j.hours || (hourNow(c) >= j.hours[0] && hourNow(c) < j.hours[1]);
+const hoursText = (j: Job) =>
+  j.hours ? `${fmtTime(j.hours[0] * 60)} – ${fmtTime(j.hours[1] * 60)}` : "Any time";
+
+function JobsView({
+  current,
+  onTake,
+  onGo,
+}: {
+  current?: string;
+  onTake: (j: Job) => void;
+  onGo: (j: Job) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] opacity-75">
+        One shift a day, paid when you finish. You can change jobs any time.
+      </p>
+      {JOBS.map((j) => {
+        const mine = j.id === current;
+        return (
+          <div
+            key={j.id}
+            className={`rounded-xl p-3 ${mine ? "bg-[#1f6f63]/10 ring-2 ring-[#1f6f63]" : "bg-white"}`}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="text-[15px] font-bold">{j.name}</div>
+              <div className="whitespace-nowrap text-[13px] font-bold text-[#1f6f63]">
+                {j.pay} pts/day
+              </div>
+            </div>
+            <div className="text-[12px] opacity-75">
+              {j.place}
+              {j.area ? `, ${fullName(districtById(j.area))}` : ""} · {hoursText(j)}
+            </div>
+            <div className="mt-1 text-[13px]">{j.about}</div>
+            <button
+              onClick={() => (mine ? onGo(j) : onTake(j))}
+              className="mt-2 rounded-lg bg-[#1f6f63] px-3 py-1.5 text-[13px] font-bold text-[#fdf8ec]"
+            >
+              {mine ? "Go to work" : "Take this job"}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WorkView({ job, onDone }: { job: Job; onDone: (correct: number, total: number) => void }) {
+  const tasks = useMemo(() => [...job.tasks].sort(() => Math.random() - 0.5).slice(0, 4), [job]);
+  const [i, setI] = useState(0);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  const t = tasks[i];
+  if (!t)
+    return (
+      <div className="space-y-3 text-center">
+        <div className="text-[40px]">💼</div>
+        <p className="text-[15px]">
+          Shift done! You handled {score} of {tasks.length} well.
+        </p>
+        <button
+          onClick={() => onDone(score, tasks.length)}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+        >
+          Collect my pay
+        </button>
+      </div>
+    );
+  return (
+    <div className="space-y-2">
+      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+        {job.name} · task {i + 1} of {tasks.length}
+      </div>
+      <p className="text-[16px] font-semibold">{t.q}</p>
+      {t.o.map((o, k) => (
+        <button
+          key={k}
+          disabled={picked !== null}
+          onClick={() => {
+            setPicked(k);
+            if (k === t.a) setScore((x) => x + 1);
+          }}
+          className={`w-full rounded-xl border border-[#1f6f63]/25 px-4 py-2.5 text-left text-[14px] ${
+            picked === null
+              ? "bg-white"
+              : k === t.a
+                ? "bg-[#1f6f63] text-[#fdf8ec]"
+                : k === picked
+                  ? "bg-[#b8573a] text-white"
+                  : "bg-white opacity-60"
+          }`}
+        >
+          {o}
+        </button>
+      ))}
+      {picked !== null && (
+        <button
+          onClick={() => {
+            setI(i + 1);
+            setPicked(null);
+          }}
+          className="w-full rounded-xl bg-[#10201e] py-3 font-bold text-[#fdf8ec]"
+        >
+          Next
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- the next thing to do ---------------- */
+type Goal = { text: string; prefix?: string; act?: "adhkarM" | "adhkarE" | "jobs" | "travel" };
+function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null {
+  const t = s.tasks ?? {};
+  const n = s.needs;
+  const cp = currentPrayer(c);
+  const home = s.homeArea ?? "lekki";
+  const homeDoor = s.homePlot
+    ? `plot:${s.homePlot}`
+    : `door:home:${home === "lekki" ? "home" : home}`;
+  if (cp && !s.prayed[cp.id])
+    return s.wudu
+      ? {
+          text: `Pray ${cp.name} · until ${fmtTime(cp.end)}`,
+          prefix: inside && (s.items ?? []).includes("prayermat") ? "prayermat" : "door:masjid:",
+        }
+      : { text: `Make wudu for ${cp.name}`, prefix: inside ? "bath" : "door:masjid:" };
+  if (n && n.hunger < 30)
+    return (s.items ?? []).includes("kitchen")
+      ? { text: "You're hungry: cook at home", prefix: inside ? "eat" : homeDoor }
+      : { text: "You're hungry: buy food at the market", prefix: `stall:${area}-m` };
+  if (n && n.energy < 25)
+    return { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
+  const job = JOBS.find((j) => j.id === s.job);
+  if (job && s.worked !== c.key && onShift(job, c))
+    return { text: `Go to work: ${job.name}`, prefix: job.at };
+  if (!t.adhkarM && c.min < c.times.dhuhr)
+    return { text: "Say your morning adhkar", act: "adhkarM" };
+  if (!t.adhkarE && c.min >= c.times.asr && c.min < c.times.isha)
+    return { text: "Say your evening adhkar", act: "adhkarE" };
+  if (!s.job && !s.path) return { text: "Find a job and earn a daily salary", act: "jobs" };
+  if (!t.eat)
+    return {
+      text: "Eat a halal meal",
+      prefix: (s.items ?? []).includes("kitchen") && inside ? "eat" : `stall:${area}-m`,
+    };
+  if (!t.learn) return { text: "Learn something at the masjid", prefix: "door:masjid:" };
+  if (!t.market) return { text: "Visit the market", prefix: `stall:${area}-m` };
+  if (!t.quran)
+    return {
+      text: "Read the Qur'an",
+      prefix: inside && (s.items ?? []).includes("bookshelf") ? "quranhome" : "door:masjid:",
+    };
+  if ((s.salams ?? 0) < 3) return { text: "Greet 3 people with salam" };
+  if (!t.sleep && (c.min >= c.times.isha || c.min < c.times.fajr))
+    return { text: "Sleep early after Isha", prefix: inside ? "sleep" : homeDoor };
+  return { text: "Explore another area of Lagos", act: "travel" };
+}
+
+function MenuView({
+  items,
+}: {
+  items: { icon: string; label: string; badge?: number; run: () => void }[];
+}) {
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {items.map((m) => (
+        <button
+          key={m.label}
+          onClick={m.run}
+          className="relative rounded-xl bg-white px-2 py-3 text-center"
+        >
+          <div className="text-[24px]">{m.icon}</div>
+          <div className="text-[13px] font-bold">{m.label}</div>
+          {!!m.badge && (
+            <span className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-[#b8573a] text-[11px] text-white">
+              {m.badge}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Points a named shop with products has earned since sales were last collected (up to 3 days). */
+function salesDue(o: ShopOwn) {
+  if (!o.name || !o.products.length) return 0;
+  const days = Math.min(3, (Date.now() - (o.salesAt ?? Date.now())) / 86400000);
+  return Math.floor(days * SHOP_SALES_PER_DAY);
 }
