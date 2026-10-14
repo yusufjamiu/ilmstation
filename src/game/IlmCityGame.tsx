@@ -1299,10 +1299,17 @@ function CityGame({
             if (look) e.setPlayerLook(look);
             e.setPreview(!!look);
           }}
-          onDone={(look) => {
+          onDone={(look, area) => {
             engine.current?.setPlayerLook(look);
             engine.current?.setPreview(false);
-            update((x) => ({ ...x, profile: look, guide: 1, coins: x.coins + 100 }));
+            engine.current?.startIn(area);
+            update((x) => ({
+              ...x,
+              profile: look,
+              guide: 1,
+              coins: x.coins + 100,
+              district: area,
+            }));
             toast(`Welcome to IlmCity, ${look.name}! Here is a gift of 100 points.`, "good");
           }}
         />
@@ -2797,9 +2804,9 @@ function Onboarding({
   firstName: string;
   female: boolean;
   onPreview: (look: Look | null) => void;
-  onDone: (look: Look) => void;
+  onDone: (look: Look, area: string) => void;
 }) {
-  const [step, setStep] = useState<"welcome" | "account" | "look">("welcome");
+  const [step, setStep] = useState<"welcome" | "account" | "look" | "area">("welcome");
   const [look, setLook] = useState<Look>({
     name: firstName,
     female,
@@ -2820,6 +2827,39 @@ function Onboarding({
     if (step === "look") onPreview(look);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  if (step === "area")
+    return (
+      <div
+        data-game-ui
+        className="absolute inset-0 z-30 flex items-end bg-[#10201e]/70 p-3 pb-[max(14px,env(safe-area-inset-bottom))]"
+      >
+        <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+          <h2 className="font-serif text-2xl">Where do you want to start?</h2>
+          <p className="text-[13px] opacity-75">You can travel anywhere later by danfo or car.</p>
+          <div className="mt-3 space-y-2 overflow-y-auto">
+            {DISTRICTS.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => onDone({ ...look, name: look.name.trim() }, d.id)}
+                className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
+              >
+                <div className="text-[15px] font-bold">{fullName(d)}</div>
+                <div className="text-[12px] opacity-75">
+                  {[
+                    STREETS[d.streets[0].id]?.name,
+                    ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
+                  ]
+                    .filter(Boolean)
+                    .slice(0, 3)
+                    .join(" · ")}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
 
   if (step === "welcome")
     return (
@@ -2953,10 +2993,10 @@ function Onboarding({
         </div>
         <button
           disabled={!look.name.trim()}
-          onClick={() => onDone({ ...look, name: look.name.trim() })}
+          onClick={() => setStep("area")}
           className="mt-4 w-full rounded-xl bg-[#e6b84a] py-3.5 text-[16px] font-extrabold text-[#2a1c05] disabled:opacity-50"
         >
-          Bismillah, let's go
+          Next: choose where to start
         </button>
       </div>
     </div>
@@ -2967,8 +3007,8 @@ function Onboarding({
 const GUIDE: { title: string; text: string; go?: { prefix: string; label: string } }[] = [
   {
     title: "Visit the masjid",
-    text: "Walk to Lekki Central Mosque. Follow the marker on the ground.",
-    go: { prefix: "door:masjid:lekki-central", label: "Show me the way" },
+    text: "Walk to the nearest mosque. Follow the marker on the ground.",
+    go: { prefix: "door:masjid:", label: "Show me the way" },
   },
   {
     title: "Learn or pray",
