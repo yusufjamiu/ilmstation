@@ -122,6 +122,12 @@ export default function IlmCityGame() {
   const [inside, setInside] = useState(false);
   const [webgl, setWebgl] = useState(true);
   const [speed, setSpeed] = useState<number | null>(null);
+  const [ride, setRide] = useState<{
+    next: string;
+    stopping: boolean;
+    fast: boolean;
+    kmh: number;
+  } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const [arriving, setArriving] = useState<string | null>(null);
   const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
@@ -184,6 +190,26 @@ export default function IlmCityGame() {
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
+      if (id.startsWith("busstop:")) {
+        e.waitForBus(id.slice(8));
+        toast("Waiting for a danfo… it's coming down the road.");
+        return;
+      }
+      if (id === "board") {
+        if (s.coins < BUS_FARE) {
+          toast(`The fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`, "warn");
+          return;
+        }
+        if (e.boardBus()) {
+          update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
+          toast(`Bismillah! You paid ${BUS_FARE} points. Tap "Get off" before your stop.`, "good");
+        }
+        return;
+      }
+      if (id.startsWith("arrived:")) {
+        toast(`You got off in ${districtById(id.slice(8)).name}.`, "good");
+        return;
+      }
       if (id.startsWith("door:masjid:")) {
         const lid = id.slice(12);
         const name = landmarkName(lid);
@@ -479,6 +505,7 @@ export default function IlmCityGame() {
           onContext: setCtx,
           onAction: (id) => onActionRef.current(id),
           onPlace: setPlace,
+          onRide: setRide,
           onCinematic: (on) => {
             if (!on) setArriving(null);
           },
@@ -514,6 +541,7 @@ export default function IlmCityGame() {
           car: e.carPos(),
         }));
       setSpeed(e.isDriving() ? e.carSpeedKmh() : null);
+      setRide(e.rideInfo());
     }, 1000);
     return () => {
       clearInterval(iv);
@@ -649,8 +677,41 @@ export default function IlmCityGame() {
       </div>
 
       {/* controls */}
-      {!panel && !arriving && <Joystick onMove={(x, y) => engine.current?.setInput(x, y)} />}
-      {!panel && !arriving && ctx && (
+      {ride && (
+        <div
+          data-game-ui
+          className="absolute inset-x-3 bottom-[max(20px,env(safe-area-inset-bottom))] rounded-2xl bg-[#fdf8ec] p-3 shadow-2xl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="grid size-11 place-items-center rounded-xl bg-[#f2c230] text-[22px]">
+              🚌
+            </div>
+            <div className="min-w-0 leading-tight">
+              <div className="text-[15px] font-bold">On the danfo · {ride.kmh} km/h</div>
+              <div className="truncate text-[12.5px] opacity-80">Next stop: {ride.next}</div>
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              disabled={ride.stopping}
+              onClick={() => engine.current?.getOffNext()}
+              className="flex-1 rounded-xl bg-[#1f6f63] px-3 py-3 text-[14px] font-bold text-[#fdf8ec] disabled:opacity-60"
+            >
+              {ride.stopping ? "Stopping at the next stop…" : "Get off at next stop"}
+            </button>
+            <button
+              onClick={() => engine.current?.setRideFast(!ride.fast)}
+              className="rounded-xl bg-[#10201e] px-4 py-3 text-[14px] font-bold text-[#fdf8ec]"
+            >
+              {ride.fast ? "Normal" : "⏩ Faster"}
+            </button>
+          </div>
+        </div>
+      )}
+      {!panel && !arriving && !ride && (
+        <Joystick onMove={(x, y) => engine.current?.setInput(x, y)} />
+      )}
+      {!panel && !arriving && !ride && ctx && (
         <button
           data-game-ui
           onClick={() => onAction(ctx.id)}
@@ -659,7 +720,7 @@ export default function IlmCityGame() {
           {ctx.label}
         </button>
       )}
-      {!panel && !arriving && !ctx && !driving && !inside && (
+      {!panel && !arriving && !ride && !ctx && !driving && !inside && (
         <div
           data-game-ui
           className="pointer-events-none absolute bottom-[max(36px,env(safe-area-inset-bottom))] right-4 max-w-[46vw] rounded-xl bg-[#10201e]/70 px-3 py-2 text-[12px] text-[#fdf8ec]"

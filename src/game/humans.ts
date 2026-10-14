@@ -511,8 +511,8 @@ function buildTemplate(look: Look) {
   {
     const pa = head.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pa.count; i++) {
+      const y = pa.getY(i) * 1.22;
       let x = pa.getX(i) * 0.9,
-        y = pa.getY(i) * 1.22,
         z = pa.getZ(i) * 1.08;
       const low = Math.max(0, -y / 0.122); // 0 at middle, 1 at chin
       x *= 1 - 0.28 * low * low;

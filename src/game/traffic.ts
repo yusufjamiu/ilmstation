@@ -1,0 +1,388 @@
+import * as THREE from "three";
+import { DISTRICTS, type District } from "./content";
+import { VEHICLE_INFO, randomCarColor, vehicleMesh, type VehicleKind } from "./vehicles";
+
+/* Traffic: cars, keke, danfos and the Hisbah van drive on the right along the city's
+   roads, keep their distance, and stop for people and for your car. Danfos stop at
+   bus stops; you can wait at a stop, board, ride and get off. */
+
+type P = { x: number; z: number; v: number };
+
+export class Path {
+  pts: P[];
+  cum: number[] = [0];
+  length: number;
+  constructor(pts: P[]) {
+    this.pts = pts;
+    for (let i = 1; i < pts.length; i++)
+      this.cum.push(this.cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    this.length = this.cum[this.cum.length - 1];
+  }
+  private i = 0;
+  at(s: number) {
+    s = ((s % this.length) + this.length) % this.length;
+    // the last index is a good start: vehicles move forward a little each frame
+    let i = this.i;
+    if (this.cum[i] > s || (this.cum[i + 1] ?? Infinity) < s) {
+      let lo = 0,
+        hi = this.cum.length - 2;
+      while (lo < hi) {
+        const m = (lo + hi + 1) >> 1;
+        if (this.cum[m] <= s) lo = m;
+        else hi = m - 1;
+      }
+      i = lo;
+    }
+    this.i = i;
+    const a = this.pts[i],
+      b = this.pts[Math.min(i + 1, this.pts.length - 1)];
+    const seg = this.cum[i + 1] - this.cum[i] || 1;
+    const t = (s - this.cum[i]) / seg;
+    return {
+      x: a.x + (b.x - a.x) * t,
+      z: a.z + (b.z - a.z) * t,
+      h: Math.atan2(-(b.z - a.z), b.x - a.x),
+      v: Math.min(a.v, b.v),
+    };
+  }
+  /** The distance along the path closest to a point. */
+  nearest(x: number, z: number) {
+    let best = Infinity,
+      bs = 0;
+    for (let i = 0; i < this.pts.length - 1; i++) {
+      const a = this.pts[i],
+        b = this.pts[i + 1];
+      const dx = b.x - a.x,
+        dz = b.z - a.z,
+        L2 = dx * dx + dz * dz || 1;
+      const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / L2, 0, 1);
+      const d = Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+      if (d < best) {
+        best = d;
+        bs = this.cum[i] + t * Math.sqrt(L2);
+      }
+    }
+    return { s: bs, d: best };
+  }
+}
+
+/** Points along a road's centre line, shifted to the right-hand lane. */
+function lane(center: [number, number][], off: number, v: number): P[] {
+  const out: P[] = [];
+  for (let i = 0; i < center.length; i++) {
+    const nrm = (a: [number, number], b: [number, number]) => {
+      const dx = b[0] - a[0],
+        dz = b[1] - a[1],
+        L = Math.hypot(dx, dz) || 1;
+      return [-dz / L, dx / L];
+    };
+    const n1 = i > 0 ? nrm(center[i - 1], center[i]) : null;
+    const n2 = i < center.length - 1 ? nrm(center[i], center[i + 1]) : null;
+    let nx = (n1?.[0] ?? 0) + (n2?.[0] ?? 0),
+      nz = (n1?.[1] ?? 0) + (n2?.[1] ?? 0);
+    const L = Math.hypot(nx, nz) || 1;
+    nx /= L;
+    nz /= L;
+    out.push({ x: center[i][0] + nx * off, z: center[i][1] + nz * off, v });
+  }
+  return out;
+}
+
+const sideOf = (d: District) => (d.origin.x > 0 ? -1 : 1);
+export const roadEndOf = (d: District): [number, number] => [
+  d.origin.x + sideOf(d) * 106,
+  d.origin.z,
+];
+const RING = 23;
+
+/** A tour through the whole city: out of the City Junction to each area and back. */
+function tourPath(order: string[]) {
+  const pts: P[] = [];
+  const angleOf = (d: District) => {
+    const [x, z] = roadEndOf(d);
+    return Math.atan2(z, x);
+  };
+  let prevAngle: number | null = null;
+  for (const id of order) {
+    const d = DISTRICTS.find((x) => x.id === id)!;
+    const a = angleOf(d);
+    // round the roundabout (always the same way) to this area's exit
+    if (prevAngle !== null) {
+      let b = prevAngle;
+      let to = a;
+      while (to <= b) to += Math.PI * 2;
+      for (b += 0.2; b < to; b += 0.2)
+        pts.push({ x: Math.cos(b) * RING, z: Math.sin(b) * RING, v: 9 });
+    }
+    const ring: [number, number] = [Math.cos(a) * 30, Math.sin(a) * 30];
+    const near = roadEndOf(d);
+    const far: [number, number] = [d.origin.x - sideOf(d) * 92, d.origin.z];
+    const inArea = (q: P) => Math.abs(q.x - d.origin.x) < 104 && Math.abs(q.z - d.origin.z) < 30;
+    const leg = (c: [number, number][]) =>
+      lane(c, 3.3, 20).map((q) => (inArea(q) ? { ...q, v: 11 } : q));
+    pts.push(...leg([ring, near, far]));
+    pts.push(...leg([far, near, ring]));
+    prevAngle = a;
+  }
+  // close the loop round the roundabout
+  const first = DISTRICTS.find((x) => x.id === order[0])!;
+  let b = prevAngle!;
+  let to = angleOf(first);
+  while (to <= b) to += Math.PI * 2;
+  for (b += 0.2; b < to; b += 0.2) pts.push({ x: Math.cos(b) * RING, z: Math.sin(b) * RING, v: 9 });
+  pts.push({ ...pts[0] });
+  return new Path(pts);
+}
+
+/** Up and down one street inside an area. */
+function streetLoop(d: District, z: number, v = 10) {
+  const x0 = d.origin.x - 92,
+    x1 = d.origin.x + 92,
+    zz = d.origin.z + z;
+  const pts = [
+    ...lane(
+      [
+        [x0, zz],
+        [x1, zz],
+      ],
+      3,
+      v,
+    ),
+    ...lane(
+      [
+        [x1, zz],
+        [x0, zz],
+      ],
+      3,
+      v,
+    ),
+  ];
+  pts.push({ ...pts[0] });
+  return new Path(pts);
+}
+
+export type Vehicle = {
+  kind: VehicleKind;
+  mesh: THREE.Mesh;
+  path: Path;
+  s: number;
+  v: number;
+  vmax: number;
+  dwell: number;
+  lastStop: number;
+  /** a passenger asked to get off at the next stop */
+  stopNext?: boolean;
+  half: number;
+};
+export type BusStop = {
+  id: string;
+  district: string;
+  name: string;
+  s: number;
+  /** where people wait, on the pavement */
+  x: number;
+  z: number;
+  heading: number;
+};
+
+export class Traffic {
+  vehicles: Vehicle[] = [];
+  tour: Path;
+  stops: BusStop[] = [];
+  /** set by the game: the stop the player is waiting at */
+  waitingAt: string | null = null;
+  /** set by the game: the bus the player is riding */
+  riding: Vehicle | null = null;
+  fast = false;
+  onStop?: (bus: Vehicle, stop: BusStop) => void;
+  private rnd: () => number;
+
+  constructor(
+    private scene: THREE.Scene,
+    rnd: () => number,
+  ) {
+    this.rnd = rnd;
+    this.tour = tourPath(["lekki", "ajegunle", "egbeda", "agege", "ikorodu"]);
+    const tour2 = tourPath(["ikorodu", "lekki", "agege", "ajegunle", "egbeda"]);
+
+    // two bus stops per area, one on each side of the main street
+    for (const d of DISTRICTS) {
+      const sd = sideOf(d);
+      for (const dir of [1, -1]) {
+        // dir 1: coming into the area, dir -1: leaving it
+        const x = d.origin.x + sd * 70;
+        const travel = dir === 1 ? -sd : sd; // +1 = going east
+        const z = d.origin.z + travel * 8.6; // the right-hand pavement
+        const near = this.tour.nearest(x, d.origin.z + travel * 3);
+        this.stops.push({
+          id: `${d.id}-${dir > 0 ? "in" : "out"}`,
+          district: d.id,
+          name: `${d.name} Bus Stop`,
+          s: near.s,
+          x,
+          z,
+          heading: travel > 0 ? 0 : Math.PI,
+        });
+      }
+    }
+    this.stops.sort((a, b) => a.s - b.s);
+
+    const add = (kind: VehicleKind, path: Path, s: number, color?: number) => {
+      const mesh = vehicleMesh(kind, color ?? randomCarColor(rnd));
+      scene.add(mesh);
+      const vmax = VEHICLE_INFO[kind].top * (0.75 + rnd() * 0.25);
+      this.vehicles.push({
+        kind,
+        mesh,
+        path,
+        s,
+        v: 0,
+        vmax,
+        dwell: 0,
+        lastStop: -1,
+        half: VEHICLE_INFO[kind].length / 2,
+      });
+    };
+    const L = this.tour.length;
+    for (let i = 0; i < 4; i++) add("danfo", this.tour, (L / 4) * i + 40);
+    add("hisbah", this.tour, L * 0.6);
+    const kinds: VehicleKind[] = [
+      "sedan",
+      "small",
+      "suv",
+      "sedan",
+      "luxury",
+      "pickup",
+      "small",
+      "sedan",
+    ];
+    for (let i = 0; i < 10; i++) add(kinds[i % kinds.length], this.tour, (L / 10) * i + 120);
+    for (let i = 0; i < 8; i++) add(kinds[(i + 3) % kinds.length], tour2, (tour2.length / 8) * i);
+    for (const d of DISTRICTS) {
+      d.streets.forEach((st, k) => {
+        const p = streetLoop(d, st.z, k === 0 ? 11 : 8);
+        if (k === 0) {
+          add("keke", p, rnd() * p.length, 0xf2c230);
+          add(kinds[Math.floor(rnd() * kinds.length)], p, rnd() * p.length);
+        } else
+          add(
+            rnd() < 0.5 ? "keke" : kinds[Math.floor(rnd() * kinds.length)],
+            p,
+            rnd() * p.length,
+            rnd() < 0.5 ? 0x2f9a4a : undefined,
+          );
+      });
+    }
+    for (const v of this.vehicles) this.place(v);
+  }
+
+  private place(v: Vehicle) {
+    const p = v.path.at(v.s);
+    v.mesh.position.set(p.x, 0, p.z);
+    v.mesh.rotation.y = p.h;
+  }
+
+  /** Bring a danfo to the stop the player is waiting at, arriving in a few seconds. */
+  summon(stopId: string) {
+    const stop = this.stops.find((s) => s.id === stopId);
+    if (!stop) return;
+    const L = this.tour.length;
+    const ahead = (b: Vehicle) => (((stop.s - b.s) % L) + L) % L;
+    const buses = this.vehicles.filter((b) => b.kind === "danfo" && b !== this.riding);
+    const soon = buses.find((b) => ahead(b) < 160);
+    if (soon) return;
+    const b = buses.sort((x, y) => ahead(x) - ahead(y))[buses.length - 1];
+    b.s = stop.s - 90;
+    b.v = 14;
+    b.dwell = 0;
+    this.place(b);
+  }
+  /** The bus now waiting at the player's stop, if any. */
+  busAt(stopId: string) {
+    const stop = this.stops.find((s) => s.id === stopId);
+    if (!stop) return null;
+    return (
+      this.vehicles.find((b) => b.kind === "danfo" && b.dwell > 0 && Math.abs(b.s - stop.s) < 4) ??
+      null
+    );
+  }
+  nextStop(b: Vehicle) {
+    const L = b.path.length;
+    let best: BusStop | null = null,
+      bd = Infinity;
+    for (const st of this.stops) {
+      const d = (((st.s - b.s) % L) + L) % L;
+      if (d > 3 && d < bd) {
+        bd = d;
+        best = st;
+      }
+    }
+    return best;
+  }
+
+  private tmp = new THREE.Vector2();
+  update(dt: number, obstacles: { x: number; z: number; r: number }[], cam: THREE.Vector3) {
+    const vs = this.vehicles;
+    for (const v of vs) {
+      if (v.dwell > 0) {
+        v.dwell -= dt;
+        v.v = 0;
+        continue;
+      }
+      const p = v.path.at(v.s);
+      const fx = Math.cos(p.h),
+        fz = -Math.sin(p.h);
+      let target = Math.min(v.vmax, p.v * (v.kind === "keke" ? 0.8 : 1));
+      if (v === this.riding && this.fast) target *= 2.2;
+      const look = 3 + v.half + v.v * 0.9;
+      const block = (x: number, z: number, r: number) => {
+        const dx = x - v.mesh.position.x,
+          dz = z - v.mesh.position.z;
+        const fwd = dx * fx + dz * fz,
+          lat = Math.abs(-dx * fz + dz * fx);
+        if (fwd > 0 && fwd < look + r && lat < 1.3 + r)
+          target = Math.min(target, Math.max(0, (fwd - v.half - r - 1.5) * 1.6));
+      };
+      for (const o of obstacles) block(o.x, o.z, o.r);
+      for (const u of vs) if (u !== v) block(u.mesh.position.x, u.mesh.position.z, u.half * 0.6);
+      // danfos stop at bus stops
+      if (v.kind === "danfo") {
+        const L = v.path.length;
+        for (let i = 0; i < this.stops.length; i++) {
+          const st = this.stops[i];
+          const d = (((st.s - v.s) % L) + L) % L;
+          if (i === v.lastStop) continue;
+          const back = L - d; // just passed it
+          if (d > 160 && !(back < 4 && v === this.riding && v.stopNext)) continue;
+          const want =
+            this.waitingAt === st.id ||
+            (v === this.riding && v.stopNext) ||
+            (v !== this.riding && (i * 7 + v.mesh.id) % 3 === 0);
+          if (!want) continue;
+          if (d < 0.6 || back < 4) {
+            v.dwell = v === this.riding ? 3 : 4.5;
+            v.lastStop = i;
+            v.s = st.s;
+            v.v = 0;
+            this.onStop?.(v, st);
+            break;
+          }
+          target = Math.min(target, Math.max(1.2, Math.sqrt(2 * 8 * d)));
+        }
+      }
+      const acc = target > v.v ? 6 : 14;
+      v.v += THREE.MathUtils.clamp(target - v.v, -acc * dt, acc * dt);
+      v.s += v.v * dt;
+      if (v.s > v.path.length) v.s -= v.path.length;
+      const q = v.path.at(v.s);
+      v.mesh.position.set(q.x, 0, q.z);
+      // turn smoothly
+      let dh = q.h - v.mesh.rotation.y;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      v.mesh.rotation.y += dh * Math.min(1, dt * 8);
+      this.tmp.set(q.x - cam.x, q.z - cam.z);
+      v.mesh.visible = this.tmp.lengthSq() < 320 * 320;
+    }
+  }
+}

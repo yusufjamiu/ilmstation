@@ -11,6 +11,7 @@ import {
 } from "./content";
 import { darkness, type Clock } from "./time";
 import { Batch, MAT, compound, groundGeo, powerLine, type Compound } from "./buildings";
+import { Traffic, type Vehicle } from "./traffic";
 import { humansReady, makeHuman, setGait, sitHuman, tickHumans, type Outfit } from "./humans";
 
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
@@ -24,6 +25,7 @@ export type EngineEvents = {
   onPlace: (name: string) => void;
   /** The arrival drive into a new area started (true) or finished (false). */
   onCinematic?: (on: boolean) => void;
+  onRide?: (info: { next: string; stopping: boolean; fast: boolean; kmh: number } | null) => void;
 };
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
@@ -491,6 +493,7 @@ export class IlmCityEngine {
     this.buildCar();
     this.buildInteriors();
     this.buildWorld();
+    this.buildTraffic();
     this.district = districtById(start?.district ?? "lekki");
     const home = districtById("lekki").origin;
     if (start?.car) {
@@ -1820,6 +1823,7 @@ export class IlmCityEngine {
     const portrait = this.camera.aspect < 0.8;
     if (this.cine) return { d: 14, h: 5.5 };
     if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
+    if (this.riding) return { d: portrait ? 14 : 12, h: 5.2 };
     return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
   }
   private camOffset() {
@@ -1831,6 +1835,7 @@ export class IlmCityEngine {
   }
   private camTarget() {
     if (this.cine) return this.cine.vehicle.position;
+    if (this.riding) return this.riding.mesh.position;
     return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
@@ -1951,12 +1956,155 @@ export class IlmCityEngine {
     return v;
   }
 
+  /* ---------------- buses ---------------- */
+  private traffic!: Traffic;
+  private waitStop: string | null = null;
+  private riding: Vehicle | null = null;
+
+  private buildTraffic() {
+    this.traffic = new Traffic(this.scene, mulberry(11));
+    const b = new Batch();
+    const signTex = (() => {
+      const cv = document.createElement("canvas");
+      cv.width = 256;
+      cv.height = 96;
+      const c = cv.getContext("2d")!;
+      c.fillStyle = "#1f4f9a";
+      c.fillRect(0, 0, 256, 96);
+      c.fillStyle = "#fff";
+      c.font = "800 44px system-ui, sans-serif";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText("BUS STOP", 128, 50);
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 });
+    })();
+    for (const st of this.traffic.stops) {
+      const g = new THREE.Group();
+      g.position.set(st.x, 0, st.z);
+      // the shelter's back faces away from the road
+      g.rotation.y = st.z > districtById(st.district).origin.z ? 0 : Math.PI;
+      const frame = MAT.plain(0x5a5f66, 0.5);
+      for (const x of [-2, 2]) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), frame);
+        p.position.set(x, 1.3, 0.6);
+        g.add(p);
+      }
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.12, 1.8), MAT.plain(0x1f4f9a, 0.5));
+      roof.position.set(0, 2.65, 0.1);
+      g.add(roof);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.8, 0.06), MAT.plain(0xcfe3ea, 0.2));
+      back.position.set(0, 1.4, 0.95);
+      g.add(back);
+      const bench = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.12, 0.5), MAT.plain(0x8a5a3a));
+      bench.position.set(0, 0.55, 0.6);
+      g.add(bench);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.52), signTex);
+      sign.position.set(2.2, 2.3, -0.3);
+      g.add(sign);
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 0.08), frame);
+      pole.position.set(2.2, 1.3, -0.32);
+      g.add(pole);
+      b.addObject(g);
+      this.zones.push({
+        id: "busstop:" + st.id,
+        label: "Wait for a danfo",
+        x: st.x,
+        z: st.z,
+        r: 3.6,
+        scene: "out",
+      });
+    }
+    for (const m of b.build()) this.scene.add(m);
+    this.traffic.onStop = (bus, stop) => {
+      if (bus === this.riding && bus.stopNext) {
+        bus.stopNext = false;
+        this.riding = null;
+        this.traffic.riding = null;
+        this.traffic.fast = false;
+        this.player.visible = true;
+        this.player.position.set(stop.x, 0, stop.z);
+        this.player.rotation.y = stop.heading + Math.PI / 2;
+        this.ev.onRide?.(null);
+        this.ev.onAction("arrived:" + stop.district);
+      }
+    };
+  }
+
+  /** Stand at a bus stop: a danfo comes in a few seconds. */
+  waitForBus(stopId: string) {
+    this.waitStop = stopId;
+    this.traffic.waitingAt = stopId;
+    this.traffic.summon(stopId);
+  }
+  boardBus() {
+    if (!this.waitStop) return false;
+    const bus = this.traffic.busAt(this.waitStop);
+    if (!bus) return false;
+    this.riding = bus;
+    this.traffic.riding = bus;
+    this.traffic.waitingAt = null;
+    this.waitStop = null;
+    bus.dwell = 1.2;
+    this.player.visible = false;
+    this.camYaw = Math.atan2(-Math.cos(bus.mesh.rotation.y), Math.sin(bus.mesh.rotation.y));
+    this.ev.onRide?.(this.rideInfo());
+    return true;
+  }
+  rideInfo() {
+    if (!this.riding) return null;
+    const n = this.traffic.nextStop(this.riding);
+    return {
+      next: n ? n.name : "",
+      stopping: !!this.riding.stopNext,
+      fast: this.traffic.fast,
+      kmh: Math.round(this.riding.v * 3.6),
+    };
+  }
+  getOffNext() {
+    if (this.riding) this.riding.stopNext = true;
+  }
+  setRideFast(on: boolean) {
+    this.traffic.fast = on;
+  }
+  isRiding() {
+    return !!this.riding;
+  }
+  private stepTraffic(dt: number) {
+    const obs: { x: number; z: number; r: number }[] = [];
+    if (this.where === "out" && !this.riding && !this.driving)
+      obs.push({ x: this.player.position.x, z: this.player.position.z, r: 0.7 });
+    if (this.car.visible && !this.cine)
+      obs.push({ x: this.car.position.x, z: this.car.position.z, r: 1.6 });
+    this.traffic.update(dt, obs, this.camera.position);
+    if (this.riding) {
+      this.player.position.copy(this.riding.mesh.position);
+    } else if (this.waitStop) {
+      const st = this.traffic.stops.find((s) => s.id === this.waitStop);
+      if (!st || Math.hypot(st.x - this.player.position.x, st.z - this.player.position.z) > 12) {
+        this.waitStop = null;
+        this.traffic.waitingAt = null;
+      }
+    }
+  }
+  /** True when a traffic vehicle is in the way of your car. */
+  private hitsTraffic(x: number, z: number) {
+    for (const v of this.traffic.vehicles) {
+      const dx = v.mesh.position.x - x,
+        dz = v.mesh.position.z - z;
+      if (dx * dx + dz * dz < (v.half + 1.6) ** 2 * 0.55) return true;
+    }
+    return false;
+  }
+
   private update(dt: number, t: number) {
     const v = this.moveVec();
     if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
-    else this.walk(v, dt, t);
+    else if (!this.riding) this.walk(v, dt, t);
 
+    this.stepTraffic(dt);
     tickHumans(dt, this.camera);
     // only draw areas near the camera
     if (this.where === "out")
@@ -1995,6 +2143,13 @@ export class IlmCityEngine {
         Math.atan2(-Math.cos(r), Math.sin(r)),
         1 - Math.exp(-dt * 3),
       );
+    } else if (this.riding && this.riding.v > 1 && performance.now() - this.lastDrag > 1500) {
+      const r = this.riding.mesh.rotation.y;
+      this.camYaw = lerpAngle(
+        this.camYaw,
+        Math.atan2(-Math.cos(r), Math.sin(r)),
+        1 - Math.exp(-dt * 2.5),
+      );
     } else if (
       this.driving &&
       Math.abs(this.carSpeed) > 1 &&
@@ -2030,7 +2185,9 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine) best = null;
+    if (this.cine || this.riding) best = null;
+    else if (this.waitStop && this.traffic.busAt(this.waitStop))
+      best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
       best = { id: "car-exit", label: "Get out of the car", x: 0, z: 0, r: 0, scene: "out" };
     else
@@ -2134,7 +2291,7 @@ export class IlmCityEngine {
     this.carHeading -= v.x * 1.9 * grip * Math.sign(this.carSpeed || 1) * dt;
     const nx = this.car.position.x + Math.cos(this.carHeading) * this.carSpeed * dt;
     const nz = this.car.position.z - Math.sin(this.carHeading) * this.carSpeed * dt;
-    if (this.free(nx, nz, 1.8)) {
+    if (this.free(nx, nz, 1.8) && !this.hitsTraffic(nx, nz)) {
       this.car.position.x = nx;
       this.car.position.z = nz;
     } else this.carSpeed *= -0.3;
