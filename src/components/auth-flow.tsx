@@ -73,6 +73,7 @@ export function LoginPage() {
     setBusy(false);
     if (problem) { setError(problem); return; }
     toast.success(`Welcome back${account ? `, ${account.name.split(/\s+/)[0]}` : ""}`);
+    if (backToCity()) return;
     void navigate({ to: "/app" });
   };
 
@@ -438,6 +439,29 @@ function WelcomeStep({ name, zone, interests, score, level }: { name: string; zo
       ["Starting level", score === null ? `${level} · quiz skipped` : `${level} · ${score}/5`],
       ["Interests", `${interests.length} topics`],
     ].map(([k, v]) => <div key={k} className="border-2 border-foreground bg-background p-3 text-foreground"><dt className="text-[10px] font-bold uppercase text-muted-foreground">{k}</dt><dd className="mt-0.5 font-semibold">{v}</dd></div>)}</dl>
-    <Button asChild size="lg" className="mt-8 w-full bg-foreground text-background sm:w-auto"><Link to="/app">Start my first quest <ArrowRight /></Link></Button>
+    {cityReturn() ? (
+      <Button asChild size="lg" className="mt-8 w-full bg-foreground text-background sm:w-auto"><a href="/city" onClick={() => backToCity()}>Back to IlmCity <ArrowRight /></a></Button>
+    ) : (
+      <Button asChild size="lg" className="mt-8 w-full bg-foreground text-background sm:w-auto"><Link to="/app">Start my first quest <ArrowRight /></Link></Button>
+    )}
   </div>;
+}
+
+/* People who came from IlmCity go back to the city after logging in or signing up. */
+function cityReturn() {
+  try {
+    return typeof window !== "undefined" && sessionStorage.getItem("ilmcity-return") === "1";
+  } catch {
+    return false;
+  }
+}
+function backToCity() {
+  if (!cityReturn()) return false;
+  try {
+    sessionStorage.removeItem("ilmcity-return");
+  } catch {
+    /* storage blocked */
+  }
+  window.location.href = "/city";
+  return true;
 }
