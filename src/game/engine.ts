@@ -10,6 +10,8 @@ import {
   type Landmark,
 } from "./content";
 import { darkness, type Clock } from "./time";
+import { Batch, MAT, compound, groundGeo, powerLine, type Compound } from "./buildings";
+import { humansReady, makeHuman, setGait, sitHuman, tickHumans, type Outfit } from "./humans";
 
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
@@ -161,12 +163,47 @@ const capsule = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 4,
     Brothers wear a kaftan, trousers and kufi; sisters wear an abaya and hijab. */
 function person(
   robe: number,
-  opts: { cap?: number; hijab?: number; skin?: number; trousers?: number; seed?: number } = {},
+  opts: {
+    cap?: number | null;
+    hijab?: number;
+    skin?: number;
+    trousers?: number;
+    seed?: number;
+    outfit?: Outfit;
+    beard?: boolean;
+  } = {},
 ) {
   const g = new THREE.Group();
   const seed = opts.seed ?? Math.floor(robe % 7);
   const skin = opts.skin ?? SKINS[seed % SKINS.length];
   const female = opts.hijab !== undefined;
+  if (humansReady()) {
+    const h = makeHuman({
+      outfit: opts.outfit ?? (female ? "abaya" : seed % 3 === 1 ? "kaftan" : "thobe"),
+      robe,
+      skin,
+      trousers: opts.trousers ?? (seed % 2 ? 0x2d3138 : robe),
+      cap: opts.cap === undefined ? 0xffffff : opts.cap,
+      hijab: opts.hijab,
+      beard: opts.beard ?? seed % 2 === 0,
+      shoe: [0x2a1d14, 0x111111, 0x6b4a2e][seed % 3],
+    });
+    g.add(h);
+    g.userData.human = true;
+    const sh = new THREE.Mesh(
+      new THREE.CircleGeometry(0.5, 20),
+      new THREE.MeshBasicMaterial({
+        color: 0,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+      }),
+    );
+    sh.rotation.x = -Math.PI / 2;
+    sh.position.y = 0.02;
+    g.add(sh);
+    return g;
+  }
   const trousers = opts.trousers ?? (female ? robe : 0x3a3f46);
   const body = new THREE.Group();
   g.add(body);
@@ -260,7 +297,11 @@ function person(
 }
 
 /** Swing arms and legs; `amount` 0 = standing still, 1 = full walk. */
-function animatePerson(g: THREE.Object3D, phase: number, amount: number) {
+function animatePerson(g: THREE.Object3D, phase: number, amount: number, speed = 2.2) {
+  if (g.userData.human) {
+    setGait(g, amount, speed);
+    return;
+  }
   const l = g.userData.limbs as Limbs | undefined;
   if (!l) return;
   const s = Math.sin(phase) * 0.55 * amount;
@@ -273,6 +314,10 @@ function animatePerson(g: THREE.Object3D, phase: number, amount: number) {
 
 /** Sitting on the masjid carpet, legs folded. */
 function sitPerson(g: THREE.Object3D) {
+  if (g.userData.human) {
+    sitHuman(g);
+    return;
+  }
   const l = g.userData.limbs as Limbs | undefined;
   if (!l) return;
   l.legL.rotation.x = -1.45;
@@ -574,12 +619,14 @@ export class IlmCityEngine {
     this.dg = new THREE.Group();
     this.dg.position.set(D.origin.x, 0, D.origin.z);
     this.scene.add(this.dg);
+    this.areaGroups.push({ g: this.dg, x: D.origin.x, z: D.origin.z });
     const side = D.origin.x > 0 ? -1 : 1; // the end of the main street facing the City Junction
     this.reserved.push(
       { x0: this.ox - 84, x1: this.ox - 60, z0: this.oz + 8, z1: this.oz + 22 },
       { x0: this.ox - 22, x1: this.ox - 10, z0: this.oz + 7, z1: this.oz + 13 },
     );
     const S = this.dg;
+    const batch = new Batch();
     const rnd = mulberry(D.id.length * 97 + D.name.charCodeAt(0));
 
     // Lekki's beach and the ocean
@@ -598,19 +645,21 @@ export class IlmCityEngine {
       water.position.set(0, -0.15, 156);
       S.add(water);
       for (let x = -94; x < 94; x += 9)
-        S.add(palm(x + rnd() * 3, 68 + rnd() * 4, 0.9 + rnd() * 0.3));
+        batch.addObject(palm(x + rnd() * 3, 68 + rnd() * 4, 0.9 + rnd() * 0.3));
     }
     if (D.lagoon) this.addCollider("out", -200, 200, southEdge, 300);
 
     // roads: each named street runs east-west; one link road crosses them
     const road = (x: number, z: number, w: number, d: number) => {
-      const k = new THREE.Mesh(new THREE.PlaneGeometry(w + 2.4, d + 2.4), mat(PALETTE.kerb));
-      k.rotation.x = -Math.PI / 2;
+      const pave = w > d ? [w + 2, d + 10] : [w + 10, d + 2];
+      const k = new THREE.Mesh(groundGeo(pave[0], pave[1], 2), MAT.pavement());
       k.position.set(x, 0.02, z);
       k.receiveShadow = true;
       S.add(k);
-      const r = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(PALETTE.road));
-      r.rotation.x = -Math.PI / 2;
+      const kerb = new THREE.Mesh(groundGeo(w + 0.7, d + 0.7, 2), mat(0xe9e4d8));
+      kerb.position.set(x, 0.03, z);
+      S.add(kerb);
+      const r = new THREE.Mesh(groundGeo(w, d, 4), MAT.asphalt());
       r.position.set(x, 0.04, z);
       r.receiveShadow = true;
       S.add(r);
@@ -624,7 +673,7 @@ export class IlmCityEngine {
         const d = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.25), dashMat);
         d.rotation.x = -Math.PI / 2;
         d.position.set(x, 0.06, st.z);
-        S.add(d);
+        batch.addObject(d);
       }
       this.streetSign(-8.5, st.z + 8.5, st.id, Math.PI / 4);
       this.streetSign(44, st.z + 8.5, st.id, 0);
@@ -637,7 +686,7 @@ export class IlmCityEngine {
       const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
       d.rotation.x = -Math.PI / 2;
       d.position.set(0, 0.06, z);
-      S.add(d);
+      batch.addObject(d);
     }
     zs.forEach((sz) => {
       for (let i = -4; i <= 4; i++) {
@@ -653,7 +702,7 @@ export class IlmCityEngine {
           );
           zc.rotation.x = -Math.PI / 2;
           zc.position.set(x, 0.06, z);
-          S.add(zc);
+          batch.addObject(zc);
         }
       }
     });
@@ -683,25 +732,44 @@ export class IlmCityEngine {
       }
     });
 
-    // neighbourhood houses fill the free plots
-    const walls = [0xd9c49a, 0xe6c2a0, 0xcfd6c4, 0xe0b88e, 0xd6d0b8, 0xe8c9a2, 0xcdd9cf];
-    const roofs = [0x6d7f4a, 0x8a4f63, 0x4f6f8f, 0x7a5a3a, 0x5a6f8a, 0x8a3f2a, 0x3f6a5a];
-    let hi = 0;
-    zs.forEach((sz) => {
-      for (const [cz, north] of [
-        [sz - 22, false],
-        [sz + 22, true],
-      ] as [number, boolean][]) {
-        if (cz + 6 > southEdge - 4) continue;
-        for (let x = -86; x <= 86; x += 25) {
-          if (Math.abs(x) < 14) continue;
-          if (!this.boxFree(x - 8, x + 8, cz - 7, cz + 7)) continue;
-          if (zs.some((z2) => Math.abs(cz - z2) < 14)) continue;
-          this.buildHouse(x, cz, walls[hi % walls.length], roofs[hi % roofs.length], north);
-          hi++;
+    // Lagos compounds line both sides of every street
+    zs.forEach((sz, si) => {
+      let num = 1 + si * 40;
+      for (const north of [true, false]) {
+        const cz = north ? sz - 21.5 : sz + 21.5;
+        if (!north && cz + 10 > southEdge - 3) continue;
+        for (let x = -86; x <= 86; x += 24) {
+          if (Math.abs(x) < 16) continue;
+          if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
+          if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
+          const c = compound(batch, {
+            x,
+            z: cz,
+            turn: north ? 0 : Math.PI,
+            number: num,
+            rnd,
+          });
+          num += 2;
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + x - 11,
+            x1: this.ox + x + 11,
+            z0: this.oz + cz - 10,
+            z1: this.oz + cz + 10,
+          });
+          this.plots.push({
+            ...c,
+            district: D.id,
+            street: STREETS[D.streets[si].id].name,
+            x,
+            z: cz,
+          });
         }
       }
     });
+    const wires = new THREE.Group();
+    zs.forEach((sz) => powerLine(batch, -95, 95, sz - 9.8, wires));
+    S.add(wires);
 
     // street lamps
     const lampPole = new THREE.CylinderGeometry(0.08, 0.1, 5, 6),
@@ -737,7 +805,7 @@ export class IlmCityEngine {
       const x = -96 + rnd() * 192,
         z = -96 + rnd() * (southEdge + 80);
       if (!clear(x, z)) continue;
-      S.add(rnd() < 0.55 ? palm(x, z, 0.8 + rnd() * 0.3) : tree(x, z, 0.9 + rnd() * 0.4));
+      batch.addObject(rnd() < 0.55 ? palm(x, z, 0.8 + rnd() * 0.3) : tree(x, z, 0.9 + rnd() * 0.4));
       n++;
     }
 
@@ -798,6 +866,7 @@ export class IlmCityEngine {
       this.walkers.push({ g, route, k: 1, wait: i * 0.8, t: 0 });
     });
 
+    for (const m of batch.build()) S.add(m);
     this.ox = 0;
     this.oz = 0;
   }
@@ -805,8 +874,7 @@ export class IlmCityEngine {
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
   private buildWorld() {
     const S = this.scene;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1700), mat(PALETTE.grass));
-    ground.rotation.x = -Math.PI / 2;
+    const ground = new THREE.Mesh(groundGeo(1800, 1700, 10), MAT.grass());
     ground.position.set(50, -0.01, 0);
     ground.receiveShadow = true;
     S.add(ground);
@@ -871,6 +939,7 @@ export class IlmCityEngine {
       const len0 = Math.hypot(ax, az);
       this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
     });
+    for (const m of this.worldBatch.build()) this.scene.add(m);
   }
 
   /** Where an area's main street meets its expressway. */
@@ -887,13 +956,11 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
     g.rotation.y = Math.atan2(dx, dz);
-    const k = new THREE.Mesh(new THREE.PlaneGeometry(18, len + 2), mat(PALETTE.kerb));
-    k.rotation.x = -Math.PI / 2;
+    const k = new THREE.Mesh(groundGeo(19, len + 2, 2), MAT.pavement());
     k.position.y = 0.02;
     k.receiveShadow = true;
     g.add(k);
-    const r = new THREE.Mesh(new THREE.PlaneGeometry(15, len), mat(PALETTE.road));
-    r.rotation.x = -Math.PI / 2;
+    const r = new THREE.Mesh(groundGeo(15, len, 4), MAT.asphalt());
     r.position.y = 0.04;
     r.receiveShadow = true;
     g.add(r);
@@ -908,7 +975,7 @@ export class IlmCityEngine {
       g.add(palm(-12.5, t, 0.9));
       g.add(palm(12.5, t + 13, 0.9));
     }
-    S.add(g);
+    this.worldBatch.addObject(g);
     for (const f of [0.2, 0.5, 0.8]) {
       const t = label(name, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
       t.position.set(x0 + dx * f, 6.5, z0 + dz * f);
@@ -934,6 +1001,10 @@ export class IlmCityEngine {
   }
 
   private reserved: Box[] = [];
+  private worldBatch = new Batch();
+  private areaGroups: { g: THREE.Group; x: number; z: number }[] = [];
+  /** Every compound in the city (for rent, sale and visits). */
+  plots: (Compound & { district: string; street: string; x: number; z: number })[] = [];
   private ox = 0;
   private oz = 0;
   private boxFree(x0: number, x1: number, z0: number, z1: number) {
@@ -1886,6 +1957,12 @@ export class IlmCityEngine {
     else if (this.driving) this.drive(v, dt);
     else this.walk(v, dt, t);
 
+    tickHumans(dt, this.camera);
+    // only draw areas near the camera
+    if (this.where === "out")
+      for (const a of this.areaGroups)
+        a.g.visible = Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z) < 300;
+
     // neighbours
     for (const w of this.walkers) {
       if (w.wait > 0) {
@@ -2038,7 +2115,7 @@ export class IlmCityEngine {
       if (this.where === "out" && (v.y > 0.4 || (v.lengthSq() === 0 && this.tapTarget)))
         this.followYaw = targetRot + Math.PI;
       this.walkT += dt;
-      animatePerson(this.player, this.walkT * 9, 1);
+      animatePerson(this.player, this.walkT * 9, 1, speed);
     } else {
       animatePerson(this.player, 0, 0);
       void t;

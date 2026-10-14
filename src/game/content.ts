@@ -21,6 +21,9 @@ export type Billboard = { id: string; name: string; district: string; ad?: Adver
 const COMING_SOON =
   "Biography coming soon. The IlmStation team will add it after review by our scholars panel.";
 
+const HOMES =
+  "A quiet residential street. Look for TO LET signs on the gates for houses you can rent, and LAND FOR SALE boards for plots you can buy and build on.";
+
 export type Street = { id: string; name: string; bio: string };
 export const STREETS: Record<string, Street> = {
   ridwanjamiu: { id: "ridwanjamiu", name: "Imam Ridwan Jamiu Street", bio: COMING_SOON },
@@ -33,6 +36,16 @@ export const STREETS: Record<string, Street> = {
   ahmadsad: { id: "ahmadsad", name: "Sheikh Ahmad Sad Street", bio: COMING_SOON },
   habeebadewuyi: { id: "habeebadewuyi", name: "Sheikh Habeeb Adewuyi Street", bio: COMING_SOON },
   najmudeen: { id: "najmudeen", name: "Sheikh Najmudeen Street", bio: COMING_SOON },
+  // quiet residential streets
+  amin: { id: "amin", name: "Al-Amin Close", bio: HOMES },
+  salam: { id: "salam", name: "Salam Crescent", bio: HOMES },
+  nur: { id: "nur", name: "Nur Avenue", bio: HOMES },
+  barakah: { id: "barakah", name: "Barakah Close", bio: HOMES },
+  hikmah: { id: "hikmah", name: "Hikmah Street", bio: HOMES },
+  ihsan: { id: "ihsan", name: "Ihsan Close", bio: HOMES },
+  rahmah: { id: "rahmah", name: "Rahmah Street", bio: HOMES },
+  taqwa: { id: "taqwa", name: "Taqwa Close", bio: HOMES },
+  sabr: { id: "sabr", name: "Sabr Avenue", bio: HOMES },
 };
 
 /* ---------------- areas ----------------
@@ -61,7 +74,10 @@ export const DISTRICTS: District[] = [
     origin: { x: 425, z: 450 },
     highway: "Lekki–Epe Expressway",
     lagoon: true,
-    streets: [{ id: "ridwanjamiu", z: 0 }],
+    streets: [
+      { id: "ridwanjamiu", z: 0 },
+      { id: "amin", z: -66 },
+    ],
     landmarks: [
       {
         id: "lekki-central",
@@ -80,7 +96,11 @@ export const DISTRICTS: District[] = [
     state: "Lagos",
     origin: { x: -325, z: -450 },
     highway: "Agege Motor Road",
-    streets: [{ id: "alilory", z: 0 }],
+    streets: [
+      { id: "alilory", z: 0 },
+      { id: "salam", z: -66 },
+      { id: "nur", z: 63 },
+    ],
     landmarks: [
       { id: "markaz", kind: "school", name: "Markaz Arabic School", street: "alilory", x: -32 },
     ],
@@ -94,6 +114,7 @@ export const DISTRICTS: District[] = [
     streets: [
       { id: "adewuyi", z: 0 },
       { id: "ahmadsad", z: -55 },
+      { id: "barakah", z: 63 },
     ],
     landmarks: [
       { id: "ibaadullah", kind: "masjid", name: "Ibaadullah Mosque", street: "adewuyi", x: -36 },
@@ -106,7 +127,11 @@ export const DISTRICTS: District[] = [
     state: "Lagos",
     origin: { x: 575, z: -425 },
     highway: "Ikorodu Road",
-    streets: [{ id: "habeebadewuyi", z: 0 }],
+    streets: [
+      { id: "habeebadewuyi", z: 0 },
+      { id: "hikmah", z: -66 },
+      { id: "ihsan", z: 63 },
+    ],
     landmarks: [
       {
         id: "maktab",
@@ -124,7 +149,11 @@ export const DISTRICTS: District[] = [
     state: "Lagos",
     origin: { x: -560, z: -195 },
     highway: "Egbeda–Idimu Road",
-    streets: [{ id: "najmudeen", z: 0 }],
+    streets: [
+      { id: "najmudeen", z: 0 },
+      { id: "rahmah", z: -66 },
+      { id: "taqwa", z: 63 },
+    ],
     landmarks: [
       {
         id: "abdulazeez",

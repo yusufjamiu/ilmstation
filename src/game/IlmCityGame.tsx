@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
+import { loadHumans } from "./humans";
 import {
   AD_EMAIL,
   BILLBOARDS,
@@ -460,8 +461,16 @@ export default function IlmCityGame() {
   );
 
   /* ---------- engine lifecycle ---------- */
+  const [peopleReady, setPeopleReady] = useState(false);
   useEffect(() => {
-    if (!host.current) return;
+    let live = true;
+    loadHumans().then(() => live && setPeopleReady(true));
+    return () => {
+      live = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!host.current || !peopleReady) return;
     let e: IlmCityEngine;
     try {
       e = new IlmCityEngine(
@@ -511,7 +520,7 @@ export default function IlmCityGame() {
       e.dispose();
       engine.current = null;
     };
-  }, [offset, toast, update]);
+  }, [offset, toast, update, peopleReady]);
   const onActionRef = useRef(onAction);
   onActionRef.current = onAction;
 
@@ -535,6 +544,16 @@ export default function IlmCityGame() {
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]">
       <div ref={host} className="absolute inset-0" />
+      {!peopleReady && (
+        <div className="absolute inset-0 grid place-items-center text-center text-[#fdf8ec]">
+          <div>
+            <div className="font-serif text-4xl">
+              Ilm<span className="text-[#45b8a8]">City</span>
+            </div>
+            <p className="mt-2 text-sm opacity-70">Bismillah… the city is waking up</p>
+          </div>
+        </div>
+      )}
 
       {/* top bar */}
       <div
