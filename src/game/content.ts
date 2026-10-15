@@ -2222,3 +2222,6 @@ export function facultyQuestions(faculty: string): FQ[] {
   const key = Object.keys(FACULTY_QUESTIONS).find((k) => faculty.includes(k)) ?? "Science";
   return FACULTY_QUESTIONS[key];
 }
+
+/** Points for a football match: per goal, and for the win. */
+export const FOOTBALL = { perGoal: 2, win: 8 };

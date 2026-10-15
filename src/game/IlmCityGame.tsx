@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
+import { FootballMatch, MatchInvite } from "./Football";
 import { loadHumans } from "./humans";
 import {
   ONLINE_LIMITS,
@@ -51,6 +52,7 @@ import {
   PLACE_DHIKR,
   CAMPUS_GIST,
   FOUND_ITEMS,
+  FOOTBALL,
   POLICE,
   UNIVERSITIES,
   facultiesOf,
@@ -646,6 +648,109 @@ function CityGame({
     return () => clearInterval(iv);
   }, [update, toast]);
 
+  /* ---------- football ---------- */
+  const playMatch = useCallback(
+    (vs: { kind: "cpu" } | { kind: "online"; online: Online; id: string }) => {
+      setPanel({
+        kind: "info",
+        title: "Football match",
+        body: (
+          <FootballMatch
+            myName={saveRef.current.profile?.name ?? "You"}
+            vs={vs}
+            onClose={() => setPanel(null)}
+            onEnd={(goals, won) => {
+              const pts = goals * FOOTBALL.perGoal + (won ? FOOTBALL.win : 0);
+              update((x) => ({ ...x, coins: x.coins + pts }));
+              need({ energy: -12, social: 18, hunger: -8 });
+              toast(`${won ? "Victory!" : "Good game!"} +${pts} points`, "good");
+            }}
+          />
+        ),
+      });
+    },
+    [update, need, toast],
+  );
+  const openFootball = useCallback(() => {
+    const o = onlineRef.current;
+    const players = areaPlayers.current;
+    setPanel({
+      kind: "info",
+      title: "Football pitch",
+      body: (
+        <div className="space-y-2">
+          <p className="text-[13px] opacity-75">
+            Play a match: take turns to shoot and keep goal. +{FOOTBALL.perGoal} points a goal, +
+            {FOOTBALL.win} for the win.
+          </p>
+          <button
+            onClick={() => playMatch({ kind: "cpu" })}
+            className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
+          >
+            ⚽ Play IlmWorld FC (computer)
+          </button>
+          <div className="pt-1 text-[13px] font-semibold">Invite a player in this area</div>
+          {!o ? (
+            <p className="text-[13px] opacity-70">Log in to IlmStation to play other players.</p>
+          ) : players.length === 0 ? (
+            <p className="text-[13px] opacity-70">No other players in this area right now.</p>
+          ) : (
+            players.map((pl) => (
+              <button
+                key={pl.uid}
+                onClick={async () => {
+                  try {
+                    const id = await o.inviteMatch(pl, saveRef.current.profile?.name ?? "Player");
+                    playMatch({ kind: "online", online: o, id });
+                  } catch {
+                    toast("Could not send the invite. Try again.", "warn");
+                  }
+                }}
+                className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left font-bold"
+              >
+                📨 Invite {pl.name}
+              </button>
+            ))
+          )}
+        </div>
+      ),
+    });
+  }, [playMatch, toast]);
+  const openFootballRef = useRef(openFootball);
+  openFootballRef.current = openFootball;
+  // invites from other players
+  const [onlineReady, setOnlineReady] = useState(0);
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o) return;
+    const seenInv = new Set<string>();
+    return o.watchInvites((list) => {
+      for (const m of list) {
+        if (seenInv.has(m.id)) continue;
+        seenInv.add(m.id);
+        const from = m.names[m.a] ?? "A player";
+        toast(`⚽ ${from} invites you to a football match!`, "good");
+        setPanel({
+          kind: "info",
+          title: "Match invite",
+          body: (
+            <MatchInvite
+              from={from}
+              onAccept={() => {
+                void o.setMatch(m.id, { status: "playing" });
+                playMatch({ kind: "online", online: o, id: m.id });
+              }}
+              onDecline={() => {
+                void o.setMatch(m.id, { status: "declined" });
+                setPanel(null);
+              }}
+            />
+          ),
+        });
+      }
+    });
+  }, [onlineReady, playMatch, toast]);
+
   /* ---------- Qur'an radio ---------- */
   const [radioState, setRadioState] = useState<RadioState>(radio.state);
   useEffect(() => radio.subscribe(setRadioState), []);
@@ -1100,6 +1205,7 @@ function CityGame({
 
   /* ---------- other real players ---------- */
   const onlineRef = useRef<Online | null>(null);
+  const areaPlayers = useRef<{ uid: string; name: string }[]>([]);
   const [inbox, setInbox] = useState<ChatInfo[]>([]);
   const [seenTick, setSeenTick] = useState(0);
   const myStatus = useRef<PlayerStatus | null>(null);
@@ -1113,6 +1219,7 @@ function CityGame({
       .then(async (o) => {
         if (!live) return;
         onlineRef.current = o;
+        setOnlineReady((n) => n + 1);
         myStatus.current = await o.status().catch(() => null);
         offInbox = o.watchInbox(setInbox);
       })
@@ -1517,15 +1624,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("field:")) {
-        setPanel({
-          kind: "busy",
-          title: "Playing football with the brothers",
-          ms: 4000,
-          done: () => {
-            need({ energy: -12, social: 15, hunger: -8 });
-            toast("Good game! A strong believer is better and more beloved to Allah.", "good");
-          },
-        });
+        openFootballRef.current();
         return;
       }
       if (id.startsWith("found:")) {
@@ -2401,7 +2500,10 @@ function CityGame({
           watchedArea.current = ar;
           offArea.current?.();
           offArea.current = ar
-            ? o.watchArea(ar, (list) => engine.current?.setRemotePlayers(list))
+            ? o.watchArea(ar, (list) => {
+                areaPlayers.current = list.map((x) => ({ uid: x.uid, name: x.name }));
+                engine.current?.setRemotePlayers(list);
+              })
             : null;
           if (!ar) e.setRemotePlayers([]);
         }

@@ -812,7 +812,11 @@ export class IlmCityEngine {
           const land = r1 < (D.land ?? 0.13);
           const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.2);
           const toLet = !land && !shops && rnd() < 0.3;
-          if (play && play.sz === sz && play.north === north && play.xs.includes(x)) {
+          if (
+            play &&
+            ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
+              (play.police?.sz === sz && play.police.north === north && play.police.x === x))
+          ) {
             // this plot is the pitch or the sisters' corner; draw the house it replaces into a
             // throwaway batch so every later plot keeps the same number and look as before
             const turn0 = north ? 0 : Math.PI;
@@ -1451,7 +1455,13 @@ export class IlmCityEngine {
     zs: number[],
     H: { x: number; z: number },
     southEdge: number,
-  ): { sz: number; north: boolean; xs: number[]; field: boolean } | null {
+  ): {
+    sz: number;
+    north: boolean;
+    xs: number[];
+    field: boolean;
+    police: { sz: number; north: boolean; x: number } | null;
+  } | null {
     const field = !D.landmarks.some((l) => l.kind === "field");
     const slots: number[] = [];
     for (let x = -(H.x - 26); x <= H.x - 26; x += 24) if (Math.abs(x) >= 16) slots.push(x);
@@ -1465,23 +1475,50 @@ export class IlmCityEngine {
       if (!isNorth && cz + 10 > southEdge - 3) continue;
       if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
       // try the far end first, then the other end
-      for (const set of [slots.slice(-4), slots.slice(0, 4)]) {
-        if (set.length < 4 || set[3] - set[0] !== 72) continue;
-        if (set.every((x) => this.boxFree(x - 11, x + 11, cz - 10, cz + 10)))
-          return { sz, north: isNorth, xs: set, field };
+      for (const set of [slots.slice(-3), slots.slice(0, 3)]) {
+        if (set.length < 3 || set[2] - set[0] !== 48) continue;
+        if (!set.every((x) => this.boxFree(x - 11, x + 11, cz - 10, cz + 10))) continue;
+        // and one more free plot for the police station, as near the cross road as possible
+        let police: { sz: number; north: boolean; x: number } | null = null;
+        for (const [sz2, n2] of [[0, false], [0, true], ...rows] as [number, boolean][]) {
+          if (!zs.includes(sz2)) continue;
+          const cz2 = n2 ? sz2 - 21.5 : sz2 + 21.5;
+          if (!n2 && cz2 + 10 > southEdge - 3) continue;
+          if (zs.some((z2) => z2 !== sz2 && Math.abs(cz2 - z2) < 18)) continue;
+          const x2 = [...slots]
+            .sort((m, n) => Math.abs(m) - Math.abs(n))
+            .find(
+              (x) =>
+                !(sz2 === sz && n2 === isNorth && set.includes(x)) &&
+                this.boxFree(x - 11, x + 11, cz2 - 10, cz2 + 10),
+            );
+          if (x2 !== undefined) {
+            police = { sz: sz2, north: n2, x: x2 };
+            break;
+          }
+        }
+        return { sz, north: isNorth, xs: set, field, police };
       }
     }
     return null;
   }
-  private buildPlay(D: District, p: { sz: number; north: boolean; xs: number[]; field: boolean }) {
+  private buildPlay(
+    D: District,
+    p: {
+      sz: number;
+      north: boolean;
+      xs: number[];
+      field: boolean;
+      police: { sz: number; north: boolean; x: number } | null;
+    },
+  ) {
     const cz = p.north ? p.sz - 21.5 : p.sz + 21.5;
     const turn = p.north ? 0 : Math.PI;
     const b = this.curBatch;
-    // from the cross road outwards: police station, sisters' corner, then the pitch on two plots
+    // the sisters' corner on the plot nearest the cross road, the pitch on the other two
     const xs = [...p.xs].sort((m, n) => Math.abs(m) - Math.abs(n));
-    const policeX = xs[0],
-      cornerX = xs[1],
-      pitchX = (xs[2] + xs[3]) / 2;
+    const cornerX = xs[0],
+      pitchX = (xs[1] + xs[2]) / 2;
     const put = (
       built: {
         colliders: { x0: number; x1: number; z0: number; z1: number }[];
@@ -1491,13 +1528,14 @@ export class IlmCityEngine {
       text: string,
       x0: number,
       x1: number,
+      zc = cz,
     ) => {
       for (const k of built.colliders) this.addCollider("out", k.x0, k.x1, k.z0, k.z1);
       this.reserved.push({
         x0: this.ox + x0,
         x1: this.ox + x1,
-        z0: this.oz + cz - 10,
-        z1: this.oz + cz + 10,
+        z0: this.oz + zc - 10,
+        z1: this.oz + zc + 10,
       });
       for (const sp of built.spots) {
         this.zones.push({
@@ -1524,15 +1562,19 @@ export class IlmCityEngine {
       });
       put(f, `field:${D.id}-pitch`, "Play football", pitchX - 22, pitchX + 22);
     }
-    const ps = policeStation(b, {
-      x: policeX,
-      z: cz,
-      turn,
-      width: 21,
-      depth: 19.5,
-      name: `${D.name} Police Station`,
-    });
-    put(ps, `police:${D.id}`, "Police station", policeX - 10.5, policeX + 10.5);
+    if (p.police) {
+      const q = p.police;
+      const pz = q.north ? q.sz - 21.5 : q.sz + 21.5;
+      const ps = policeStation(b, {
+        x: q.x,
+        z: pz,
+        turn: q.north ? 0 : Math.PI,
+        width: 21,
+        depth: 19.5,
+        name: `${D.name} Police Station`,
+      });
+      put(ps, `police:${D.id}`, "Police station", q.x - 10.5, q.x + 10.5, pz);
+    }
     const sc = sistersCorner(b, {
       x: cornerX,
       z: cz,
