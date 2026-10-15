@@ -46,7 +46,20 @@ import {
   type Lecture,
   type District,
   type Question,
+  PLACE_DHIKR,
+  CAMPUS_GIST,
 } from "./content";
+import {
+  radio,
+  useHush,
+  RECITERS,
+  PLAYLISTS,
+  SURAH_NAMES,
+  NASHEEDS,
+  VEHICLE_RADIO,
+  type RadioState,
+  type Source,
+} from "./audio";
 import {
   CITIES,
   clockFor,
@@ -93,6 +106,10 @@ type Save = {
   tasks?: Record<string, boolean>;
   wudu?: boolean;
   salams?: number;
+  /** adhkar said at places today */
+  said?: { day: string; ids: string[] };
+  /** your own Qur'an player */
+  radio?: { on: boolean; reciter: string; playlist: string; vehicles: boolean };
 };
 type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
 type LifePath = "rich" | "worker" | "trader";
@@ -486,6 +503,115 @@ function CityGame({
     need({ social: 12 });
     if (n >= 3) doTask("salam");
   }, [update, need, doTask]);
+  /* ---------- adhkar at places ---------- */
+  const [dhikr, setDhikr] = useState<{ id: string; then?: () => void } | null>(null);
+  const sayDhikr = useCallback((id: string, then?: () => void, oncePerDay = false) => {
+    const s0 = saveRef.current.said;
+    const today = clockRef.current.key;
+    if (oncePerDay && s0?.day === today && s0.ids.includes(id)) {
+      then?.();
+      return;
+    }
+    setDhikr({ id, then });
+  }, []);
+  const saidDhikr = useCallback(
+    (id: string) => {
+      const today = clockRef.current.key;
+      const s0 = saveRef.current.said;
+      const ids = s0?.day === today ? s0.ids : [];
+      if (ids.includes(id)) return;
+      update((x) => ({ ...x, said: { day: today, ids: [...ids, id] }, ilm: x.ilm + 1 }));
+      need({ iman: 3 });
+      toast("May Allah accept it. +1 Ilm", "good");
+    },
+    [update, need, toast],
+  );
+  useEffect(() => {
+    if (!dhikr || dhikr.then) return;
+    const t = setTimeout(() => setDhikr(null), 25000);
+    return () => clearTimeout(t);
+  }, [dhikr]);
+
+  /* ---------- Qur'an radio ---------- */
+  const [radioState, setRadioState] = useState<RadioState>(radio.state);
+  useEffect(() => radio.subscribe(setRadioState), []);
+  const vehicleMute = useRef<string | null>(null);
+  const radioCfg = save.radio ?? {
+    on: false,
+    reciter: "ar.alafasy",
+    playlist: "amma",
+    vehicles: true,
+  };
+  const radioCfgRef = useRef(radioCfg);
+  radioCfgRef.current = radioCfg;
+  /** Decide what should be playing: the vehicle's radio, your own player, or nothing. */
+  const tuneRadio = useCallback(() => {
+    const e = engine.current;
+    if (!e) return;
+    const where = e.scenePlace();
+    radio.hushIf("place", where === "masjid" || where === "madrasah");
+    const kind = e.rideKind();
+    if (!kind) vehicleMute.current = null;
+    const cfg = radioCfgRef.current;
+    if (kind && cfg.vehicles && vehicleMute.current !== kind) {
+      const v = VEHICLE_RADIO[kind];
+      const name = RECITERS.find((r) => r.id === v.reciter)?.name ?? "";
+      const label = `${kind === "danfo" ? "Danfo" : kind === "keke" ? "Keke" : "Car"} radio · ${name}`;
+      if (radio.state.source?.key !== kind || !radio.state.playing)
+        radio.play({ key: kind, reciter: v.reciter, playlist: v.playlist, label });
+    } else if (cfg.on) {
+      const src = mySource(cfg);
+      const cur = radio.state.source;
+      if (
+        cur?.key !== "me" ||
+        cur.reciter !== src.reciter ||
+        cur.playlist !== src.playlist ||
+        !radio.state.playing
+      )
+        radio.play(src);
+    } else if (radio.state.playing) radio.pause();
+  }, []);
+  const tuneRef = useRef(tuneRadio);
+  tuneRef.current = tuneRadio;
+  useEffect(() => {
+    const iv = setInterval(() => tuneRef.current(), 1000);
+    return () => clearInterval(iv);
+  }, []);
+  const setRadio = useCallback(
+    (p: Partial<typeof radioCfg>) => {
+      const next = { ...radioCfgRef.current, ...p };
+      radioCfgRef.current = next;
+      update((x) => ({ ...x, radio: next }));
+      tuneRef.current();
+    },
+    [update],
+  );
+  const openRadio = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "Qur'an & nasheed",
+      body: (
+        <RadioView
+          cfg={radioCfgRef.current}
+          riding={engine.current?.rideKind() ?? null}
+          onChange={(p) => {
+            setRadio(p);
+            setPanel(null);
+            setTimeout(() => openRadioRef.current(), 0);
+          }}
+          onSkip={() => radio.skip()}
+          onVehicleMute={() => {
+            vehicleMute.current = engine.current?.rideKind() ?? null;
+            radio.pause();
+            setPanel(null);
+          }}
+        />
+      ),
+    });
+  }, [setRadio]);
+  const openRadioRef = useRef(openRadio);
+  openRadioRef.current = openRadio;
+
   const greetedRef = useRef(greeted);
   greetedRef.current = greeted;
   const loggedInRef = useRef(loggedIn);
@@ -1212,6 +1338,79 @@ function CityGame({
         }
         return;
       }
+      if (id.startsWith("faculty:")) {
+        const L = landmarkById(id.slice(8));
+        if (!L) return;
+        const library = L.l.id.endsWith("-library");
+        const [room, uni] = L.l.name.split(" · ");
+        sayDhikr("study", () => {
+          e.enterInterior("madrasah", L.l.name);
+          setInside(true);
+          tuneRef.current();
+          const today = clockRef.current.key;
+          const s0 = saveRef.current.said;
+          const ids = s0?.day === today ? s0.ids : [];
+          if (!ids.includes("class")) {
+            update((x) => ({ ...x, ilm: x.ilm + 2, said: { day: today, ids: [...ids, "class"] } }));
+            need({ iman: 4, social: 5 });
+          }
+          setPanel({
+            kind: "info",
+            title: library ? L.l.name : `${room}${uni ? " · " + uni : ""}`,
+            body: (
+              <InClassView
+                library={library}
+                about={L.l.about ?? ""}
+                onLeave={() => {
+                  setPanel(null);
+                  onActionRef.current("exit");
+                }}
+              />
+            ),
+          });
+        });
+        return;
+      }
+      if (id.startsWith("field:")) {
+        setPanel({
+          kind: "busy",
+          title: "Playing football with the brothers",
+          ms: 4000,
+          done: () => {
+            need({ energy: -12, social: 15, hunger: -8 });
+            toast("Good game! A strong believer is better and more beloved to Allah.", "good");
+          },
+        });
+        return;
+      }
+      if (id.startsWith("hangout:")) {
+        const L = landmarkById(id.slice(8));
+        if (!L) return;
+        setPanel({
+          kind: "info",
+          title: L.l.name,
+          body: (
+            <MeetView
+              about={L.l.about ?? ""}
+              onSit={() =>
+                setPanel({
+                  kind: "busy",
+                  title: "Sitting with the students",
+                  ms: 3500,
+                  done: () => {
+                    need({ social: 22, iman: 3 });
+                    toast(
+                      "You shared notes and good reminders. Brotherhood and sisterhood in Islam.",
+                      "good",
+                    );
+                  },
+                })
+              }
+            />
+          ),
+        });
+        return;
+      }
       if (id.startsWith("mansion:")) {
         const L = landmarkById(id.slice(8));
         if (!L) return;
@@ -1276,6 +1475,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("shop:") || id.startsWith("stall:")) {
+        sayDhikr("market", undefined, true);
         openShop(id.slice(id.indexOf(":") + 1));
         return;
       }
@@ -1302,6 +1502,8 @@ function CityGame({
                   }
                   setPanel(null);
                   if (e.kekeTo(prefix)) {
+                    tuneRef.current();
+                    sayDhikr("ride");
                     update((x) => ({ ...x, coins: x.coins - 3 }));
                     advance(4);
                     toast("Off we go! Hold on tight.", "good");
@@ -1353,6 +1555,8 @@ function CityGame({
           return;
         }
         if (e.boardBus()) {
+          tuneRef.current();
+          sayDhikr("ride");
           advance(4);
           update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
           toast(`Bismillah! You paid ${BUS_FARE} points. Tap "Get off" before your stop.`, "good");
@@ -1369,6 +1573,8 @@ function CityGame({
         const name = landmarkName(lid);
         e.enterInterior("masjid", name);
         setInside(true);
+        tuneRef.current();
+        sayDhikr("enterMasjid");
         const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
         if (ms.open && ms.prayer) {
@@ -1427,6 +1633,7 @@ function CityGame({
         }
         e.enterInterior("home", `Your flat · ${districtById(mine).name}`);
         setInside(true);
+        sayDhikr("enterHome");
         return;
       }
       if (id === "bath") {
@@ -1480,14 +1687,19 @@ function CityGame({
         return;
       }
       if (id === "exit") {
+        const was = e.scenePlace();
         e.exitInterior();
         setInside(false);
+        tuneRef.current();
+        if (was === "home") sayDhikr("leaveHome");
+        else if (was === "masjid") sayDhikr("leaveMasjid");
         return;
       }
       if (id === "car") {
         e.enterCar();
         setDriving(true);
-        toast("Bismillah. Drive safely.");
+        tuneRef.current();
+        sayDhikr("ride");
         return;
       }
       if (id === "car-exit") {
@@ -1695,7 +1907,7 @@ function CityGame({
           done: () => {
             need({ hunger: 60 });
             doTask("eat");
-            toast("Alhamdulillah. You ate well.", "good");
+            sayDhikr("afterEating");
           },
         });
         return;
@@ -1746,6 +1958,7 @@ function CityGame({
       openWudu,
       doTask,
       need,
+      sayDhikr,
     ],
   );
 
@@ -2242,8 +2455,60 @@ function CityGame({
               </span>
             )}
           </button>
+          {save.profile && (
+            <div className="pointer-events-auto flex max-w-[170px] items-center gap-1 rounded-xl bg-[#10201e]/85 py-1 pl-2.5 pr-1 text-[11.5px] font-semibold text-[#fdf8ec] shadow">
+              <button
+                onClick={openRadio}
+                className="min-w-0 truncate text-left"
+                aria-label="Qur'an player"
+              >
+                {radioState.hushed
+                  ? "🔇 Quiet here"
+                  : radioState.playing && radioState.source
+                    ? `🎧 ${SURAH_NAMES[radioState.surah - 1]}`
+                    : "🎧 Qur'an"}
+              </button>
+              <button
+                onClick={() => {
+                  const kind = engine.current?.rideKind() ?? null;
+                  if (radioState.playing) {
+                    if (kind && radioState.source?.key === kind) vehicleMute.current = kind;
+                    else setRadio({ on: false });
+                    radio.pause();
+                  } else {
+                    vehicleMute.current = null;
+                    if (kind && radioCfgRef.current.vehicles) tuneRef.current();
+                    else setRadio({ on: true });
+                    if (!kind || !radioCfgRef.current.vehicles)
+                      radio.play(mySource(radioCfgRef.current));
+                  }
+                }}
+                className="grid size-6 shrink-0 place-items-center rounded-lg bg-[#fdf8ec]/15"
+                aria-label={radioState.playing ? "Pause" : "Play"}
+              >
+                {radioState.playing ? "⏸" : "▶"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      {dhikr && PLACE_DHIKR[dhikr.id] && (
+        <DhikrCard
+          d={PLACE_DHIKR[dhikr.id]}
+          blocking={!!dhikr.then}
+          onSaid={() => {
+            saidDhikr(dhikr.id);
+            const then = dhikr.then;
+            setDhikr(null);
+            then?.();
+          }}
+          onClose={() => {
+            const then = dhikr.then;
+            setDhikr(null);
+            then?.();
+          }}
+        />
+      )}
       <div
         data-game-ui
         className="pointer-events-none absolute left-3 top-[118px] flex flex-col items-start gap-1.5"
@@ -2893,6 +3158,7 @@ function LectureView({
   earnedToday: number;
   onMinute: () => void;
 }) {
+  useHush("lecture");
   const [secs, setSecs] = useState(0);
   const tick = useRef(onMinute);
   tick.current = onMinute;
@@ -3851,6 +4117,7 @@ function PrayerSession({
   onPose: (p: Step["pose"] | null) => void;
   onFinish: () => void;
 }) {
+  useHush("salah");
   const steps = useMemo(() => {
     const out: Step[] = [];
     for (let r = 1; r <= rakahs; r++)
@@ -4373,6 +4640,9 @@ const ICON: Record<string, string> = {
   mansion: "🏡",
   office: "🏢",
   market: "🛒",
+  faculty: "🎓",
+  field: "⚽",
+  hangout: "🤝",
 };
 function placesIn(id: string): Place[] {
   const D = districtById(id);
@@ -5217,4 +5487,256 @@ function salesDue(o: ShopOwn) {
   if (!o.name || !o.products.length) return 0;
   const days = Math.min(3, (Date.now() - (o.salesAt ?? Date.now())) / 86400000);
   return Math.floor(days * SHOP_SALES_PER_DAY);
+}
+
+/** Your own Qur'an player as a radio source. */
+function mySource(c: { reciter: string; playlist: string }): Source {
+  return {
+    key: "me",
+    reciter: c.reciter,
+    playlist: c.playlist,
+    label: RECITERS.find((r) => r.id === c.reciter)?.name ?? "Qur'an",
+  };
+}
+
+/* ---------------- adhkar card ---------------- */
+function DhikrCard({
+  d,
+  blocking,
+  onSaid,
+  onClose,
+}: {
+  d: { title: string; arabic: string; say: string; meaning: string; source: string; tip?: string };
+  blocking: boolean;
+  onSaid: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      data-game-ui
+      className={`absolute inset-x-3 z-40 mx-auto max-w-md ${blocking ? "top-1/2 -translate-y-1/2" : "top-[118px]"}`}
+    >
+      <div className="rounded-2xl border border-[#1f6f63]/25 bg-[#fdf8ec] p-3.5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div className="text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
+            🤲 {d.title}
+          </div>
+          {!blocking && (
+            <button
+              onClick={onClose}
+              className="px-1 text-[18px] leading-none opacity-50"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        <p
+          dir="rtl"
+          lang="ar"
+          className="mt-1.5 text-center font-[Amiri] text-[21px] leading-[1.9]"
+        >
+          {d.arabic}
+        </p>
+        <p className="mt-1 text-[13px] font-semibold italic">{d.say}</p>
+        <p className="mt-1 text-[12.5px] opacity-80">
+          "{d.meaning}" <span className="opacity-70">({d.source})</span>
+        </p>
+        {d.tip && <p className="mt-1 text-[12px] text-[#1f6f63]">{d.tip}</p>}
+        <div className="mt-2.5 flex gap-2">
+          <button
+            onClick={onSaid}
+            className="flex-1 rounded-xl bg-[#1f6f63] py-2.5 text-[14px] font-bold text-[#fdf8ec]"
+          >
+            I said it ✓
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-[#1f6f63]/30 bg-white px-4 py-2.5 text-[14px] font-bold"
+          >
+            {blocking ? "Continue" : "Later"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- university ---------------- */
+function InClassView({
+  library,
+  about,
+  onLeave,
+}: {
+  library: boolean;
+  about: string;
+  onLeave: () => void;
+}) {
+  return (
+    <div className="space-y-3 text-center">
+      <div className="text-5xl">{library ? "📚" : "🎓"}</div>
+      <p className="text-[18px] font-bold">
+        {library ? "You're in the library now." : "You're in class now."}
+      </p>
+      <p className="text-[15px]">
+        Focus on your {library ? "reading" : "lecture"} and continue playing later, in shaa Allah.
+      </p>
+      <p className="rounded-xl bg-white p-3 text-[14px] text-[#1f6f63]">
+        Wishing you success in your studies. May Allah increase you in beneficial knowledge. 🤲
+      </p>
+      {about && <p className="text-[12.5px] opacity-70">{about}</p>}
+      <button
+        onClick={onLeave}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+      >
+        {library ? "Leave the library" : "Leave class"}
+      </button>
+    </div>
+  );
+}
+
+function MeetView({ about, onSit }: { about: string; onSit: () => void }) {
+  const [gist] = useState(() => {
+    const a = Math.floor(Math.random() * CAMPUS_GIST.length);
+    return [CAMPUS_GIST[a], CAMPUS_GIST[(a + 3) % CAMPUS_GIST.length]];
+  });
+  return (
+    <div className="space-y-3">
+      <p>{about}</p>
+      <div className="space-y-1.5">
+        <div className="text-[13px] font-semibold">Today's gist:</div>
+        {gist.map((g) => (
+          <p key={g} className="rounded-xl bg-white p-2.5 text-[14px]">
+            💬 {g}
+          </p>
+        ))}
+      </div>
+      <button
+        onClick={onSit}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        Sit and gist
+      </button>
+      <p className="text-[12px] opacity-70">
+        Players who come here can chat with you: walk up to them and tap Chat. Keep it respectful,
+        brothers and sisters alike.
+      </p>
+    </div>
+  );
+}
+
+/* ---------------- Qur'an player ---------------- */
+function RadioView({
+  cfg,
+  riding,
+  onChange,
+  onSkip,
+  onVehicleMute,
+}: {
+  cfg: { on: boolean; reciter: string; playlist: string; vehicles: boolean };
+  riding: "danfo" | "keke" | "car" | null;
+  onChange: (
+    p: Partial<{ on: boolean; reciter: string; playlist: string; vehicles: boolean }>,
+  ) => void;
+  onSkip: () => void;
+  onVehicleMute: () => void;
+}) {
+  const [st, setSt] = useState(radio.state);
+  useEffect(() => radio.subscribe(setSt), []);
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-white p-3">
+        <div className="text-[12px] font-semibold opacity-70">Now</div>
+        <div className="font-bold">
+          {st.hushed
+            ? "Quiet: no Qur'an or nasheed in the masjid, in class or during salah"
+            : st.playing && st.source
+              ? `Surah ${SURAH_NAMES[st.surah - 1]} · ${st.source.label}`
+              : "Off"}
+        </div>
+        {st.error && (
+          <div className="mt-1 text-[12px] text-[#b8573a]">
+            The recitation could not load. Check your internet and try again.
+          </div>
+        )}
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => onChange({ on: !cfg.on })}
+            className={`flex-1 rounded-lg py-2 text-[13px] font-bold ${cfg.on ? "border border-[#1f6f63]/30 bg-white" : "bg-[#1f6f63] text-[#fdf8ec]"}`}
+          >
+            {cfg.on ? "⏸ Turn off" : "▶ Play"}
+          </button>
+          {st.playing && (
+            <button
+              onClick={onSkip}
+              className="flex-1 rounded-lg border border-[#1f6f63]/30 bg-white py-2 text-[13px] font-bold"
+            >
+              ⏭ Next surah
+            </button>
+          )}
+        </div>
+        {riding && st.source?.key === riding && st.playing && (
+          <button
+            onClick={onVehicleMute}
+            className="mt-2 text-[12.5px] font-semibold text-[#1f6f63] underline"
+          >
+            Turn off the {riding} radio for this ride
+          </button>
+        )}
+      </div>
+      <div>
+        <div className="mb-1 text-[13px] font-semibold">Reciter</div>
+        <div className="grid gap-1.5">
+          {RECITERS.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => onChange({ reciter: r.id, on: true })}
+              className={`rounded-xl px-3 py-2 text-left text-[14px] ${cfg.reciter === r.id ? "bg-[#1f6f63] font-bold text-[#fdf8ec]" : "border border-[#1f6f63]/20 bg-white"}`}
+            >
+              {r.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="mb-1 text-[13px] font-semibold">What to play</div>
+        <div className="grid gap-1.5">
+          {PLAYLISTS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => onChange({ playlist: p.id, on: true })}
+              className={`rounded-xl px-3 py-2 text-left text-[14px] ${cfg.playlist === p.id ? "bg-[#1f6f63] font-bold text-[#fdf8ec]" : "border border-[#1f6f63]/20 bg-white"}`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="flex items-center justify-between rounded-xl bg-white p-3 text-[14px]">
+        <span>
+          <b>Radio in danfo, keke and car</b>
+          <br />
+          <span className="text-[12px] opacity-70">Each one plays its own reciter</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={cfg.vehicles}
+          onChange={(e) => onChange({ vehicles: e.target.checked })}
+          className="size-5 accent-[#1f6f63]"
+        />
+      </label>
+      <div className="rounded-xl border border-dashed border-[#1f6f63]/30 p-3 text-[13px]">
+        <b>Nasheeds</b>
+        {NASHEEDS.length === 0 ? (
+          <p className="mt-0.5 opacity-75">Coming soon, in shaa Allah.</p>
+        ) : (
+          <p className="mt-0.5 opacity-75">{NASHEEDS.length} nasheeds</p>
+        )}
+      </div>
+      <p className="text-[11.5px] opacity-60">
+        It keeps playing while you text. It stops by itself in the masjid, in school and class, and
+        during salah and lectures. Recitations: Islamic Network.
+      </p>
+    </div>
+  );
 }

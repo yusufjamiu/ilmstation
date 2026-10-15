@@ -211,8 +211,16 @@ export class Traffic {
     rnd: () => number,
   ) {
     this.rnd = rnd;
-    this.tour = tourPath(["lekki", "ajegunle", "egbeda", "agege", "ikorodu"]);
-    const tour2 = tourPath(["ikorodu", "lekki", "agege", "ajegunle", "egbeda"]);
+    // the danfo loop visits every main area in turn round the City Junction
+    const roots = DISTRICTS.filter((d) => !d.parent)
+      .map((d) => {
+        const [x, z] = roadEndOf(d);
+        return { id: d.id, a: Math.atan2(z, x) };
+      })
+      .sort((a, b) => a.a - b.a)
+      .map((r) => r.id);
+    this.tour = tourPath(roots);
+    const tour2 = tourPath([...roots.slice(2), ...roots.slice(0, 2)].filter((_, i) => i % 2 === 0));
 
     // two bus stops per area, one on each side of the main street
     for (const d of DISTRICTS) {

@@ -24,6 +24,9 @@ const COMING_SOON =
 const HOMES =
   "A quiet residential street. Look for TO LET signs on the gates for houses you can rent, and LAND FOR SALE boards for plots you can buy and build on.";
 
+const MSSN_ST =
+  "The Muslim students' road on campus: the central mosque, the MSSN secretariat, the sports field and the meeting point where brothers and sisters gist, plan programmes and remind one another.";
+
 export type Street = { id: string; name: string; bio: string };
 export const STREETS: Record<string, Street> = {
   ridwanjamiu: { id: "ridwanjamiu", name: "Imam Ridwan Jamiu Street", bio: COMING_SOON },
@@ -79,13 +82,48 @@ export const STREETS: Record<string, Street> = {
   ridwan: { id: "ridwan", name: "Ridwan Close", bio: HOMES },
   falah: { id: "falah", name: "Falah Street", bio: HOMES },
   amanah: { id: "amanah", name: "Amanah Close", bio: HOMES },
+  // university areas
+  unilagroad: {
+    id: "unilagroad",
+    name: "University Road, Akoka",
+    bio: "The road into the University of Lagos (UNILAG) at Akoka. Faculties line the road; the MSSN mosque, field and meeting point are on MSSN Avenue behind them.",
+  },
+  lasuroad: {
+    id: "lasuroad",
+    name: "LASU Road, Ojo",
+    bio: "The road into Lagos State University (LASU) at Ojo, off the Lagos–Badagry Expressway.",
+  },
+  lasustechroad: {
+    id: "lasustechroad",
+    name: "LASUSTECH Road, First Gate",
+    bio: "The road into Lagos State University of Science and Technology (LASUSTECH) at First Gate, Ikorodu.",
+  },
+  mssnunilag: { id: "mssnunilag", name: "MSSN Avenue (UNILAG)", bio: MSSN_ST },
+  mssnlasu: { id: "mssnlasu", name: "MSSN Avenue (LASU)", bio: MSSN_ST },
+  mssnlasustech: { id: "mssnlasustech", name: "MSSN Avenue (LASUSTECH)", bio: MSSN_ST },
+  yaqeen: { id: "yaqeen", name: "Yaqeen Close", bio: HOMES },
+  ilm: { id: "ilm", name: "Ilm Street", bio: HOMES },
+  ikhlas: { id: "ikhlas", name: "Ikhlas Avenue", bio: HOMES },
 };
 
 /* ---------------- areas ----------------
    To add an area: copy one block, give it streets (main street first, z = 0;
    a second street sits at z = -55) and landmarks placed along a street by x. */
 export type LandmarkKind =
-  "masjid" | "school" | "home" | "souq" | "campus" | "mansion" | "office" | "market";
+  | "masjid"
+  | "school"
+  | "home"
+  | "souq"
+  | "campus"
+  | "mansion"
+  | "office"
+  | "market"
+  /** a university lecture building: entering it means you are in class */
+  | "faculty"
+  /** a sports field */
+  | "field"
+  /** a covered meeting point with mats where students sit and gist */
+  | "hangout";
 export type Landmark = {
   id: string;
   kind: LandmarkKind;
@@ -130,6 +168,107 @@ export type District = {
   streets: { id: string; z: number; decor?: boolean }[];
   landmarks: Landmark[];
 };
+
+/** A university area: faculties on the main road, and the MSSN mosque, secretariat,
+    field and meeting point on MSSN Avenue behind them. */
+function universityArea(o: {
+  id: string;
+  name: string;
+  uni: string;
+  short: string;
+  origin: { x: number; z: number };
+  highway: string;
+  busStop: string;
+  parent?: string;
+  road: string;
+  avenue: string;
+  homes: string;
+  faculties: string[];
+  about: string;
+}): District {
+  const fx = [-100, -56, 42, 86];
+  return {
+    id: o.id,
+    name: o.name,
+    state: "Lagos",
+    origin: o.origin,
+    highway: o.highway,
+    busStop: o.busStop,
+    parent: o.parent,
+    half: { x: 140, z: 140 },
+    shops: 0.25,
+    land: 0.12,
+    streets: [
+      { id: o.road, z: 0, decor: true },
+      { id: o.avenue, z: -75 },
+      { id: o.homes, z: 75 },
+    ],
+    landmarks: [
+      ...o.faculties.slice(0, 4).map((f, i): Landmark => ({
+        id: `${o.id}-fac-${i}`,
+        kind: "faculty",
+        name: `${f} · ${o.short}`,
+        street: o.road,
+        x: fx[i],
+        width: 30,
+        depth: 28,
+        floors: 3,
+        about: `${f}, ${o.uni}.`,
+      })),
+      {
+        id: `${o.id}-mosque`,
+        kind: "masjid",
+        name: `${o.short} Central Mosque`,
+        street: o.avenue,
+        x: 48,
+      },
+      {
+        id: `${o.id}-library`,
+        kind: "faculty",
+        name: `${o.short} Library`,
+        street: o.avenue,
+        x: 108,
+        width: 26,
+        depth: 30,
+        floors: 2,
+        about: `The main library of ${o.uni}: quiet reading rooms, books and journals.`,
+      },
+      {
+        id: `${o.id}-field`,
+        kind: "field",
+        name: `${o.short} Sports Field`,
+        street: o.avenue,
+        x: -74,
+        width: 58,
+        depth: 44,
+      },
+      {
+        id: `${o.id}-mssn`,
+        kind: "office",
+        name: `MSSN ${o.short} Secretariat`,
+        street: o.avenue,
+        x: 50,
+        side: "s",
+        width: 28,
+        depth: 18,
+        floors: 1,
+        brand: { color: 0x1f6f63, accent: 0xfdf8ec },
+        about: `The Muslim Students' Society of Nigeria (MSSN), ${o.short} branch. Jumu'ah on campus, tutorials before exams, da'wah week, Ramadan iftar and registration for the Islamic Vacation Course (IVC). Every Muslim student is welcome, brothers and sisters.`,
+      },
+      {
+        id: `${o.id}-meet`,
+        kind: "hangout",
+        name: `MSSN ${o.short} Meeting Point`,
+        street: o.avenue,
+        x: -62,
+        side: "s",
+        width: 30,
+        depth: 18,
+        about: o.about,
+      },
+    ],
+  };
+}
 
 export const DISTRICTS: District[] = [
   {
@@ -510,9 +649,9 @@ export const DISTRICTS: District[] = [
     id: "secondgate",
     name: "Second Gate",
     state: "Lagos",
-    origin: { x: 575, z: -975 },
+    origin: { x: 575, z: -1275 },
     highway: "Ikorodu Road",
-    parent: "agric",
+    parent: "firstgate",
     busStop: "Second Gate",
     half: { x: 112, z: 110 },
     shops: 0.25,
@@ -554,7 +693,7 @@ export const DISTRICTS: District[] = [
     id: "market",
     name: "Ikorodu Market",
     state: "Lagos",
-    origin: { x: 575, z: -1215 },
+    origin: { x: 575, z: -1505 },
     highway: "Ikorodu Road",
     parent: "secondgate",
     busStop: "Ikorodu Market",
@@ -790,6 +929,67 @@ export const DISTRICTS: District[] = [
       },
     ],
   },
+  universityArea({
+    id: "firstgate",
+    name: "First Gate",
+    uni: "Lagos State University of Science and Technology (LASUSTECH), Ikorodu",
+    short: "LASUSTECH",
+    origin: { x: 575, z: -1005 },
+    highway: "Ikorodu Road",
+    parent: "agric",
+    busStop: "First Gate",
+    road: "lasustechroad",
+    avenue: "mssnlasustech",
+    homes: "yaqeen",
+    faculties: [
+      "Faculty of Engineering",
+      "Faculty of Applied Sciences",
+      "Faculty of Environmental Studies",
+      "Faculty of Agriculture",
+    ],
+    about:
+      "Where LASUSTECH Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
+  universityArea({
+    id: "akoka",
+    name: "Akoka",
+    uni: "the University of Lagos (UNILAG), Akoka",
+    short: "UNILAG",
+    origin: { x: 280, z: 25 },
+    highway: "Herbert Macaulay Way",
+    busStop: "UNILAG Gate",
+    road: "unilagroad",
+    avenue: "mssnunilag",
+    homes: "ilm",
+    faculties: [
+      "Faculty of Arts",
+      "Faculty of Science",
+      "Faculty of Engineering",
+      "Faculty of Law",
+    ],
+    about:
+      "Where UNILAG Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
+  universityArea({
+    id: "ojo",
+    name: "Ojo",
+    uni: "Lagos State University (LASU), Ojo",
+    short: "LASU",
+    origin: { x: -620, z: 250 },
+    highway: "Lagos–Badagry Expressway",
+    busStop: "LASU Gate",
+    road: "lasuroad",
+    avenue: "mssnlasu",
+    homes: "ikhlas",
+    faculties: [
+      "Faculty of Arts",
+      "Faculty of Science",
+      "Faculty of Management Sciences",
+      "Faculty of Education",
+    ],
+    about:
+      "Where LASU Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
 ];
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
@@ -1644,3 +1844,99 @@ export const STREAK_REWARDS: Record<number, number> = { 3: 20, 7: 50, 14: 100, 3
 export const STREAK_TASKS = 5;
 /** A trader's shop with a name and products sells this much a day. */
 export const SHOP_SALES_PER_DAY = 20;
+
+/* ---------------- adhkar at places ---------------- */
+export type PlaceDhikr = {
+  title: string;
+  arabic: string;
+  say: string;
+  meaning: string;
+  source: string;
+  tip?: string;
+};
+export const PLACE_DHIKR: Record<string, PlaceDhikr> = {
+  leaveHome: {
+    title: "Leaving the house",
+    arabic:
+      "بِسْمِ اللَّهِ، تَوَكَّلْتُ عَلَى اللَّهِ، وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ",
+    say: "Bismillah, tawakkaltu 'alallah, wa la hawla wa la quwwata illa billah.",
+    meaning:
+      "In the name of Allah, I put my trust in Allah, and there is no power and no strength except with Allah.",
+    source: "Abu Dawud, Tirmidhi",
+  },
+  enterHome: {
+    title: "Entering the house",
+    arabic:
+      "بِسْمِ اللَّهِ وَلَجْنَا، وَبِسْمِ اللَّهِ خَرَجْنَا، وَعَلَى اللَّهِ رَبِّنَا تَوَكَّلْنَا",
+    say: "Bismillahi walajna, wa bismillahi kharajna, wa 'ala Allahi rabbina tawakkalna.",
+    meaning:
+      "In the name of Allah we enter, in the name of Allah we leave, and upon Allah our Lord we rely.",
+    source: "Abu Dawud",
+    tip: "Then greet the people of the house with salam.",
+  },
+  enterMasjid: {
+    title: "Entering the masjid",
+    arabic: "اللَّهُمَّ افْتَحْ لِي أَبْوَابَ رَحْمَتِكَ",
+    say: "Allahumma-ftah li abwaba rahmatik.",
+    meaning: "O Allah, open for me the doors of Your mercy.",
+    source: "Muslim",
+    tip: "Enter with your right foot.",
+  },
+  leaveMasjid: {
+    title: "Leaving the masjid",
+    arabic: "اللَّهُمَّ إِنِّي أَسْأَلُكَ مِنْ فَضْلِكَ",
+    say: "Allahumma inni as'aluka min fadlik.",
+    meaning: "O Allah, I ask You from Your bounty.",
+    source: "Muslim",
+    tip: "Leave with your left foot.",
+  },
+  ride: {
+    title: "Riding a vehicle",
+    arabic:
+      "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَٰذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَىٰ رَبِّنَا لَمُنقَلِبُونَ",
+    say: "Subhanalladhi sakhkhara lana hadha wa ma kunna lahu muqrinin, wa inna ila rabbina lamunqalibun.",
+    meaning:
+      "Glory be to the One who made this subservient to us, and we could never have done it ourselves. And to our Lord we will surely return.",
+    source: "Qur'an 43:13–14",
+  },
+  market: {
+    title: "Entering the market",
+    arabic:
+      "لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، يُحْيِي وَيُمِيتُ وَهُوَ حَيٌّ لَا يَمُوتُ، بِيَدِهِ الْخَيْرُ، وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ",
+    say: "La ilaha illallahu wahdahu la sharika lah, lahul-mulku wa lahul-hamd, yuhyi wa yumit, wa huwa hayyun la yamut, biyadihil-khayr, wa huwa 'ala kulli shay'in qadir.",
+    meaning:
+      "None has the right to be worshipped but Allah alone, without partner. His is the dominion and His is the praise. He gives life and causes death, and He is Ever-Living and does not die. In His hand is all good, and He has power over all things.",
+    source: "Tirmidhi",
+  },
+  study: {
+    title: "Before class",
+    arabic: "رَبِّ زِدْنِي عِلْمًا",
+    say: "Rabbi zidni 'ilma.",
+    meaning: "My Lord, increase me in knowledge.",
+    source: "Qur'an 20:114",
+    tip: "Make your intention to learn for Allah and to benefit people.",
+  },
+  afterEating: {
+    title: "After eating",
+    arabic:
+      "الْحَمْدُ لِلَّهِ الَّذِي أَطْعَمَنِي هَٰذَا وَرَزَقَنِيهِ مِنْ غَيْرِ حَوْلٍ مِنِّي وَلَا قُوَّةٍ",
+    say: "Alhamdu lillahil-ladhi at'amani hadha wa razaqanihi min ghayri hawlin minni wa la quwwah.",
+    meaning:
+      "All praise is for Allah who fed me this and provided it for me without any might or power from me.",
+    source: "Abu Dawud, Tirmidhi",
+  },
+};
+
+/** What Muslim students talk about at the meeting point. */
+export const CAMPUS_GIST = [
+  "Jumu'ah khutbah this week is on time management for students. Come early, the mosque fills up.",
+  "MSSN tutorials for first-year maths start on Monday after Asr, in the library.",
+  "Who is going for IVC this December? Registration is at the secretariat.",
+  "Da'wah week is next month. We need volunteers for the welcome desk.",
+  "Exams are close. Sleep early, pray Fajr, then revise. Barakah is in the morning.",
+  "Sisters' halaqah is on Wednesday and brothers' halaqah on Thursday, both after Maghrib.",
+  "Iftar on campus every Monday and Thursday for anyone fasting.",
+  "Remember the du'a before lectures: Rabbi zidni 'ilma.",
+  "Football match on the field on Saturday: Engineering vs Science.",
+  "Book club is reading a seerah book this month. Ask at the secretariat.",
+];

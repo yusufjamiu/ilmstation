@@ -20,7 +20,10 @@ import {
   MAT2,
   campus,
   compound,
+  faculty,
+  field,
   groundGeo,
+  hangout,
   mansion,
   office,
   powerLine,
@@ -80,6 +83,8 @@ type Walker = {
   district?: string;
   talking?: boolean;
   hisbah?: boolean;
+  /** sits in one place (students at a meeting point) */
+  seated?: boolean;
 };
 
 const PALETTE = {
@@ -1084,8 +1089,8 @@ export class IlmCityEngine {
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
   private buildWorld() {
     const S = this.scene;
-    const ground = new THREE.Mesh(groundGeo(2300, 2400, 10), MAT.grass());
-    ground.position.set(150, -0.01, -330);
+    const ground = new THREE.Mesh(groundGeo(2300, 2700, 10), MAT.grass());
+    ground.position.set(150, -0.01, -480);
     ground.receiveShadow = true;
     S.add(ground);
     const water = (w: number, d: number, x: number, z: number, round = false) => {
@@ -1108,11 +1113,11 @@ export class IlmCityEngine {
     water(150, 105, 540, 20, true);
     this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
     // world edges
-    this.colliders.out.push({ x0: -1100, x1: -800, z0: -1600, z1: 900 });
-    this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1600, z1: 900 });
+    this.colliders.out.push({ x0: -1100, x1: -800, z0: -1900, z1: 900 });
+    this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1900, z1: 900 });
     // the north edge: Ikorodu reaches further north than the rest of the city
-    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1600, z1: -680 });
-    this.colliders.out.push({ x0: 420, x1: 1200, z0: -1600, z1: -1330 });
+    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1900, z1: -680 });
+    this.colliders.out.push({ x0: 420, x1: 1200, z0: -1900, z1: -1612 });
 
     DISTRICTS.forEach((d) => this.buildDistrict(d.id));
 
@@ -1362,16 +1367,28 @@ export class IlmCityEngine {
       const turn = south ? Math.PI : 0;
       const b = this.curBatch;
       const o = { x: l.x, z: cz, turn, width: w, depth: d, floors: l.floors ?? 2, name: l.name };
+      let seats: { x: number; z: number; face: number }[] = [];
       const built =
         l.kind === "campus"
           ? campus(b, { ...o, classes: l.classes ?? [] })
           : l.kind === "mansion"
             ? mansion(b, o)
-            : office(b, {
-                ...o,
-                color: l.brand?.color ?? 0x1f6f63,
-                accent: l.brand?.accent ?? 0xffffff,
-              });
+            : l.kind === "faculty"
+              ? faculty(b, o)
+              : l.kind === "field"
+                ? field(b, o)
+                : l.kind === "hangout"
+                  ? (() => {
+                      const h = hangout(b, o);
+                      seats = h.seats;
+                      return h;
+                    })()
+                  : office(b, {
+                      ...o,
+                      color: l.brand?.color ?? 0x1f6f63,
+                      accent: l.brand?.accent ?? 0xffffff,
+                    });
+      if (seats.length) this.seatStudents(seats, D);
       for (const c of built.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
       for (const sp of built.spots) {
         if (sp.key === "gate" && l.kind === "campus") {
@@ -1381,7 +1398,16 @@ export class IlmCityEngine {
           continue;
         }
         const id = l.kind === "campus" ? `campus:${l.id}:${sp.key}` : `${l.kind}:${l.id}`;
-        const text = l.kind === "campus" ? sp.label : "Visit " + l.name;
+        const text =
+          l.kind === "campus"
+            ? sp.label
+            : l.kind === "faculty"
+              ? "Enter " + l.name.split(" · ")[0]
+              : l.kind === "field"
+                ? "Play football"
+                : l.kind === "hangout"
+                  ? "Sit and gist"
+                  : "Visit " + l.name;
         this.zones.push({
           id,
           label: text,
@@ -1397,6 +1423,47 @@ export class IlmCityEngine {
     }
   }
   private curBatch = new Batch();
+
+  /** Muslim students, brothers and sisters, sitting and talking at a meeting point. */
+  private seatStudents(seats: { x: number; z: number; face: number }[], D: District) {
+    const names = [
+      "Brother Abdulrahman",
+      "Sister Halimah",
+      "Brother Mubarak",
+      "Sister Faridah",
+      "Brother Lukman",
+      "Sister Nafisah",
+    ];
+    const robes = [0x2f4a7a, 0x8a2f4f, 0x3d8a5a, 0x5a3f6a, 0xb36a3a, 0x2a4a6a];
+    seats.forEach((st, i) => {
+      const name = names[i % names.length];
+      const female = name.startsWith("Sister");
+      const g = person(
+        robes[i % robes.length],
+        female
+          ? { hijab: [0x1d1d26, 0xe9e2d0, 0x3d5a4a][i % 3], seed: 20 + i }
+          : { cap: 0xffffff, seed: 20 + i },
+      );
+      const tag = label(name, { size: 0.6, bold: false });
+      tag.position.y = 1.9;
+      g.add(tag);
+      g.position.set(st.x, 0.1, st.z);
+      g.rotation.y = st.face;
+      sitPerson(g);
+      this.dg.add(g);
+      this.walkers.push({
+        g,
+        route: [[st.x, st.z]],
+        k: 0,
+        wait: 0,
+        t: 0,
+        name,
+        female,
+        district: D.id,
+        seated: true,
+      });
+    });
+  }
 
   /* ---------------- shops and market stalls ---------------- */
   private shopFx = new Map<
@@ -3637,6 +3704,13 @@ export class IlmCityEngine {
   setRideFast(on: boolean) {
     this.traffic.fast = on;
   }
+  /** What you are travelling in right now, for the radio. */
+  rideKind(): "danfo" | "keke" | "car" | null {
+    if (this.kekeTrip) return "keke";
+    if (this.riding) return "danfo";
+    if (this.driving) return "car";
+    return null;
+  }
   isRiding() {
     return !!this.riding;
   }
@@ -3688,6 +3762,7 @@ export class IlmCityEngine {
 
     // neighbours
     for (const w of this.walkers) {
+      if (w.seated) continue;
       if (w.talking) {
         const px = this.player.position.x - (w.g.parent?.position.x ?? 0),
           pz = this.player.position.z - (w.g.parent?.position.z ?? 0);

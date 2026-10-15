@@ -1233,3 +1233,193 @@ export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn:
   b.base.identity();
   return { colliders, units };
 }
+
+/** A university lecture building: brick and cream, a columned porch and a name band. */
+export function faculty(
+  b: Batch,
+  o: {
+    x: number;
+    z: number;
+    turn: number;
+    width: number;
+    depth: number;
+    floors: number;
+    name: string;
+  },
+): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth,
+    front = D / 2;
+  b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.035, 0, 0, false);
+  const BW = W - 4,
+    BD = D - 9,
+    bz = -front + 1 + BD / 2;
+  const FH = 3.5,
+    H = 0.6 + o.floors * FH;
+  const brick = MAT.block(0xb8644a),
+    cream = MAT.plaster(0xf2ead6),
+    green = MAT.plain(0x1f6f63);
+  b.box(BW + 0.6, 0.6, BD + 0.6, MAT.plain(0x9a958a), 0, 0, bz);
+  b.box(BW, H - 0.6, BD, brick, 0, 0.6, bz);
+  for (let f = 1; f <= o.floors; f++)
+    b.box(BW + 0.3, 0.3, BD + 0.3, cream, 0, 0.6 + f * FH - 0.3, bz);
+  b.box(BW + 0.8, 0.7, BD + 0.8, cream, 0, H, bz);
+  // windows on every floor, front and back
+  for (let f = 0; f < o.floors; f++) {
+    const y = 0.6 + f * FH + 1.7;
+    for (let x = -BW / 2 + 2.2; x < BW / 2 - 1.5; x += 3.2) {
+      if (f === 0 && Math.abs(x) < 3.5) continue;
+      b.plane(1.6, 1.7, MAT.window(0x2a4a6a), x, y, bz + BD / 2 + 0.02);
+      b.plane(1.6, 1.7, MAT.window(0x2a4a6a), x, y, bz - BD / 2 - 0.02, Math.PI);
+    }
+  }
+  // columned porch with the faculty's name above
+  const pz = bz + BD / 2 + 2;
+  for (const x of [-4.5, -1.5, 1.5, 4.5]) {
+    b.add(new THREE.CylinderGeometry(0.32, 0.36, 4.2, 10), cream, x, 0.6 + 2.1, pz + 1.4);
+    solid(x - 0.4, x + 0.4, pz + 1, pz + 1.8);
+  }
+  b.box(11, 0.5, 4, cream, 0, 4.8, pz);
+  b.box(11, 0.6, 4.4, cream, 0, 0, pz - 0.2);
+  b.plane(
+    Math.min(BW * 0.9, 18),
+    1.6,
+    textMat(o.name, { bg: "#7a2e22", fg: "#fdf8ec", border: "#e6b84a" }),
+    0,
+    H - 1.4,
+    bz + BD / 2 + 0.06,
+  );
+  b.plane(2.6, 2.8, MAT.door(0x5a3a22), 0, 2.0, bz + BD / 2 + 0.03);
+  b.box(BW * 0.5, 0.3, 0.6, green, 0, H + 0.7, bz + BD / 2);
+  solid(-BW / 2 - 0.4, BW / 2 + 0.4, bz - BD / 2, bz + BD / 2 + 0.4);
+  // benches and notice board in front
+  for (const bx of [-W / 2 + 3, W / 2 - 3]) {
+    b.box(2, 0.45, 0.6, MAT.plain(0x8a5a3a), bx, 0, front - 2);
+    solid(bx - 1, bx + 1, front - 2.3, front - 1.7);
+  }
+  const door = to(0, pz + 3.2);
+  b.base.identity();
+  return {
+    colliders,
+    spots: [{ key: "door", x: door.x, z: door.z, label: o.name, labelY: H + 2.2 }],
+  };
+}
+
+/** A football field with lines, goals and a small covered stand. */
+export function field(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width: number; depth: number; name: string },
+): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth;
+  b.add(groundGeo(W, D, 2), MAT2.lawn(), 0, 0.04, 0, 0, false);
+  const line = MAT.plain(0xf7f5ef);
+  const stripe = (w: number, d: number, x: number, z: number) =>
+    b.add(new THREE.BoxGeometry(w, 0.02, d), line, x, 0.06, z, 0, false);
+  const PW = W - 6,
+    PD = D - 10,
+    pz = -2;
+  stripe(PW, 0.2, 0, pz - PD / 2);
+  stripe(PW, 0.2, 0, pz + PD / 2);
+  stripe(0.2, PD, -PW / 2, pz);
+  stripe(0.2, PD, PW / 2, pz);
+  stripe(0.2, PD, 0, pz);
+  const ring = new THREE.RingGeometry(3.6, 3.8, 32);
+  ring.rotateX(-Math.PI / 2);
+  b.add(ring, line, 0, 0.07, pz, 0, false);
+  // goals at both ends
+  for (const s of [-1, 1]) {
+    const gx = s * (PW / 2);
+    const white = MAT.plain(0xffffff, 0.4);
+    b.box(0.15, 2.2, 0.15, white, gx, 0, pz - 3);
+    b.box(0.15, 2.2, 0.15, white, gx, 0, pz + 3);
+    b.box(0.15, 0.15, 6.15, white, gx, 2.2, pz);
+    solid(gx - 0.2, gx + 0.2, pz - 3.2, pz - 2.8);
+    solid(gx - 0.2, gx + 0.2, pz + 2.8, pz + 3.2);
+    stripe(0.2, 12, gx - s * 5, pz);
+    stripe(5, 0.2, gx - s * 2.5, pz - 6);
+    stripe(5, 0.2, gx - s * 2.5, pz + 6);
+  }
+  // a covered stand along the back
+  const sz = -D / 2 + 2;
+  for (let r = 0; r < 3; r++)
+    b.box(PW * 0.5, 0.45 + r * 0.45, 1, MAT.plain(0xd8d2c2), 0, 0, sz + 2 - r);
+  b.box(PW * 0.55, 0.15, 4, MAT.plain(0x1f6f63, 0.5), 0, 4.2, sz + 1);
+  for (const x of [-PW * 0.26, PW * 0.26]) b.box(0.2, 4.2, 0.2, MAT.plain(0x5a5f66), x, 0, sz + 1);
+  solid(-PW * 0.25, PW * 0.25, sz - 0.5, sz + 2.6);
+  b.plane(14, 1.4, textMat(o.name, { bg: "#1f6f63", fg: "#fdf8ec" }), 0, 4.9, sz + 3.05);
+  const spot = to(0, D / 2 - 1.5);
+  b.base.identity();
+  return { colliders, spots: [{ key: "field", x: spot.x, z: spot.z, label: o.name, labelY: 3.4 }] };
+}
+
+/** A shaded meeting point: a green canopy over mats, potted palms and a notice board. */
+export function hangout(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width: number; depth: number; name: string },
+): Built & { seats: { x: number; z: number; face: number }[] } {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth;
+  b.add(groundGeo(W, D, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  const CW = W - 6,
+    CD = D - 6;
+  // mats under the canopy
+  b.add(new THREE.BoxGeometry(CW - 0.6, 0.05, CD - 0.6), MAT.plain(0x2f8f83), 0, 0.06, 0, 0, false);
+  b.add(new THREE.BoxGeometry(CW - 3, 0.06, CD - 3), MAT.plain(0xc9a24a), 0, 0.07, 0, 0, false);
+  for (const [x, z] of [
+    [-CW / 2, -CD / 2],
+    [CW / 2, -CD / 2],
+    [-CW / 2, CD / 2],
+    [CW / 2, CD / 2],
+  ]) {
+    b.box(0.3, 3.6, 0.3, MAT.plain(0xf2ead6), x, 0, z);
+    solid(x - 0.25, x + 0.25, z - 0.25, z + 0.25);
+  }
+  b.box(CW + 1.4, 0.3, CD + 1.4, MAT.plain(0x1f6f63, 0.5), 0, 3.6, 0);
+  b.add(
+    new THREE.ConeGeometry(Math.max(CW, CD) * 0.6, 1.6, 4),
+    MAT.plain(0x1f6f63, 0.5),
+    0,
+    4.7,
+    0,
+    Math.PI / 4,
+  );
+  b.plane(
+    CW * 0.9,
+    1.2,
+    textMat(o.name, { bg: "#fdf8ec", fg: "#1f6f63", border: "#1f6f63" }),
+    0,
+    3.15,
+    CD / 2 + 0.72,
+  );
+  // potted palms at the corners of the plaza
+  for (const [x, z] of [
+    [-W / 2 + 1.5, D / 2 - 1.5],
+    [W / 2 - 1.5, D / 2 - 1.5],
+  ]) {
+    b.add(new THREE.CylinderGeometry(0.6, 0.5, 0.8, 12), MAT.plain(0xcfc8b8), x, 0.4, z);
+    palmInto(b, x, z, 0.6);
+    solid(x - 0.6, x + 0.6, z - 0.6, z + 0.6);
+  }
+  // seats round the circle, facing the middle
+  const R = CD / 2 - 1.6;
+  const seats: { x: number; z: number; face: number }[] = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.3;
+    if (Math.abs(Math.sin(a) - 1) < 0.15) continue; // leave the front open
+    const lx = Math.cos(a) * R * 1.5,
+      lz = Math.sin(a) * R;
+    const p = to(lx, lz);
+    seats.push({ x: p.x, z: p.z, face: Math.atan2(-lx, -lz) + o.turn });
+  }
+  const spot = to(0, D / 2 - 1);
+  b.base.identity();
+  return {
+    colliders,
+    seats,
+    spots: [{ key: "meet", x: spot.x, z: spot.z, label: o.name, labelY: 5.6 }],
+  };
+}
