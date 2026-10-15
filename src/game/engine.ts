@@ -2942,6 +2942,16 @@ export class IlmCityEngine {
     this.dg.add(g);
   }
 
+  private boards = new Map<string, { b: Billboard; base?: Billboard["ad"]; paint: () => void }>();
+  /** Show players' approved adverts on their billboards (the rest keep their usual design). */
+  setAds(ads: Record<string, NonNullable<Billboard["ad"]>>) {
+    for (const [id, x] of this.boards) {
+      const want = ads[id] ?? x.base;
+      if (want === x.b.ad) continue;
+      x.b.ad = want;
+      x.paint();
+    }
+  }
   private billboard(b: Billboard, bx: number, bz: number, rot = 0) {
     const g = new THREE.Group();
     g.position.set(bx, 0, bz);
@@ -2990,16 +3000,22 @@ export class IlmCityEngine {
     mesh.position.set(0, 3.8 + 2.3, -0.28);
     mesh.userData.tap = "billboard:" + b.id;
     g.add(mesh);
-    if (b.ad?.imageUrl) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const c = canvas.getContext("2d")!;
-        c.drawImage(img, 0, 0, canvas.width, canvas.height);
-        tex.needsUpdate = true;
-      };
-      img.src = b.ad.imageUrl;
-    }
+    const paint = () => {
+      const c = canvas.getContext("2d")!;
+      draw(c, canvas.width, canvas.height);
+      tex.needsUpdate = true;
+      if (b.ad?.imageUrl) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          c.drawImage(img, 0, 0, canvas.width, canvas.height);
+          tex.needsUpdate = true;
+        };
+        img.src = b.ad.imageUrl;
+      }
+    };
+    if (b.ad?.imageUrl) paint();
+    this.boards.set(b.id, { b, base: b.ad, paint });
     this.tappables.push(mesh);
     this.dg.add(g);
     const ex = Math.abs(Math.cos(rot)) * 5.5 + Math.abs(Math.sin(rot)) * 1,

@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import { FootballMatch, MatchInvite } from "./Football";
+import {
+  AD_PRICES,
+  requestAd,
+  watchAds,
+  watchAward,
+  watchMyEnquiries,
+  watchNasheeds,
+  type Enquiry,
+  type Nasheed,
+} from "./live";
 import { loadHumans } from "./humans";
 import {
   ONLINE_LIMITS,
@@ -751,6 +761,50 @@ function CityGame({
     });
   }, [onlineReady, playMatch, toast]);
 
+  /* ---------- live from the admin: adverts, award, nasheeds ---------- */
+  const adsRef = useRef<Record<string, NonNullable<(typeof BILLBOARDS)[number]["ad"]>>>({});
+  const [nasheeds, setNasheeds] = useState<Nasheed[]>([]);
+  const nasheedsRef = useRef(nasheeds);
+  nasheedsRef.current = nasheeds;
+  useEffect(() => {
+    const offAds = watchAds((ads) => {
+      adsRef.current = ads;
+      engine.current?.setAds(ads);
+    });
+    const offN = watchNasheeds((n) => {
+      setNasheeds(n);
+      radio.setNasheeds(n);
+    });
+    const offAw = watchAward((a) => {
+      if (!a) return;
+      let seenId: string | null = null;
+      try {
+        seenId = localStorage.getItem("ilmcity-award-seen");
+      } catch {
+        /* storage off */
+      }
+      if (seenId === a.id) return;
+      try {
+        localStorage.setItem("ilmcity-award-seen", a.id);
+      } catch {
+        /* storage off */
+      }
+      setTimeout(
+        () =>
+          toast(
+            `🏆 Best home of the week: ${a.winner}${a.home ? ` (${a.home})` : ""}. ${a.note}`,
+            "good",
+          ),
+        4000,
+      );
+    });
+    return () => {
+      offAds();
+      offN();
+      offAw();
+    };
+  }, [toast]);
+
   /* ---------- Qur'an radio ---------- */
   const [radioState, setRadioState] = useState<RadioState>(radio.state);
   useEffect(() => radio.subscribe(setRadioState), []);
@@ -813,6 +867,7 @@ function CityGame({
         <RadioView
           cfg={radioCfgRef.current}
           riding={engine.current?.rideKind() ?? null}
+          nasheedCount={nasheedsRef.current.length}
           onChange={(p) => {
             setRadio(p);
             setPanel(null);
@@ -1799,6 +1854,7 @@ function CityGame({
               about={L.l.about ?? ""}
               student={saveRef.current.student}
               area={area}
+              uid={onlineRef.current?.uid ?? null}
               onQuiz={() => {
                 setPanel(null);
                 setTimeout(() => onActionRef.current("quiz"), 50);
@@ -2339,7 +2395,33 @@ function CityGame({
         setPanel({
           kind: "info",
           title: b.ad ? b.ad.brand : "Advertise in IlmWorld",
-          body: <AdView boardName={b.name} ad={b.ad} />,
+          body: (
+            <AdView
+              boardName={b.name}
+              ad={b.ad}
+              canRequest={!!onlineRef.current}
+              onRequest={async (r) => {
+                const o = onlineRef.current;
+                if (!o) return false;
+                try {
+                  await requestAd({
+                    ...r,
+                    board: b.id,
+                    boardName: b.name,
+                    brand: cleanText(r.brand),
+                    headline: cleanText(r.headline),
+                    line: cleanText(r.line),
+                    from: o.uid,
+                    fromName: saveRef.current.profile?.name ?? "Player",
+                  });
+                  return true;
+                } catch {
+                  toast("Could not send. Try again.", "warn");
+                  return false;
+                }
+              }}
+            />
+          ),
         });
         return;
       }
@@ -2406,6 +2488,7 @@ function CityGame({
     }
     engine.current = e;
     if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
+    e.setAds(adsRef.current);
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
@@ -2891,7 +2974,7 @@ function CityGame({
                 {radioState.hushed
                   ? "🔇 Quiet here"
                   : radioState.playing && radioState.source
-                    ? `🎧 ${SURAH_NAMES[radioState.surah - 1]}`
+                    ? `🎧 ${radioState.title}`
                     : "🎧 Qur'an"}
               </button>
               <button
@@ -3309,8 +3392,109 @@ function PrayCheck({ prayer, onYes }: { prayer: Prayer; onYes: () => void }) {
   );
 }
 
-function AdView({ boardName, ad }: { boardName: string; ad?: (typeof BILLBOARDS)[number]["ad"] }) {
+function AdView({
+  boardName,
+  ad,
+  canRequest,
+  onRequest,
+}: {
+  boardName: string;
+  ad?: (typeof BILLBOARDS)[number]["ad"];
+  canRequest: boolean;
+  onRequest: (r: {
+    brand: string;
+    headline: string;
+    line: string;
+    link: string;
+    contact: string;
+    plan: "week" | "month";
+    imageUrl?: string;
+  }) => Promise<boolean>;
+}) {
   const [copied, setCopied] = useState(false);
+  const [form, setForm] = useState(false);
+  const [f, setF] = useState({
+    brand: "",
+    headline: "",
+    line: "",
+    link: "",
+    contact: "",
+    plan: "week" as "week" | "month",
+    imageUrl: undefined as string | undefined,
+  });
+  const [sent, setSent] = useState(false);
+  const field = (
+    k: "brand" | "headline" | "line" | "link" | "contact",
+    label: string,
+    max: number,
+  ) => (
+    <label className="block text-[13px]">
+      <span className="font-semibold">{label}</span>
+      <input
+        value={f[k]}
+        maxLength={max}
+        onChange={(e) => setF({ ...f, [k]: e.target.value })}
+        className="mt-0.5 w-full rounded-lg border border-[#10201e]/15 bg-white px-2.5 py-2 text-[14px]"
+      />
+    </label>
+  );
+  if (sent)
+    return (
+      <div className="space-y-2 text-center">
+        <div className="text-4xl">📨</div>
+        <p className="font-bold">Your advert was sent for review.</p>
+        <p className="text-[13px] opacity-75">
+          The IlmWorld team will contact you about payment, then approve it. It shows on the{" "}
+          {boardName} board once approved.
+        </p>
+      </div>
+    );
+  if (form)
+    return (
+      <div className="space-y-2">
+        <p className="text-[13px] opacity-75">
+          Your advert on the {boardName} board. Every advert is checked before it goes up: no haram
+          products, no music or immodest pictures.
+        </p>
+        {field("brand", "Business name", 30)}
+        {field("headline", "Headline", 40)}
+        {field("line", "One line about it", 70)}
+        {field("link", "Website or WhatsApp link (optional)", 120)}
+        {field("contact", "Your phone or email (for payment)", 60)}
+        <label className="block text-[13px]">
+          <span className="font-semibold">Banner picture (optional, wide)</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file) setF({ ...f, imageUrl: await shrinkPhoto(file, 640) });
+            }}
+            className="mt-0.5 block w-full text-[13px]"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {(["week", "month"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setF({ ...f, plan: k })}
+              className={`rounded-xl py-2.5 text-[13px] font-bold ${f.plan === k ? "bg-[#1f6f63] text-[#fdf8ec]" : "border border-[#1f6f63]/25 bg-white"}`}
+            >
+              1 {k} · {naira(AD_PRICES[k].naira)}
+            </button>
+          ))}
+        </div>
+        <button
+          disabled={!f.brand.trim() || !f.headline.trim() || f.contact.trim().length < 5}
+          onClick={async () => {
+            if (await onRequest(f)) setSent(true);
+          }}
+          className="w-full rounded-xl bg-[#10201e] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+        >
+          Send for review
+        </button>
+      </div>
+    );
   const copy = () => {
     navigator.clipboard?.writeText(AD_EMAIL).then(
       () => setCopied(true),
@@ -3341,7 +3525,17 @@ function AdView({ boardName, ad }: { boardName: string; ad?: (typeof BILLBOARDS)
           Visit {ad.brand}
         </a>
       )}
-      <p className="mt-4 text-sm">To put your brand on billboards across IlmWorld, contact:</p>
+      {canRequest ? (
+        <button
+          onClick={() => setForm(true)}
+          className="mt-3 w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05]"
+        >
+          📣 Advertise on this board · from {naira(AD_PRICES.week.naira)} a week
+        </button>
+      ) : (
+        <p className="mt-3 text-[13px] opacity-75">Log in to IlmStation to advertise here.</p>
+      )}
+      <p className="mt-4 text-sm">For bigger campaigns across IlmWorld, contact:</p>
       <div className="mt-2 flex items-center gap-2">
         <code className="min-w-0 flex-1 select-all truncate rounded-lg bg-[#10201e]/5 px-3 py-2">
           {AD_EMAIL}
@@ -4331,7 +4525,7 @@ type ShopOwn = {
 };
 
 /** Shrink a photo so it fits in the game's storage (about 20 KB). */
-function shrinkPhoto(file: File): Promise<string> {
+function shrinkPhoto(file: File, max = 320): Promise<string> {
   return new Promise((res, rej) => {
     const r = new FileReader();
     r.onerror = rej;
@@ -4339,7 +4533,7 @@ function shrinkPhoto(file: File): Promise<string> {
       const im = new Image();
       im.onerror = rej;
       im.onload = () => {
-        const s = Math.min(1, 320 / Math.max(im.width, im.height));
+        const s = Math.min(1, max / Math.max(im.width, im.height));
         const cv = document.createElement("canvas");
         cv.width = Math.round(im.width * s);
         cv.height = Math.round(im.height * s);
@@ -6113,7 +6307,10 @@ function mySource(c: { reciter: string; playlist: string }): Source {
     key: "me",
     reciter: c.reciter,
     playlist: c.playlist,
-    label: RECITERS.find((r) => r.id === c.reciter)?.name ?? "Qur'an",
+    label:
+      c.playlist === "nasheed"
+        ? "Nasheeds"
+        : (RECITERS.find((r) => r.id === c.reciter)?.name ?? "Qur'an"),
   };
 }
 
@@ -6322,12 +6519,14 @@ function MeetView({ about, onSit }: { about: string; onSit: () => void }) {
 function RadioView({
   cfg,
   riding,
+  nasheedCount,
   onChange,
   onSkip,
   onVehicleMute,
 }: {
   cfg: { on: boolean; reciter: string; playlist: string; vehicles: boolean };
   riding: "danfo" | "keke" | "car" | null;
+  nasheedCount: number;
   onChange: (
     p: Partial<{ on: boolean; reciter: string; playlist: string; vehicles: boolean }>,
   ) => void;
@@ -6344,7 +6543,7 @@ function RadioView({
           {st.hushed
             ? "Quiet: no Qur'an or nasheed in the masjid, in class or during salah"
             : st.playing && st.source
-              ? `Surah ${SURAH_NAMES[st.surah - 1]} · ${st.source.label}`
+              ? `${st.title} · ${st.source.label}`
               : "Off"}
         </div>
         {st.error && (
@@ -6435,10 +6634,15 @@ function RadioView({
       </label>
       <div className="rounded-xl border border-dashed border-[#1f6f63]/30 p-3 text-[13px]">
         <b>Nasheeds</b>
-        {NASHEEDS.length === 0 ? (
+        {nasheedCount === 0 ? (
           <p className="mt-0.5 opacity-75">Coming soon, in shaa Allah.</p>
         ) : (
-          <p className="mt-0.5 opacity-75">{NASHEEDS.length} nasheeds</p>
+          <button
+            onClick={() => onChange({ playlist: "nasheed", on: true })}
+            className={`mt-1.5 w-full rounded-xl px-3 py-2 text-left text-[14px] ${cfg.playlist === "nasheed" ? "bg-[#1f6f63] font-bold text-[#fdf8ec]" : "border border-[#1f6f63]/20 bg-white"}`}
+          >
+            🎵 Play nasheeds ({nasheedCount})
+          </button>
         )}
       </div>
       <p className="text-[11.5px] opacity-60">
@@ -6589,10 +6793,12 @@ function MssnView({
   about,
   student,
   area,
+  uid,
   onQuiz,
   onRegister,
   onAsk,
 }: {
+  uid: string | null;
   about: string;
   student?: { area: string; faculty: string };
   area: string;
@@ -6602,6 +6808,8 @@ function MssnView({
 }) {
   const [text, setText] = useState("");
   const [pick, setPick] = useState(false);
+  const [mineQ, setMineQ] = useState<Enquiry[]>([]);
+  useEffect(() => (uid ? watchMyEnquiries(uid, setMineQ) : undefined), [uid]);
   const mine = student?.area === area;
   return (
     <div className="space-y-3">
@@ -6652,6 +6860,19 @@ function MssnView({
           Send
         </button>
       </div>
+      {mineQ.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[13px] font-semibold">Your questions</div>
+          {mineQ.slice(0, 5).map((q) => (
+            <div key={q.id} className="rounded-xl bg-white p-2.5 text-[13px]">
+              <div className="font-semibold">❓ {q.text}</div>
+              <div className={q.answer ? "mt-1 text-[#1f6f63]" : "mt-1 opacity-60"}>
+                {q.answer ? `💬 ${q.answer}` : "Waiting for an answer…"}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

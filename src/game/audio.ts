@@ -184,6 +184,8 @@ export type RadioState = {
   playing: boolean;
   source: Source | null;
   surah: number;
+  /** what is playing now: "Surah Al-Mulk" or a nasheed's title */
+  title: string;
   /** why it is quiet (masjid, class, salah, lecture) */
   hushed: string | null;
   error: boolean;
@@ -200,7 +202,35 @@ class Radio {
   private hushes = new Map<string, number>();
   private subs = new Set<(s: RadioState) => void>();
   private failed = 0;
-  state: RadioState = { playing: false, source: null, surah: 1, hushed: null, error: false };
+  state: RadioState = {
+    playing: false,
+    source: null,
+    surah: 1,
+    title: "",
+    hushed: null,
+    error: false,
+  };
+  private nasheeds: { title: string; artist: string; url: string }[] = [];
+  setNasheeds(list: { title: string; artist: string; url: string }[]) {
+    this.nasheeds = list;
+  }
+  /** The address of a track, and the place after it. */
+  private track(src: Source, at: { i: number; ayah: number }) {
+    if (src.playlist === "nasheed") {
+      const n = this.nasheeds.length ? this.nasheeds[at.i % this.nasheeds.length] : null;
+      return { url: n?.url ?? "", title: n ? `${n.title} · ${n.artist}` : "", surah: 1 };
+    }
+    const { list, reciter } = this.where(src);
+    const surah = list.surahs[at.i % list.surahs.length];
+    return { url: url(reciter, surah, at.ayah), title: `Surah ${SURAH_NAMES[surah - 1]}`, surah };
+  }
+  private after(src: Source, at: { i: number; ayah: number }) {
+    if (src.playlist === "nasheed")
+      return { i: (at.i + 1) % Math.max(1, this.nasheeds.length), ayah: 1 };
+    const { list } = this.where(src);
+    const nx = this.peek(list.surahs, at);
+    return { i: nx.i % list.surahs.length, ayah: nx.ayah };
+  }
 
   constructor() {
     for (const el of [this.a, this.b]) {
@@ -255,12 +285,11 @@ class Radio {
   private load() {
     const src = this.state.source;
     if (!src || !this.a || !this.b) return;
-    const { list, at, reciter } = this.where(src);
-    const surah = list.surahs[at.i % list.surahs.length];
-    this.a.src = url(reciter, surah, at.ayah);
-    const nx = this.peek(list.surahs, at);
-    this.b.src = url(reciter, list.surahs[nx.i % list.surahs.length], nx.ayah);
-    this.set({ surah });
+    const { at } = this.where(src);
+    const cur = this.track(src, at);
+    this.a.src = cur.url;
+    this.b.src = this.track(src, this.after(src, at)).url;
+    this.set({ surah: cur.surah, title: cur.title });
   }
   private peek(surahs: number[], at: { i: number; ayah: number }) {
     const s = surahs[at.i % surahs.length];
@@ -269,9 +298,8 @@ class Radio {
   private next(): void {
     const src = this.state.source;
     if (!src || !this.a || !this.b) return;
-    const { list, at } = this.where(src);
-    const nx = this.peek(list.surahs, at);
-    this.pos.set(src.key, { i: nx.i % list.surahs.length, ayah: nx.ayah });
+    const { at } = this.where(src);
+    this.pos.set(src.key, this.after(src, at));
     // the loaded next verse becomes current, and the one after starts loading
     [this.a, this.b] = [this.b, this.a];
     this.load2();
@@ -282,17 +310,18 @@ class Radio {
   private load2() {
     const src = this.state.source;
     if (!src || !this.b) return;
-    const { list, at, reciter } = this.where(src);
-    const nx = this.peek(list.surahs, at);
-    this.b.src = url(reciter, list.surahs[nx.i % list.surahs.length], nx.ayah);
-    this.set({ surah: list.surahs[at.i % list.surahs.length] });
+    const { at } = this.where(src);
+    const cur = this.track(src, at);
+    this.b.src = this.track(src, this.after(src, at)).url;
+    this.set({ surah: cur.surah, title: cur.title });
   }
   /** Skip to the next surah. */
   skip() {
     const src = this.state.source;
     if (!src) return;
     const { list, at } = this.where(src);
-    this.pos.set(src.key, { i: (at.i + 1) % list.surahs.length, ayah: 1 });
+    const n = src.playlist === "nasheed" ? Math.max(1, this.nasheeds.length) : list.surahs.length;
+    this.pos.set(src.key, { i: (at.i + 1) % n, ayah: 1 });
     this.load();
     if (this.state.playing && !this.state.hushed) void this.a?.play().catch(() => {});
   }
