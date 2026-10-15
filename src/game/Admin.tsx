@@ -386,59 +386,43 @@ function Mssn() {
 
 function Nasheeds() {
   const items = useList<Nasheed>("city_nasheeds");
-  const [f, setF] = useState<{ title: string; artist: string; file: File | null; ok: boolean }>({
-    title: "",
-    artist: "",
-    file: null,
-    ok: false,
-  });
+  const [f, setF] = useState({ title: "", artist: "", url: "", ok: false });
   const [busy, setBusy] = useState("");
-  const upload = async () => {
-    if (!f.file) return;
-    setBusy("Uploading…");
+  const add = async () => {
+    setBusy("Saving…");
     try {
-      const { app, db, collection, addDoc } = await fb();
-      const st = await import("firebase/storage");
-      const storage = st.getStorage(app);
-      const path = `nasheeds/${Date.now()}-${f.file.name.replace(/[^\w.-]/g, "_")}`;
-      const ref = st.ref(storage, path);
-      await st.uploadBytes(ref, f.file, { contentType: f.file.type || "audio/mpeg" });
-      const url = await st.getDownloadURL(ref);
+      const { db, collection, addDoc } = await fb();
       await addDoc(collection(db, "city_nasheeds"), {
         title: f.title.trim(),
         artist: f.artist.trim(),
-        url,
-        path,
+        url: f.url.trim(),
         at: Date.now(),
       });
-      setF({ title: "", artist: "", file: null, ok: false });
+      setF({ title: "", artist: "", url: "", ok: false });
       setBusy("");
     } catch (e) {
-      setBusy("Upload failed: " + (e as Error).message);
+      setBusy("Could not save: " + (e as Error).message);
     }
   };
-  const remove = async (n: Nasheed & { path?: string }) => {
-    const { app, db, doc, deleteDoc } = await fb();
+  const remove = async (n: Nasheed) => {
+    const { db, doc, deleteDoc } = await fb();
     await deleteDoc(doc(db, "city_nasheeds", n.id));
-    if (n.path) {
-      const st = await import("firebase/storage");
-      await st.deleteObject(st.ref(st.getStorage(app), n.path)).catch(() => {});
-    }
   };
+  const input = "mt-0.5 w-full rounded-lg border border-[#10201e]/15 px-2.5 py-2 text-[14px]";
   return (
     <div className="space-y-3">
       <div className={card}>
         <b>Add a nasheed</b>
         <p className="text-[13px] opacity-75">
-          Only upload nasheeds you have permission to use (from the munshid or the owner), with no
-          musical instruments.
+          Paste a direct link to the audio file (ending in .mp3 or .m4a). Only add nasheeds you have
+          permission to use, with no musical instruments. Press play below to check the link works.
         </p>
         <label className="mt-2 block text-[13px]">
           <span className="font-semibold">Title</span>
           <input
             value={f.title}
             onChange={(e) => setF({ ...f, title: e.target.value })}
-            className="mt-0.5 w-full rounded-lg border border-[#10201e]/15 px-2.5 py-2 text-[14px]"
+            className={input}
           />
         </label>
         <label className="mt-2 block text-[13px]">
@@ -446,15 +430,19 @@ function Nasheeds() {
           <input
             value={f.artist}
             onChange={(e) => setF({ ...f, artist: e.target.value })}
-            className="mt-0.5 w-full rounded-lg border border-[#10201e]/15 px-2.5 py-2 text-[14px]"
+            className={input}
           />
         </label>
-        <input
-          type="file"
-          accept="audio/*"
-          onChange={(e) => setF({ ...f, file: e.target.files?.[0] ?? null })}
-          className="mt-2 block w-full text-[13px]"
-        />
+        <label className="mt-2 block text-[13px]">
+          <span className="font-semibold">Audio link</span>
+          <input
+            value={f.url}
+            placeholder="https://ilmstation.com/ilmcity/nasheed/….mp3"
+            onChange={(e) => setF({ ...f, url: e.target.value })}
+            className={input}
+          />
+        </label>
+        {/^https:\/\//.test(f.url) && <audio controls src={f.url} className="mt-2 w-full" />}
         <label className="mt-2 flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
@@ -464,11 +452,11 @@ function Nasheeds() {
           I have permission to use this nasheed in IlmWorld
         </label>
         <button
-          disabled={!f.title.trim() || !f.file || !f.ok || busy === "Uploading…"}
-          onClick={upload}
+          disabled={!f.title.trim() || !/^https:\/\//.test(f.url) || !f.ok || busy === "Saving…"}
+          onClick={add}
           className={`${btn} mt-3 w-full bg-[#1f6f63] py-3 text-white disabled:opacity-40`}
         >
-          Upload
+          Add nasheed
         </button>
         {busy && <p className="mt-2 text-[13px]">{busy}</p>}
       </div>
