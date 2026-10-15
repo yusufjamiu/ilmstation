@@ -56,6 +56,8 @@ export interface Online {
   status(): Promise<PlayerStatus>;
   saveStatus(s: Partial<PlayerStatus>): Promise<void>;
   report(r: Report): Promise<void>;
+  /** a question for the MSSN (answered on the admin page) */
+  enquire(e: { place: string; name: string; text: string }): Promise<void>;
 }
 
 export const chatIdFor = (a: string, b: string) => [a, b].sort().join("__");
@@ -163,6 +165,14 @@ export async function connectFirestore(uid: string): Promise<Online> {
         status: "open",
       });
     },
+    async enquire(q) {
+      await addDoc(collection(db, "city_enquiries"), {
+        ...q,
+        from: uid,
+        at: Date.now(),
+        status: "open",
+      });
+    },
   };
 }
 
@@ -258,6 +268,12 @@ export function connectLocal(uid: string): Online {
     },
     async saveStatus(s) {
       write("status-" + uid, { ...read<Partial<PlayerStatus>>("status-" + uid, {}), ...s });
+    },
+    async enquire(q) {
+      write("enquiries", [
+        ...read<unknown[]>("enquiries", []),
+        { ...q, from: uid, at: Date.now(), status: "open" },
+      ]);
     },
     async report(r) {
       write("reports", [

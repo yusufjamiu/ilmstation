@@ -52,6 +52,9 @@ import {
   CAMPUS_GIST,
   FOUND_ITEMS,
   POLICE,
+  UNIVERSITIES,
+  facultiesOf,
+  facultyQuestions,
   type FoundKind,
 } from "./content";
 import {
@@ -113,6 +116,8 @@ type Save = {
   salams?: number;
   /** adhkar said at places today */
   said?: { day: string; ids: string[] };
+  /** your university and faculty, if you are a student */
+  student?: { area: string; faculty: string };
   /** something you found and are taking to the police */
   carrying?: FoundKind;
   /** you kept something that wasn't yours */
@@ -1481,6 +1486,26 @@ function CityGame({
               <InClassView
                 library={library}
                 about={L.l.about ?? ""}
+                quiz={
+                  saveRef.current.student?.faculty === L.l.id
+                    ? facultyQuestions(L.l.name)
+                    : undefined
+                }
+                notMine={
+                  !library &&
+                  !!saveRef.current.student &&
+                  saveRef.current.student.faculty !== L.l.id
+                }
+                onCorrect={() => {
+                  if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
+                  update((x) => ({
+                    ...x,
+                    coins: x.coins + SCHOOL_POINTS.perCorrect,
+                    ilm: x.ilm + 2,
+                    schoolPts: (x.schoolPts ?? 0) + SCHOOL_POINTS.perCorrect,
+                  }));
+                  return true;
+                }}
                 onLeave={() => {
                   setPanel(null);
                   onActionRef.current("exit");
@@ -1659,6 +1684,51 @@ function CityGame({
                 du'a for them.
               </p>
             </div>
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("office:") && id.endsWith("-mssn")) {
+        const L = landmarkById(id.slice(7));
+        if (!L) return;
+        const area = L.d.id;
+        setPanel({
+          kind: "info",
+          title: L.l.name,
+          body: (
+            <MssnView
+              about={L.l.about ?? ""}
+              student={saveRef.current.student}
+              area={area}
+              onQuiz={() => {
+                setPanel(null);
+                setTimeout(() => onActionRef.current("quiz"), 50);
+              }}
+              onRegister={(faculty) => {
+                update((x) => ({ ...x, student: { area, faculty } }));
+                toast("You're registered as a student here. Welcome to MSSN!", "good");
+                setPanel(null);
+              }}
+              onAsk={async (text) => {
+                const o = onlineRef.current;
+                if (!o) {
+                  toast("Log in to IlmStation to send your question to the MSSN.", "warn");
+                  return false;
+                }
+                try {
+                  await o.enquire({
+                    place: L.l.name,
+                    name: saveRef.current.profile?.name ?? "Player",
+                    text: cleanText(text),
+                  });
+                  toast("Sent! The MSSN team will reply, in shaa Allah.", "good");
+                  return true;
+                } catch {
+                  toast("Could not send. Try again.", "warn");
+                  return false;
+                }
+              }}
+            />
           ),
         });
         return;
@@ -2823,7 +2893,7 @@ function CityGame({
             if (look) e.setPlayerLook(look);
             e.setPreview(!!look);
           }}
-          onDone={(look, area, path) => {
+          onDone={(look, area, path, student) => {
             const e = engine.current;
             if (!e) return;
             e.setPlayerLook(look);
@@ -2883,6 +2953,7 @@ function CityGame({
               plots,
               shops,
               path,
+              student,
             };
             saveRef.current = next;
             update(() => next);
@@ -4665,9 +4736,18 @@ function Onboarding({
   firstName: string;
   female: boolean;
   onPreview: (look: Look | null) => void;
-  onDone: (look: Look, area: string, path: LifePath) => void;
+  onDone: (
+    look: Look,
+    area: string,
+    path: LifePath,
+    student?: { area: string; faculty: string },
+  ) => void;
 }) {
-  const [step, setStep] = useState<"welcome" | "account" | "look" | "area" | "life">("welcome");
+  const [step, setStep] = useState<"welcome" | "account" | "look" | "area" | "life" | "student">(
+    "welcome",
+  );
+  const [path, setPath] = useState<LifePath>("worker");
+  const [uni, setUni] = useState<string | null>(null);
   const [area, setArea] = useState("lekki");
   const [look, setLook] = useState<Look>({
     name: firstName,
@@ -4703,7 +4783,10 @@ function Onboarding({
             {LIFE_PATHS.map((p) => (
               <button
                 key={p.id}
-                onClick={() => onDone({ ...look, name: look.name.trim() }, area, p.id)}
+                onClick={() => {
+                  setPath(p.id);
+                  setStep("student");
+                }}
                 className="flex w-full items-start gap-3 rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left active:bg-[#1f6f63]/10"
               >
                 <span className="text-[28px] leading-none">{p.icon}</span>
@@ -4713,6 +4796,61 @@ function Onboarding({
                 </span>
               </button>
             ))}
+          </div>
+        </div>
+      </div>
+    );
+
+  if (step === "student")
+    return (
+      <div
+        data-game-ui
+        className="absolute inset-0 z-30 flex items-end bg-[#10201e]/70 p-3 pb-[max(14px,env(safe-area-inset-bottom))]"
+      >
+        <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+          <h2 className="font-serif text-2xl">
+            {uni ? "Which faculty?" : "Are you a university student?"}
+          </h2>
+          <p className="text-[13px] opacity-75">
+            {uni
+              ? "You'll answer questions in your faculty and meet other Muslim students."
+              : "Students get faculty classes, questions and the MSSN meeting point."}
+          </p>
+          <div className="mt-3 space-y-2 overflow-y-auto">
+            {!uni &&
+              UNIVERSITIES.map((u) => (
+                <button
+                  key={u.area}
+                  onClick={() => setUni(u.area)}
+                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left"
+                >
+                  <span className="block text-[16px] font-bold">🎓 {u.name}</span>
+                  <span className="block text-[13px] opacity-75">{u.full}</span>
+                </button>
+              ))}
+            {uni &&
+              facultiesOf(uni).map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() =>
+                    onDone({ ...look, name: look.name.trim() }, area, path, {
+                      area: uni,
+                      faculty: f.id,
+                    })
+                  }
+                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left text-[15px] font-bold"
+                >
+                  {f.name}
+                </button>
+              ))}
+            <button
+              onClick={() =>
+                uni ? setUni(null) : onDone({ ...look, name: look.name.trim() }, area, path)
+              }
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-[#fdf8ec]"
+            >
+              {uni ? "Back" : "No, I'm not a student"}
+            </button>
           </div>
         </div>
       </div>
@@ -5944,12 +6082,74 @@ function DhikrCard({
 function InClassView({
   library,
   about,
+  quiz,
+  notMine,
+  onCorrect,
   onLeave,
 }: {
   library: boolean;
   about: string;
+  quiz?: { q: string; o: string[]; a: number }[];
+  notMine?: boolean;
+  onCorrect: () => boolean;
   onLeave: () => void;
 }) {
+  const [qi, setQi] = useState<number | null>(null);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  if (quiz && qi !== null) {
+    if (qi >= quiz.length)
+      return (
+        <div className="space-y-3 text-center">
+          <div className="font-serif text-3xl">
+            {score} / {quiz.length}
+          </div>
+          <p>{score === quiz.length ? "Excellent! Masha Allah." : "Well done. Keep studying!"}</p>
+          <button
+            onClick={onLeave}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Leave class
+          </button>
+        </div>
+      );
+    const q = quiz[qi];
+    return (
+      <div className="space-y-2">
+        <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+          Question {qi + 1} of {quiz.length}
+        </div>
+        <p className="text-[16px] font-semibold">{q.q}</p>
+        {q.o.map((o, k) => (
+          <button
+            key={k}
+            disabled={picked !== null}
+            onClick={() => {
+              setPicked(k);
+              if (k === q.a) {
+                setScore((x) => x + 1);
+                onCorrect();
+              }
+            }}
+            className={`w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left text-[14px] ${picked === null ? "" : k === q.a ? "bg-[#1f6f63] text-[#fdf8ec]" : k === picked ? "bg-[#b8573a] text-white" : "opacity-60"}`}
+          >
+            {o}
+          </button>
+        ))}
+        {picked !== null && (
+          <button
+            onClick={() => {
+              setQi(qi + 1);
+              setPicked(null);
+            }}
+            className="w-full rounded-xl bg-[#10201e] py-3 font-bold text-[#fdf8ec]"
+          >
+            {qi + 1 < quiz.length ? "Next question" : "See my score"}
+          </button>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="space-y-3 text-center">
       <div className="text-5xl">{library ? "📚" : "🎓"}</div>
@@ -5963,6 +6163,19 @@ function InClassView({
         Wishing you success in your studies. May Allah increase you in beneficial knowledge. 🤲
       </p>
       {about && <p className="text-[12.5px] opacity-70">{about}</p>}
+      {quiz && (
+        <button
+          onClick={() => setQi(0)}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+        >
+          📝 Answer questions in my faculty
+        </button>
+      )}
+      {notMine && (
+        <p className="text-[12.5px] opacity-70">
+          This isn't your faculty. Go to your own faculty to answer its questions.
+        </p>
+      )}
       <button
         onClick={onLeave}
         className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
@@ -6265,6 +6478,78 @@ function MyHousesView({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------------- MSSN secretariat ---------------- */
+function MssnView({
+  about,
+  student,
+  area,
+  onQuiz,
+  onRegister,
+  onAsk,
+}: {
+  about: string;
+  student?: { area: string; faculty: string };
+  area: string;
+  onQuiz: () => void;
+  onRegister: (faculty: string) => void;
+  onAsk: (text: string) => Promise<boolean>;
+}) {
+  const [text, setText] = useState("");
+  const [pick, setPick] = useState(false);
+  const mine = student?.area === area;
+  return (
+    <div className="space-y-3">
+      <p>{about}</p>
+      <button
+        onClick={onQuiz}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        📝 Take the MSSN Islamic quiz
+      </button>
+      {!mine &&
+        (pick ? (
+          <div className="space-y-1.5">
+            {facultiesOf(area).map((f) => (
+              <button
+                key={f.id}
+                onClick={() => onRegister(f.id)}
+                className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left text-[14px] font-bold"
+              >
+                {f.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button
+            onClick={() => setPick(true)}
+            className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+          >
+            🎓 I'm a student here
+          </button>
+        ))}
+      <div className="rounded-xl bg-white p-3">
+        <div className="text-[13px] font-semibold">Ask the MSSN a question</div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value.slice(0, 400))}
+          rows={3}
+          placeholder="e.g. When is the next tutorial? How do I join IVC?"
+          className="mt-1.5 w-full rounded-lg border border-[#10201e]/15 p-2 text-[14px]"
+        />
+        <button
+          disabled={text.trim().length < 5}
+          onClick={async () => {
+            if (await onAsk(text.trim())) setText("");
+          }}
+          className="mt-1.5 w-full rounded-lg bg-[#10201e] py-2 text-[14px] font-bold text-[#fdf8ec] disabled:opacity-40"
+        >
+          Send
+        </button>
+      </div>
     </div>
   );
 }

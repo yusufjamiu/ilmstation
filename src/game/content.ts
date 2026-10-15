@@ -1969,3 +1969,256 @@ export const POLICE = {
   /** minutes in the cell if you don't pay bail */
   cellMinutes: 2,
 };
+
+/* ---------------- university students ---------------- */
+export const UNIVERSITIES = [
+  { area: "akoka", name: "UNILAG", full: "University of Lagos, Akoka" },
+  { area: "ojo", name: "LASU", full: "Lagos State University, Ojo" },
+  { area: "firstgate", name: "LASUSTECH", full: "LASUSTECH, First Gate Ikorodu" },
+];
+/** The faculties of a university area (from its faculty buildings). */
+export const facultiesOf = (area: string) =>
+  districtById(area)
+    .landmarks.filter((l) => l.kind === "faculty" && !l.id.endsWith("-library"))
+    .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] }));
+
+type FQ = { q: string; o: string[]; a: number };
+const fq = (q: string, a: string, ...w: string[]): FQ => {
+  const o = [a, ...w];
+  // put the answer in a fixed but varied place
+  const k = q.length % o.length;
+  [o[0], o[k]] = [o[k], o[0]];
+  return { q, o, a: k };
+};
+/** Questions for each faculty, matched by a word in its name. */
+export const FACULTY_QUESTIONS: Record<string, FQ[]> = {
+  Arts: [
+    fq(
+      "Who wrote the novel 'Things Fall Apart'?",
+      "Chinua Achebe",
+      "Wole Soyinka",
+      "Chimamanda Adichie",
+      "Ben Okri",
+    ),
+    fq(
+      "Which language family does Yoruba belong to?",
+      "Niger-Congo",
+      "Afro-Asiatic",
+      "Nilo-Saharan",
+      "Indo-European",
+    ),
+    fq(
+      "A word that means the opposite of another is called an…",
+      "antonym",
+      "synonym",
+      "homophone",
+      "acronym",
+    ),
+    fq(
+      "Ajami is African languages written in which script?",
+      "Arabic",
+      "Latin",
+      "Ge'ez",
+      "Cyrillic",
+    ),
+    fq(
+      "Who was the first African to win the Nobel Prize in Literature?",
+      "Wole Soyinka",
+      "Chinua Achebe",
+      "Naguib Mahfouz",
+      "Nadine Gordimer",
+    ),
+  ],
+  Science: [
+    fq("What is the chemical formula of water?", "H₂O", "CO₂", "O₂", "NaCl"),
+    fq("Which part of the cell contains the DNA?", "Nucleus", "Ribosome", "Cell wall", "Vacuole"),
+    fq(
+      "What is the speed of light, roughly?",
+      "300,000 km per second",
+      "3,000 km per second",
+      "30,000 km per hour",
+      "300 km per second",
+    ),
+    fq("What is the pH of pure water?", "7", "0", "14", "1"),
+    fq(
+      "Which gas do plants take in for photosynthesis?",
+      "Carbon dioxide",
+      "Oxygen",
+      "Nitrogen",
+      "Hydrogen",
+    ),
+  ],
+  Engineering: [
+    fq("What is the unit of electrical resistance?", "Ohm", "Volt", "Ampere", "Watt"),
+    fq("Ohm's law says V equals…", "I × R", "I ÷ R", "R ÷ I", "I + R"),
+    fq("What is the SI unit of force?", "Newton", "Joule", "Pascal", "Watt"),
+    fq("Which material is a good electrical conductor?", "Copper", "Rubber", "Glass", "Wood"),
+    fq("Power is the rate of doing…", "work", "speed", "pressure", "charge"),
+  ],
+  Law: [
+    fq(
+      "What is the highest court in Nigeria?",
+      "The Supreme Court",
+      "The Court of Appeal",
+      "The Federal High Court",
+      "The Magistrate Court",
+    ),
+    fq(
+      "A person accused of a crime is presumed…",
+      "innocent until proven guilty",
+      "guilty until proven innocent",
+      "neither",
+      "guilty if arrested",
+    ),
+    fq(
+      "In which year did Nigeria's current constitution come into force?",
+      "1999",
+      "1979",
+      "1963",
+      "2010",
+    ),
+    fq(
+      "A contract needs offer, acceptance and…",
+      "consideration",
+      "a lawyer",
+      "a stamp",
+      "a witness only",
+    ),
+    fq(
+      "In Islamic law, the main sources are the Qur'an, the Sunnah, ijma' and…",
+      "qiyas",
+      "custom only",
+      "opinion polls",
+      "dreams",
+    ),
+  ],
+  Education: [
+    fq(
+      "Who is known for the idea of the 'zone of proximal development'?",
+      "Lev Vygotsky",
+      "Jean Piaget",
+      "B. F. Skinner",
+      "John Dewey",
+    ),
+    fq(
+      "Bloom's taxonomy sorts learning goals from remembering up to…",
+      "creating",
+      "listening",
+      "copying",
+      "testing",
+    ),
+    fq(
+      "A test given at the end of a course is a…",
+      "summative assessment",
+      "formative assessment",
+      "diagnostic test only",
+      "placement test",
+    ),
+    fq(
+      "Which is the first stage in Piaget's theory?",
+      "Sensorimotor",
+      "Formal operational",
+      "Concrete operational",
+      "Preoperational",
+    ),
+    fq(
+      "The first word revealed in the Qur'an, about learning, is…",
+      "Iqra (Read)",
+      "Qul (Say)",
+      "Ya ayyuha (O you)",
+      "Alhamdu (Praise)",
+    ),
+  ],
+  Management: [
+    fq("Profit equals revenue minus…", "costs", "assets", "tax only", "sales"),
+    fq(
+      "What does SWOT stand for?",
+      "Strengths, Weaknesses, Opportunities, Threats",
+      "Sales, Work, Orders, Targets",
+      "Staff, Wages, Output, Time",
+      "Supply, Want, Offer, Trade",
+    ),
+    fq(
+      "In Islamic finance, charging interest on loans (riba) is…",
+      "forbidden",
+      "encouraged",
+      "required",
+      "only for banks",
+    ),
+    fq(
+      "A business owned by shareholders is a…",
+      "company",
+      "sole proprietorship",
+      "partnership only",
+      "cooperative only",
+    ),
+    fq("Money set aside for future use is called…", "savings", "debt", "expense", "loss"),
+  ],
+  Applied: [
+    fq("What does a microbiologist mainly study?", "Microorganisms", "Rocks", "Stars", "Languages"),
+    fq("Which instrument measures temperature?", "Thermometer", "Barometer", "Ammeter", "Odometer"),
+    fq("Stainless steel is mainly iron mixed with…", "chromium", "gold", "silver", "lead"),
+    fq(
+      "What is the main gas in the air we breathe?",
+      "Nitrogen",
+      "Oxygen",
+      "Carbon dioxide",
+      "Argon",
+    ),
+    fq(
+      "A food scientist checks food for safety and…",
+      "quality",
+      "colour only",
+      "price only",
+      "packaging only",
+    ),
+  ],
+  Environmental: [
+    fq(
+      "What do architects draw before a building is built?",
+      "Plans",
+      "Maps of the sea",
+      "Recipes",
+      "Circuits",
+    ),
+    fq("Planting trees helps to reduce…", "erosion", "rainfall", "sunlight", "gravity"),
+    fq("A quantity surveyor estimates a building's…", "cost", "colour", "height only", "owner"),
+    fq(
+      "Urban planning is about planning…",
+      "towns and cities",
+      "farms only",
+      "the sea",
+      "the weather",
+    ),
+    fq("Which is a renewable source of energy?", "Solar", "Coal", "Diesel", "Petrol"),
+  ],
+  Agriculture: [
+    fq(
+      "Which crop is Nigeria a top producer of in the world?",
+      "Cassava",
+      "Wheat",
+      "Apples",
+      "Barley",
+    ),
+    fq("Adding nutrients to soil is done with…", "fertiliser", "sand", "plastic", "salt"),
+    fq(
+      "Rearing fish in ponds is called…",
+      "aquaculture",
+      "apiculture",
+      "horticulture",
+      "sericulture",
+    ),
+    fq("Rotating crops on the same land helps keep the soil…", "fertile", "dry", "salty", "hard"),
+    fq(
+      "Keeping bees for honey is called…",
+      "apiculture",
+      "aquaculture",
+      "viticulture",
+      "floriculture",
+    ),
+  ],
+};
+export function facultyQuestions(faculty: string): FQ[] {
+  const key = Object.keys(FACULTY_QUESTIONS).find((k) => faculty.includes(k)) ?? "Science";
+  return FACULTY_QUESTIONS[key];
+}
