@@ -289,7 +289,7 @@ export default function IlmCityGame() {
     return (
       <div className="grid h-full place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
         <div className="font-serif text-4xl">
-          Ilm<span className="text-[#45b8a8]">City</span>
+          Ilm<span className="text-[#45b8a8]">World</span>
         </div>
       </div>
     );
@@ -418,7 +418,7 @@ function CityGame({
       toast(
         step < GUIDE.length
           ? `Step ${step} done! +10 points`
-          : "You're ready. Enjoy IlmCity! +10 points",
+          : "You're ready. Enjoy IlmWorld! +10 points",
         "good",
       );
     },
@@ -1721,7 +1721,7 @@ function CityGame({
         if (!b) return;
         setPanel({
           kind: "info",
-          title: b.ad ? b.ad.brand : "Advertise in IlmCity",
+          title: b.ad ? b.ad.brand : "Advertise in IlmWorld",
           body: <AdView boardName={b.name} ad={b.ad} />,
         });
         return;
@@ -2099,7 +2099,7 @@ function CityGame({
     return (
       <div className="grid h-full place-items-center bg-[#10201e] p-6 text-center text-[#eef3ee]">
         <p>
-          IlmCity needs a phone or computer that supports 3D graphics (WebGL). Try another browser.
+          IlmWorld needs a phone or computer that supports 3D graphics (WebGL). Try another browser.
         </p>
       </div>
     );
@@ -2111,7 +2111,7 @@ function CityGame({
         <div className="absolute inset-0 grid place-items-center text-center text-[#fdf8ec]">
           <div>
             <div className="font-serif text-4xl">
-              Ilm<span className="text-[#45b8a8]">City</span>
+              Ilm<span className="text-[#45b8a8]">World</span>
             </div>
             <p className="mt-2 text-sm opacity-70">{cityGreeting()}</p>
           </div>
@@ -2649,7 +2649,7 @@ function AdView({ boardName, ad }: { boardName: string; ad?: (typeof BILLBOARDS)
           Visit {ad.brand}
         </a>
       )}
-      <p className="mt-4 text-sm">To put your brand on billboards across IlmCity, contact:</p>
+      <p className="mt-4 text-sm">To put your brand on billboards across IlmWorld, contact:</p>
       <div className="mt-2 flex items-center gap-2">
         <code className="min-w-0 flex-1 select-all truncate rounded-lg bg-[#10201e]/5 px-3 py-2">
           {AD_EMAIL}
@@ -3790,7 +3790,7 @@ function ShopView({
         </button>
       )}
       <p className="text-[12px] opacity-70">
-        Photos are saved on this phone for now. When accounts arrive, every player in IlmCity will
+        Photos are saved on this phone for now. When accounts arrive, every player in IlmWorld will
         see them.
       </p>
     </div>
@@ -4130,7 +4130,7 @@ function Onboarding({
       >
         <div className="mx-auto w-full max-w-md">
           <div className="font-serif text-5xl leading-none">
-            Ilm<span className="text-[#45b8a8]">City</span>
+            Ilm<span className="text-[#45b8a8]">World</span>
           </div>
           <p className="mt-3 text-[16px] leading-snug opacity-90">
             A Muslim city in Lagos that runs on real prayer times. Pray, learn, travel by danfo,

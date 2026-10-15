@@ -51,7 +51,7 @@ export const STREETS: Record<string, Street> = {
   devjaytech: {
     id: "devjaytech",
     name: "Techie Jamiu Adewuyi (Devjaytech) Street",
-    bio: "Named after Jamiu Adewuyi (Devjaytech), the developer who built IlmStation, OutingStation and IlmCity. His offices are on this street.",
+    bio: "Named after Jamiu Adewuyi (Devjaytech), the developer who built IlmStation, OutingStation and IlmWorld. His offices are on this street.",
   },
   jabata: { id: "jabata", name: "Sheikh Alli Jabata Street", bio: COMING_SOON },
   najeeb: { id: "najeeb", name: "Imam Najeeb Street", bio: COMING_SOON },
@@ -407,7 +407,7 @@ export const DISTRICTS: District[] = [
         floors: 5,
         brand: { color: 0x1f6f63, accent: 0xe6b84a, link: "https://ilmstation.com" },
         about:
-          "IlmStation is a learning app for Muslims: Qur'an, Islamic studies and quizzes with rewards. IlmCity is part of IlmStation.",
+          "IlmStation is a learning app for Muslims: Qur'an, Islamic studies and quizzes with rewards. IlmWorld is part of IlmStation.",
       },
       {
         id: "outingstation",
@@ -434,7 +434,7 @@ export const DISTRICTS: District[] = [
         floors: 3,
         brand: { color: 0x10201e, accent: 0x45b8a8 },
         about:
-          "The office of Techie Jamiu Adewuyi (Devjaytech), the developer behind IlmStation, OutingStation and IlmCity.",
+          "The office of Techie Jamiu Adewuyi (Devjaytech), the developer behind IlmStation, OutingStation and IlmWorld.",
       },
       {
         id: "daarulquran-mosque",

@@ -1879,7 +1879,7 @@ export class IlmCityEngine {
         }
         c.fillStyle = "#e6b84a";
         c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-        c.fillText(`${D.state} State · IlmCity`, W / 2, H * 0.78);
+        c.fillText(`${D.state} State · IlmWorld`, W / 2, H * 0.78);
       },
       1400,
     );
