@@ -27,6 +27,11 @@ async function fb() {
   return { auth, db, app, ...f, onAuthStateChanged: a.onAuthStateChanged };
 }
 
+/** Cloudinary for nasheed uploads: set these two in Vercel's environment variables. */
+const CLOUD = {
+  name: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined,
+  preset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined,
+};
 const naira = (n: number) => "₦" + n.toLocaleString("en-NG");
 const when = (t: number) =>
   new Date(t).toLocaleString("en-GB", {
@@ -442,6 +447,40 @@ function Nasheeds() {
             className={input}
           />
         </label>
+        {CLOUD.name && CLOUD.preset && (
+          <label className="mt-2 block text-[13px]">
+            <span className="font-semibold">…or upload the audio file (Cloudinary)</span>
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setBusy("Uploading…");
+                try {
+                  const body = new FormData();
+                  body.append("file", file);
+                  body.append("upload_preset", CLOUD.preset!);
+                  body.append("folder", "ilmworld/nasheeds");
+                  const r = await fetch(
+                    `https://api.cloudinary.com/v1_1/${CLOUD.name}/video/upload`,
+                    { method: "POST", body },
+                  );
+                  const j = (await r.json()) as {
+                    secure_url?: string;
+                    error?: { message: string };
+                  };
+                  if (!j.secure_url) throw new Error(j.error?.message ?? "upload failed");
+                  setF((x) => ({ ...x, url: j.secure_url! }));
+                  setBusy("");
+                } catch (err) {
+                  setBusy("Upload failed: " + (err as Error).message);
+                }
+              }}
+              className="mt-0.5 block w-full text-[13px]"
+            />
+          </label>
+        )}
         {/^https:\/\//.test(f.url) && <audio controls src={f.url} className="mt-2 w-full" />}
         <label className="mt-2 flex items-center gap-2 text-[13px]">
           <input
@@ -452,7 +491,7 @@ function Nasheeds() {
           I have permission to use this nasheed in IlmWorld
         </label>
         <button
-          disabled={!f.title.trim() || !/^https:\/\//.test(f.url) || !f.ok || busy === "Saving…"}
+          disabled={!f.title.trim() || !/^https:\/\//.test(f.url) || !f.ok || busy.endsWith("…")}
           onClick={add}
           className={`${btn} mt-3 w-full bg-[#1f6f63] py-3 text-white disabled:opacity-40`}
         >
