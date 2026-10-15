@@ -20,7 +20,12 @@ import {
   MAT2,
   campus,
   compound,
+  faculty,
+  field,
   groundGeo,
+  hangout,
+  sistersCorner,
+  policeStation,
   mansion,
   office,
   powerLine,
@@ -80,6 +85,8 @@ type Walker = {
   district?: string;
   talking?: boolean;
   hisbah?: boolean;
+  /** sits in one place (students at a meeting point) */
+  seated?: boolean;
 };
 
 const PALETTE = {
@@ -788,6 +795,8 @@ export class IlmCityEngine {
       }
     });
 
+    // a football pitch and the sisters' corner take three plots in a row
+    const play = this.choosePlayPlots(D, zs, H, southEdge);
     // Lagos compounds line both sides of every street
     zs.forEach((sz, si) => {
       let num = 1 + si * 40;
@@ -803,6 +812,19 @@ export class IlmCityEngine {
           const land = r1 < (D.land ?? 0.13);
           const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.2);
           const toLet = !land && !shops && rnd() < 0.3;
+          if (
+            play &&
+            ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
+              (play.police?.sz === sz && play.police.north === north && play.police.x === x))
+          ) {
+            // this plot is the pitch or the sisters' corner; draw the house it replaces into a
+            // throwaway batch so every later plot keeps the same number and look as before
+            const turn0 = north ? 0 : Math.PI;
+            if (shops) shopRow(new Batch(), { x, z: cz, turn: turn0, rnd });
+            else if (!land) compound(new Batch(), { x, z: cz, turn: turn0, number: num, rnd });
+            num += 2;
+            continue;
+          }
           const turn = north ? 0 : Math.PI;
           let c: Compound;
           if (land) {
@@ -887,6 +909,7 @@ export class IlmCityEngine {
         }
       }
     });
+    if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
@@ -1084,8 +1107,8 @@ export class IlmCityEngine {
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
   private buildWorld() {
     const S = this.scene;
-    const ground = new THREE.Mesh(groundGeo(2300, 2400, 10), MAT.grass());
-    ground.position.set(150, -0.01, -330);
+    const ground = new THREE.Mesh(groundGeo(2300, 2700, 10), MAT.grass());
+    ground.position.set(150, -0.01, -480);
     ground.receiveShadow = true;
     S.add(ground);
     const water = (w: number, d: number, x: number, z: number, round = false) => {
@@ -1108,11 +1131,11 @@ export class IlmCityEngine {
     water(150, 105, 540, 20, true);
     this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
     // world edges
-    this.colliders.out.push({ x0: -1100, x1: -800, z0: -1600, z1: 900 });
-    this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1600, z1: 900 });
+    this.colliders.out.push({ x0: -1100, x1: -800, z0: -1900, z1: 900 });
+    this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1900, z1: 900 });
     // the north edge: Ikorodu reaches further north than the rest of the city
-    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1600, z1: -680 });
-    this.colliders.out.push({ x0: 420, x1: 1200, z0: -1600, z1: -1330 });
+    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1900, z1: -680 });
+    this.colliders.out.push({ x0: 420, x1: 1200, z0: -1900, z1: -1612 });
 
     DISTRICTS.forEach((d) => this.buildDistrict(d.id));
 
@@ -1362,16 +1385,35 @@ export class IlmCityEngine {
       const turn = south ? Math.PI : 0;
       const b = this.curBatch;
       const o = { x: l.x, z: cz, turn, width: w, depth: d, floors: l.floors ?? 2, name: l.name };
+      let seats: { x: number; z: number; face: number }[] = [];
       const built =
         l.kind === "campus"
           ? campus(b, { ...o, classes: l.classes ?? [] })
           : l.kind === "mansion"
             ? mansion(b, o)
-            : office(b, {
-                ...o,
-                color: l.brand?.color ?? 0x1f6f63,
-                accent: l.brand?.accent ?? 0xffffff,
-              });
+            : l.kind === "faculty"
+              ? faculty(b, o)
+              : l.kind === "field"
+                ? field(b, o)
+                : l.kind === "hangout"
+                  ? (() => {
+                      const h = hangout(b, o);
+                      seats = h.seats;
+                      return h;
+                    })()
+                  : office(b, {
+                      ...o,
+                      color: l.brand?.color ?? 0x1f6f63,
+                      accent: l.brand?.accent ?? 0xffffff,
+                    });
+      if (seats.length) this.seatStudents(seats, D);
+      if (l.kind === "field" || l.kind === "hangout")
+        this.reserved.push({
+          x0: this.ox + l.x - w / 2,
+          x1: this.ox + l.x + w / 2,
+          z0: this.oz + cz - d / 2,
+          z1: this.oz + cz + d / 2,
+        });
       for (const c of built.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
       for (const sp of built.spots) {
         if (sp.key === "gate" && l.kind === "campus") {
@@ -1381,7 +1423,16 @@ export class IlmCityEngine {
           continue;
         }
         const id = l.kind === "campus" ? `campus:${l.id}:${sp.key}` : `${l.kind}:${l.id}`;
-        const text = l.kind === "campus" ? sp.label : "Visit " + l.name;
+        const text =
+          l.kind === "campus"
+            ? sp.label
+            : l.kind === "faculty"
+              ? "Enter " + l.name.split(" · ")[0]
+              : l.kind === "field"
+                ? "Play football"
+                : l.kind === "hangout"
+                  ? "Sit and gist"
+                  : "Visit " + l.name;
         this.zones.push({
           id,
           label: text,
@@ -1397,6 +1448,277 @@ export class IlmCityEngine {
     }
   }
   private curBatch = new Batch();
+
+  /** Three plots in a row, free of everything, for the pitch and the sisters' corner. */
+  private choosePlayPlots(
+    D: District,
+    zs: number[],
+    H: { x: number; z: number },
+    southEdge: number,
+  ): {
+    sz: number;
+    north: boolean;
+    xs: number[];
+    field: boolean;
+    police: { sz: number; north: boolean; x: number } | null;
+  } | null {
+    const field = !D.landmarks.some((l) => l.kind === "field");
+    const slots: number[] = [];
+    for (let x = -(H.x - 26); x <= H.x - 26; x += 24) if (Math.abs(x) >= 16) slots.push(x);
+    const rows: [number, boolean][] = [];
+    const north = Math.min(...zs),
+      south = Math.max(...zs);
+    rows.push([north, true], [south, false]);
+    for (const sz of zs) rows.push([sz, true], [sz, false]);
+    for (const [sz, isNorth] of rows) {
+      const cz = isNorth ? sz - 21.5 : sz + 21.5;
+      if (!isNorth && cz + 10 > southEdge - 3) continue;
+      if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
+      // try the far end first, then the other end
+      for (const set of [slots.slice(-3), slots.slice(0, 3)]) {
+        if (set.length < 3 || set[2] - set[0] !== 48) continue;
+        if (!set.every((x) => this.boxFree(x - 11, x + 11, cz - 10, cz + 10))) continue;
+        // and one more free plot for the police station, as near the cross road as possible
+        let police: { sz: number; north: boolean; x: number } | null = null;
+        for (const [sz2, n2] of [[0, false], [0, true], ...rows] as [number, boolean][]) {
+          if (!zs.includes(sz2)) continue;
+          const cz2 = n2 ? sz2 - 21.5 : sz2 + 21.5;
+          if (!n2 && cz2 + 10 > southEdge - 3) continue;
+          if (zs.some((z2) => z2 !== sz2 && Math.abs(cz2 - z2) < 18)) continue;
+          const x2 = [...slots]
+            .sort((m, n) => Math.abs(m) - Math.abs(n))
+            .find(
+              (x) =>
+                !(sz2 === sz && n2 === isNorth && set.includes(x)) &&
+                this.boxFree(x - 11, x + 11, cz2 - 10, cz2 + 10),
+            );
+          if (x2 !== undefined) {
+            police = { sz: sz2, north: n2, x: x2 };
+            break;
+          }
+        }
+        return { sz, north: isNorth, xs: set, field, police };
+      }
+    }
+    return null;
+  }
+  private buildPlay(
+    D: District,
+    p: {
+      sz: number;
+      north: boolean;
+      xs: number[];
+      field: boolean;
+      police: { sz: number; north: boolean; x: number } | null;
+    },
+  ) {
+    const cz = p.north ? p.sz - 21.5 : p.sz + 21.5;
+    const turn = p.north ? 0 : Math.PI;
+    const b = this.curBatch;
+    // the sisters' corner on the plot nearest the cross road, the pitch on the other two
+    const xs = [...p.xs].sort((m, n) => Math.abs(m) - Math.abs(n));
+    const cornerX = xs[0],
+      pitchX = (xs[1] + xs[2]) / 2;
+    const put = (
+      built: {
+        colliders: { x0: number; x1: number; z0: number; z1: number }[];
+        spots: { key: string; x: number; z: number; label: string; labelY?: number }[];
+      },
+      id: string,
+      text: string,
+      x0: number,
+      x1: number,
+      zc = cz,
+    ) => {
+      for (const k of built.colliders) this.addCollider("out", k.x0, k.x1, k.z0, k.z1);
+      this.reserved.push({
+        x0: this.ox + x0,
+        x1: this.ox + x1,
+        z0: this.oz + zc - 10,
+        z1: this.oz + zc + 10,
+      });
+      for (const sp of built.spots) {
+        this.zones.push({
+          id,
+          label: text,
+          x: sp.x + this.ox,
+          z: sp.z + this.oz,
+          r: 3,
+          scene: "out",
+        });
+        const t = label(sp.label, { size: 0.8 });
+        t.position.set(sp.x, sp.labelY ?? 4, sp.z);
+        this.dg.add(t);
+      }
+    };
+    if (p.field) {
+      const f = field(b, {
+        x: pitchX,
+        z: cz,
+        turn,
+        width: 44,
+        depth: 19.5,
+        name: `${D.name} Football Pitch`,
+      });
+      put(f, `field:${D.id}-pitch`, "Play football", pitchX - 22, pitchX + 22);
+    }
+    if (p.police) {
+      const q = p.police;
+      const pz = q.north ? q.sz - 21.5 : q.sz + 21.5;
+      const ps = policeStation(b, {
+        x: q.x,
+        z: pz,
+        turn: q.north ? 0 : Math.PI,
+        width: 21,
+        depth: 19.5,
+        name: `${D.name} Police Station`,
+      });
+      put(ps, `police:${D.id}`, "Police station", q.x - 10.5, q.x + 10.5, pz);
+    }
+    const sc = sistersCorner(b, {
+      x: cornerX,
+      z: cz,
+      turn,
+      width: 21,
+      depth: 19.5,
+      name: "Sisters' Corner",
+    });
+    put(sc, `sisters:${D.id}`, "Sisters' Corner · skipping", cornerX - 10.5, cornerX + 10.5);
+    const names = ["Sister Zainab", "Sister Habibah", "Sister Rodiyah", "Sister Aishat"];
+    sc.spots2.forEach((st, i) => {
+      const g = person([0x8a2f4f, 0x2a4a6a, 0x5a3f6a, 0x3d5a4a][i], {
+        hijab: [0xe9e2d0, 0x1d1d26, 0xd8c8a8, 0x8a2f4f][i],
+        seed: 40 + i,
+      });
+      const tag = label(names[i], { size: 0.6, bold: false });
+      tag.position.y = 2.5;
+      g.add(tag);
+      g.position.set(st.x, 0, st.z);
+      g.rotation.y = st.face;
+      if (i === 3) sitPerson(g);
+      this.dg.add(g);
+      this.walkers.push({
+        g,
+        route: [[st.x, st.z]],
+        k: 0,
+        wait: 0,
+        t: 0,
+        name: names[i],
+        female: true,
+        district: D.id,
+        seated: true,
+      });
+    });
+  }
+
+  /* ---------------- lost things on the ground ---------------- */
+  private found: { id: string; mesh: THREE.Object3D } | null = null;
+  /** Drop something someone lost on a pavement in this area; returns its id. */
+  dropFound(kind: "wallet" | "phone" | "bag" | "ring") {
+    if (this.found || this.where !== "out") return null;
+    const D = this.district;
+    const H = halfOf(D);
+    const p = this.player.position;
+    for (let i = 0; i < 30; i++) {
+      const st = D.streets[Math.floor(Math.random() * D.streets.length)];
+      const x = D.origin.x + (Math.random() * 2 - 1) * (H.x - 30);
+      const z = D.origin.z + st.z + (Math.random() < 0.5 ? 9 : -9);
+      const d = Math.hypot(x - p.x, z - p.z);
+      if (d < 15 || d > 70 || !this.free(x, z, 0.8)) continue;
+      const g = new THREE.Group();
+      const color = { wallet: 0x5a3a22, phone: 0x1d1d26, bag: 0x2a4a6a, ring: 0xe6b84a }[kind];
+      const m =
+        kind === "ring"
+          ? new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.05, 8, 16), mat(color))
+          : new THREE.Mesh(
+              new THREE.BoxGeometry(
+                kind === "bag" ? 0.6 : 0.35,
+                kind === "bag" ? 0.4 : 0.06,
+                kind === "bag" ? 0.3 : 0.22,
+              ),
+              mat(color),
+            );
+      m.position.y = kind === "bag" ? 0.2 : 0.06;
+      if (kind === "ring") m.rotation.x = Math.PI / 2;
+      g.add(m);
+      const glow = new THREE.Mesh(
+        new THREE.RingGeometry(0.45, 0.6, 24),
+        new THREE.MeshBasicMaterial({ color: 0xf2c230, transparent: true, opacity: 0.8 }),
+      );
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.y = 0.05;
+      g.add(glow);
+      g.position.set(x, 0, z);
+      this.scene.add(g);
+      const id = "found:" + kind;
+      this.found = { id, mesh: g };
+      this.zones.push({ id, label: "Pick it up", x, z, r: 2.2, scene: "out" });
+      return id;
+    }
+    return null;
+  }
+  clearFound() {
+    if (!this.found) return;
+    this.scene.remove(this.found.mesh);
+    const id = this.found.id;
+    this.zones = this.zones.filter((z) => z.id !== id);
+    this.found = null;
+  }
+  hasFound() {
+    return !!this.found;
+  }
+  /** Take the player straight to a place (the police station after an arrest). */
+  putAtZone(id: string) {
+    const z = this.zones.find((zz) => zz.id === id);
+    if (!z) return false;
+    if (this.where !== "out") this.exitInterior();
+    if (this.driving) this.exitCar();
+    this.player.position.set(z.x, 0, z.z + 1.5);
+    this.tapTarget = null;
+    this.snapCamera();
+    return true;
+  }
+
+  /** Muslim students, brothers and sisters, sitting and talking at a meeting point. */
+  private seatStudents(seats: { x: number; z: number; face: number }[], D: District) {
+    const names = [
+      "Brother Abdulrahman",
+      "Sister Halimah",
+      "Brother Mubarak",
+      "Sister Faridah",
+      "Brother Lukman",
+      "Sister Nafisah",
+    ];
+    const robes = [0x2f4a7a, 0x8a2f4f, 0x3d8a5a, 0x5a3f6a, 0xb36a3a, 0x2a4a6a];
+    seats.forEach((st, i) => {
+      const name = names[i % names.length];
+      const female = name.startsWith("Sister");
+      const g = person(
+        robes[i % robes.length],
+        female
+          ? { hijab: [0x1d1d26, 0xe9e2d0, 0x3d5a4a][i % 3], seed: 20 + i }
+          : { cap: 0xffffff, seed: 20 + i },
+      );
+      const tag = label(name, { size: 0.6, bold: false });
+      tag.position.y = 1.9;
+      g.add(tag);
+      g.position.set(st.x, 0.1, st.z);
+      g.rotation.y = st.face;
+      sitPerson(g);
+      this.dg.add(g);
+      this.walkers.push({
+        g,
+        route: [[st.x, st.z]],
+        k: 0,
+        wait: 0,
+        t: 0,
+        name,
+        female,
+        district: D.id,
+        seated: true,
+      });
+    });
+  }
 
   /* ---------------- shops and market stalls ---------------- */
   private shopFx = new Map<
@@ -1879,7 +2201,7 @@ export class IlmCityEngine {
         }
         c.fillStyle = "#e6b84a";
         c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-        c.fillText(`${D.state} State · IlmCity`, W / 2, H * 0.78);
+        c.fillText(`${D.state} State · IlmWorld`, W / 2, H * 0.78);
       },
       1400,
     );
@@ -2620,6 +2942,16 @@ export class IlmCityEngine {
     this.dg.add(g);
   }
 
+  private boards = new Map<string, { b: Billboard; base?: Billboard["ad"]; paint: () => void }>();
+  /** Show players' approved adverts on their billboards (the rest keep their usual design). */
+  setAds(ads: Record<string, NonNullable<Billboard["ad"]>>) {
+    for (const [id, x] of this.boards) {
+      const want = ads[id] ?? x.base;
+      if (want === x.b.ad) continue;
+      x.b.ad = want;
+      x.paint();
+    }
+  }
   private billboard(b: Billboard, bx: number, bz: number, rot = 0) {
     const g = new THREE.Group();
     g.position.set(bx, 0, bz);
@@ -2668,16 +3000,22 @@ export class IlmCityEngine {
     mesh.position.set(0, 3.8 + 2.3, -0.28);
     mesh.userData.tap = "billboard:" + b.id;
     g.add(mesh);
-    if (b.ad?.imageUrl) {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const c = canvas.getContext("2d")!;
-        c.drawImage(img, 0, 0, canvas.width, canvas.height);
-        tex.needsUpdate = true;
-      };
-      img.src = b.ad.imageUrl;
-    }
+    const paint = () => {
+      const c = canvas.getContext("2d")!;
+      draw(c, canvas.width, canvas.height);
+      tex.needsUpdate = true;
+      if (b.ad?.imageUrl) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          c.drawImage(img, 0, 0, canvas.width, canvas.height);
+          tex.needsUpdate = true;
+        };
+        img.src = b.ad.imageUrl;
+      }
+    };
+    if (b.ad?.imageUrl) paint();
+    this.boards.set(b.id, { b, base: b.ad, paint });
     this.tappables.push(mesh);
     this.dg.add(g);
     const ex = Math.abs(Math.cos(rot)) * 5.5 + Math.abs(Math.sin(rot)) * 1,
@@ -3637,6 +3975,13 @@ export class IlmCityEngine {
   setRideFast(on: boolean) {
     this.traffic.fast = on;
   }
+  /** What you are travelling in right now, for the radio. */
+  rideKind(): "danfo" | "keke" | "car" | null {
+    if (this.kekeTrip) return "keke";
+    if (this.riding) return "danfo";
+    if (this.driving) return "car";
+    return null;
+  }
   isRiding() {
     return !!this.riding;
   }
@@ -3688,6 +4033,7 @@ export class IlmCityEngine {
 
     // neighbours
     for (const w of this.walkers) {
+      if (w.seated) continue;
       if (w.talking) {
         const px = this.player.position.x - (w.g.parent?.position.x ?? 0),
           pz = this.player.position.z - (w.g.parent?.position.z ?? 0);

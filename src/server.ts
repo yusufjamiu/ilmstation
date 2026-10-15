@@ -46,6 +46,11 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // play.ilmstation.com opens IlmWorld straight away.
+    const url = new URL(request.url);
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
+    if (host.startsWith("play.") && url.pathname === "/")
+      return new Response(null, { status: 302, headers: { location: "/world" + url.search } });
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

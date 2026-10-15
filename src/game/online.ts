@@ -56,7 +56,27 @@ export interface Online {
   status(): Promise<PlayerStatus>;
   saveStatus(s: Partial<PlayerStatus>): Promise<void>;
   report(r: Report): Promise<void>;
+  /** a question for the MSSN (answered on the admin page) */
+  enquire(e: { place: string; name: string; text: string }): Promise<void>;
+  inviteMatch(other: { uid: string; name: string }, myName: string): Promise<string>;
+  watchMatch(id: string, cb: (m: Match | null) => void): () => void;
+  watchInvites(cb: (m: Match[]) => void): () => void;
+  setMatch(id: string, p: { status: Match["status"] }): Promise<void>;
+  kick(id: string, round: number, k: Kick): Promise<void>;
 }
+
+/** A football match between two players: they take turns to shoot and to keep goal. */
+export type Kick = "L" | "C" | "R";
+export type Match = {
+  id: string;
+  a: string;
+  b: string;
+  names: Record<string, string>;
+  status: "invited" | "playing" | "declined" | "done";
+  /** picks[round][uid] = where they shot or dived */
+  picks: Record<string, Record<string, Kick>>;
+  at: number;
+};
 
 export const chatIdFor = (a: string, b: string) => [a, b].sort().join("__");
 export const ONLINE_LIMITS = {
@@ -163,6 +183,55 @@ export async function connectFirestore(uid: string): Promise<Online> {
         status: "open",
       });
     },
+    async enquire(q) {
+      await addDoc(collection(db, "city_enquiries"), {
+        ...q,
+        from: uid,
+        at: Date.now(),
+        status: "open",
+      });
+    },
+    async inviteMatch(other, myName) {
+      const ref = await addDoc(collection(db, "city_matches"), {
+        a: uid,
+        b: other.uid,
+        players: [uid, other.uid],
+        names: { [uid]: myName, [other.uid]: other.name },
+        status: "invited",
+        picks: {},
+        at: Date.now(),
+      });
+      return ref.id;
+    },
+    watchMatch(id, cb) {
+      return onSnapshot(
+        doc(db, "city_matches", id),
+        (d) => cb(d.exists() ? ({ ...(d.data() as Omit<Match, "id">), id: d.id } as Match) : null),
+        () => cb(null),
+      );
+    },
+    watchInvites(cb) {
+      return onSnapshot(
+        query(
+          collection(db, "city_matches"),
+          where("b", "==", uid),
+          where("status", "==", "invited"),
+        ),
+        (snap) =>
+          cb(
+            snap.docs
+              .map((d) => ({ ...(d.data() as Omit<Match, "id">), id: d.id }) as Match)
+              .filter((m) => Date.now() - m.at < 5 * 60000),
+          ),
+        () => cb([]),
+      );
+    },
+    async setMatch(id, p) {
+      await updateDoc(doc(db, "city_matches", id), p);
+    },
+    async kick(id, round, k) {
+      await updateDoc(doc(db, "city_matches", id), { [`picks.r${round}.${uid}`]: k });
+    },
   };
 }
 
@@ -258,6 +327,51 @@ export function connectLocal(uid: string): Online {
     },
     async saveStatus(s) {
       write("status-" + uid, { ...read<Partial<PlayerStatus>>("status-" + uid, {}), ...s });
+    },
+    async inviteMatch(other, myName) {
+      const id = "m" + Date.now();
+      const all = read<Record<string, Match>>("matches", {});
+      all[id] = {
+        id,
+        a: uid,
+        b: other.uid,
+        names: { [uid]: myName, [other.uid]: other.name },
+        status: "invited",
+        picks: {},
+        at: Date.now(),
+      };
+      write("matches", all);
+      return id;
+    },
+    watchMatch(id, cb) {
+      return watch(() => cb(read<Record<string, Match>>("matches", {})[id] ?? null));
+    },
+    watchInvites(cb) {
+      return watch(() =>
+        cb(
+          Object.values(read<Record<string, Match>>("matches", {})).filter(
+            (m) => m.b === uid && m.status === "invited" && Date.now() - m.at < 5 * 60000,
+          ),
+        ),
+      );
+    },
+    async setMatch(id, p) {
+      const all = read<Record<string, Match>>("matches", {});
+      if (all[id]) all[id] = { ...all[id], ...p };
+      write("matches", all);
+    },
+    async kick(id, round, k) {
+      const all = read<Record<string, Match>>("matches", {});
+      const m = all[id];
+      if (!m) return;
+      m.picks = { ...m.picks, ["r" + round]: { ...(m.picks["r" + round] ?? {}), [uid]: k } };
+      write("matches", all);
+    },
+    async enquire(q) {
+      write("enquiries", [
+        ...read<unknown[]>("enquiries", []),
+        { ...q, from: uid, at: Date.now(), status: "open" },
+      ]);
     },
     async report(r) {
       write("reports", [

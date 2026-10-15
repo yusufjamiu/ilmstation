@@ -19,6 +19,8 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlayRouteImport } from './routes/play'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SponsorshipRouteImport } from './routes/sponsorship'
+import { Route as WorldRouteImport } from './routes/world'
+import { Route as AdminWorldRouteImport } from './routes/admin.world'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -70,6 +72,16 @@ const SponsorshipRoute = SponsorshipRouteImport.update({
   path: '/sponsorship',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorldRoute = WorldRouteImport.update({
+  id: '/world',
+  path: '/world',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminWorldRoute = AdminWorldRouteImport.update({
+  id: '/admin/world',
+  path: '/admin/world',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +94,8 @@ export interface FileRoutesByFullPath {
   '/play': typeof PlayRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/world': typeof WorldRoute
+  '/admin/world': typeof AdminWorldRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +108,8 @@ export interface FileRoutesByTo {
   '/play': typeof PlayRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/world': typeof WorldRoute
+  '/admin/world': typeof AdminWorldRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +123,8 @@ export interface FileRoutesById {
   '/play': typeof PlayRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/world': typeof WorldRoute
+  '/admin/world': typeof AdminWorldRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +139,8 @@ export interface FileRouteTypes {
     | '/play'
     | '/signup'
     | '/sponsorship'
+    | '/world'
+    | '/admin/world'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +153,8 @@ export interface FileRouteTypes {
     | '/play'
     | '/signup'
     | '/sponsorship'
+    | '/world'
+    | '/admin/world'
   id:
     | '__root__'
     | '/'
@@ -145,6 +167,8 @@ export interface FileRouteTypes {
     | '/play'
     | '/signup'
     | '/sponsorship'
+    | '/world'
+    | '/admin/world'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +182,8 @@ export interface RootRouteChildren {
   PlayRoute: typeof PlayRoute
   SignupRoute: typeof SignupRoute
   SponsorshipRoute: typeof SponsorshipRoute
+  WorldRoute: typeof WorldRoute
+  AdminWorldRoute: typeof AdminWorldRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -232,6 +258,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SponsorshipRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/world': {
+      id: '/world'
+      path: '/world'
+      fullPath: '/world'
+      preLoaderRoute: typeof WorldRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/world': {
+      id: '/admin/world'
+      path: '/admin/world'
+      fullPath: '/admin/world'
+      preLoaderRoute: typeof AdminWorldRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,6 +286,8 @@ const rootRouteChildren: RootRouteChildren = {
   PlayRoute: PlayRoute,
   SignupRoute: SignupRoute,
   SponsorshipRoute: SponsorshipRoute,
+  WorldRoute: WorldRoute,
+  AdminWorldRoute: AdminWorldRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -50,3 +50,47 @@
       allow create: if signedIn() && request.resource.data.reporter == request.auth.uid;
       allow read, update: if isAdmin();
     }
+
+    // ---- added for IlmWorld: matches, adverts, award, MSSN questions, nasheeds ----
+
+    // football matches between two players
+    match /city_matches/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if signedIn() && request.resource.data.a == request.auth.uid
+        && request.resource.data.status == "invited";
+      allow update: if signedIn()
+        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b)
+        && request.resource.data.a == resource.data.a
+        && request.resource.data.b == resource.data.b;
+    }
+
+    // billboard adverts: players ask, the admin approves; everyone sees approved ones
+    match /city_ads/{id} {
+      allow read: if resource.data.status == "approved"
+        || isAdmin()
+        || (signedIn() && request.auth.uid == resource.data.from);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "pending";
+      allow update, delete: if isAdmin();
+    }
+
+    // best home of the week: everyone reads, only the admin announces
+    match /city_awards/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // questions to the MSSN: players ask and read their own; the admin answers
+    match /city_enquiries/{id} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == resource.data.from);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.text is string && request.resource.data.text.size() <= 400;
+      allow update, delete: if isAdmin();
+    }
+
+    // nasheeds: everyone listens, only the admin uploads
+    match /city_nasheeds/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }

@@ -19,6 +19,9 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   powerline: { name: "Powerline", lat: 6.565, lng: 3.262 },
   okeeletu: { name: "Oke Eletu", lat: 6.6, lng: 3.545 },
   ikeja: { name: "Ojodu, Ikeja", lat: 6.64, lng: 3.365 },
+  akoka: { name: "Akoka (UNILAG)", lat: 6.517, lng: 3.39 },
+  ojo: { name: "Ojo (LASU)", lat: 6.47, lng: 3.2 },
+  firstgate: { name: "First Gate (LASUSTECH)", lat: 6.64, lng: 3.529 },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -36,7 +39,10 @@ const ROADS: [string, string][] = [
   ["ketu", "egbeda"],
   ["egbeda", "agege"],
   ["ikorodu", "agric"],
-  ["agric", "secondgate"],
+  ["agric", "firstgate"],
+  ["firstgate", "secondgate"],
+  ["yaba", "akoka"],
+  ["apapa", "ojo"],
   ["secondgate", "market"],
   ["lekki", "badore"],
   ["egbeda", "powerline"],
@@ -46,7 +52,7 @@ const ROADS: [string, string][] = [
 
 const W = 400,
   H = 380;
-const X = (lng: number) => ((lng - 3.25) / (3.575 - 3.25)) * (W - 40) + 20;
+const X = (lng: number) => ((lng - 3.17) / (3.575 - 3.17)) * (W - 40) + 20;
 const Y = (lat: number) => ((6.68 - lat) / (6.68 - 6.39)) * (H - 40) + 20;
 const pt = (id: string) => ({ x: X(PLACES[id].lng), y: Y(PLACES[id].lat) });
 
