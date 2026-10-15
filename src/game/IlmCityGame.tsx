@@ -27,6 +27,8 @@ import {
   SMALL_TALK,
   ECONOMY,
   TENANTS,
+  HOUSE_PRICE,
+  ROOM_RENT_WEEK,
   HOME_ITEMS,
   JOBS,
   STREAK_REWARDS,
@@ -206,6 +208,7 @@ function plotStateFn(o?: PlotOwn) {
   if (!o) return undefined;
   if (o.kind === "rented") return o.until > Date.now() ? { kind: "rented" as const } : undefined;
   if (o.kind === "owned") return { kind: "owned" as const };
+  if (o.kind === "bought") return { kind: "rented" as const };
   if (o.kind === "building" && o.done <= Date.now())
     return { kind: "built" as const, floors: o.floors };
   return { kind: o.kind, floors: o.floors };
@@ -817,9 +820,9 @@ function CityGame({
                 : own
                   ? "Your land"
                   : "Land for sale"
-              : own?.kind === "rented" && own.until > Date.now()
+              : (own?.kind === "rented" && own.until > Date.now()) || own?.kind === "bought"
                 ? "Your house"
-                : "House to let",
+                : "House to let or buy",
           body: (
             <PlotView
               plot={p}
@@ -846,6 +849,17 @@ function CityGame({
                 setPanel(null);
                 e.enterInterior("home", `No. ${p.number}, ${p.street}`);
                 setInside(true);
+              }}
+              onRooms={(rooms, earned) => {
+                const own2 = saveRef.current.plots?.[pid];
+                if (own2?.kind !== "built" && own2?.kind !== "bought") return;
+                update((x) => ({ ...x, coins: x.coins + earned }));
+                setOwn({ ...own2, rooms });
+                toast(
+                  `A tenant moved in and paid ${earned} points for the week. Alhamdulillah!`,
+                  "good",
+                );
+                setTimeout(render, 0);
               }}
               onCollect={() => {
                 const own2 = saveRef.current.plots?.[pid];
@@ -2652,6 +2666,22 @@ function CityGame({
                       },
                       { icon: "💼", label: "Work", run: () => openJobsRef.current() },
                       { icon: "🛋️", label: "Home shop", run: openHomeShop },
+                      {
+                        icon: "🏘️",
+                        label: "My houses",
+                        run: () =>
+                          setPanel({
+                            kind: "info",
+                            title: "My houses and land",
+                            body: (
+                              <MyHousesView
+                                plots={saveRef.current.plots ?? {}}
+                                info={(id) => engine.current?.plotInfo(id) ?? null}
+                                onOpen={(id) => openPlot(id)}
+                              />
+                            ),
+                          }),
+                      },
                       { icon: "💬", label: "Chat", badge: unread, run: openInbox },
                       {
                         icon: "❤️",
@@ -3682,11 +3712,14 @@ function topicReply(
 }
 
 /* ---------------- houses and land ---------------- */
+type Room = { tenant: string; until: number } | null;
 type PlotOwn =
   | { kind: "rented"; until: number }
   | { kind: "owned" }
   | { kind: "building"; floors: number; done: number }
-  | { kind: "built"; floors: number; tenant?: string; since?: number };
+  | { kind: "built"; floors: number; tenant?: string; since?: number; rooms?: Room[] }
+  | { kind: "bought"; floors: number; rooms?: Room[] };
+const roomsIn = (floors: number) => floors * 2 + 1;
 
 const naira = (n: number) => "₦" + n.toLocaleString("en-NG");
 const floorsName = (f: number) => (f <= 1 ? "Bungalow" : f === 2 ? "Duplex" : "Storey building");
@@ -3700,6 +3733,7 @@ function PlotView({
   onSet,
   onEnter,
   onCollect,
+  onRooms,
 }: {
   plot: {
     id: string;
@@ -3716,6 +3750,7 @@ function PlotView({
   onSet: (next: PlotOwn) => void;
   onEnter: () => void;
   onCollect: () => void;
+  onRooms: (rooms: Room[], earned: number) => void;
 }) {
   const where = `No. ${plot.number}, ${plot.street}, ${districtById(plot.district).name}`;
   const btn = "w-full rounded-xl px-4 py-3 text-left text-[14px] font-bold";
@@ -3755,6 +3790,41 @@ function PlotView({
 
   if (plot.kind === "house") {
     const beds = plot.floors * 2 + 1;
+    if (own?.kind === "bought")
+      return (
+        <div className="space-y-2">
+          <p>
+            {where}. Your own {floorsName(plot.floors).toLowerCase()} with {beds} bedrooms.
+          </p>
+          <button className={primary} onClick={onEnter}>
+            Go inside
+          </button>
+          <RoomsView
+            rooms={own.rooms ?? []}
+            count={beds}
+            onRooms={(rooms, earned) => onRooms(rooms, earned)}
+          />
+        </div>
+      );
+    const price = HOUSE_PRICE[plot.floors] ?? HOUSE_PRICE[1];
+    const buyButton = (
+      <button
+        disabled={points < price}
+        className={primary}
+        onClick={() =>
+          onPay(
+            price,
+            { kind: "bought", floors: plot.floors, rooms: [] },
+            "Alhamdulillah! The house is yours. You can rent out its rooms.",
+          )
+        }
+      >
+        Buy this house · {price.toLocaleString()} points
+        <span className="block text-[12px] font-medium opacity-80">
+          Rent out its {beds} rooms for {ROOM_RENT_WEEK} points a week each
+        </span>
+      </button>
+    );
     if (own?.kind === "rented" && own.until > now) {
       const days = Math.ceil((own.until - now) / 86400000);
       return (
@@ -3769,6 +3839,7 @@ function PlotView({
             Go inside
           </button>
           {rentButtons(true)}
+          {buyButton}
         </div>
       );
     }
@@ -3780,6 +3851,7 @@ function PlotView({
         </p>
         <p className="text-[13px] opacity-75">You have {points} points.</p>
         {rentButtons(false)}
+        {buyButton}
       </div>
     );
   }
@@ -3877,6 +3949,75 @@ function PlotView({
       <button className={secondary} onClick={onEnter}>
         Go inside
       </button>
+      {!own.tenant && (
+        <RoomsView
+          rooms={own.rooms ?? []}
+          count={roomsIn(own.floors)}
+          onRooms={(rooms, earned) => onRooms(rooms, earned)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Rooms in a house you own: each can be rented to a tenant for a week at a time. */
+function RoomsView({
+  rooms,
+  count,
+  onRooms,
+}: {
+  rooms: Room[];
+  count: number;
+  onRooms: (rooms: Room[], earned: number) => void;
+}) {
+  const now = Date.now();
+  const list = Array.from({ length: count }, (_, i) => rooms[i] ?? null);
+  const used = new Set(list.filter((r) => r && r.until > now).map((r) => r!.tenant));
+  const rentOut = (i: number) => {
+    const free = TENANTS.filter((t) => !used.has(t));
+    const tenant = free[Math.floor(Math.random() * free.length)] ?? TENANTS[0];
+    const next = [...list];
+    next[i] = { tenant, until: now + 7 * 86400000 };
+    onRooms(next, ROOM_RENT_WEEK);
+  };
+  const occupied = list.filter((r) => r && r.until > now).length;
+  return (
+    <div className="space-y-1.5 rounded-xl bg-white p-3">
+      <div className="text-[13px] font-semibold">
+        Rooms · {occupied} of {count} rented
+      </div>
+      {list.map((r, i) => {
+        const live = r && r.until > now;
+        const days = live ? Math.ceil((r.until - now) / 86400000) : 0;
+        return (
+          <div key={i} className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="min-w-0 truncate">
+              🛏️ Room {i + 1}:{" "}
+              {live ? (
+                <>
+                  {r.tenant} · {days} day{days === 1 ? "" : "s"} left
+                </>
+              ) : r ? (
+                <span className="opacity-70">free (the rent ended, {r.tenant} moved out)</span>
+              ) : (
+                <span className="opacity-70">empty</span>
+              )}
+            </span>
+            {!live && (
+              <button
+                onClick={() => rentOut(i)}
+                className="shrink-0 rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
+              >
+                Rent out · +{ROOM_RENT_WEEK}
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <p className="text-[11.5px] opacity-65">
+        Tenants pay a week in advance. When the week ends and you don't rent the room again, they
+        move out on their own.
+      </p>
     </div>
   );
 }
@@ -6076,6 +6217,54 @@ function CellView({
       >
         Wait {POLICE.cellMinutes} minutes in the cell
       </button>
+    </div>
+  );
+}
+
+/* ---------------- my houses ---------------- */
+function MyHousesView({
+  plots,
+  info,
+  onOpen,
+}: {
+  plots: Record<string, PlotOwn>;
+  info: (id: string) => { number: number; street: string; district: string } | null;
+  onOpen: (id: string) => void;
+}) {
+  const now = Date.now();
+  const mine = Object.entries(plots).filter(([, o]) => o.kind !== "rented" || o.until > now);
+  if (!mine.length)
+    return (
+      <p>
+        You don't have a house or land yet. Look for TO LET signs to rent or buy a house, and LAND
+        FOR SALE boards to buy land and build.
+      </p>
+    );
+  const what = (o: PlotOwn) => {
+    if (o.kind === "rented") return `Rented · ${Math.ceil((o.until - now) / 86400000)} days left`;
+    if (o.kind === "owned") return "Your land, ready to build";
+    if (o.kind === "building") return "Being built";
+    const rooms = (o.rooms ?? []).filter((r) => r && r.until > now).length;
+    return `${o.kind === "bought" ? "Bought" : "Built"} · ${rooms} of ${roomsIn(o.floors)} rooms rented`;
+  };
+  return (
+    <div className="space-y-2">
+      {mine.map(([id, o]) => {
+        const p = info(id);
+        return (
+          <button
+            key={id}
+            onClick={() => onOpen(id)}
+            className="w-full rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+          >
+            <div className="text-[14px] font-bold">{p ? `No. ${p.number}, ${p.street}` : id}</div>
+            <div className="text-[12px] opacity-75">
+              {p ? districtById(p.district).name + " · " : ""}
+              {what(o)}
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }

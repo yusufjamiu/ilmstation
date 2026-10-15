@@ -1306,6 +1306,9 @@ export const ECONOMY = {
     { name: string; points: number; naira: number; minutes: number; tenantPerDay: number }
   >,
 };
+/** Buying a house outright, by floors; and the weekly rent a tenant pays for one room. */
+export const HOUSE_PRICE: Record<number, number> = { 1: 2500, 2: 4500, 3: 7000 };
+export const ROOM_RENT_WEEK = 30;
 export const TENANTS = [
   "Brother Kabir's family",
   "Sister Halimah",
@@ -1313,6 +1316,12 @@ export const TENANTS = [
   "Brother Rasheed",
   "The Adeyemi family",
   "Sister Fatimah and her children",
+  "Brother Ibrahim (NYSC corps member)",
+  "Sister Rukayyah (nurse)",
+  "Brother Taofeek (student)",
+  "Mallam Sani",
+  "Sister Zulaykha (teacher)",
+  "Brother Waheed (trader)",
 ];
 
 /* ---------------- shops and market stalls ---------------- */
