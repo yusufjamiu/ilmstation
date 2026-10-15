@@ -48,6 +48,9 @@ import {
   type Question,
   PLACE_DHIKR,
   CAMPUS_GIST,
+  FOUND_ITEMS,
+  POLICE,
+  type FoundKind,
 } from "./content";
 import {
   radio,
@@ -108,6 +111,12 @@ type Save = {
   salams?: number;
   /** adhkar said at places today */
   said?: { day: string; ids: string[] };
+  /** something you found and are taking to the police */
+  carrying?: FoundKind;
+  /** you kept something that wasn't yours */
+  wanted?: { at: number; item: FoundKind };
+  /** you are in the police cell */
+  jail?: { item: FoundKind };
   /** your own Qur'an player */
   radio?: { on: boolean; reciter: string; playlist: string; vehicles: boolean };
 };
@@ -531,6 +540,103 @@ function CityGame({
     const t = setTimeout(() => setDhikr(null), 25000);
     return () => clearTimeout(t);
   }, [dhikr]);
+
+  /* ---------- lost things, police and bail ---------- */
+  const handIn = useCallback(() => {
+    const k = saveRef.current.carrying;
+    if (!k) return false;
+    update((x) => ({
+      ...x,
+      carrying: undefined,
+      coins: x.coins + POLICE.handInPoints,
+      ilm: x.ilm + POLICE.handInIlm,
+    }));
+    need({ iman: 6 });
+    toast(
+      `The ${FOUND_ITEMS[k].name} will go back to its owner. JazakAllahu khairan! +${POLICE.handInPoints} points, +${POLICE.handInIlm} Ilm`,
+      "good",
+    );
+    return true;
+  }, [update, need, toast]);
+  const openCell = useCallback(() => {
+    const j = saveRef.current.jail;
+    if (!j) return;
+    const free = (msg: string) => {
+      setPanel(null);
+      toast(msg, "good");
+    };
+    setPanel({
+      kind: "info",
+      title: "Police cell",
+      body: (
+        <CellView
+          item={FOUND_ITEMS[j.item].name}
+          points={saveRef.current.coins}
+          ilm={saveRef.current.ilm}
+          onBailPoints={() => {
+            update((x) => ({ ...x, jail: undefined, coins: x.coins - POLICE.bailPoints }));
+            free("Bail paid. You're free to go. Don't go back to it.");
+          }}
+          onBailIlm={() => {
+            update((x) => ({ ...x, jail: undefined, ilm: x.ilm - POLICE.bailIlm }));
+            free("Bail paid with Ilm. You're free to go. Make tawbah.");
+          }}
+          onWait={() =>
+            setPanel({
+              kind: "busy",
+              title: "Waiting in the cell",
+              ms: POLICE.cellMinutes * 60000,
+              done: () => {
+                update((x) => ({ ...x, jail: undefined }));
+                toast("You've done your time. Make tawbah and start afresh.", "good");
+              },
+            })
+          }
+        />
+      ),
+    });
+  }, [update, toast]);
+  const openCellRef = useRef(openCell);
+  openCellRef.current = openCell;
+  // things people lost appear on the pavements; the police catch thieves
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const e = engine.current;
+      const sv = saveRef.current;
+      if (!e || !sv.profile) return;
+      if (sv.jail) {
+        if (!panelRef.current) openCellRef.current();
+        return;
+      }
+      const out = e.scenePlace() === "out" && !e.rideKind();
+      if (sv.wanted && out && !panelRef.current && Date.now() - sv.wanted.at > 25000) {
+        if (Math.random() < 0.3) {
+          const area = e.districtId();
+          e.putAtZone(`police:${area}`);
+          const item = sv.wanted.item;
+          const v = FOUND_ITEMS[item].value;
+          saveRef.current = { ...sv, wanted: undefined, jail: { item } };
+          update((x) => ({
+            ...x,
+            wanted: undefined,
+            jail: { item },
+            coins: Math.max(0, x.coins - v),
+          }));
+          toast(
+            `🚓 Police! You were arrested for keeping a ${FOUND_ITEMS[item].name} that wasn't yours. It goes back to its owner (−${v} points).`,
+            "warn",
+          );
+          setTimeout(() => openCellRef.current(), 600);
+        }
+        return;
+      }
+      if (out && !e.hasFound() && Math.random() < 0.12) {
+        const kinds = Object.keys(FOUND_ITEMS) as FoundKind[];
+        e.dropFound(kinds[Math.floor(Math.random() * kinds.length)]);
+      }
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [update, toast]);
 
   /* ---------- Qur'an radio ---------- */
   const [radioState, setRadioState] = useState<RadioState>(radio.state);
@@ -1383,6 +1489,117 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("found:")) {
+        const kind = id.slice(6) as FoundKind;
+        const it = FOUND_ITEMS[kind];
+        if (!it) return;
+        setPanel({
+          kind: "info",
+          title: `You found a ${it.name}`,
+          body: (
+            <FoundView
+              name={it.name}
+              carrying={!!saveRef.current.carrying}
+              onReturn={() => {
+                e.clearFound();
+                update((x) => ({ ...x, carrying: kind }));
+                setPanel(null);
+                toast(
+                  `Take the ${it.name} to the police station or a Hisbah officer. ☰ Menu → Places shows the way.`,
+                );
+              }}
+              onKeep={() => {
+                e.clearFound();
+                saveRef.current = {
+                  ...saveRef.current,
+                  wanted: { at: Date.now(), item: kind },
+                };
+                update((x) => ({
+                  ...x,
+                  coins: x.coins + it.value,
+                  ilm: Math.max(0, x.ilm - POLICE.keepIlm),
+                  wanted: { at: Date.now(), item: kind },
+                }));
+                setPanel({
+                  kind: "info",
+                  title: "Fear Allah",
+                  body: (
+                    <div className="space-y-2">
+                      <p>
+                        This {it.name} belongs to someone who is looking for it. Stealing is haram.
+                      </p>
+                      <p className="rounded-xl bg-white p-3 text-[14px]">
+                        The Prophet ﷺ said: "The thief is not a believer at the moment he is
+                        stealing." (Bukhari and Muslim)
+                      </p>
+                      <p className="text-[13px] opacity-75">
+                        −{POLICE.keepIlm} Ilm. You can still take it to the police station before
+                        the police find you.
+                      </p>
+                    </div>
+                  ),
+                });
+              }}
+            />
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("police:")) {
+        const sv = saveRef.current;
+        if (sv.carrying) {
+          handIn();
+          return;
+        }
+        if (sv.wanted) {
+          const item = sv.wanted.item;
+          update((x) => ({
+            ...x,
+            wanted: undefined,
+            coins: Math.max(0, x.coins - FOUND_ITEMS[item].value),
+          }));
+          toast(
+            `You handed back the ${FOUND_ITEMS[item].name}. The officer accepts your apology. Allah loves those who repent.`,
+            "good",
+          );
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "Police station",
+          body: (
+            <div className="space-y-2">
+              <p>
+                Good day! Bring anything you find on the road here and we will return it to its
+                owner. You will be rewarded.
+              </p>
+              <p className="text-[13px] opacity-75">
+                Anyone caught keeping what isn't theirs is arrested. Bail is {POLICE.bailPoints}{" "}
+                points or {POLICE.bailIlm} Ilm, or {POLICE.cellMinutes} minutes in the cell.
+              </p>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("sisters:")) {
+        if (!saveRef.current.profile?.female) {
+          toast(
+            "The Sisters' Corner is for sisters' games. Brothers, the football pitch is close by!",
+          );
+          return;
+        }
+        setPanel({
+          kind: "busy",
+          title: "Skipping rope with the sisters",
+          ms: 4000,
+          done: () => {
+            need({ energy: -8, social: 18, hunger: -5 });
+            toast("Bismillah… 1, 2, 3… you skipped 40 times! Masha Allah.", "good");
+          },
+        });
+        return;
+      }
       if (id.startsWith("hangout:")) {
         const L = landmarkById(id.slice(8));
         if (!L) return;
@@ -1528,6 +1745,11 @@ function CityGame({
         const i = Number(id.slice(5));
         const who = e.talkTo(i);
         if (!who) return;
+        if (who.hisbah && saveRef.current.carrying) {
+          handIn();
+          e.endTalk(i);
+          return;
+        }
         talkingRef.current = i;
         greeted();
         setPanel({
@@ -1959,6 +2181,7 @@ function CityGame({
       doTask,
       need,
       sayDhikr,
+      handIn,
     ],
   );
 
@@ -2009,7 +2232,8 @@ function CityGame({
       if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
-        if (sv.homePlot) e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
+        if (sv.homePlot && e.plots.some((q) => q.id === sv.homePlot))
+          e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
         else e.startAtHome(home, `Your flat · ${nm}`);
         setInside(true);
       }
@@ -4672,6 +4896,19 @@ function placesIn(id: string): Place[] {
       sub: "Stalls for rent · ₦2,000 a week",
       prefix: `stall:${D.id}-m`,
     });
+  if (!D.landmarks.some((l) => l.kind === "field"))
+    out.push({
+      icon: "⚽",
+      name: `${D.name} Football Pitch`,
+      sub: "Play a match",
+      prefix: `field:${D.id}-pitch`,
+    });
+  out.push({
+    icon: "🪢",
+    name: "Sisters' Corner",
+    sub: "Skipping rope with the sisters",
+    prefix: `sisters:${D.id}`,
+  });
   out.push({
     icon: "🏪",
     name: "Shops to let",
@@ -5712,6 +5949,21 @@ function RadioView({
           ))}
         </div>
       </div>
+      <div>
+        <div className="mb-1 text-[13px] font-semibold">Or pick a surah</div>
+        <select
+          value={cfg.playlist.startsWith("s:") ? cfg.playlist : ""}
+          onChange={(e) => e.target.value && onChange({ playlist: e.target.value, on: true })}
+          className="w-full rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-[14px]"
+        >
+          <option value="">Choose a surah…</option>
+          {SURAH_NAMES.map((n, i) => (
+            <option key={n} value={`s:${i + 1}`}>
+              {i + 1}. {n}
+            </option>
+          ))}
+        </select>
+      </div>
       <label className="flex items-center justify-between rounded-xl bg-white p-3 text-[14px]">
         <span>
           <b>Radio in danfo, keke and car</b>
@@ -5737,6 +5989,93 @@ function RadioView({
         It keeps playing while you text. It stops by itself in the masjid, in school and class, and
         during salah and lectures. Recitations: Islamic Network.
       </p>
+    </div>
+  );
+}
+
+/* ---------------- found things and the cell ---------------- */
+function FoundView({
+  name,
+  carrying,
+  onReturn,
+  onKeep,
+}: {
+  name: string;
+  carrying: boolean;
+  onReturn: () => void;
+  onKeep: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <p>Someone dropped this {name} on the road. Its owner must be worried.</p>
+      {carrying ? (
+        <p className="text-[13px] opacity-75">
+          Hand in what you are already carrying first, then come back for this.
+        </p>
+      ) : (
+        <button
+          onClick={onReturn}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+        >
+          🤲 Take it to the police or Hisbah
+        </button>
+      )}
+      {!carrying && (
+        <button
+          onClick={onKeep}
+          className="w-full rounded-xl border border-[#b8573a]/40 bg-white py-3 font-bold text-[#b8573a]"
+        >
+          Keep it
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CellView({
+  item,
+  points,
+  ilm,
+  onBailPoints,
+  onBailIlm,
+  onWait,
+}: {
+  item: string;
+  points: number;
+  ilm: number;
+  onBailPoints: () => void;
+  onBailIlm: () => void;
+  onWait: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="text-center text-5xl">🚔</div>
+      <p>
+        You were arrested for keeping a {item} that wasn't yours. It has gone back to its owner.
+      </p>
+      <p className="rounded-xl bg-white p-3 text-[14px]">
+        "Indeed, Allah loves those who constantly repent." (Qur'an 2:222)
+      </p>
+      <button
+        disabled={points < POLICE.bailPoints}
+        onClick={onBailPoints}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+      >
+        Pay bail · {POLICE.bailPoints} points
+      </button>
+      <button
+        disabled={ilm < POLICE.bailIlm}
+        onClick={onBailIlm}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold disabled:opacity-40"
+      >
+        Pay bail · {POLICE.bailIlm} Ilm
+      </button>
+      <button
+        onClick={onWait}
+        className="w-full rounded-xl border border-[#10201e]/20 bg-white py-3 font-bold"
+      >
+        Wait {POLICE.cellMinutes} minutes in the cell
+      </button>
     </div>
   );
 }

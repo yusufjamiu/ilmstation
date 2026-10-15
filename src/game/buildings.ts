@@ -1423,3 +1423,103 @@ export function hangout(
     spots: [{ key: "meet", x: spot.x, z: spot.z, label: o.name, labelY: 5.6 }],
   };
 }
+
+/** The sisters' corner: a hedged garden with a skipping rope, benches and a sign. */
+export function sistersCorner(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width: number; depth: number; name: string },
+): Built & { spots2: { x: number; z: number; face: number }[] } {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth;
+  b.add(groundGeo(W, D, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  b.add(new THREE.BoxGeometry(W - 6, 0.04, D - 7), MAT.plain(0xd9a7b8), 0, 0.06, -0.5, 0, false);
+  const hedge = MAT.plain(0x4f8a3a);
+  // hedges on three sides, open to the street
+  b.box(W, 1.2, 0.8, hedge, 0, 0, -D / 2 + 0.4);
+  b.box(0.8, 1.2, D, hedge, -W / 2 + 0.4, 0, 0);
+  b.box(0.8, 1.2, D, hedge, W / 2 - 0.4, 0, 0);
+  solid(-W / 2, W / 2, -D / 2, -D / 2 + 0.8);
+  solid(-W / 2, -W / 2 + 0.8, -D / 2, D / 2);
+  solid(W / 2 - 0.8, W / 2, -D / 2, D / 2);
+  // the rope swinging between two sisters
+  const rope = new THREE.TorusGeometry(2.2, 0.035, 6, 24, Math.PI);
+  b.add(rope, MAT.plain(0xe6b84a), 0, 0.9, -1, 0, false);
+  for (const bx of [-W / 2 + 2.5, W / 2 - 2.5]) {
+    b.box(2, 0.45, 0.6, MAT.plain(0x8a5a3a), bx, 0, -D / 2 + 2);
+    solid(bx - 1, bx + 1, -D / 2 + 1.7, -D / 2 + 2.3);
+  }
+  b.plane(W * 0.7, 1.2, textMat(o.name, { bg: "#8a2f4f", fg: "#fdf8ec" }), 0, 2.6, -D / 2 + 0.85);
+  b.box(0.15, 2.6, 0.15, MAT.plain(0x5a5f66), -W * 0.36, 0, -D / 2 + 0.8);
+  b.box(0.15, 2.6, 0.15, MAT.plain(0x5a5f66), W * 0.36, 0, -D / 2 + 0.8);
+  const spots2 = [
+    { lx: -2.3, lz: -1, f: Math.PI / 2 },
+    { lx: 2.3, lz: -1, f: -Math.PI / 2 },
+    { lx: 0, lz: -1, f: 0 },
+    { lx: -W / 2 + 2.5, lz: -D / 2 + 2.6, f: 0 },
+  ].map((p) => {
+    const q = to(p.lx, p.lz);
+    return { x: q.x, z: q.z, face: p.f + o.turn };
+  });
+  const spot = to(0, D / 2 - 1.5);
+  b.base.identity();
+  return {
+    colliders,
+    spots2,
+    spots: [{ key: "sisters", x: spot.x, z: spot.z, label: o.name, labelY: 3.4 }],
+  };
+}
+
+/** A police station: white and navy, a blue lamp, barred cell windows and a flag. */
+export function policeStation(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width: number; depth: number; name: string },
+): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth;
+  b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.035, 0, 0, false);
+  const BW = W - 5,
+    BD = D - 8,
+    bz = -D / 2 + 1 + BD / 2,
+    H = 6.8;
+  const white = MAT.plaster(0xf4f3ee),
+    navy = MAT.plain(0x1d3a6b, 0.5);
+  b.box(BW, H, BD, white, 0, 0, bz);
+  b.box(BW + 0.4, 0.9, BD + 0.4, navy, 0, H - 0.9, bz);
+  b.box(BW + 0.2, 0.5, BD + 0.2, navy, 0, 0, bz);
+  const front = bz + BD / 2;
+  b.plane(
+    BW * 0.75,
+    1.4,
+    textMat(o.name, { bg: "#1d3a6b", fg: "#ffffff" }),
+    0,
+    H - 0.45,
+    front + 0.25,
+  );
+  b.plane(2.4, 2.8, MAT.door(0x1d3a6b), 0, 1.5, front + 0.03);
+  for (const x of [-BW / 2 + 2.4, BW / 2 - 2.4]) {
+    b.plane(1.8, 1.4, MAT.window(0x1d3a6b), x, 2.2, front + 0.02);
+    b.plane(1.6, 1.0, MAT.rail(), x, 4.6, front + 0.03);
+  }
+  // blue lamp over the door
+  b.add(new THREE.BoxGeometry(0.7, 0.7, 0.7), MAT.plain(0x3a7bd5, 0.2), 0, 3.6, front + 0.4);
+  // flagpole
+  b.add(
+    new THREE.CylinderGeometry(0.05, 0.06, 8, 6),
+    MAT.plain(0xd8dce0, 0.3),
+    W / 2 - 1.2,
+    4,
+    D / 2 - 1.5,
+  );
+  for (const [i, c] of [0x1f8a3a, 0xfdfdfd, 0x1f8a3a].entries())
+    b.plane(0.5, 0.9, MAT.plain(c), W / 2 - 1.2 + 0.25 + i * 0.5, 7.4, D / 2 - 1.5);
+  solid(-BW / 2, BW / 2, bz - BD / 2, front);
+  solid(W / 2 - 1.4, W / 2 - 1, D / 2 - 1.7, D / 2 - 1.3);
+  const spot = to(0, front + 2.2);
+  b.base.identity();
+  return {
+    colliders,
+    spots: [{ key: "police", x: spot.x, z: spot.z, label: o.name, labelY: H + 1.6 }],
+  };
+}

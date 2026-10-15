@@ -1940,3 +1940,23 @@ export const CAMPUS_GIST = [
   "Football match on the field on Saturday: Engineering vs Science.",
   "Book club is reading a seerah book this month. Ask at the secretariat.",
 ];
+
+/* ---------------- lost things, police and bail ---------------- */
+export const FOUND_ITEMS = {
+  wallet: { name: "wallet", value: 20 },
+  phone: { name: "phone", value: 30 },
+  bag: { name: "bag", value: 25 },
+  ring: { name: "gold ring", value: 40 },
+} as const;
+export type FoundKind = keyof typeof FOUND_ITEMS;
+export const POLICE = {
+  /** reward for handing in something you found */
+  handInPoints: 5,
+  handInIlm: 5,
+  /** Ilm lost for keeping it */
+  keepIlm: 5,
+  bailPoints: 30,
+  bailIlm: 15,
+  /** minutes in the cell if you don't pay bail */
+  cellMinutes: 2,
+};

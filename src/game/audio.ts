@@ -154,6 +154,14 @@ export const PLAYLISTS: { id: string; name: string; surahs: number[] }[] = [
   },
   { id: "all", name: "The whole Qur'an from Al-Fatihah", surahs: range(1, 114) },
 ];
+/** A list by id; "s:36" starts at Surah Ya-Sin and carries on to the end. */
+export function playlistById(id: string) {
+  if (id.startsWith("s:")) {
+    const n = Math.max(1, Math.min(114, Number(id.slice(2)) || 1));
+    return { id, name: `Surah ${SURAH_NAMES[n - 1]}`, surahs: range(n, 114) };
+  }
+  return PLAYLISTS.find((p) => p.id === id) ?? PLAYLISTS[0];
+}
 function range(a: number, b: number) {
   return Array.from({ length: b - a + 1 }, (_, i) => a + i);
 }
@@ -226,7 +234,7 @@ class Radio {
     this.subs.forEach((f) => f(this.state));
   }
   private where(src: Source) {
-    const list = PLAYLISTS.find((p) => p.id === src.playlist) ?? PLAYLISTS[0];
+    const list = playlistById(src.playlist);
     const at = this.pos.get(src.key) ?? { i: 0, ayah: 1 };
     return { list, at, reciter: RECITERS.find((r) => r.id === src.reciter) ?? RECITERS[0] };
   }
