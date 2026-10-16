@@ -82,6 +82,8 @@ export const STREETS: Record<string, Street> = {
   ridwan: { id: "ridwan", name: "Ridwan Close", bio: HOMES },
   falah: { id: "falah", name: "Falah Street", bio: HOMES },
   amanah: { id: "amanah", name: "Amanah Close", bio: HOMES },
+  shukr: { id: "shukr", name: "Shukr Street (new layout)", bio: HOMES },
+  rida: { id: "rida", name: "Rida Close (new layout)", bio: HOMES },
   // university areas
   unilagroad: {
     id: "unilagroad",
@@ -155,6 +157,8 @@ export type District = {
   lagoon?: boolean;
   /** half the area's size (default 112 × 100) */
   half?: { x: number; z: number };
+  /** the town this area's bus stops belong to (e.g. Ikorodu), on the entrance area */
+  region?: string;
   /** reached by road from this area instead of by its own expressway */
   parent?: string;
   /** which way the road runs from the parent area (default north) */
@@ -164,9 +168,16 @@ export type District = {
   /** share of empty plots that are shops and land (default 0.08 and 0.13) */
   shops?: number;
   land?: number;
-  /** decor: palms, flower beds and flags along a beautified street */
-  streets: { id: string; z: number; decor?: boolean }[];
+  /** how built-up and how rich the area looks: 1 = Lekki and Ikeja, 4 = Ajegunle */
+  tier?: 1 | 2 | 3 | 4;
+  /** share of houses that are to let (default 0.3) */
+  toLet?: number;
+  /** decor: palms, flower beds and flags along a beautified street; land and toLet
+      override the area's shares on that street */
+  streets: { id: string; z: number; decor?: boolean; land?: number; toLet?: number }[];
   landmarks: Landmark[];
+  /** the city this area is in (default Lagos); each city is its own map */
+  city?: string;
 };
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
@@ -196,6 +207,8 @@ function universityArea(o: {
     busStop: o.busStop,
     parent: o.parent,
     half: { x: 140, z: 140 },
+    tier: 2,
+    toLet: 0.5,
     shops: 0.25,
     land: 0.12,
     streets: [
@@ -273,14 +286,15 @@ function universityArea(o: {
 export const DISTRICTS: District[] = [
   {
     id: "lekki",
+    tier: 1,
     name: "Lekki",
     state: "Lagos",
     origin: { x: 425, z: 450 },
     highway: "Lekki–Epe Expressway",
     lagoon: true,
     streets: [
-      { id: "ridwanjamiu", z: 0 },
-      { id: "amin", z: -66 },
+      { id: "ridwanjamiu", z: 0, decor: true },
+      { id: "amin", z: -66, decor: true },
     ],
     landmarks: [
       {
@@ -296,6 +310,8 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "agege",
+    tier: 3,
+    toLet: 0.95,
     name: "Agege",
     state: "Lagos",
     origin: { x: -325, z: -450 },
@@ -356,6 +372,8 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "ajegunle",
+    tier: 4,
+    toLet: 0.7,
     name: "Ajegunle",
     state: "Lagos",
     origin: { x: -275, z: 375 },
@@ -449,7 +467,10 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "ikorodu",
-    name: "Ikorodu",
+    tier: 2,
+    toLet: 0.55,
+    name: "Igbe Laara",
+    region: "Ikorodu",
     state: "Lagos",
     origin: { x: 575, z: -425 },
     highway: "Ikorodu Road",
@@ -610,6 +631,8 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "agric",
+    tier: 2,
+    toLet: 0.55,
     name: "Agric",
     state: "Lagos",
     origin: { x: 575, z: -735 },
@@ -647,6 +670,8 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "secondgate",
+    tier: 2,
+    toLet: 0.55,
     name: "Second Gate",
     state: "Lagos",
     origin: { x: 575, z: -1275 },
@@ -691,6 +716,7 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "market",
+    tier: 2,
     name: "Ikorodu Market",
     state: "Lagos",
     origin: { x: 575, z: -1505 },
@@ -698,13 +724,18 @@ export const DISTRICTS: District[] = [
     parent: "secondgate",
     busStop: "Ikorodu Market",
     half: { x: 112, z: 100 },
-    streets: [{ id: "souq", z: 0 }],
+    streets: [
+      { id: "souq", z: 0 },
+      { id: "shukr", z: -66, land: 0.45, toLet: 0.7 },
+      { id: "rida", z: 66, land: 0.45, toLet: 0.7 },
+    ],
     landmarks: [
       { id: "souq-ikorodu", kind: "market", name: "Ikorodu Market", street: "souq", x: 0 },
     ],
   },
   {
     id: "egbeda",
+    tier: 2,
     name: "Egbeda",
     state: "Lagos",
     origin: { x: -560, z: -195 },
@@ -726,6 +757,7 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "badore",
+    tier: 1,
     name: "Badore",
     state: "Lagos",
     origin: { x: 689, z: 450 },
@@ -738,7 +770,7 @@ export const DISTRICTS: District[] = [
     land: 0.2,
     streets: [
       { id: "kabir", z: 0, decor: true },
-      { id: "ridwan", z: -66 },
+      { id: "ridwan", z: -66, decor: true },
     ],
     landmarks: [
       {
@@ -763,6 +795,7 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "powerline",
+    tier: 2,
     name: "Powerline",
     state: "Lagos",
     origin: { x: -560, z: -425 },
@@ -822,6 +855,8 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "okeeletu",
+    tier: 2,
+    toLet: 0.55,
     name: "Oke Eletu",
     state: "Lagos",
     origin: { x: 887, z: -425 },
@@ -869,6 +904,7 @@ export const DISTRICTS: District[] = [
   },
   {
     id: "ikeja",
+    tier: 1,
     name: "Ikeja",
     state: "Lagos",
     origin: { x: 130, z: -470 },
@@ -877,8 +913,8 @@ export const DISTRICTS: District[] = [
     shops: 0.22,
     streets: [
       { id: "abdullateef", z: 0, decor: true },
-      { id: "rayyan", z: -66 },
-      { id: "safa", z: 66 },
+      { id: "rayyan", z: -66, decor: true },
+      { id: "safa", z: 66, decor: true },
     ],
     landmarks: [
       {
@@ -995,7 +1031,66 @@ export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */
 export const rootOf = (d: District): District => (d.parent ? rootOf(districtById(d.parent)) : d);
-export const fullName = (d: District) => (d.parent ? `${d.name}, ${rootOf(d).name}` : d.name);
+/** The town an area belongs to: Agric, First Gate and Igbe Laara are all in Ikorodu. */
+/* ---------------- cities ---------------- */
+/** IlmWorld grows city by city. Lagos is open; the others are being built. Each new city
+    gets its own map and areas (District.city), reached from the intercity bus park. */
+export type WorldCity = {
+  id: string;
+  name: string;
+  state: string;
+  country: string;
+  live: boolean;
+  /** what it is known for, shown on the travel screen */
+  blurb: string;
+};
+export const WORLD_CITIES: WorldCity[] = [
+  {
+    id: "lagos",
+    name: "Lagos",
+    state: "Lagos",
+    country: "Nigeria",
+    live: true,
+    blurb: "The mega city: Lekki, Ikeja, Ikorodu, the lagoon and the bridges.",
+  },
+  {
+    id: "ilorin",
+    name: "Ilorin",
+    state: "Kwara",
+    country: "Nigeria",
+    live: false,
+    blurb: "The city of scholars: Markaz, Agbaji, Unilorin and the Emir's palace.",
+  },
+  {
+    id: "abuja",
+    name: "Abuja",
+    state: "FCT",
+    country: "Nigeria",
+    live: false,
+    blurb: "The capital: the National Mosque, Wuse market and the city gate.",
+  },
+  {
+    id: "kano",
+    name: "Kano",
+    state: "Kano",
+    country: "Nigeria",
+    live: false,
+    blurb: "The old walled city, Kurmi market and the Kano Central Mosque.",
+  },
+  {
+    id: "accra",
+    name: "Accra",
+    state: "Greater Accra",
+    country: "Ghana",
+    live: false,
+    blurb: "Our first city outside Nigeria: Nima, Madina and the coast.",
+  },
+];
+export const cityOf = (d: District) => d.city ?? "lagos";
+
+export const regionOf = (d: District) => rootOf(d).region ?? rootOf(d).name;
+export const fullName = (d: District) =>
+  d.parent || d.region ? `${d.name}, ${regionOf(d)}` : d.name;
 export const BUS_FARE = 5;
 
 export const BILLBOARDS: Billboard[] = [
@@ -1925,6 +2020,30 @@ export const PLACE_DHIKR: Record<string, PlaceDhikr> = {
     source: "Qur'an 20:114",
     tip: "Make your intention to learn for Allah and to benefit people.",
   },
+  beforeEating: {
+    title: "Before eating",
+    arabic: "بِسْمِ اللَّهِ",
+    say: "Bismillah.",
+    meaning: "In the name of Allah.",
+    source: "Abu Dawud, Tirmidhi",
+    tip: "If you forget at the start, say: Bismillahi awwalahu wa akhirahu.",
+  },
+  enterToilet: {
+    title: "Entering the toilet",
+    arabic: "بِسْمِ اللَّهِ، اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْخُبُثِ وَالْخَبَائِثِ",
+    say: "Bismillah. Allahumma inni a'udhu bika minal-khubuthi wal-khaba'ith.",
+    meaning: "In the name of Allah. O Allah, I seek refuge with You from all evil and evil-doers.",
+    source: "Bukhari, Muslim; Bismillah: Tirmidhi",
+    tip: "Enter with your left foot.",
+  },
+  leaveToilet: {
+    title: "Leaving the toilet",
+    arabic: "غُفْرَانَكَ",
+    say: "Ghufranak.",
+    meaning: "I ask You for Your forgiveness.",
+    source: "Abu Dawud, Tirmidhi",
+    tip: "Leave with your right foot.",
+  },
   afterEating: {
     title: "After eating",
     arabic:
@@ -2225,3 +2344,19 @@ export function facultyQuestions(faculty: string): FQ[] {
 
 /** Points for a football match: per goal, and for the win. */
 export const FOOTBALL = { perGoal: 2, win: 8 };
+
+/* ---------------- food: order on the phone, or eat at the eatery ---------------- */
+export type Dish = { id: string; name: string; icon: string; points: number; fills: number };
+/** Delivered by IlmDash. The eatery charges more for the same food. */
+export const MENU: Dish[] = [
+  { id: "jollof", name: "Jollof rice & chicken", icon: "🍛", points: 12, fills: 80 },
+  { id: "broast", name: "Broast chicken & fries", icon: "🍗", points: 13, fills: 85 },
+  { id: "shawarma", name: "Chicken shawarma", icon: "🌯", points: 9, fills: 60 },
+  { id: "amala", name: "Amala & ewedu", icon: "🥣", points: 10, fills: 75 },
+  { id: "kabsa", name: "Kabsa", icon: "🍚", points: 14, fills: 90 },
+  { id: "suya", name: "Suya", icon: "🍢", points: 8, fills: 45 },
+];
+export const EATERY_MARKUP = 1.5;
+export const eateryPrice = (d: Dish) => Math.ceil(d.points * EATERY_MARKUP);
+/** At or below this, you're too hungry to do anything but eat (and pray). */
+export const HUNGRY_AT = 5;

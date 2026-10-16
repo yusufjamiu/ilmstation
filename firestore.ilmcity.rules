@@ -94,3 +94,62 @@
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // ---- added for IlmWorld phones: numbers and voice calls ----
+
+    // the phone book: IlmWorld number -> player (each player writes only their own entry)
+    match /city_phones/{num} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    // voice calls: only the caller and the person called can see or change a call
+    match /city_calls/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "ringing";
+      allow update: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to)
+        && request.resource.data.from == resource.data.from
+        && request.resource.data.to == resource.data.to;
+
+      match /{side}/{cand} {
+        allow read, create: if signedIn()
+          && (request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.from
+              || request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.to);
+      }
+    }
+
+    // ---- homes on show: visits and weekly likes ----
+    match /city_homes/{uid} {
+      allow read: if true;
+      // your own home: anything; someone else: only add one like, with their like record
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && (request.auth.uid == uid
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likesWeek'])
+            && existsAfter(/databases/$(database)/documents/city_home_likes/$(request.resource.data.likesWeek + '_' + uid + '_' + request.auth.uid))));
+    }
+    match /city_home_likes/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.from != request.resource.data.owner
+        && id == request.resource.data.week + '_' + request.resource.data.owner + '_' + request.auth.uid;
+    }
+
+    // ---- rooms to let between players ----
+    match /city_rooms/{id} {
+      allow read: if signedIn();
+      // the owner lists, unlists and marks rent collected
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+      allow update: if signedIn() && (
+        request.auth.uid == resource.data.owner
+        // a tenant can only take a free room, for themselves
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenant', 'tenantName', 'until', 'paid'])
+            && request.resource.data.tenant == request.auth.uid
+            && request.resource.data.paid == false
+            && (resource.data.get('tenant', null) == null || resource.data.get('until', 0) < request.time.toMillis())));
+    }

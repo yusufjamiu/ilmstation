@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { User } from "firebase/auth";
 import type { AdRequest, Award, Enquiry, Nasheed } from "./live";
+import { connectHomes, weekKey, type ShownHome } from "./homes";
 import { AD_PRICES } from "./live";
 
 /* IlmWorld admin: reports and fines, billboard adverts, the Saturday best-home award,
@@ -310,9 +311,10 @@ function AwardTab() {
       <div className={card}>
         <b>Best furnished home · every Saturday</b>
         <p className="text-[13px] opacity-75">
-          Every player sees the winner when they next open IlmWorld. (When house visits and likes
-          arrive, the top 5 homes will be listed here for you to pick from.)
+          Every player sees the winner when they next open IlmWorld. Pick from the most liked homes
+          this week (week ending {weekKey()}), or type a name.
         </p>
+        <TopHomes onPick={(h) => setF({ ...f, winner: h.name, home: h.place })} />
         {(["winner", "home", "note"] as const).map((k) => (
           <label key={k} className="mt-2 block text-[13px]">
             <span className="font-semibold">
@@ -341,6 +343,48 @@ function AwardTab() {
         <div key={a.id} className={card}>
           🏆 <b>{a.winner}</b> {a.home && `· ${a.home}`}
           <div className="text-[12px] opacity-60">{a.week}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TopHomes({ onPick }: { onPick: (h: ShownHome) => void }) {
+  const [list, setList] = useState<ShownHome[] | null>(null);
+  useEffect(() => {
+    let off = () => {};
+    let live = true;
+    connectHomes()
+      .then((h) => {
+        if (live) off = h.top(setList);
+      })
+      .catch(() => setList([]));
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+  if (!list) return <p className="mt-2 text-[13px] opacity-60">Loading homes…</p>;
+  const top = list.filter((h) => h.likes > 0).slice(0, 5);
+  if (!top.length) return <p className="mt-2 text-[13px] opacity-60">No likes yet this week.</p>;
+  return (
+    <div className="mt-2 space-y-1.5">
+      {top.map((h, i) => (
+        <div
+          key={h.uid}
+          className="flex items-center gap-2 rounded-lg bg-[#10201e]/5 px-2.5 py-1.5 text-[13px]"
+        >
+          <b className="w-5">{i + 1}.</b>
+          <span className="flex-1">
+            <b>{h.name}</b> · {h.place} · {h.items.length} items
+          </span>
+          <span>❤️ {h.likes}</span>
+          <button
+            onClick={() => onPick(h)}
+            className="rounded-md bg-[#1f6f63] px-2 py-1 text-[12px] font-bold text-white"
+          >
+            Pick
+          </button>
         </div>
       ))}
     </div>

@@ -9,11 +9,13 @@ import {
   halfOf,
   fullName,
   rootOf,
+  regionOf,
   type Billboard,
   type District,
   type Landmark,
 } from "./content";
 import { darkness, type Clock } from "./time";
+import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
 import {
   Batch,
   MAT,
@@ -34,7 +36,8 @@ import {
   type Compound,
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
-import { vehicleMesh } from "./vehicles";
+import { RopeRig, type RopeMode, type RopeState } from "./rope";
+import { VEHICLE_INFO, vehicleMesh, type VehicleKind } from "./vehicles";
 import {
   forgetHuman,
   gesture,
@@ -52,7 +55,7 @@ import {
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
 
-export type InteriorKind = "masjid" | "home" | "madrasah";
+export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant" | "mall";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -165,6 +168,23 @@ function label(
   return s;
 }
 
+/** A two-sided sign: seen from behind, the picture is flipped so the words still read
+    left to right (instead of showing mirror writing). */
+function bothWays<T extends THREE.Material>(m: T): T {
+  m.side = THREE.DoubleSide;
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#ifdef USE_MAP
+        vec2 readUv = gl_FrontFacing ? vMapUv : vec2(1.0 - vMapUv.x, vMapUv.y);
+        diffuseColor *= texture2D( map, readUv );
+      #endif`,
+    );
+  };
+  m.customProgramCacheKey = () => "both-ways";
+  return m;
+}
+
 function canvasPlane(
   w: number,
   h: number,
@@ -181,7 +201,7 @@ function canvasPlane(
   tex.anisotropy = 4;
   const m = new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false }),
+    bothWays(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })),
   );
   return { mesh: m, tex, canvas: c };
 }
@@ -460,7 +480,14 @@ export class IlmCityEngine {
     emissive: 0xffd27a,
     emissiveIntensity: 0,
   });
-  private colliders: Record<string, Box[]> = { out: [], masjid: [], home: [], madrasah: [] };
+  private colliders: Record<string, Box[]> = {
+    out: [],
+    masjid: [],
+    home: [],
+    madrasah: [],
+    restaurant: [],
+    mall: [],
+  };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
   private walkers: Walker[] = [];
@@ -479,6 +506,8 @@ export class IlmCityEngine {
     masjid: new THREE.Vector3(1000, 0, 0),
     home: new THREE.Vector3(1100, 0, 0),
     madrasah: new THREE.Vector3(1200, 0, 0),
+    restaurant: new THREE.Vector3(1300, 0, 0),
+    mall: new THREE.Vector3(1420, 0, 0),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -788,7 +817,7 @@ export class IlmCityEngine {
     BILLBOARDS.filter((b) => b.district === D.id).forEach((b) => {
       while (si < spots.length) {
         const [x, z, r] = spots[si++];
-        if (this.boxFree(x - 6, x + 6, z - 1.5, z + 1.5)) {
+        if (this.boxFree(x - 8, x + 8, z - 1.8, z + 1.8)) {
           this.billboard(b, x, z, r);
           break;
         }
@@ -797,6 +826,7 @@ export class IlmCityEngine {
 
     // a football pitch and the sisters' corner take three plots in a row
     const play = this.choosePlayPlots(D, zs, H, southEdge);
+    const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
     zs.forEach((sz, si) => {
       let num = 1 + si * 40;
@@ -809,9 +839,11 @@ export class IlmCityEngine {
           if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
           const id = `${D.id}-${num}`;
           const r1 = rnd();
-          const land = r1 < (D.land ?? 0.13);
-          const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.2);
-          const toLet = !land && !shops && rnd() < 0.3;
+          const st = D.streets[si];
+          const landShare = st.land ?? D.land ?? 0.13;
+          const land = r1 < landShare;
+          const shops = !land && r1 < landShare + (D.shops ?? 0.2);
+          const toLet = !land && !shops && rnd() < (st.toLet ?? D.toLet ?? 0.3);
           if (
             play &&
             ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
@@ -820,8 +852,22 @@ export class IlmCityEngine {
             // this plot is the pitch or the sisters' corner; draw the house it replaces into a
             // throwaway batch so every later plot keeps the same number and look as before
             const turn0 = north ? 0 : Math.PI;
-            if (shops) shopRow(new Batch(), { x, z: cz, turn: turn0, rnd });
-            else if (!land) compound(new Batch(), { x, z: cz, turn: turn0, number: num, rnd });
+            const ghost = shops
+              ? shopRow(new Batch(), { x, z: cz, turn: turn0, rnd }).colliders
+              : !land
+                ? compound(new Batch(), { x, z: cz, turn: turn0, number: num, rnd }).colliders
+                : [];
+            // while the streets are laid out, the replaced house still takes up its space
+            for (const g of ghost) {
+              const box = {
+                x0: g.x0 + this.ox,
+                x1: g.x1 + this.ox,
+                z0: g.z0 + this.oz,
+                z1: g.z1 + this.oz,
+              };
+              ghosts.push(box);
+              this.reserved.push(box);
+            }
             num += 2;
             continue;
           }
@@ -909,6 +955,11 @@ export class IlmCityEngine {
         }
       }
     });
+    this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
+    this.buildEatery(D);
+    this.buildRestaurant(D);
+    if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
+    if (D.id === "ikeja") this.buildMall(D);
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
@@ -1221,6 +1272,10 @@ export class IlmCityEngine {
       const len0 = Math.hypot(ax, az);
       this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
     });
+    // the lagoon with its bridges, and the city that fills the land between the areas
+    this.buildLagoon();
+    this.buildCityFill();
+
     // big roadside billboards along every expressway and Ikorodu Road
     const roadside = new THREE.Group();
     this.scene.add(roadside);
@@ -1266,6 +1321,237 @@ export class IlmCityEngine {
     }
     this.dg = keepDg;
     for (const m of this.worldBatch.build()) this.scene.add(m);
+  }
+
+  /* ---------------- the megacity ---------------- */
+  /** Every road between areas, as straight segments (for keeping buildings off them). */
+  private roadSegments() {
+    const segs: [number, number, number, number][] = [];
+    for (const d of DISTRICTS) {
+      if (d.parent) {
+        const p = districtById(d.parent);
+        if (d.link === "east")
+          segs.push([p.origin.x + halfOf(p).x, d.origin.z, d.origin.x - halfOf(d).x, d.origin.z]);
+        else
+          segs.push([d.origin.x, p.origin.z - halfOf(p).z, d.origin.x, d.origin.z + halfOf(d).z]);
+      } else {
+        const [ax, az] = this.roadEnd(d);
+        segs.push([0, 0, ax, az]);
+      }
+    }
+    return segs;
+  }
+  private static distToSeg(x: number, z: number, s: [number, number, number, number]) {
+    const [x0, z0, x1, z1] = s;
+    const dx = x1 - x0,
+      dz = z1 - z0;
+    const t = Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / (dx * dx + dz * dz || 1)));
+    return Math.hypot(x - (x0 + dx * t), z - (z0 + dz * t));
+  }
+  /** The Lagos Lagoon between the mainland and the island, crossed by three bridges. */
+  private static LAGOON = { x0: -460, x1: 470, z0: 172, z1: 214 };
+  private buildLagoon() {
+    const L = IlmCityEngine.LAGOON;
+    const S = this.scene;
+    const w = new THREE.Mesh(
+      new THREE.PlaneGeometry(L.x1 - L.x0, L.z1 - L.z0),
+      new THREE.MeshStandardMaterial({ color: PALETTE.water, roughness: 0.25, metalness: 0.1 }),
+    );
+    w.rotation.x = -Math.PI / 2;
+    w.position.set((L.x0 + L.x1) / 2, -0.004, (L.z0 + L.z1) / 2);
+    S.add(w);
+    // where roads cross the water, build a bridge; the rest of the water is out of bounds
+    const crossings: { x0: number; x1: number; seg: [number, number, number, number] }[] = [];
+    for (const seg of this.roadSegments()) {
+      const [x0, z0, x1, z1] = seg;
+      if (Math.max(z0, z1) < L.z0 || Math.min(z0, z1) > L.z1) continue;
+      const xAt = (z: number) => x0 + ((x1 - x0) * (z - z0)) / (z1 - z0 || 1);
+      const a = xAt(L.z0 - 4),
+        b = xAt(L.z1 + 4);
+      crossings.push({ x0: Math.min(a, b) - 9, x1: Math.max(a, b) + 9, seg });
+    }
+    crossings.sort((p, q) => p.x0 - q.x0);
+    let x = L.x0;
+    for (const c of crossings) {
+      if (c.x0 > x) this.colliders.out.push({ x0: x, x1: c.x0, z0: L.z0, z1: L.z1 });
+      x = Math.max(x, c.x1);
+    }
+    if (x < L.x1) this.colliders.out.push({ x0: x, x1: L.x1, z0: L.z0, z1: L.z1 });
+    const names = ["Ijora Bridge", "Eko Bridge", "Third Mainland Bridge"];
+    const rail = MAT.plain(0xd8d2c2),
+      pillar = MAT.plain(0xb9b2a2);
+    const b = new Batch();
+    crossings.forEach((c, i) => {
+      const [x0, z0, x1, z1] = c.seg;
+      const len0 = Math.hypot(x1 - x0, z1 - z0);
+      const ux = (x1 - x0) / len0,
+        uz = (z1 - z0) / len0;
+      const nx = -uz,
+        nz = ux;
+      const ry = Math.atan2(ux, uz);
+      // the stretch of road over the water, a little longer on each bank
+      const tAt = (z: number) => (z - z0) / (uz || 1e-6);
+      const t0 = Math.min(tAt(L.z0 - 6), tAt(L.z1 + 6)),
+        t1 = Math.max(tAt(L.z0 - 6), tAt(L.z1 + 6));
+      const len = t1 - t0,
+        tm = (t0 + t1) / 2;
+      const cx = x0 + ux * tm,
+        cz = z0 + uz * tm;
+      for (const side of [-1, 1]) {
+        b.box(0.5, 1.1, len, rail, cx + nx * side * 9, 0, cz + nz * side * 9, ry);
+        for (let t = -len / 2 + 4; t < len / 2; t += 9)
+          b.box(
+            1.2,
+            1.6,
+            1.2,
+            pillar,
+            cx + nx * side * 9 + ux * t,
+            -1.5,
+            cz + nz * side * 9 + uz * t,
+            ry,
+          );
+        // keep people on the bridge
+        const ex = cx + nx * side * 9.3,
+          ez = cz + nz * side * 9.3;
+        for (let t = -len / 2; t < len / 2; t += 3)
+          this.colliders.out.push({
+            x0: ex + ux * t - 0.5,
+            x1: ex + ux * t + 0.5,
+            z0: ez + uz * t - 0.5,
+            z1: ez + uz * t + 0.5,
+          });
+      }
+      // lamp posts with arches
+      for (let t = -len / 2 + 6; t < len / 2; t += 18)
+        for (const side of [-1, 1])
+          b.box(
+            0.2,
+            6,
+            0.2,
+            MAT.plain(0x5a5f66),
+            cx + nx * side * 9 + ux * t,
+            1.1,
+            cz + nz * side * 9 + uz * t,
+            ry,
+          );
+      const tag = label(names[i % names.length], { bg: "rgba(31,111,99,0.92)", size: 1.2 });
+      tag.position.set(cx + nx * 11, 5, cz + nz * 11);
+      S.add(tag);
+    });
+    for (const m of b.build()) S.add(m);
+    const lt = label("Lagos Lagoon", { bg: "rgba(42,58,52,0.85)", size: 1.6 });
+    lt.position.set(-250, 6, (L.z0 + L.z1) / 2);
+    S.add(lt);
+    const oc = label("Atlantic Ocean · Bar Beach", { bg: "rgba(42,58,52,0.85)", size: 1.8 });
+    oc.position.set(150, 7, 560);
+    S.add(oc);
+  }
+  /** Lagos is a megacity: the land between the areas is full of buildings, richer in
+      Lekki and Ikeja, crowded and poorer in Ajegunle. Each block is one solid box. */
+  private buildCityFill() {
+    const rnd = mulberry(4242);
+    const segs = this.roadSegments();
+    const L = IlmCityEngine.LAGOON;
+    const CELL = 16;
+    const owner = (x: number, z: number) => {
+      let best: District | null = null,
+        bd = Infinity;
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        const dx = Math.max(0, Math.abs(x - d.origin.x) - H.x),
+          dz = Math.max(0, Math.abs(z - d.origin.z) - H.z);
+        const dd = Math.hypot(dx, dz);
+        if (dd < bd) {
+          bd = dd;
+          best = d;
+        }
+      }
+      return { d: best!, dist: bd };
+    };
+    const blocked = (x: number, z: number) => {
+      const r = CELL / 2 + 2;
+      if (x < -790 || x > 1050 || z > 520) return true;
+      if (x < 420 && z < -672) return true;
+      if (z < -1605) return true;
+      if (Math.hypot(x, z) < 50) return true;
+      if (x > L.x0 - r && x < L.x1 + r && z > L.z0 - r && z < L.z1 + r) return true;
+      if (Math.hypot(x - 540, z - 20) < 85) return true; // the small lagoon
+      for (const s of segs) if (IlmCityEngine.distToSeg(x, z, s) < 15 + CELL / 2) return true;
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        if (Math.abs(x - d.origin.x) < H.x + r && Math.abs(z - d.origin.z) < H.z + r) return true;
+      }
+      return false;
+    };
+    const glass = MAT2.glass(),
+      zinc = MAT.zinc(0x8a6a4a),
+      zinc2 = MAT.zinc(0x9aa0a6);
+    const paints = [0xf2ead6, 0xe9d8b4, 0xdfe7e2, 0xf4e0c8, 0xe6d2d2, 0xd8e2ea, 0xf0f0ea];
+    const faded = [0xcfc3a8, 0xbfae92, 0xc9bfae, 0xb8a990, 0xd2c6b0];
+    const batches = new Map<string, Batch>();
+    const batchFor = (d: District) => {
+      let b = batches.get(d.id);
+      if (!b) {
+        b = new Batch();
+        batches.set(d.id, b);
+      }
+      return b;
+    };
+    for (let x = -780; x <= 1040; x += CELL)
+      for (let z = -1600; z <= 510; z += CELL) {
+        if (blocked(x, z)) continue;
+        const { d, dist } = owner(x, z);
+        if (dist > 120) continue; // open land far from any area
+        // thinner towards the edge of the city
+        if (rnd() < dist / 160) continue;
+        const tier = d.tier ?? 2;
+        const b = batchFor(d);
+        const lx = x - d.origin.x,
+          lz = z - d.origin.z;
+        const pick = <T>(a: T[]) => a[Math.floor(rnd() * a.length)];
+        if (tier === 1) {
+          if (rnd() < 0.45) {
+            const h = 16 + rnd() * 40;
+            const w = 9 + rnd() * 4;
+            b.box(w, h, w, glass, lx, 0, lz);
+            b.box(w + 0.6, 0.8, w + 0.6, MAT.plain(0xe9ecee, 0.3), lx, h, lz);
+          } else {
+            const h = 6 + rnd() * 5;
+            b.box(11, h, 10, MAT.plaster(pick(paints)), lx, 0, lz);
+            b.box(11.6, 0.5, 10.6, MAT.plain(0xfdfbf5), lx, h, lz);
+            b.box(13, 0.15, 12, MAT2.lawn(), lx, 0.02, lz);
+          }
+        } else if (tier === 2) {
+          const h = 3.4 * (1 + Math.floor(rnd() * 3));
+          b.box(11 + rnd() * 2, h, 10 + rnd() * 2, MAT.plaster(pick(paints)), lx, 0, lz);
+          if (rnd() < 0.6)
+            b.box(12.5, 0.4, 11.5, MAT.zinc(pick([0x8a3b2b, 0x3d5a7a, 0x2f6a4a])), lx, h, lz);
+        } else if (tier === 3) {
+          const h = 3.2 * (1 + Math.floor(rnd() * 2.5));
+          b.box(13, h, 12.5, MAT.plaster(pick(faded)), lx, 0, lz);
+          b.box(13.4, 0.35, 12.9, rnd() < 0.5 ? zinc : zinc2, lx, h, lz);
+        } else {
+          // crowded one-room houses with rusty zinc roofs
+          for (let k = 0; k < 4; k++) {
+            const sx = lx + (k % 2 ? 3.6 : -3.6) + (rnd() - 0.5),
+              sz = lz + (k < 2 ? 3.6 : -3.6) + (rnd() - 0.5);
+            const h = 2.6 + rnd() * 0.8;
+            b.box(6.4, h, 6, MAT.plaster(pick(faded)), sx, 0, sz);
+            const roof = new THREE.BoxGeometry(7, 0.2, 6.6);
+            b.add(roof, rnd() < 0.7 ? zinc : zinc2, sx, h + 0.15, sz, rnd() * 0.1, true);
+          }
+        }
+        this.fillCells.add(`${Math.round((x + 780) / CELL)},${Math.round((z + 1600) / CELL)}`);
+      }
+    for (const [id, b] of batches) {
+      const g = this.areaGroup(id);
+      for (const m of b.build()) {
+        // background buildings: no shadows, to keep phones fast
+        m.castShadow = false;
+        m.receiveShadow = false;
+        g.add(m);
+      }
+    }
   }
 
   /** Where an area's main street meets its expressway. */
@@ -1394,7 +1680,11 @@ export class IlmCityEngine {
             : l.kind === "faculty"
               ? faculty(b, o)
               : l.kind === "field"
-                ? field(b, o)
+                ? (() => {
+                    const f = field(b, o);
+                    this.registerPitch(`field:${l.id}`, f.pitch);
+                    return f;
+                  })()
                 : l.kind === "hangout"
                   ? (() => {
                       const h = hangout(b, o);
@@ -1553,6 +1843,7 @@ export class IlmCityEngine {
     };
     if (p.field) {
       const f = field(b, {
+        small: true,
         x: pitchX,
         z: cz,
         turn,
@@ -1561,6 +1852,7 @@ export class IlmCityEngine {
         name: `${D.name} Football Pitch`,
       });
       put(f, `field:${D.id}-pitch`, "Play football", pitchX - 22, pitchX + 22);
+      this.registerPitch(`field:${D.id}-pitch`, f.pitch);
     }
     if (p.police) {
       const q = p.police;
@@ -1585,6 +1877,7 @@ export class IlmCityEngine {
     });
     put(sc, `sisters:${D.id}`, "Sisters' Corner · skipping", cornerX - 10.5, cornerX + 10.5);
     const names = ["Sister Zainab", "Sister Habibah", "Sister Rodiyah", "Sister Aishat"];
+    const ropers: THREE.Object3D[] = [];
     sc.spots2.forEach((st, i) => {
       const g = person([0x8a2f4f, 0x2a4a6a, 0x5a3f6a, 0x3d5a4a][i], {
         hijab: [0xe9e2d0, 0x1d1d26, 0xd8c8a8, 0x8a2f4f][i],
@@ -1596,6 +1889,7 @@ export class IlmCityEngine {
       g.position.set(st.x, 0, st.z);
       g.rotation.y = st.face;
       if (i === 3) sitPerson(g);
+      else ropers.push(g);
       this.dg.add(g);
       this.walkers.push({
         g,
@@ -1609,6 +1903,32 @@ export class IlmCityEngine {
         seated: true,
       });
     });
+    {
+      const [l, r, m, w] = sc.spots2;
+      this.ropes.set(
+        `sisters:${D.id}`,
+        new RopeRig(
+          this.dg,
+          {
+            left: l,
+            right: r,
+            mid: m,
+            wait: { x: w.x + (m.x - w.x) * 0.3, z: w.z + (m.z - w.z) * 0.3 },
+            face: m.face,
+          },
+          ropers as [THREE.Object3D, THREE.Object3D, THREE.Object3D],
+          this.player,
+          animatePerson,
+          (name) => {
+            const g = person(0x5a3f6a, { hijab: 0xe9e2d0, seed: name.length });
+            const tag = label(name, { size: 0.6, bold: false });
+            tag.position.y = 2.5;
+            g.add(tag);
+            return g;
+          },
+        ),
+      );
+    }
   }
 
   /* ---------------- lost things on the ground ---------------- */
@@ -1679,6 +1999,263 @@ export class IlmCityEngine {
     return true;
   }
 
+  /* ---------------- football ---------------- */
+  /** Every pitch in the city, by the id of its zone (field:...). */
+  pitches = new Map<
+    string,
+    {
+      x: number;
+      z: number;
+      len: number;
+      wid: number;
+      turn: number;
+      stand: { x: number; z: number };
+    }
+  >();
+  private match: Soccer | null = null;
+  private matchTap: THREE.Vector3 | null = null;
+  private matchZone = "";
+  private registerPitch(
+    id: string,
+    p: {
+      x: number;
+      z: number;
+      len: number;
+      wid: number;
+      turn: number;
+      stand: { x: number; z: number };
+    },
+  ) {
+    this.pitches.set(id, {
+      ...p,
+      x: p.x + this.ox,
+      z: p.z + this.oz,
+      stand: { x: p.stand.x + this.ox, z: p.stand.z + this.oz },
+    });
+  }
+  /** Start a match on this pitch: you, a teammate and a keeper against the computer;
+      or, online, a match between real players (this phone runs it, or shows it). */
+  startMatch(
+    zoneId: string,
+    onState: (s: MatchState) => void,
+    online?: {
+      mode: "host" | "view";
+      slots: Slot[];
+      myKey: string;
+      labels: [string, string];
+      send?: (i: NetInput) => void;
+      /** watching from the bench: you keep walking */
+      spectate?: boolean;
+    },
+  ) {
+    const p = this.pitches.get(zoneId);
+    if (!p) return false;
+    if (this.match) this.endMatch(true);
+    if (this.driving) this.exitCar();
+    if (this.where !== "out") this.exitInterior();
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.matchZone = zoneId;
+    const kit = (team: 0 | 1, i: number, name: string, human: boolean) => {
+      const g = person(team === 0 ? 0x1f6f63 : 0xd8682a, {
+        cap: team === 0 ? 0x1f6f63 : 0xffffff,
+        trousers: 0xf4f1ea,
+        seed: 70 + i,
+      });
+      // everyone's name over their head; real players stand out
+      const tag = label(name, {
+        size: human ? 0.65 : 0.5,
+        bold: human,
+        bg: team === 0 ? "rgba(31,111,99,0.9)" : "rgba(216,104,42,0.9)",
+      });
+      tag.position.y = 2.6;
+      g.add(tag);
+      return g;
+    };
+    this.spectating = !!online?.spectate;
+    // you change into your team's jersey for the match
+    let me: THREE.Object3D = this.player;
+    if (!this.spectating) {
+      const myTeam = online ? (online.slots.find((x) => x.key === online.myKey)?.team ?? 0) : 0;
+      const j = person(myTeam === 0 ? 0x1f6f63 : 0xd8682a, {
+        cap: myTeam === 0 ? 0x1f6f63 : 0xffffff,
+        trousers: 0xf4f1ea,
+        seed: 7,
+      });
+      const tag = label("You", { size: 0.7, bg: "rgba(242,194,48,0.95)", fg: "#2a1c05" });
+      tag.position.y = 2.75;
+      j.add(tag);
+      // a gold arrow over your head and a ring at your feet
+      const arrow = new THREE.Mesh(
+        new THREE.ConeGeometry(0.22, 0.4, 4),
+        new THREE.MeshBasicMaterial({ color: 0xf2c230 }),
+      );
+      arrow.rotation.x = Math.PI;
+      arrow.position.y = 3.35;
+      j.add(arrow);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.55, 0.72, 24),
+        new THREE.MeshBasicMaterial({ color: 0xf2c230, transparent: true, opacity: 0.85 }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04;
+      j.add(ring);
+      j.position.copy(this.player.position);
+      this.scene.add(j);
+      this.player.visible = false;
+      this.jersey = j;
+      me = j;
+    }
+    this.match = new Soccer(this.scene, p, me, kit, animatePerson, onState, online);
+    if (!this.spectating) {
+      const w = this.match.myWorld();
+      this.matchCam.set(w.x, 0, w.z);
+      this.camYaw = this.match.camYawFor();
+      this.snapCamera();
+    }
+    return true;
+  }
+  private spectating = false;
+  /** you, in your team's jersey, during a match */
+  private jersey: THREE.Object3D | null = null;
+  private matchCam = new THREE.Vector3();
+  /** Online: the running phone hears what each real player presses. */
+  matchInput(key: string, i: NetInput) {
+    this.match?.setInput(key, i);
+  }
+  matchSetCtrl(key: string, ctrl: "remote" | "cpu", name: string) {
+    this.match?.setCtrl(key, ctrl, name);
+  }
+  matchSnapshot(): Snapshot | null {
+    return this.match && !this.spectating ? this.match.snapshot() : null;
+  }
+  matchApply(s: Snapshot) {
+    this.match?.applySnapshot(s);
+  }
+  isSpectating() {
+    return this.spectating;
+  }
+  /** Players in the match on the pitch are drawn by the match, not walking in the city. */
+  private hiddenRemotes = new Set<string>();
+  hideRemotes(uids: string[]) {
+    this.hiddenRemotes = new Set(uids);
+    for (const [uid, r] of this.remotes) r.g.visible = !this.hiddenRemotes.has(uid);
+  }
+  /* ---------------- skipping rope ---------------- */
+  private ropes = new Map<string, RopeRig>();
+  private rope: RopeRig | null = null;
+  /** Join the rope at this Sisters' Corner (you must be standing there). */
+  startRope(zoneId: string, mode: RopeMode, onState: (s: RopeState) => void) {
+    const rig = this.ropes.get(zoneId);
+    if (!rig || this.where !== "out" || this.driving) return false;
+    this.endRope();
+    this.rope = rig;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    rig.start(mode, onState);
+    return true;
+  }
+  ropeTap() {
+    this.rope?.tap();
+  }
+  ropeAgain(role: "jump" | "turn") {
+    this.rope?.again(role);
+  }
+  inRope() {
+    return !!this.rope;
+  }
+  endRope() {
+    if (!this.rope) return;
+    const c = this.rope.centre();
+    this.rope.stop();
+    this.rope = null;
+    // step out to the front of the corner
+    this.player.position.set(c.x, 0, c.z);
+    for (let k = 0; k < 12 && !this.free(this.player.position.x, this.player.position.z, 0.5); k++)
+      this.player.position.z += 1;
+  }
+
+  matchAction(a: "shoot" | "pass" | "tackle" | "L" | "C" | "R") {
+    const m = this.match;
+    if (!m) return;
+    if (a === "tackle") m.tackle();
+    else if (a === "shoot") m.shoot();
+    else if (a === "pass") m.pass();
+    else m.penalty(a === "L" ? -1 : a === "C" ? 0 : 1);
+  }
+  inMatch() {
+    return !!this.match && !this.spectating;
+  }
+  endMatch(quiet = false) {
+    if (!this.match) return;
+    const wasPlaying = !this.spectating;
+    this.match.dispose();
+    this.match = null;
+    // back into your own clothes
+    if (this.jersey) {
+      this.player.position.set(this.jersey.position.x, 0, this.jersey.position.z);
+      this.jersey.removeFromParent();
+      this.jersey = null;
+      this.player.visible = true;
+    }
+    this.spectating = false;
+    this.matchTap = null;
+    this.marker.visible = false;
+    if (!wasPlaying || quiet) return;
+    const p = this.pitches.get(this.matchZone);
+    if (p) this.player.position.set(p.stand.x, 0, p.stand.z);
+    this.player.rotation.y = 0;
+    this.snapCamera();
+  }
+  /** The bench beside a pitch, where players wait for their turn. */
+  benchOf(zoneId: string) {
+    return this.pitches.get(zoneId)?.stand ?? null;
+  }
+  goToBench(zoneId: string) {
+    const b = this.pitches.get(zoneId)?.stand;
+    if (!b) return;
+    if (this.where !== "out") this.exitInterior();
+    this.player.position.set(b.x, 0, b.z);
+    this.snapCamera();
+  }
+  private stepMatch(v: THREE.Vector2, dt: number) {
+    const m = this.match!;
+    let move: { x: number; z: number } | null = null;
+    if (v.lengthSq() > 0.01) {
+      this.matchTap = null;
+      this.marker.visible = false;
+      const fx = -Math.sin(this.camYaw),
+        fz = -Math.cos(this.camYaw);
+      const rx = Math.cos(this.camYaw),
+        rz = -Math.sin(this.camYaw);
+      move = { x: rx * v.x + fx * v.y, z: rz * v.x + fz * v.y };
+    } else if (this.matchTap) {
+      const me = m.myWorld();
+      const dx = this.matchTap.x - me.x,
+        dz = this.matchTap.z - me.z,
+        d = Math.hypot(dx, dz);
+      if (d < 0.5) {
+        this.matchTap = null;
+        this.marker.visible = false;
+      } else move = { x: dx / d, z: dz / d };
+    }
+    m.step(dt, move);
+    // the camera watches the play: between you and the ball, leaning to the ball
+    const me = m.myWorld(),
+      b = m.ballWorld();
+    let tx = me.x + (b.x - me.x) * 0.6,
+      tz = me.z + (b.z - me.z) * 0.6;
+    const far = Math.hypot(tx - me.x, tz - me.z);
+    if (far > 9) {
+      tx = me.x + ((tx - me.x) / far) * 9;
+      tz = me.z + ((tz - me.z) / far) * 9;
+    }
+    if (this.matchCam.lengthSq() === 0) this.matchCam.set(tx, 0, tz);
+    const k = 1 - Math.exp(-dt * 4);
+    this.matchCam.x += (tx - this.matchCam.x) * k;
+    this.matchCam.z += (tz - this.matchCam.z) * k;
+  }
+
   /** Muslim students, brothers and sisters, sitting and talking at a meeting point. */
   private seatStudents(seats: { x: number; z: number; face: number }[], D: District) {
     const names = [
@@ -1726,6 +2303,7 @@ export class IlmCityEngine {
     {
       kind: "shop" | "stall";
       sign: THREE.Mesh;
+      blade: THREE.MeshBasicMaterial;
       shutter?: THREE.Mesh;
       zone: Zone;
       district: string;
@@ -1740,7 +2318,9 @@ export class IlmCityEngine {
     front: { x: number; z: number },
     D: District,
     street: string,
+    opt: { parent?: THREE.Object3D; scene?: Zone["scene"]; ox?: number; oz?: number } = {},
   ) {
+    const parent = opt.parent ?? this.dg;
     const dx = front.x - center.x,
       dz = front.z - center.z,
       L = Math.hypot(dx, dz);
@@ -1753,24 +2333,43 @@ export class IlmCityEngine {
     const sd = kind === "shop" ? 3.95 : 2.15;
     sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 2.75, center.z + uz * sd);
     sign.rotation.y = ry;
-    this.dg.add(sign);
+    parent.add(sign);
+    // a small sign sticking out sideways, so you can read the name walking along the street
+    const vx = uz,
+      vz = -ux;
+    const halfW = kind === "shop" ? 2.3 : 2.2;
+    const bladeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const blade = new THREE.Group();
+    for (const r of [0, Math.PI]) {
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.9), bladeMat);
+      pl.rotation.y = r;
+      blade.add(pl);
+    }
+    blade.add(box(2.4, 0.06, 0.06, 0x2a2a2a, 0, 0.48, 0, false));
+    blade.position.set(
+      center.x + ux * (sd + 1.25) + vx * (halfW - 0.1),
+      kind === "shop" ? 3.1 : 2.5,
+      center.z + uz * (sd + 1.25) + vz * (halfW - 0.1),
+    );
+    blade.rotation.y = ry + Math.PI / 2;
+    parent.add(blade);
     let shutter: THREE.Mesh | undefined;
     if (kind === "shop") {
       shutter = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 3.5), MAT2.shutter());
       shutter.position.set(center.x + ux * 3.5, 1.75, center.z + uz * 3.5);
       shutter.rotation.y = ry;
-      this.dg.add(shutter);
+      parent.add(shutter);
     }
     const zone: Zone = {
       id: (kind === "shop" ? "shop:" : "stall:") + id,
       label: "",
-      x: front.x + this.ox,
-      z: front.z + this.oz,
+      x: front.x + (opt.ox ?? this.ox),
+      z: front.z + (opt.oz ?? this.oz),
       r: 2.4,
-      scene: "out",
+      scene: opt.scene ?? "out",
     };
     this.zones.push(zone);
-    this.shopFx.set(id, { kind, sign, shutter, zone, district: D.id, street });
+    this.shopFx.set(id, { kind, sign, blade: bladeMat, shutter, zone, district: D.id, street });
   }
   private shopTexCache = new Map<string, THREE.Texture>();
   /** Paint a shop's signboard: its name and up to three product pictures. */
@@ -1836,6 +2435,35 @@ export class IlmCityEngine {
       }
       tex.needsUpdate = true;
     };
+    // the side sign: just the name
+    {
+      const bc = document.createElement("canvas");
+      bc.width = 256;
+      bc.height = 100;
+      const b = bc.getContext("2d")!;
+      const rent = !s.name;
+      b.fillStyle = rent ? "#fdfbf5" : "#1f6f63";
+      b.fillRect(0, 0, 256, 100);
+      b.strokeStyle = rent ? "#c62828" : "#e6b84a";
+      b.lineWidth = 6;
+      b.strokeRect(3, 3, 250, 94);
+      b.fillStyle = rent ? "#c62828" : "#fdf8ec";
+      b.textAlign = "center";
+      b.textBaseline = "middle";
+      const text = s.name ?? (fx.kind === "shop" ? "TO LET" : "FOR RENT");
+      let size = 40;
+      b.font = `800 ${size}px system-ui, sans-serif`;
+      while (b.measureText(text).width > 230 && size > 14) {
+        size -= 2;
+        b.font = `800 ${size}px system-ui, sans-serif`;
+      }
+      b.fillText(text, 128, 52);
+      const bt = new THREE.CanvasTexture(bc);
+      bt.colorSpace = THREE.SRGBColorSpace;
+      fx.blade.map?.dispose();
+      fx.blade.map = bt;
+      fx.blade.needsUpdate = true;
+    }
     const srcs = (s.imgs ?? []).slice(0, 3);
     if (!srcs.length) draw([]);
     else
@@ -1903,11 +2531,400 @@ export class IlmCityEngine {
           const t = label(`${D.name} Market`, { size: 1.1, bg: "rgba(31,111,99,0.92)" });
           t.position.set(cx, 5.2, z);
           this.dg.add(t);
-          this.marketSpot.set(D.id, { x: cx, z });
+          this.marketSpot.set(D.id, { x: cx, z, sz: st.z, north });
           return;
         }
   }
-  marketSpot = new Map<string, { x: number; z: number }>();
+  marketSpot = new Map<string, { x: number; z: number; sz?: number; north?: boolean }>();
+
+  /** The eatery: a food truck parked on the pavement near the market. */
+  private buildEatery(D: District) {
+    const m = this.marketSpot.get(D.id);
+    const sz = m?.sz ?? 0,
+      north = m?.north ?? true;
+    const z = sz + (north ? -8.4 : 8.4);
+    const x0 = m?.x ?? 30;
+    for (const dx of [30, -30, 38, -38, 46, -46, 54, -54, 22, -22]) {
+      const x = x0 + dx;
+      if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 20) continue;
+      if (!this.boxFree(x - 3.6, x + 3.6, z - 1.8, z + 1.8)) continue;
+      const g = new THREE.Group();
+      g.position.set(x, 0, z);
+      g.rotation.y = north ? 0 : Math.PI;
+      // the truck, its serving hatch and awning
+      g.add(box(6.6, 2.7, 2.6, 0xc8102e, 0, 0.55, 0));
+      g.add(box(6.8, 0.25, 2.8, 0xf4f1ea, 0, 3.25, 0));
+      g.add(box(3.6, 1.1, 0.06, 0x2a1c05, -0.6, 1.6, 1.31));
+      g.add(box(4, 0.12, 1.3, 0xf2c230, -0.6, 2.75, 1.9));
+      for (const wx of [-2.2, 2.2]) {
+        const w = cyl(0.42, 0.42, 0.3, 0x1d1d26, 12);
+        w.rotation.x = Math.PI / 2;
+        w.position.set(wx, 0.42, 1.25);
+        g.add(w);
+      }
+      const { mesh } = canvasPlane(
+        5.6,
+        1,
+        (c, W, H) => {
+          c.fillStyle = "#c8102e";
+          c.fillRect(0, 0, W, H);
+          c.fillStyle = "#fff";
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.font = `800 ${Math.round(H * 0.55)}px "Work Sans", system-ui, sans-serif`;
+          c.fillText("AL-BARAKAH BROAST", W / 2, H * 0.52);
+        },
+        512,
+      );
+      mesh.position.set(0, 3.9, 0.2);
+      g.add(mesh);
+      this.dg.add(g);
+      this.addCollider("out", x - 3.4, x + 3.4, z - 1.4, z + 1.4);
+      const fz = z + (north ? 2.8 : -2.8);
+      this.zones.push({
+        id: "eatery:" + D.id,
+        label: "Eat at Al-Barakah Broast",
+        x: x + this.ox,
+        z: fz + this.oz,
+        r: 2.8,
+        scene: "out",
+      });
+      const t = label("Al-Barakah Broast · eatery", { size: 0.85, bg: "rgba(200,16,46,0.92)" });
+      t.position.set(x, 5.2, z);
+      this.dg.add(t);
+      return;
+    }
+  }
+
+  /** A walk-in restaurant near the market: go in, order at the counter, sit and eat. */
+  private buildRestaurant(D: District) {
+    const m = this.marketSpot.get(D.id);
+    const sz = m?.sz ?? 0;
+    const x0 = m?.x ?? 0;
+    const W = 9,
+      Dp = 6.5;
+    const xs: number[] = [];
+    for (let k = 3; k < 30; k++) xs.push(k * 6, -k * 6);
+    const sides = [m?.north ?? true, !(m?.north ?? true)];
+    const spots: { x: number; z: number; north: boolean }[] = [];
+    for (const north of sides)
+      for (const off of [9.6, 10.6, 12])
+        for (const dx of xs) spots.push({ x: x0 + dx, z: sz + (north ? -off : off), north });
+    for (const { x, z, north } of spots) {
+      {
+        if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 12) continue;
+        if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
+          continue;
+        const g = new THREE.Group();
+        g.position.set(x, 0, z);
+        g.rotation.y = north ? 0 : Math.PI;
+        g.add(box(W, 4.2, Dp, 0xf3e6cf, 0, 0, 0));
+        g.add(box(W + 0.4, 0.3, Dp + 0.4, 0x7a3b2a, 0, 4.2, 0));
+        // glass front, door and a green awning
+        g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, -3, 0.9, Dp / 2 + 0.02));
+        g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, 3, 0.9, Dp / 2 + 0.02));
+        g.add(box(1.6, 2.8, 0.1, 0x5a3a22, 0, 0, Dp / 2 + 0.03));
+        g.add(box(W, 0.15, 1.6, 0x1f6f63, 0, 3.2, Dp / 2 + 0.8));
+        const { mesh } = canvasPlane(
+          8,
+          1.1,
+          (c, CW, CH) => {
+            c.fillStyle = "#1f6f63";
+            c.fillRect(0, 0, CW, CH);
+            c.fillStyle = "#f2c230";
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.font = `800 ${Math.round(CH * 0.5)}px "Work Sans", system-ui, sans-serif`;
+            c.fillText("AL-MA'IDAH RESTAURANT", CW / 2, CH * 0.53);
+          },
+          512,
+        );
+        mesh.position.set(0, 3.75, Dp / 2 + 0.06);
+        g.add(mesh);
+        this.dg.add(g);
+        this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
+        this.reserved.push({ x0: x - W / 2, x1: x + W / 2, z0: z - Dp / 2, z1: z + Dp / 2 });
+        const fz = z + (north ? Dp / 2 + 1.4 : -Dp / 2 - 1.4);
+        this.zones.push({
+          id: "door:restaurant:" + D.id,
+          label: "Enter Al-Ma'idah Restaurant",
+          x: x + this.ox,
+          z: fz + this.oz,
+          r: 2.2,
+          scene: "out",
+        });
+        return;
+      }
+    }
+  }
+  /** A free lot beside the market street, for a building W wide and Dp deep. */
+  private findLot(D: District, W: number, Dp: number) {
+    const m = this.marketSpot.get(D.id);
+    const sz = m?.sz ?? 0;
+    const x0 = m?.x ?? 0;
+    const xs: number[] = [];
+    for (let k = 3; k < 34; k++) xs.push(k * 6, -k * 6);
+    for (const north of [m?.north ?? true, !(m?.north ?? true)])
+      for (const off of [Dp / 2 + 6.4, Dp / 2 + 7.4, Dp / 2 + 9])
+        for (const dx of xs) {
+          const x = x0 + dx,
+            z = sz + (north ? -off : off);
+          if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - W / 2 - 6) continue;
+          if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
+            continue;
+          this.reserved.push({ x0: x - W / 2, x1: x + W / 2, z0: z - Dp / 2, z1: z + Dp / 2 });
+          this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
+          const fz = z + (north ? Dp / 2 + 1.6 : -Dp / 2 - 1.6);
+          return { x, z, north, fz };
+        }
+    return null;
+  }
+  private signBoard(text: string, w: number, h: number, bg: string, fg: string) {
+    return canvasPlane(
+      w,
+      h,
+      (c, CW, CH) => {
+        c.fillStyle = bg;
+        c.fillRect(0, 0, CW, CH);
+        c.fillStyle = fg;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        let size = Math.round(CH * 0.52);
+        c.font = `800 ${size}px "Work Sans", system-ui, sans-serif`;
+        while (c.measureText(text).width > CW * 0.92 && size > 12) {
+          size -= 2;
+          c.font = `800 ${size}px "Work Sans", system-ui, sans-serif`;
+        }
+        c.fillText(text, CW / 2, CH * 0.53);
+      },
+      512,
+    ).mesh;
+  }
+  /** IlmMotors: a glass showroom with cars on display. */
+  private buildDealer(D: District) {
+    const W = 14,
+      Dp = 9;
+    const lot = this.findLot(D, W, Dp + 4);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = north ? 0 : Math.PI;
+    g.add(box(W, 4.6, Dp, 0xe9edf0, 0, 0, -2));
+    g.add(box(W + 0.4, 0.3, Dp + 0.4, 0x2b3a4a, 0, 4.6, -2));
+    g.add(box(W - 1, 3.6, 0.1, 0x6d8fa8, 0, 0.3, Dp / 2 - 1.95));
+    const sign = this.signBoard("IlmMotors · Car Dealership", 10, 1.1, "#2b3a4a", "#f2c230");
+    sign.position.set(0, 4.2, Dp / 2 - 1.85);
+    g.add(sign);
+    // cars on the forecourt
+    (
+      [
+        ["suv", 0xc0392b, -3.6],
+        ["luxury", 0x1d1d26, 3.6],
+      ] as [VehicleKind, number, number][]
+    ).forEach(([k, col, cx]) => {
+      const m = vehicleMesh(k, col);
+      m.position.set(cx, 0, Dp / 2 + 0.4);
+      m.rotation.y = Math.PI / 2 + 0.3;
+      g.add(m);
+    });
+    this.dg.add(g);
+    this.zones.push({
+      id: "dealer:" + D.id,
+      label: "IlmMotors · buy a car",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 2.6,
+      scene: "out",
+    });
+  }
+  /** IlmWorld Mall: a big building; inside, shop units for real sellers. */
+  private buildMall(D: District) {
+    const W = 20,
+      Dp = 11;
+    const lot = this.findLot(D, W, Dp);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = north ? 0 : Math.PI;
+    g.add(box(W, 7, Dp, 0xf3ede2, 0, 0, 0));
+    g.add(box(W + 0.6, 0.4, Dp + 0.6, 0x7a3b2a, 0, 7, 0));
+    g.add(box(W - 3, 4.4, 0.1, 0x5b7c94, 0, 0.4, Dp / 2 + 0.02));
+    g.add(box(3, 3, 0.12, 0x2a1c05, 0, 0, Dp / 2 + 0.06));
+    const sign = this.signBoard("IlmWorld Mall", 12, 1.5, "#7a3b2a", "#fdf8ec");
+    sign.position.set(0, 5.8, Dp / 2 + 0.08);
+    g.add(sign);
+    this.dg.add(g);
+    this.zones.push({
+      id: "door:mall:" + D.id,
+      label: "Enter IlmWorld Mall",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 2.4,
+      scene: "out",
+    });
+    // the shops inside
+    const o = this.interiorOrigin.mall;
+    const ig = this.mallGroup;
+    const unit = (i: number, cx: number, cz: number, ux: number, uz: number) => {
+      // partition walls either side of the unit
+      const px = -uz,
+        pz = ux;
+      for (const s of [-1, 1]) {
+        const w = box(
+          0.25,
+          3.8,
+          6.6,
+          0xd8cfc0,
+          cx + px * s * 2.55 - ux * 0.3,
+          0,
+          cz + pz * s * 2.55 - uz * 0.3,
+        );
+        w.rotation.y = Math.atan2(ux, uz);
+        ig.add(w);
+      }
+      const counter = box(3.2, 1, 0.8, 0x8a5a3a, cx + ux * 1.6, 0, cz + uz * 1.6);
+      counter.rotation.y = Math.atan2(ux, uz);
+      ig.add(counter);
+      this.addShopUnit(
+        `${D.id}-mall${i}`,
+        "shop",
+        { x: cx, z: cz },
+        { x: cx + ux * 4.9, z: cz + uz * 4.9 },
+        D,
+        "IlmWorld Mall",
+        { parent: ig, scene: "mall", ox: o.x, oz: o.z },
+      );
+    };
+    let i = 0;
+    for (const cx of [-10.2, -5.1, 0, 5.1, 10.2]) unit(i++, cx, -14 + 3.6, 0, 1);
+    for (const cz of [-2, 3.4]) {
+      unit(i++, -17 + 3.6, cz, 1, 0);
+      unit(i++, 17 - 3.6, cz, -1, 0);
+    }
+  }
+  private mallGroup = new THREE.Group();
+
+  /** Is there a place with this id (or prefix) anywhere in the city? */
+  hasZone(prefix: string) {
+    return this.zones.some((z) => z.id.startsWith(prefix));
+  }
+
+  /* ---------------- food delivery ---------------- */
+  private rider: {
+    g: THREE.Group;
+    man: THREE.Object3D;
+    t: number;
+    state: "coming" | "waiting" | "leaving";
+    away: THREE.Vector3;
+    near: boolean;
+    onArrive: () => void;
+    onNear: (near: boolean) => void;
+    onCollect: () => void;
+  } | null = null;
+  /** A delivery bike with the food box on the back. */
+  private deliveryBike() {
+    const g = new THREE.Group();
+    const wheel = (z: number) => {
+      const w = cyl(0.32, 0.32, 0.12, 0x1d1d22, 14);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(0, 0.32, z);
+      return w;
+    };
+    g.add(wheel(0.62), wheel(-0.62));
+    g.add(box(0.26, 0.28, 1.15, 0xc8102e, 0, 0.42, 0));
+    g.add(box(0.36, 0.12, 0.6, 0x1d1d22, 0, 0.72, -0.12)); // seat
+    const bar = box(0.7, 0.06, 0.06, 0x2a2a2a, 0, 1.05, 0.5);
+    g.add(bar, box(0.06, 0.5, 0.06, 0x2a2a2a, 0, 0.58, 0.55));
+    // the food box
+    g.add(box(0.62, 0.55, 0.55, 0x2f8f3a, 0, 0.86, -0.62));
+    g.add(box(0.64, 0.08, 0.57, 0xfdf8ec, 0, 1.24, -0.62));
+    const tag = label("Ilm Food Delivery", { size: 0.36, bg: "rgba(47,143,58,0.95)" });
+    tag.position.set(0, 1.55, -0.62);
+    g.add(tag);
+    const man = person(0x2f8f3a, { cap: 0x2f8f3a, trousers: 0x1d1d26, seed: 91 });
+    man.position.set(0, 0.42, 0.05);
+    man.scale.setScalar(0.92);
+    g.add(man);
+    return { g, man };
+  }
+  /**
+   * A rider brings your order. They ride to you (or to your door if you are
+   * indoors), call `onArrive`, then wait until you walk up to them (`onCollect`).
+   */
+  deliverFood(onArrive: () => void, onNear: (near: boolean) => void, onCollect: () => void) {
+    if (this.rider) this.rider.g.removeFromParent();
+    const { g, man } = this.deliveryBike();
+    const t = this.where === "out" ? this.player.position : this.outPos;
+    const a = Math.random() * Math.PI * 2;
+    g.position.set(t.x + Math.cos(a) * 30, 0, t.z + Math.sin(a) * 30);
+    this.scene.add(g);
+    this.rider = {
+      g,
+      man,
+      t: 0,
+      state: "coming",
+      away: g.position.clone(),
+      near: false,
+      onArrive,
+      onNear,
+      onCollect,
+    };
+  }
+  /** Take the food from the rider (you must be standing by the bike). */
+  collectFood() {
+    const r = this.rider;
+    if (!r || r.state !== "waiting" || !r.near) return false;
+    r.state = "leaving";
+    r.t = 0;
+    r.onCollect();
+    return true;
+  }
+  /** Where the rider is waiting, if they have arrived. */
+  riderWaiting() {
+    return this.rider?.state === "waiting";
+  }
+  private stepRider(dt: number) {
+    const r = this.rider;
+    if (!r) return;
+    r.t += dt;
+    const g = r.g;
+    const goTo = (tx: number, tz: number, speed: number) => {
+      const dx = tx - g.position.x,
+        dz = tz - g.position.z,
+        d = Math.hypot(dx, dz);
+      if (d > 0.01) {
+        const sp = Math.min(d, speed * dt);
+        g.position.x += (dx / d) * sp;
+        g.position.z += (dz / d) * sp;
+        g.rotation.y = Math.atan2(dx, dz);
+      }
+      return d;
+    };
+    if (r.state === "coming") {
+      const t = this.where === "out" ? this.player.position : this.outPos;
+      const d = goTo(t.x, t.z, 9);
+      if (d < 2.4 || r.t > 25) {
+        if (d >= 2.4) g.position.set(t.x + 2, 0, t.z + 2);
+        r.state = "waiting";
+        r.onArrive();
+      }
+    } else if (r.state === "waiting") {
+      const p = this.player.position;
+      const near = this.where === "out" && Math.hypot(p.x - g.position.x, p.z - g.position.z) < 3.2;
+      if (near !== r.near) {
+        r.near = near;
+        r.onNear(near);
+      }
+    } else {
+      goTo(r.away.x, r.away.z, 9);
+      if (r.t > 6) {
+        g.removeFromParent();
+        this.rider = null;
+      }
+    }
+  }
 
   /** A block of flats near the market where new players live. */
   private buildEstate(D: District, XR: number, rnd: () => number) {
@@ -2192,11 +3209,11 @@ export class IlmCityEngine {
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.font = `800 ${Math.round(H * 0.42)}px "Work Sans", system-ui, sans-serif`;
-        c.fillText(`Welcome to ${D.name}`, W / 2, H * 0.42);
-        if (D.parent) {
+        c.fillText(`Welcome to ${D.parent ? D.name : regionOf(D)}`, W / 2, H * 0.42);
+        if (D.parent || D.region) {
           c.fillStyle = "#e6b84a";
           c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-          c.fillText(`${rootOf(D).name} · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
+          c.fillText(`${regionOf(D)} · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
           return;
         }
         c.fillStyle = "#e6b84a";
@@ -2627,7 +3644,7 @@ export class IlmCityEngine {
       }
   }
   private stepRemotes(dt: number) {
-    for (const r of this.remotes.values()) {
+    for (const [uid, r] of this.remotes) {
       const dx = r.tx - r.g.position.x,
         dz = r.tz - r.g.position.z,
         d = Math.hypot(dx, dz);
@@ -2639,7 +3656,7 @@ export class IlmCityEngine {
       }
       r.g.rotation.y = lerpAngle(r.g.rotation.y, r.th, Math.min(1, dt * 8));
       animatePerson(r.g, 0, d > 0.15 || r.moving ? 1 : 0, Math.max(2, d * 2));
-      r.g.visible = this.where === "out";
+      r.g.visible = this.where === "out" && !this.hiddenRemotes.has(uid);
     }
   }
   /** Where you are and which way you face, for other players. */
@@ -2956,11 +3973,18 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set(bx, 0, bz);
     g.rotation.y = rot;
-    [-2.6, 2.6].forEach((px) => {
-      const p = box(0.35, 4, 0.35, 0x5a5f66, px, 0, -0.3);
-      g.add(p);
+    // two faces in a V, each turned towards one direction of traffic
+    const A = 0.36,
+      PW = 8.4;
+    const faces = [-1, 1].map((sgn) => {
+      const f = new THREE.Group();
+      f.position.set(sgn * Math.cos(A) * (PW / 2 + 0.1), 0, -1.6 + Math.sin(A) * (PW / 2 + 0.1));
+      f.rotation.y = -sgn * A;
+      f.add(box(0.3, 4, 0.3, 0x5a5f66, 0, 0, -0.3));
+      f.add(box(PW + 0.5, 3.9, 0.35, 0x2e3338, 0, 3.8, -0.5));
+      g.add(f);
+      return f;
     });
-    g.add(box(10.6, 4.6, 0.4, 0x2e3338, 0, 3.8, -0.5));
     const draw = (c: CanvasRenderingContext2D, W: number, H: number) => {
       const ad = b.ad;
       if (!ad) {
@@ -2996,10 +4020,15 @@ export class IlmCityEngine {
       c.font = `500 ${Math.round(H * 0.085)}px "Work Sans", system-ui, sans-serif`;
       c.fillText(ad.line, W * 0.06, H * 0.76);
     };
-    const { mesh, tex, canvas } = canvasPlane(10, 4, draw, 1000);
-    mesh.position.set(0, 3.8 + 2.3, -0.28);
+    const { mesh, tex, canvas } = canvasPlane(PW, PW * 0.4, draw, 1000);
+    mesh.position.set(0, 3.8 + 1.95, -0.3);
     mesh.userData.tap = "billboard:" + b.id;
-    g.add(mesh);
+    faces[0].add(mesh);
+    const twin = new THREE.Mesh(mesh.geometry, mesh.material);
+    twin.position.copy(mesh.position);
+    twin.userData.tap = mesh.userData.tap;
+    faces[1].add(twin);
+    this.tappables.push(twin);
     const paint = () => {
       const c = canvas.getContext("2d")!;
       draw(c, canvas.width, canvas.height);
@@ -3018,13 +4047,27 @@ export class IlmCityEngine {
     this.boards.set(b.id, { b, base: b.ad, paint });
     this.tappables.push(mesh);
     this.dg.add(g);
-    const ex = Math.abs(Math.cos(rot)) * 5.5 + Math.abs(Math.sin(rot)) * 1,
-      ez = Math.abs(Math.sin(rot)) * 5.5 + Math.abs(Math.cos(rot)) * 1;
-    this.addCollider("out", bx - ex, bx + ex, bz - ez, bz + ez);
+    // the V's footprint, turned with the board
+    const cx = bx - Math.sin(rot) * 0.1,
+      cz = bz - Math.cos(rot) * 0.1;
+    const ex = Math.abs(Math.cos(rot)) * 7.9 + Math.abs(Math.sin(rot)) * 1.7,
+      ez = Math.abs(Math.sin(rot)) * 7.9 + Math.abs(Math.cos(rot)) * 1.7;
+    this.addCollider("out", cx - ex, cx + ex, cz - ez, cz + ez);
   }
 
+  private carBody = new THREE.Group();
+  private carMax = 34;
+  /** Your car: a model and colour from the dealership. */
+  setCar(kind: VehicleKind, color: number) {
+    this.carBody.clear();
+    const m = vehicleMesh(kind, color);
+    m.castShadow = true;
+    this.carBody.add(m);
+    this.carMax = VEHICLE_INFO[kind].top + 4;
+  }
   private buildCar() {
-    const g = this.car;
+    this.car.add(this.carBody);
+    const g = this.carBody;
     g.add(box(4.2, 1, 2, 0x1f6f63, 0, 0.45, 0));
     g.add(box(2.4, 0.9, 1.8, 0x1f6f63, -0.2, 1.45, 0));
     g.add(box(2.2, 0.7, 1.84, 0x9fd0e0, -0.2, 1.55, 0, false));
@@ -3047,10 +4090,10 @@ export class IlmCityEngine {
     g.add(box(0.1, 0.25, 0.5, 0xd23b3b, -2.12, 0.8, -0.6, false));
     const tag = label("Your car", { size: 0.7, bg: "rgba(31,111,99,0.9)" });
     tag.position.y = 2.8;
-    g.add(tag);
-    g.position.set(-16, 0, 9.8);
-    g.rotation.y = this.carHeading;
-    this.scene.add(g);
+    this.car.add(tag);
+    this.car.position.set(-16, 0, 9.8);
+    this.car.rotation.y = this.carHeading;
+    this.scene.add(this.car);
   }
 
   /* ---------------- interiors ---------------- */
@@ -3118,6 +4161,90 @@ export class IlmCityEngine {
   }
 
   private buildInteriors() {
+    // IlmWorld Mall: a wide hall; the shop units are added with the Ikeja area
+    {
+      const { g, o } = this.room("mall", 34, 28, 0xf6f1e8, 0xd9d4c8);
+      this.mallGroup.position.copy(o);
+      this.scene.add(this.mallGroup);
+      const fountain = new THREE.Group();
+      fountain.add(cyl(2.2, 2.4, 0.6, 0xcfd6dc, 20), cyl(0.4, 0.4, 1.6, 0xcfd6dc, 10));
+      fountain.children[0].position.y = 0.3;
+      fountain.children[1].position.y = 0.8;
+      fountain.position.set(0, 0, -0.5);
+      this.solid("mall", g, fountain, 4.6, 4.6);
+      const sign = label("IlmWorld Mall · shops by real sellers", {
+        size: 0.8,
+        bg: "rgba(122,59,42,0.95)",
+      });
+      sign.position.set(0, 5.6, -13.6);
+      g.add(sign);
+      for (const [lx, lz] of [
+        [-8, 8],
+        [8, 8],
+      ]) {
+        const bench = box(3, 0.5, 0.8, 0x6d4a2b, lx, 0, lz);
+        this.solid("mall", g, bench, 3, 0.8);
+      }
+    }
+    // Restaurant: a counter at the back, tables and people eating
+    {
+      const { g, o } = this.room("restaurant", 20, 14, 0xf3e6cf, 0x9a6b45);
+      const counter = new THREE.Group();
+      counter.add(box(8, 1.1, 1.2, 0x7a3b2a, 0, 0, 0), box(8.2, 0.1, 1.4, 0xf2c230, 0, 1.1, 0));
+      counter.add(box(1.2, 0.5, 0.8, 0xd9dde0, -2.5, 1.2, -0.1)); // warmer
+      counter.position.set(0, 0, -4.6);
+      this.solid("restaurant", g, counter, 8.2, 1.4);
+      const cook = person(0xffffff, { cap: 0xffffff, trousers: 0x1d1d26, seed: 7 });
+      cook.position.set(1, 0, -5.8);
+      g.add(cook);
+      const menu = label("Menu · jollof · broast · amala · shawarma · kabsa · suya", {
+        size: 0.5,
+        bg: "rgba(31,111,99,0.95)",
+      });
+      menu.position.set(0, 3.6, -6.7);
+      g.add(menu);
+      const sign = label("Al-Ma'idah Restaurant", { size: 0.7, bg: "rgba(122,59,42,0.95)" });
+      sign.position.set(0, 4.5, -6.7);
+      g.add(sign);
+      // hand-wash sink by the wall
+      const sink = new THREE.Group();
+      sink.add(box(1.2, 0.9, 0.6, 0xf7f7f4, 0, 0, 0), box(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.9, -0.15));
+      sink.position.set(-9.3, 0, 1.5);
+      sink.rotation.y = Math.PI / 2;
+      this.solid("restaurant", g, sink, 0.7, 1.3);
+      const tables: [number, number][] = [
+        [-5.5, -0.8],
+        [0, -0.8],
+        [5.5, -0.8],
+        [-5.5, 3],
+        [5.5, 3],
+      ];
+      tables.forEach(([x, z], i) => {
+        const t = new THREE.Group();
+        t.add(box(2, 0.85, 1.2, 0x6d4a2b, 0, 0, 0));
+        t.add(
+          box(0.5, 0.06, 0.5, 0xffffff, -0.45, 0.85, 0),
+          box(0.5, 0.06, 0.5, 0xffffff, 0.45, 0.85, 0),
+        );
+        for (const cz of [-0.95, 0.95]) t.add(box(0.7, 0.5, 0.6, 0x1f6f63, 0, 0, cz));
+        t.position.set(x, 0, z);
+        this.solid("restaurant", g, t, 2.1, 2.6);
+        if (i % 2 === 0) {
+          const p = person([0xf4efe4, 0x8fb8e8, 0xcdb38a][i % 3], { cap: 0xffffff, seed: 20 + i });
+          sitPerson(p);
+          p.position.set(x, 0.1, z - 0.95);
+          g.add(p);
+        }
+      });
+      this.zones.push({
+        id: "eatery:counter",
+        label: "Order at the counter",
+        x: o.x,
+        z: o.z - 3.3,
+        r: 2.2,
+        scene: "restaurant",
+      });
+    }
     // Masjid
     {
       const { g, o } = this.room("masjid", 26, 16, 0xf2efe6, 0x2f6f5f);
@@ -3288,7 +4415,7 @@ export class IlmCityEngine {
           B(1.4, 0.15, 0.9, 0x1d1f22, 1.2, 1.92, 0),
         );
         k.position.set(0, 0, -6.2);
-        item("kitchen", k, 5, 1.4, { id: "eat", label: "Cook and eat", r: 2, dz: 1.6 });
+        item("kitchen", k, 5, 1.4, { id: "eat", label: "Eat at the table", r: 2, dz: 1.6 });
       }
       {
         const f = new THREE.Group();
@@ -3468,6 +4595,7 @@ export class IlmCityEngine {
     const portrait = this.camera.aspect < 0.8;
     if (this.cine) return { d: 14, h: 5.5 };
     if (this.preview) return { d: 5.2, h: 1.4 };
+    if (this.match && !this.spectating) return { d: portrait ? 15 : 12, h: portrait ? 10 : 8 };
     if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
     if (this.riding) return { d: portrait ? 14 : 12, h: 5.2 };
     return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
@@ -3483,6 +4611,7 @@ export class IlmCityEngine {
     if (this.cine) return this.cine.vehicle.position;
     if (this.riding) return this.riding.mesh.position;
     if (this.kekeTrip) return this.kekeTrip.mesh.position;
+    if (this.match && !this.spectating && this.jersey) return this.matchCam;
     return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
@@ -3496,7 +4625,21 @@ export class IlmCityEngine {
     this.camera.lookAt(t.x, t.y + 1.5, t.z);
   }
 
+  /** Blocks of the city between the areas (16 m cells), checked by a quick lookup. */
+  private fillCells = new Set<string>();
   private free(x: number, z: number, r: number) {
+    if (this.where === "out" && this.fillCells.size) {
+      const C = 16;
+      const cx = Math.round((x + 780) / C),
+        cz = Math.round((z + 1600) / C);
+      for (let i = cx - 1; i <= cx + 1; i++)
+        for (let k = cz - 1; k <= cz + 1; k++) {
+          if (!this.fillCells.has(`${i},${k}`)) continue;
+          const bx = i * C - 780,
+            bz = k * C - 1600;
+          if (Math.abs(x - bx) < C / 2 - 1 + r && Math.abs(z - bz) < C / 2 - 1 + r) return false;
+        }
+    }
     for (const b of this.colliders[this.where])
       if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
     return true;
@@ -3552,6 +4695,16 @@ export class IlmCityEngine {
       -((e.clientY - r.top) / r.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(p, this.camera);
+    if (this.match && !this.spectating) {
+      // in a match, tap (or click) where you want to run
+      const pt = new THREE.Vector3();
+      if (this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt)) {
+        this.matchTap = pt;
+        this.marker.position.set(pt.x, 0.05, pt.z);
+        this.marker.visible = true;
+      }
+      return;
+    }
     if (this.where === "out") {
       const hit = this.raycaster.intersectObjects(this.tappables, false)[0];
       if (hit && hit.distance < 90) {
@@ -3634,7 +4787,7 @@ export class IlmCityEngine {
     c.fillText(small, 128, 118);
     const t = new THREE.CanvasTexture(cv);
     t.colorSpace = THREE.SRGBColorSpace;
-    m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, side: THREE.DoubleSide });
+    m = bothWays(new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 }));
     this.signCache.set(key, m);
     return m;
   }
@@ -4018,11 +5171,25 @@ export class IlmCityEngine {
 
   private update(dt: number, t: number) {
     const v = this.moveVec();
-    if (this.cine) this.stepCinematic(dt);
+    if (this.match && !this.spectating) {
+      this.stepMatch(v, dt);
+    } else if (this.rope) {
+      // in the rope game you stay in your place
+    } else if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
+    if (this.match && this.spectating) this.match.step(dt, null);
+    for (const rig of this.ropes.values()) {
+      const c = rig.centre();
+      if (
+        rig === this.rope ||
+        Math.hypot(this.camera.position.x - c.x, this.camera.position.z - c.z) < 80
+      )
+        rig.update(dt);
+    }
+    this.stepRider(dt);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
@@ -4105,6 +5272,8 @@ export class IlmCityEngine {
         Math.atan2(-Math.cos(h), Math.sin(h)),
         1 - Math.exp(-dt * 2.5),
       );
+    } else if (this.match && !this.spectating && performance.now() - this.lastDrag > 2500) {
+      this.camYaw = lerpAngle(this.camYaw, this.match.camYawFor(), 1 - Math.exp(-dt * 2));
     } else if (
       !this.driving &&
       this.followYaw !== null &&
@@ -4130,7 +5299,8 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding || this.kekeTrip) best = null;
+    if (this.cine || this.riding || this.kekeTrip || this.rope || (this.match && !this.spectating))
+      best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
@@ -4147,7 +5317,14 @@ export class IlmCityEngine {
           bd = dd;
         }
       }
-    if (!this.cine && !this.driving && !this.riding && this.where === "out")
+    if (
+      !this.cine &&
+      !this.driving &&
+      !this.riding &&
+      !(this.match && !this.spectating) &&
+      !this.rope &&
+      this.where === "out"
+    )
       this.walkers.forEach((w, i) => {
         if (!w.name || !w.g.parent?.visible) return;
         const dw = Math.hypot(
@@ -4159,7 +5336,7 @@ export class IlmCityEngine {
           bd = dw;
         }
       });
-    if (!this.cine && !this.driving && !this.riding && this.where === "out")
+    if (!this.cine && !this.driving && !this.riding && !this.match && this.where === "out")
       for (const [uid, r] of this.remotes) {
         const dr = Math.hypot(r.g.position.x - pos.x, r.g.position.z - pos.z);
         if (dr < 3 && dr < bd) {
@@ -4267,7 +5444,7 @@ export class IlmCityEngine {
 
   /** Stick up = accelerate, down = brake and reverse, left and right = steer. */
   private drive(v: THREE.Vector2, dt: number) {
-    const max = 34;
+    const max = this.carMax;
     if (v.y > 0.1) this.carSpeed = Math.min(max * v.y, this.carSpeed + 16 * dt);
     else if (v.y < -0.1)
       this.carSpeed =

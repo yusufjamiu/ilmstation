@@ -1,7 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
-import { FootballMatch, MatchInvite } from "./Football";
+import type { MatchState, Slot } from "./soccer";
+import type { RopeState } from "./rope";
+import { connectRope, connectRopeLocal } from "./ropenet";
+import { VEHICLE_INFO } from "./vehicles";
+import { connectHomes, connectHomesLocal, type Homes, type ShownHome } from "./homes";
+import { connectRooms, connectRoomsLocal, roomId, type RoomAd, type RoomsNet } from "./rooms";
+import {
+  cleanNumber,
+  connectCalls,
+  connectCallsLocal,
+  numberFor,
+  VoiceCall,
+  type CallDoc,
+  type CallNet,
+  type CallUi,
+  type PhoneEntry,
+} from "./calls";
+import {
+  connectPitch,
+  connectPitchLocal,
+  MAX_PER_TEAM,
+  SLOT_KEYS,
+  type PitchNet,
+  type PitchRoom,
+} from "./pitchnet";
 import {
   AD_PRICES,
   requestAd,
@@ -29,6 +53,7 @@ import {
   AD_EMAIL,
   BILLBOARDS,
   BUS_FARE,
+  WORLD_CITIES,
   DISTRICTS,
   QUESTIONS,
   STREETS,
@@ -55,6 +80,8 @@ import {
   SHOP_PRICES,
   MARKET_TRADERS,
   fullName,
+  rootOf,
+  regionOf,
   districtById,
   type Lecture,
   type District,
@@ -63,6 +90,10 @@ import {
   CAMPUS_GIST,
   FOUND_ITEMS,
   FOOTBALL,
+  MENU,
+  HUNGRY_AT,
+  eateryPrice,
+  type Dish,
   POLICE,
   UNIVERSITIES,
   facultiesOf,
@@ -102,6 +133,10 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** you bought a football kit (needed to play matches) */
+  jersey?: boolean;
+  /** the car you bought at IlmMotors (none: the starter car) */
+  ride?: { kind: CarKind; color: number };
   /** positions are on the one connected Lagos map */
   world?: boolean;
   lectureMin?: number;
@@ -132,6 +167,14 @@ type Save = {
   student?: { area: string; faculty: string };
   /** something you found and are taking to the police */
   carrying?: FoundKind;
+  /** a room you rent in another player's house */
+  lodging?: { id: string; plot: string; area: string; label: string; until: number; owner: string };
+  /** people saved on your phone */
+  contacts?: { uid: string; name: string; number: string }[];
+  /** recent calls */
+  calls?: { name: string; number: string; at: number; dir: "in" | "out" | "missed" }[];
+  /** food you collected and haven't eaten yet (dish id) */
+  meal?: string;
   /** you kept something that wasn't yours */
   wanted?: { at: number; item: FoundKind };
   /** you are in the police cell */
@@ -244,7 +287,7 @@ function useTestOffset() {
 }
 
 type Panel =
-  | { kind: "info"; title: string; body: ReactNode }
+  | { kind: "info"; title: string; body: ReactNode; phone?: { home?: () => void } }
   | { kind: "quiz"; q: Question; qi: number; picked?: number }
   | { kind: "busy"; title: string; ms: number; done: () => void };
 
@@ -658,108 +701,546 @@ function CityGame({
     return () => clearInterval(iv);
   }, [update, toast]);
 
-  /* ---------- football ---------- */
-  const playMatch = useCallback(
-    (vs: { kind: "cpu" } | { kind: "online"; online: Online; id: string }) => {
+  /* ---------- food: order on the phone or eat at the eatery ---------- */
+  const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
+  const openPhoneRef = useRef<() => void>(() => {});
+  const eat = useCallback(
+    (d: Dish) => {
+      setPanel(null);
+      const done = () => {
+        setPanel(null);
+        need({ hunger: d.fills });
+        doTask("eat");
+        update((x) => ({ ...x, meal: undefined }));
+        sayDhikr("afterEating", () => {});
+      };
+      sayDhikr("beforeEating", () =>
+        setPanel({
+          kind: "info",
+          title: `Bismillah… ${d.name}`,
+          body: <EatingView dish={d} onDone={done} />,
+        }),
+      );
+    },
+    [need, doTask, sayDhikr, update],
+  );
+  /** Wash your hands, then eat. */
+  const openMeal = useCallback(
+    (d: Dish) => {
       setPanel({
         kind: "info",
-        title: "Football match",
+        title: `${d.icon} ${d.name}`,
+        body: <MealView dish={d} onEat={() => eat(d)} />,
+      });
+    },
+    [eat],
+  );
+  const openMealRef = useRef(openMeal);
+  openMealRef.current = openMeal;
+  /** your order: on the way, or the rider is waiting outside */
+  const [delivery, setDelivery] = useState<{
+    dish: Dish;
+    outside: boolean;
+    near?: boolean;
+  } | null>(null);
+  const meal = save.meal ? MENU.find((m) => m.id === save.meal) : undefined;
+  const buyFood = useCallback(
+    (d: Dish, where: "order" | "eatery") => {
+      const price = where === "eatery" ? eateryPrice(d) : d.points;
+      if (saveRef.current.coins < price) {
+        setPanel({
+          kind: "info",
+          title: "Not enough points",
+          body: <NoPointsView price={price} points={saveRef.current.coins} />,
+        });
+        return;
+      }
+      update((x) => ({ ...x, coins: x.coins - price }));
+      if (where === "eatery") {
+        toast(`−${price} points. Here's your ${d.name.toLowerCase()}!`, "good");
+        openMeal(d);
+        return;
+      }
+      setPanel(null);
+      setDelivery({ dish: d, outside: false });
+      toast(`Ordered! −${price} points. Your Ilm Food Delivery rider is on the way 🛵`, "good");
+      engine.current?.deliverFood(
+        () => {
+          setDelivery({ dish: d, outside: true });
+          toast(
+            engine.current?.scenePlace() === "out"
+              ? "Your rider is here. Walk to the bike to collect your food."
+              : "Your rider is outside. Go out to collect your food.",
+            "good",
+          );
+        },
+        (near) => setDelivery((x) => (x ? { ...x, near } : x)),
+        () => {
+          setDelivery(null);
+          update((x) => ({ ...x, meal: d.id }));
+          toast(
+            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! Go inside, wash your hands, then eat.`,
+            "good",
+          );
+        },
+      );
+    },
+    [update, toast, openMeal],
+  );
+  const openFood = useCallback(
+    (where: "order" | "eatery", phone = false) => {
+      setPanel({
+        kind: "info",
+        phone: phone ? { home: () => openPhoneRef.current() } : undefined,
+        title:
+          where === "order"
+            ? "IlmDash · order food"
+            : engine.current?.scenePlace() === "restaurant"
+              ? "Al-Ma'idah Restaurant · menu"
+              : "Al-Barakah Broast · eatery",
         body: (
-          <FootballMatch
-            myName={saveRef.current.profile?.name ?? "You"}
-            vs={vs}
-            onClose={() => setPanel(null)}
-            onEnd={(goals, won) => {
-              const pts = goals * FOOTBALL.perGoal + (won ? FOOTBALL.win : 0);
-              update((x) => ({ ...x, coins: x.coins + pts }));
-              need({ energy: -12, social: 18, hunger: -8 });
-              toast(`${won ? "Victory!" : "Good game!"} +${pts} points`, "good");
-            }}
+          <FoodView
+            where={where}
+            points={saveRef.current.coins}
+            hunger={Math.round((saveRef.current.needs ?? freshNeeds()).hunger)}
+            onBuy={(d) => buyFood(d, where)}
           />
         ),
       });
     },
-    [update, need, toast],
+    [buyFood],
   );
-  const openFootball = useCallback(() => {
-    const o = onlineRef.current;
-    const players = areaPlayers.current;
+  const openPhone = useCallback(() => {
     setPanel({
       kind: "info",
-      title: "Football pitch",
+      title: "",
+      phone: {},
       body: (
-        <div className="space-y-2">
-          <p className="text-[13px] opacity-75">
-            Play a match: take turns to shoot and keep goal. +{FOOTBALL.perGoal} points a goal, +
-            {FOOTBALL.win} for the win.
-          </p>
-          <button
-            onClick={() => playMatch({ kind: "cpu" })}
-            className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
-          >
-            ⚽ Play IlmWorld FC (computer)
-          </button>
-          <div className="pt-1 text-[13px] font-semibold">Invite a player in this area</div>
-          {!o ? (
-            <p className="text-[13px] opacity-70">Log in to IlmStation to play other players.</p>
-          ) : players.length === 0 ? (
-            <p className="text-[13px] opacity-70">No other players in this area right now.</p>
-          ) : (
-            players.map((pl) => (
-              <button
-                key={pl.uid}
-                onClick={async () => {
-                  try {
-                    const id = await o.inviteMatch(pl, saveRef.current.profile?.name ?? "Player");
-                    playMatch({ kind: "online", online: o, id });
-                  } catch {
-                    toast("Could not send the invite. Try again.", "warn");
-                  }
-                }}
-                className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left font-bold"
-              >
-                📨 Invite {pl.name}
-              </button>
-            ))
-          )}
-        </div>
+        <PhoneView
+          onCalls={() => openCallsRef.current("calls")}
+          onHomes={() => openHomesRef.current()}
+          onRooms={() => openRoomsRef.current()}
+          onWallet={() =>
+            setPanel({
+              kind: "info",
+              title: "💰 Wallet",
+              phone: { home: () => openPhoneRef.current() },
+              body: <WalletView points={saveRef.current.coins} />,
+            })
+          }
+          onContacts={() => openCallsRef.current("contacts")}
+          onFood={() => openFood("order", true)}
+          onOutings={() => openOutingsRef.current(true)}
+          onTravel={() => openOutingsRef.current(true, "travel")}
+          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki", true)}
+        />
       ),
     });
-  }, [playMatch, toast]);
-  const openFootballRef = useRef(openFootball);
-  openFootballRef.current = openFootball;
-  // invites from other players
+  }, [openFood]);
+  openPhoneRef.current = openPhone;
+  const openCallsRef = useRef<(tab: "calls" | "contacts") => void>(() => {});
+  const openChatRef = useRef<(o: { uid: string; name: string }) => void>(() => {});
+  const hungry = !!save.profile && (save.needs ?? freshNeeds()).hunger <= HUNGRY_AT;
+  const hungryRef = useRef(hungry);
+  hungryRef.current = hungry;
+  const foodRef = useRef<{ delivery: typeof delivery; meal: typeof meal }>({ delivery, meal });
+  foodRef.current = { delivery, meal };
+
+  /* ---------- football ---------- */
   const [onlineReady, setOnlineReady] = useState(0);
+  void onlineReady;
+  /* the match on the pitch */
+  const [match, setMatch] = useState<MatchState | null>(null);
+  /* ---------- skipping rope ---------- */
+  const [rope, setRope] = useState<RopeState | null>(null);
+  const ropeOut = useRef(false);
+  const onRope = useCallback(
+    (r: RopeState) => {
+      setRope(r);
+      engine.current?.hideRemotes(r.uids);
+      if (r.phase === "out" && !ropeOut.current) {
+        ropeOut.current = true;
+        const pts = Math.min(5, Math.floor(r.count / 10));
+        need({ energy: -6, social: 15, hunger: -4 });
+        if (pts) {
+          update((x) => ({ ...x, coins: x.coins + pts }));
+          toast(`${r.count} skips! +${pts} points. Masha Allah!`, "good");
+        }
+      } else if (r.phase !== "out") ropeOut.current = false;
+    },
+    [need, update, toast],
+  );
+  const playRope = useCallback(
+    async (zoneId: string, how: "jump" | "turn" | "together") => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      ropeOut.current = false;
+      if (how !== "together") {
+        if (!e.startRope(zoneId, { kind: "solo", role: how }, onRope))
+          toast("Walk into the Sisters' Corner first.");
+        return;
+      }
+      const uid = onlineRef.current?.uid;
+      if (!uid) {
+        toast("Log in to IlmStation to skip with other sisters.", "warn");
+        return;
+      }
+      try {
+        const local =
+          import.meta.env.DEV &&
+          new URLSearchParams(window.location.search).get("online") === "local";
+        const net = local ? connectRopeLocal(zoneId, uid) : await connectRope(zoneId, uid);
+        const name = saveRef.current.profile?.name ?? "Sister";
+        if (!e.startRope(zoneId, { kind: "net", net, name }, onRope)) {
+          net.close();
+          toast("Walk into the Sisters' Corner first.");
+        }
+      } catch {
+        toast(
+          "Playing together isn't switched on yet. Skip with the sisters here for now.",
+          "warn",
+        );
+      }
+    },
+    [onRope, toast],
+  );
+  const leaveRope = useCallback(() => {
+    engine.current?.endRope();
+    engine.current?.hideRemotes([]);
+    setRope(null);
+  }, []);
+  const [watching, setWatching] = useState<MatchState | null>(null);
+  const matchDone = useRef(false);
+  const startPitchMatch = useCallback(
+    (zoneId: string) => {
+      const e = engine.current;
+      if (!e) return;
+      matchDone.current = false;
+      setPanel(null);
+      if (!e.startMatch(zoneId, setMatch)) toast("Walk to the pitch first.");
+    },
+    [toast],
+  );
+
+  /* live matches with other players on the same pitch */
+  const pitch = useRef<{
+    zone: string;
+    net: PitchNet;
+    off: () => void;
+    live: (() => void)[];
+    iv?: number;
+    playing: "none" | "play" | "watch";
+    host: boolean;
+    room: PitchRoom | null;
+  } | null>(null);
+  const [pitchRoom, setPitchRoom] = useState<PitchRoom | null>(null);
+  const stopLive = useCallback(() => {
+    const P = pitch.current;
+    if (!P) return;
+    P.live.forEach((f) => f());
+    P.live = [];
+    if (P.iv) clearInterval(P.iv);
+    P.iv = undefined;
+    P.playing = "none";
+  }, []);
+  const leavePitch = useCallback(async () => {
+    const P = pitch.current;
+    if (!P) return;
+    stopLive();
+    const e = engine.current;
+    if (e?.inMatch() || e?.isSpectating()) e.endMatch();
+    setMatch(null);
+    setWatching(null);
+    try {
+      if (P.room?.room?.host === P.net.uid && P.room.room.status !== "over")
+        await P.net.setRoom({ status: "over", slots: null });
+      await P.net.leave();
+    } catch {
+      /* offline */
+    }
+    P.off();
+    P.net.close();
+    e?.hideRemotes([]);
+    pitch.current = null;
+    setPitchRoom(null);
+  }, [stopLive]);
+  /** Who plays where, from the room's slots (keepers are always the computer). */
+  const slotsFor = (r: PitchRoom, me: string): Slot[] => {
+    const out: Slot[] = [];
+    ([0, 1] as const).forEach((t) => {
+      SLOT_KEYS[t].forEach((k) => {
+        const v = r.room?.slots?.[k];
+        out.push({
+          key: k,
+          team: t,
+          gk: false,
+          ctrl: v ? (v.uid === me ? "me" : "remote") : "cpu",
+          name: v?.name ?? "Computer",
+        });
+      });
+      out.push({ key: "g" + t, team: t, gk: true, ctrl: "cpu", name: "Keeper" });
+    });
+    return out;
+  };
+  const onPitchRoom = useCallback(
+    (r: PitchRoom) => {
+      const P = pitch.current;
+      const e = engine.current;
+      if (!P || !e) return;
+      const prev = P.room;
+      P.room = r;
+      setPitchRoom(r);
+      // players in this match are drawn on the pitch, not walking around the city
+      e.hideRemotes(
+        r.room?.status === "playing"
+          ? Object.values(r.room.slots ?? {}).flatMap((v) => (v ? [v.uid] : []))
+          : [],
+      );
+      const me = P.net.uid;
+      const room = r.room;
+      const slots = room?.slots ?? {};
+      const mySlot = Object.keys(slots).find((k) => slots[k]?.uid === me);
+      P.host = room?.host === me;
+      if (room?.status === "playing") {
+        if (mySlot && P.playing !== "play") {
+          // kick off: play (running the match if you are the host)
+          stopLive();
+          matchDone.current = false;
+          setWatching(null);
+          setPanel(null);
+          const ok = e.startMatch(P.zone, setMatch, {
+            mode: P.host ? "host" : "view",
+            slots: slotsFor(r, me),
+            myKey: mySlot,
+            labels: ["Team A", "Team B"],
+            send: P.host ? undefined : (i) => P.net.sendInput(i),
+          });
+          if (!ok) return;
+          P.playing = "play";
+          if (P.host) {
+            P.live.push(
+              P.net.watchInputs((all) => {
+                const cur = pitch.current?.room?.room?.slots ?? {};
+                for (const [uid, inp] of Object.entries(all)) {
+                  const k = Object.keys(cur).find((x) => cur[x]?.uid === uid);
+                  if (k) engine.current?.matchInput(k, inp);
+                }
+              }),
+            );
+            P.iv = window.setInterval(() => {
+              const snap = engine.current?.matchSnapshot();
+              if (snap) P.net.sendState(snap);
+            }, 100);
+          } else P.live.push(P.net.watchState((sn) => engine.current?.matchApply(sn)));
+        } else if (!mySlot && P.playing === "none") {
+          // a match is on: watch it from the bench
+          e.startMatch(P.zone, setWatching, {
+            mode: "view",
+            slots: slotsFor(r, me),
+            myKey: "",
+            labels: ["Team A", "Team B"],
+            spectate: true,
+          });
+          P.playing = "watch";
+          P.live.push(P.net.watchState((sn) => engine.current?.matchApply(sn)));
+        }
+        // the host fills empty places from the bench, or with the computer
+        if (P.host && P.playing === "play") {
+          const next = { ...slots };
+          let changed = false;
+          const queue = Object.entries(r.queue).sort((a, b) => a[1].at - b[1].at);
+          for (const k of [...SLOT_KEYS[0], ...SLOT_KEYS[1]]) {
+            const v = next[k];
+            if (v && !r.players[v.uid]) {
+              const q = queue.shift();
+              next[k] = q ? { uid: q[0], name: q[1].name } : null;
+              if (q) {
+                void P.net.setPlayer(q[0], {
+                  name: q[1].name,
+                  team: SLOT_KEYS[0].includes(k) ? 0 : 1,
+                  at: Date.now(),
+                });
+                void P.net.setQueued(q[0], null);
+              }
+              e.matchSetCtrl(k, q ? "remote" : "cpu", q ? q[1].name : "Computer");
+              changed = true;
+            }
+          }
+          if (changed) void P.net.setRoom({ slots: next });
+        }
+      } else if (P.playing === "watch") {
+        stopLive();
+        e.endMatch();
+        setWatching(null);
+      } else if (P.playing === "play" && !P.host && room?.status === "over" && !matchDone.current) {
+        // the phone running the match went away
+        stopLive();
+        e.endMatch();
+        setMatch(null);
+        toast("The match stopped: the player running it left.", "warn");
+      }
+      void prev;
+    },
+    [stopLive, toast],
+  );
+  const onPitchRoomRef = useRef(onPitchRoom);
+  onPitchRoomRef.current = onPitchRoom;
+  /** Join the pitch: start a match, join a team, or wait on the bench. */
+  const joinPitch = useCallback(
+    async (zoneId: string) => {
+      const uid = onlineRef.current?.uid;
+      const name = saveRef.current.profile?.name ?? "Player";
+      if (!uid) {
+        toast("Log in to IlmStation to play with other players.", "warn");
+        return;
+      }
+      if (pitch.current) await leavePitch();
+      setPanel(null);
+      let net: PitchNet;
+      try {
+        const local =
+          import.meta.env.DEV &&
+          new URLSearchParams(window.location.search).get("online") === "local";
+        net = local ? connectPitchLocal(zoneId, uid) : await connectPitch(zoneId, uid);
+      } catch {
+        toast("Live football isn't switched on yet. Play the computer for now.", "warn");
+        return;
+      }
+      pitch.current = {
+        zone: zoneId,
+        net,
+        off: () => {},
+        live: [],
+        playing: "none",
+        host: false,
+        room: null,
+      };
+      let first = true;
+      let latest: PitchRoom | null = null;
+      pitch.current.off = net.watch(async (r) => {
+        latest = r;
+        if (first) {
+          first = false;
+          try {
+            const status = r.room?.status;
+            if (!r.room || status === "over") {
+              if (await net.claim()) await net.join(name, 0);
+            } else if (status === "waiting") {
+              const n = [0, 0];
+              for (const v of Object.values(r.players)) n[v.team]++;
+              if (n[0] >= MAX_PER_TEAM && n[1] >= MAX_PER_TEAM) await net.enqueue(name);
+              else await net.join(name, n[1] < n[0] ? 1 : 0);
+            } else {
+              await net.enqueue(name);
+              engine.current?.goToBench(zoneId);
+            }
+          } catch {
+            toast("Live football isn't switched on yet. Play the computer for now.", "warn");
+            void leavePitch();
+            return;
+          }
+          // joining changed the room: show the newest version, not the one from before
+          if (latest) onPitchRoomRef.current(latest);
+          return;
+        }
+        onPitchRoomRef.current(r);
+      });
+    },
+    [toast, leavePitch],
+  );
+  // full time: rewards, then back to the side of the pitch
   useEffect(() => {
-    const o = onlineRef.current;
-    if (!o) return;
-    const seenInv = new Set<string>();
-    return o.watchInvites((list) => {
-      for (const m of list) {
-        if (seenInv.has(m.id)) continue;
-        seenInv.add(m.id);
-        const from = m.names[m.a] ?? "A player";
-        toast(`⚽ ${from} invites you to a football match!`, "good");
+    if (!match || match.phase !== "over" || matchDone.current) return;
+    matchDone.current = true;
+    const pts = match.myGoals * FOOTBALL.perGoal + (match.won ? FOOTBALL.win : 0);
+    const t = setTimeout(() => {
+      update((x) => ({ ...x, coins: x.coins + pts }));
+      need({ energy: -15, social: 18, hunger: -10 });
+      toast(
+        `${match.won ? "Victory!" : match.draw ? "A draw!" : "Good game!"} +${pts} points`,
+        "good",
+      );
+      const P = pitch.current;
+      if (P && P.playing === "play") {
+        stopLive();
+        if (P.host) void P.net.setRoom({ status: "over", slots: null });
+      }
+      engine.current?.endMatch();
+      setMatch(null);
+    }, 3500);
+    return () => clearTimeout(t);
+  }, [match, update, need, toast, stopLive]);
+  const openFootball = useCallback(
+    (zoneId: string) => {
+      if (!saveRef.current.jersey) {
         setPanel({
           kind: "info",
-          title: "Match invite",
+          title: "⚽ You need a jersey",
           body: (
-            <MatchInvite
-              from={from}
-              onAccept={() => {
-                void o.setMatch(m.id, { status: "playing" });
-                playMatch({ kind: "online", online: o, id: m.id });
-              }}
-              onDecline={() => {
-                void o.setMatch(m.id, { status: "declined" });
-                setPanel(null);
-              }}
-            />
+            <div className="space-y-3">
+              <p className="text-[14px]">
+                Players wear their team's jersey on the pitch. Buy your football kit once: you
+                change into your team's colours for each match, and back into your own clothes when
+                you leave.
+              </p>
+              <button
+                disabled={saveRef.current.coins < JERSEY_PRICE}
+                onClick={() => {
+                  if (saveRef.current.coins < JERSEY_PRICE) return;
+                  update((x) => ({ ...x, coins: x.coins - JERSEY_PRICE, jersey: true }));
+                  toast(`Football kit bought! −${JERSEY_PRICE} points`, "good");
+                  setTimeout(() => openFootballRef.current(zoneId), 0);
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+              >
+                👕 Buy football kit · {JERSEY_PRICE} points
+              </button>
+              {saveRef.current.coins < JERSEY_PRICE && (
+                <p className="text-[12.5px] opacity-75">
+                  You have {saveRef.current.coins} points. Earn more at the mosque, a lecture or the
+                  quiz.
+                </p>
+              )}
+            </div>
           ),
         });
+        return;
       }
-    });
-  }, [onlineReady, playMatch, toast]);
+      setPanel({
+        kind: "info",
+        title: "Football pitch",
+        body: (
+          <div className="space-y-2">
+            <button
+              onClick={() => startPitchMatch(zoneId)}
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
+            >
+              ⚽ Play now · 3 vs 3 against IlmWorld FC
+              <span className="block text-[12px] font-medium opacity-80">
+                You, a teammate and a keeper. Run with the stick or tap; Pass and Shoot buttons.
+              </span>
+            </button>
+            <button
+              onClick={() => void joinPitch(zoneId)}
+              className="w-full rounded-xl bg-[#e6b84a] px-4 py-3 text-left font-bold text-[#2a1c05]"
+            >
+              👥 Play with other players · Team A vs Team B
+              <span className="block text-[12px] font-medium opacity-80">
+                Up to 3 a side. If a match is on, wait on the bench or go to another pitch.
+              </span>
+            </button>
+            <p className="text-[12px] opacity-70">
+              +{FOOTBALL.perGoal} points a goal, +{FOOTBALL.win} for the win.
+            </p>
+          </div>
+        ),
+      });
+    },
+    [startPitchMatch, joinPitch, update, toast],
+  );
+  const openFootballRef = useRef(openFootball);
+  openFootballRef.current = openFootball;
 
   /* ---------- live from the admin: adverts, award, nasheeds ---------- */
   const adsRef = useRef<Record<string, NonNullable<(typeof BILLBOARDS)[number]["ad"]>>>({});
@@ -892,10 +1373,11 @@ function CityGame({
   loggedInRef.current = loggedIn;
 
   const openPlaces = useCallback(
-    (area: string) => {
+    (area: string, phone = false) => {
       setNewArea(null);
       setPanel({
         kind: "info",
+        phone: phone ? { home: () => openPhoneRef.current() } : undefined,
         title: `Places in ${fullName(districtById(area))}`,
         body: (
           <PlacesView
@@ -910,6 +1392,81 @@ function CityGame({
     },
     [toast],
   );
+  openPlacesRef.current = openPlaces;
+
+  /** Ride to another area (bus fare, or free in your car); optionally walk to a place on arrival. */
+  const startTrip = useCallback(
+    (to: string, byCar: boolean, then?: string) => {
+      const e = engine.current;
+      if (!e) return;
+      if (!byCar && saveRef.current.coins < BUS_FARE) {
+        toast(
+          `The bus fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`,
+          "warn",
+        );
+        return;
+      }
+      const here = e.districtId();
+      setPanel(null);
+      const d = districtById(to);
+      arriveRef.current = () => {
+        e.travel(to, byCar);
+        advance(4);
+        advance(3);
+        setDriving(false);
+        setInside(false);
+        update((x) => ({
+          ...x,
+          coins: byCar ? x.coins : x.coins - BUS_FARE,
+          district: to,
+          car: byCar ? e.carPos() : x.car,
+          pos: undefined,
+        }));
+        setTravelling(null);
+        setArriving(d.name);
+        if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
+      };
+      setTravelling({ from: here, to, byCar });
+    },
+    [toast, advance, update],
+  );
+  const tripRef = useRef(startTrip);
+  tripRef.current = startTrip;
+  const openOutings = useCallback(
+    (phone = false, tab = "now") => {
+      const e = engine.current;
+      const here = e?.districtId() ?? "lekki";
+      setPanel({
+        kind: "info",
+        phone: phone ? { home: () => openPhoneRef.current() } : undefined,
+        title: "OutingStation",
+        body: (
+          <OutingView
+            here={here}
+            clock={clockRef.current}
+            driving={!!e?.isDriving()}
+            coins={saveRef.current.coins}
+            has={(id) => !!engine.current?.hasZone(id)}
+            tab0={tab}
+            onGo={(area, prefix) => {
+              if (!prefix) {
+                if (area === here) toast("You are already here.");
+                else tripRef.current(area, !!engine.current?.isDriving());
+                return;
+              }
+              if (area === here) {
+                setPanel(null);
+                if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
+              } else tripRef.current(area, !!engine.current?.isDriving(), prefix);
+            }}
+          />
+        ),
+      });
+    },
+    [toast],
+  );
+  const openOutingsRef = useRef(openOutings);
+  openOutingsRef.current = openOutings;
 
   // new day resets the daily salah tracker
   useEffect(() => {
@@ -970,6 +1527,34 @@ function CityGame({
         });
         return;
       }
+      const lod = saveRef.current.lodging;
+      if (lod && lod.plot === pid && lod.until > Date.now() && !saveRef.current.plots?.[pid]) {
+        const days = Math.ceil((lod.until - Date.now()) / 86400000);
+        setPanel({
+          kind: "info",
+          title: "Your room",
+          body: (
+            <div className="space-y-3">
+              <p>
+                You rent a room in {lod.owner}'s house at {lod.label}. {days} day
+                {days === 1 ? "" : "s"} left this week.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  e.enterInterior("home", `Your room · ${lod.label}`);
+                  setInside(true);
+                  sayDhikr("enterHome");
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                Go inside
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       const setOwn = (next: PlotOwn) => {
         update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
         e.setPlot(pid, plotStateFn(next) ?? { kind: p.kind === "land" ? "land" : "tolet" });
@@ -993,6 +1578,56 @@ function CityGame({
               plot={p}
               own={own}
               points={saveRef.current.coins}
+              players={
+                roomsNet.current && uid
+                  ? {
+                      ads: myAds.current.filter((a) => a.plot === pid),
+                      onList: (i) => {
+                        const net = roomsNet.current!;
+                        void net
+                          .list(uid, pid, i, {
+                            owner: uid,
+                            ownerName: saveRef.current.profile?.name ?? "Player",
+                            plot: pid,
+                            area: p.district,
+                            label: `No. ${p.number}, ${p.street}, ${districtById(p.district).name}`,
+                            i,
+                            rent: ROOM_RENT_WEEK,
+                            tenant: null,
+                            tenantName: null,
+                          })
+                          .then(() => {
+                            myAds.current = [
+                              ...myAds.current.filter((a) => a.id !== roomId(uid, pid, i)),
+                              {
+                                id: roomId(uid, pid, i),
+                                owner: uid,
+                                ownerName: "",
+                                plot: pid,
+                                area: p.district,
+                                label: "",
+                                i,
+                                rent: ROOM_RENT_WEEK,
+                                at: Date.now(),
+                              },
+                            ];
+                            toast(
+                              "Your room is listed. Players can find it in 📱 Phone → Rooms.",
+                              "good",
+                            );
+                            render();
+                          })
+                          .catch(() => toast("Couldn't list the room. Try again.", "warn"));
+                      },
+                      onUnlist: (id) => {
+                        void roomsNet.current!.unlist(id).then(() => {
+                          myAds.current = myAds.current.filter((a) => a.id !== id);
+                          render();
+                        });
+                      },
+                    }
+                  : undefined
+              }
               onPay={(pts, next, msg) => {
                 if (saveRef.current.coins < pts) return;
                 update((x) => ({ ...x, coins: x.coins - pts }));
@@ -1043,7 +1678,7 @@ function CityGame({
       };
       render();
     },
-    [toast, update],
+    [toast, update, sayDhikr, uid],
   );
 
   /** Paint every shop and stall: yours, the market's traders, or "for rent". */
@@ -1056,12 +1691,14 @@ function CityGame({
         name: own.name || "My shop",
         imgs: own.products.map((p) => p.img),
         open: true,
+        label: `Your shop · ${own.name || "My shop"}`,
       });
     else if (trader && info?.kind === "stall")
       e.setShop(sid, {
         name: trader.name,
         imgs: trader.items.map(([em]) => emojiPic(em)),
         open: true,
+        label: `Buy from ${trader.name}`,
       });
     else e.setShop(sid, { open: false });
   }, []);
@@ -1099,17 +1736,7 @@ function CityGame({
               where={`${info.street}, ${fullName(D)}`}
               own={own}
               trader={trader}
-              onFood={() => {
-                if (saveRef.current.coins < 5) {
-                  toast("A meal costs 5 points.", "warn");
-                  return;
-                }
-                update((x) => ({ ...x, coins: x.coins - 5 }));
-                need({ hunger: 40 });
-                doTask("eat");
-                setPanel(null);
-                toast("Bismillah… delicious! Alhamdulillah. −5 points", "good");
-              }}
+              onFood={() => openFood("eatery")}
               points={saveRef.current.coins}
               onCollect={() => {
                 const o2 = saveRef.current.shops?.[sid];
@@ -1165,7 +1792,7 @@ function CityGame({
       };
       render();
     },
-    [toast, update, paintShop, doTask, need],
+    [toast, update, paintShop, openFood, doTask],
   );
 
   /** Step-by-step wudu; `then` runs after (for example, the prayer you were about to start). */
@@ -1296,6 +1923,339 @@ function CityGame({
       onlineRef.current = null;
     };
   }, [uid, adult]);
+
+  /* ---------- rooms to let between players ---------- */
+  const roomsNet = useRef<RoomsNet | null>(null);
+  const myAds = useRef<RoomAd[]>([]);
+  useEffect(() => {
+    if (!uid) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    let live = true;
+    (local ? Promise.resolve(connectRoomsLocal()) : connectRooms())
+      .then((net) => {
+        if (!live) return;
+        roomsNet.current = net;
+        off = net.watchMine(uid, (ads) => {
+          myAds.current = ads;
+          // a player rented one of your rooms: collect the week's rent
+          for (const a of ads)
+            if (a.tenant && !a.paid && (a.until ?? 0) > Date.now()) {
+              void net.collected(a.id).catch(() => {});
+              update((x) => {
+                const own = x.plots?.[a.plot];
+                const plots = { ...x.plots };
+                if (own && (own.kind === "built" || own.kind === "bought")) {
+                  const rooms = [...(own.rooms ?? [])];
+                  rooms[a.i] = {
+                    tenant: `${a.tenantName ?? "A player"} (player)`,
+                    until: a.until!,
+                  };
+                  plots[a.plot] = { ...own, rooms };
+                }
+                return { ...x, coins: x.coins + a.rent, plots };
+              });
+              toast(
+                `${a.tenantName ?? "A player"} rented Room ${a.i + 1} at ${a.label}. +${a.rent} points rent!`,
+                "good",
+              );
+            }
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [uid, update, toast]);
+  const openRooms = useCallback(() => {
+    const net = roomsNet.current;
+    setPanel({
+      kind: "info",
+      title: "🔑 Rooms to let",
+      phone: { home: () => openPhoneRef.current() },
+      body:
+        !net || !uid ? (
+          <p className="text-[14px]">Log in to IlmStation to rent a room from other players.</p>
+        ) : (
+          <RoomsMarketView
+            net={net}
+            me={uid}
+            points={saveRef.current.coins}
+            lodging={saveRef.current.lodging}
+            onRent={async (r) => {
+              if (saveRef.current.coins < r.rent) {
+                toast(
+                  `The rent is ${r.rent} points a week. You have ${saveRef.current.coins}.`,
+                  "warn",
+                );
+                return;
+              }
+              const got = await net
+                .rent(r.id, { uid, name: saveRef.current.profile?.name ?? "Player" })
+                .catch(() => null);
+              if (!got) {
+                toast("Someone just rented that room. Try another.", "warn");
+                return;
+              }
+              update((x) => ({
+                ...x,
+                coins: x.coins - r.rent,
+                lodging: {
+                  id: r.id,
+                  plot: r.plot,
+                  area: r.area,
+                  label: r.label,
+                  until: got.until!,
+                  owner: r.ownerName,
+                },
+              }));
+              setPanel(null);
+              toast(`You rented a room at ${r.label}. −${r.rent} points. Welcome home!`, "good");
+            }}
+            onGo={(l) => {
+              setPanel(null);
+              const e = engine.current;
+              if (!e) return;
+              if (e.districtId() === l.area) {
+                if (!e.goToZone("plot:" + l.plot)) toast("Go outside first, then try again.");
+              } else tripRef.current(l.area, e.isDriving(), "plot:" + l.plot);
+            }}
+          />
+        ),
+    });
+  }, [uid, toast, update]);
+  const openRoomsRef = useRef(openRooms);
+  openRoomsRef.current = openRooms;
+
+  /* ---------- homes on show: visits and likes ---------- */
+  const homes = useRef<Homes | null>(null);
+  const [visiting, setVisiting] = useState<(ShownHome & { liked?: boolean }) | null>(null);
+  const visitingRef = useRef(visiting);
+  visitingRef.current = visiting;
+  const myPlace = () => {
+    const s = saveRef.current;
+    const a = districtById(s.homeArea ?? "lekki").name;
+    return s.homePlot ? `Family house · ${a}` : `Flat · ${a}`;
+  };
+  const publishHome = useCallback(() => {
+    const h = homes.current;
+    const s = saveRef.current;
+    if (!h || !uid || !s.profile || !(s.items ?? []).length) return;
+    void h
+      .publish({ uid, name: s.profile.name, place: myPlace(), items: s.items ?? [] })
+      .catch(() => {});
+  }, [uid]);
+  useEffect(() => {
+    if (!uid) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let live = true;
+    (local ? Promise.resolve(connectHomesLocal()) : connectHomes())
+      .then((h) => {
+        if (!live) return;
+        homes.current = h;
+        publishHome();
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [uid, publishHome]);
+  const visitHome = useCallback(
+    async (h: ShownHome) => {
+      const e = engine.current;
+      if (!e) return;
+      if (h.uid === uid) {
+        toast("That's your own home!");
+        return;
+      }
+      setPanel(null);
+      if (e.scenePlace() !== "out") e.exitInterior();
+      e.enterInterior("home", `${h.name}'s home`);
+      e.setHomeItems(h.items);
+      setInside(true);
+      tuneRef.current();
+      sayDhikr("enterHome");
+      const liked = uid ? await homes.current?.liked(h.uid, uid).catch(() => false) : false;
+      setVisiting({ ...h, liked: !!liked });
+    },
+    [uid, toast, sayDhikr],
+  );
+  const endVisit = useCallback(() => {
+    if (!visitingRef.current) return;
+    engine.current?.setHomeItems(saveRef.current.items ?? []);
+    setVisiting(null);
+  }, []);
+  const likeHome = useCallback(async () => {
+    const v = visitingRef.current;
+    if (!v || !uid || v.liked) return;
+    setVisiting({ ...v, liked: true, likes: v.likes + 1 });
+    const ok = await homes.current?.like(v.uid, uid).catch(() => false);
+    if (ok) {
+      toast(`You liked ${v.name}'s home ❤️`, "good");
+      need({ social: 6 });
+    } else setVisiting({ ...v, liked: false });
+  }, [uid, toast, need]);
+  const openHomes = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🏠 Homes",
+      phone: { home: () => openPhoneRef.current() },
+      body: !homes.current ? (
+        <p className="text-[14px]">Log in to IlmStation to visit and like other players' homes.</p>
+      ) : (
+        <HomesView
+          homes={homes.current}
+          me={uid}
+          myItems={(saveRef.current.items ?? []).length}
+          onVisit={(h) => void visitHome(h)}
+        />
+      ),
+    });
+  }, [uid, visitHome]);
+  const openHomesRef = useRef(openHomes);
+  openHomesRef.current = openHomes;
+
+  /* ---------- phone calls ---------- */
+  const callNet = useRef<CallNet | null>(null);
+  const callObj = useRef<VoiceCall | null>(null);
+  const [call, setCall] = useState<CallUi | null>(null);
+  const [incoming, setIncoming] = useState<CallDoc | null>(null);
+  const logCall = useCallback(
+    (name: string, number: string, dir: "in" | "out" | "missed") =>
+      update((x) => ({
+        ...x,
+        calls: [{ name, number, at: Date.now(), dir }, ...(x.calls ?? [])].slice(0, 30),
+      })),
+    [update],
+  );
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || callNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    let live = true;
+    (local ? Promise.resolve(connectCallsLocal(o.uid)) : connectCalls(o.uid))
+      .then((net) => {
+        if (!live) return;
+        callNet.current = net;
+        const name = saveRef.current.profile?.name ?? "Player";
+        void net.register({ uid: o.uid, name, number: numberFor(o.uid) }).catch(() => {});
+        off = net.watchIncoming((list) => {
+          const c = list.find((x) => !myStatus.current?.blocked.includes(x.from));
+          for (const x of list)
+            if (myStatus.current?.blocked.includes(x.from)) VoiceCall.decline(net, x);
+          if (c && callObj.current && callObj.current.ui.state !== "ended") {
+            VoiceCall.decline(net, c);
+            return;
+          }
+          setIncoming(c ?? null);
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [onlineReady]);
+  useEffect(() => {
+    radio.hushIf("call", !!call && call.state !== "ended");
+    if (call?.state !== "ended") return;
+    const t = setTimeout(() => setCall(null), 2200);
+    return () => clearTimeout(t);
+  }, [call]);
+  const dial = useCallback(
+    async (to: PhoneEntry) => {
+      const net = callNet.current;
+      if (!net) {
+        toast("Calls need you to be logged in (18+).", "warn");
+        return;
+      }
+      if (to.uid === net.uid) {
+        toast("That's your own number!");
+        return;
+      }
+      setPanel(null);
+      try {
+        callObj.current = await VoiceCall.dial(
+          net,
+          { name: saveRef.current.profile?.name ?? "Player" },
+          to,
+          setCall,
+        );
+        logCall(to.name, to.number, "out");
+      } catch {
+        toast("Allow the microphone to make calls.", "warn");
+      }
+    },
+    [toast, logCall],
+  );
+  const acceptCall = useCallback(async () => {
+    const net = callNet.current;
+    const c = incoming;
+    if (!net || !c) return;
+    setIncoming(null);
+    try {
+      callObj.current = await VoiceCall.answer(net, c, setCall);
+      logCall(c.fromName, numberFor(c.from), "in");
+    } catch {
+      VoiceCall.decline(net, c);
+      toast("Allow the microphone to answer calls.", "warn");
+    }
+  }, [incoming, toast, logCall]);
+  const declineCall = useCallback(() => {
+    const net = callNet.current;
+    if (net && incoming) {
+      VoiceCall.decline(net, incoming);
+      logCall(incoming.fromName, numberFor(incoming.from), "missed");
+    }
+    setIncoming(null);
+  }, [incoming, logCall]);
+  const openCalls = useCallback(
+    (tab: "calls" | "contacts") => {
+      const net = callNet.current;
+      setPanel({
+        kind: "info",
+        title: tab === "calls" ? "📞 Calls" : "👥 Contacts",
+        phone: { home: () => openPhoneRef.current() },
+        body: !net ? (
+          <p className="text-[14px]">
+            Calls and contacts are for players who are logged in to IlmStation and 18 or older.
+          </p>
+        ) : (
+          <CallsView
+            tab={tab}
+            myNumber={numberFor(net.uid)}
+            contacts={saveRef.current.contacts ?? []}
+            log={saveRef.current.calls ?? []}
+            lookup={(n) => net.lookup(n)}
+            onCall={(e) => void dial(e)}
+            onMessage={(e) => {
+              setPanel(null);
+              openChatRef.current({ uid: e.uid, name: e.name });
+            }}
+            onSave={(e) =>
+              update((x) => ({
+                ...x,
+                contacts: [...(x.contacts ?? []).filter((c) => c.number !== e.number), e],
+              }))
+            }
+            onRemove={(n) =>
+              update((x) => ({
+                ...x,
+                contacts: (x.contacts ?? []).filter((c) => c.number !== n),
+              }))
+            }
+          />
+        ),
+      });
+    },
+    [dial, update],
+  );
+  openCallsRef.current = openCalls;
   const unread = inbox.filter(
     (c) => c.lastFrom !== uid && c.lastText && c.lastAt > chatSeen(c.id),
   ).length;
@@ -1520,6 +2480,58 @@ function CityGame({
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
+      // too hungry to do anything but eat (salah and the way home are still open)
+      if (visitingRef.current && id !== "exit") {
+        toast("You're visiting. Use these in your own home.");
+        return;
+      }
+      const allowed =
+        id === "exit" ||
+        id === "eat" ||
+        id === "pray" ||
+        id === "prayermat" ||
+        id === "bath" ||
+        id === "quran" ||
+        id === "quiz" ||
+        id.startsWith("door:") ||
+        id.startsWith("eatery:") ||
+        id.startsWith("talk:");
+      if (hungryRef.current && !allowed && (foodRef.current.delivery || foodRef.current.meal)) {
+        const f = foodRef.current;
+        if (f.delivery)
+          toast(
+            f.delivery.outside
+              ? "Your rider is outside. Go out and collect your food first."
+              : "Your food is on the way. Wait for the rider, then eat.",
+          );
+        else if (f.meal) {
+          if (e.scenePlace() === "out") {
+            toast("Go home and eat your food first.");
+            e.goToZone("door:home:");
+          } else openMealRef.current(f.meal);
+        }
+        return;
+      }
+      if (hungryRef.current && !allowed) {
+        setPanel({
+          kind: "info",
+          title: "I'm hungry 😩",
+          body: (
+            <HungryView
+              onOrder={() => openFood("order")}
+              onEatery={() => {
+                setPanel(null);
+                if (!e.goToZone("eatery:")) toast("Go outside first, then try again.");
+              }}
+            />
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("eatery:")) {
+        openFood("eatery");
+        return;
+      }
       const job = JOBS.find((j) => j.id === s.job);
       if (job && id.startsWith(job.at) && s.worked !== c.key && !workSkip.current) {
         if (!onShift(job, c)) {
@@ -1679,7 +2691,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("field:")) {
-        openFootballRef.current();
+        openFootballRef.current(id);
         return;
       }
       if (id.startsWith("found:")) {
@@ -1783,13 +2795,42 @@ function CityGame({
           return;
         }
         setPanel({
-          kind: "busy",
-          title: "Skipping rope with the sisters",
-          ms: 4000,
-          done: () => {
-            need({ energy: -8, social: 18, hunger: -5 });
-            toast("Bismillah… 1, 2, 3… you skipped 40 times! Masha Allah.", "good");
-          },
+          kind: "info",
+          title: "🪢 Skipping rope",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13.5px] opacity-80">
+                Two sisters turn the rope and one jumps. Swap whenever you like.
+              </p>
+              <button
+                onClick={() => void playRope(id, "jump")}
+                className="w-full rounded-xl bg-[#8a2f4f] px-4 py-3 text-left font-bold text-white"
+              >
+                🦘 Jump in
+                <span className="block text-[12px] font-normal opacity-80">
+                  Tap Jump as the rope comes under your feet
+                </span>
+              </button>
+              <button
+                onClick={() => void playRope(id, "turn")}
+                className="w-full rounded-xl border border-[#8a2f4f]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                🤲 Turn the rope
+                <span className="block text-[12px] font-normal opacity-70">
+                  Tap Turn each time the rope is at the top
+                </span>
+              </button>
+              <button
+                onClick={() => void playRope(id, "together")}
+                className="w-full rounded-xl border border-[#8a2f4f]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                👭 Play with other sisters here
+                <span className="block text-[12px] font-normal opacity-70">
+                  Real players share one rope and take turns to jump
+                </span>
+              </button>
+            </div>
+          ),
         });
         return;
       }
@@ -2112,9 +3153,16 @@ function CityGame({
               <button
                 onClick={() => {
                   setPanel(null);
-                  update((x) => ({ ...x, wudu: false }));
-                  toast(
-                    'Entering: "Allahumma inni a\'udhu bika minal-khubuthi wal-khaba\'ith." Leaving: "Ghufranak."',
+                  sayDhikr("enterToilet", () =>
+                    setPanel({
+                      kind: "busy",
+                      title: "Using the toilet",
+                      ms: 3000,
+                      done: () => {
+                        update((x) => ({ ...x, wudu: false }));
+                        sayDhikr("leaveToilet", () => {});
+                      },
+                    }),
                   );
                 }}
                 className="w-full rounded-xl border border-[#1f6f63]/30 bg-white px-4 py-3 text-left font-bold"
@@ -2142,6 +3190,50 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("dealer:")) {
+        setPanel({
+          kind: "info",
+          title: "🚗 IlmMotors",
+          body: (
+            <DealerView
+              points={saveRef.current.coins}
+              mine={saveRef.current.ride}
+              onBuy={(kind, color, price) => {
+                if (saveRef.current.coins < price) {
+                  setPanel({
+                    kind: "info",
+                    title: "Not enough points",
+                    body: <NoPointsView price={price} points={saveRef.current.coins} />,
+                  });
+                  return;
+                }
+                update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
+                e.setCar(kind, color);
+                setPanel(null);
+                toast(
+                  `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
+                  "good",
+                );
+              }}
+            />
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("door:mall:")) {
+        e.enterInterior("mall", "IlmWorld Mall");
+        setInside(true);
+        tuneRef.current();
+        sayDhikr("market", undefined, true);
+        return;
+      }
+      if (id.startsWith("door:restaurant:")) {
+        e.enterInterior("restaurant", "Al-Ma'idah Restaurant");
+        setInside(true);
+        tuneRef.current();
+        toast("Assalamu alaikum! Order at the counter, then sit and eat.");
+        return;
+      }
       if (id.startsWith("door:madrasah:")) {
         e.enterInterior("madrasah", landmarkName(id.slice(14)));
         setInside(true);
@@ -2149,6 +3241,7 @@ function CityGame({
       }
       if (id === "exit") {
         const was = e.scenePlace();
+        endVisit();
         e.exitInterior();
         setInside(false);
         tuneRef.current();
@@ -2173,49 +3266,20 @@ function CityGame({
         const carHere = e.carHere();
         const inCar = e.isDriving();
         const go = (to: string, byCar: boolean) => {
-          if (!byCar && saveRef.current.coins < BUS_FARE) {
-            toast(
-              `The bus fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`,
-              "warn",
-            );
-            return;
-          }
-          setPanel(null);
-          const d = districtById(to);
-          arriveRef.current = () => {
-            e.travel(to, byCar);
-            advance(4);
-            advance(3);
-            setDriving(false);
-            setInside(false);
-            update((x) => ({
-              ...x,
-              coins: byCar ? x.coins : x.coins - BUS_FARE,
-              district: to,
-              car: byCar ? e.carPos() : x.car,
-              pos: undefined,
-            }));
-            setTravelling(null);
-            setArriving(d.name);
-          };
-          setTravelling({ from: here, to, byCar });
+          tripRef.current(to, byCar);
         };
         setPanel({
           kind: "info",
           title: inCar ? "Where are you driving?" : "Where are you going?",
           body: (
             <div className="grid gap-2">
-              {DISTRICTS.filter((d) => d.id !== here).map((d) => (
-                <div key={d.id} className="rounded-xl border border-[#10201e]/15 p-3">
-                  <div className="font-bold">
-                    {d.name}, {d.state}
-                  </div>
-                  <div className="text-[12.5px] opacity-75">
-                    {d.landmarks
-                      .filter((l) => l.kind !== "home")
-                      .map((l) => l.name)
-                      .join(" · ") || "Homes and shops"}
-                  </div>
+              {travelOptions(here).map(({ d, title, sub, local }) => (
+                <div
+                  key={d.id}
+                  className={`rounded-xl border p-3 ${local ? "border-[#1f6f63]/40 bg-[#1f6f63]/5" : "border-[#10201e]/15"}`}
+                >
+                  <div className="font-bold">{title}</div>
+                  <div className="text-[12.5px] opacity-75">{sub}</div>
                   <div className="mt-2 flex gap-2">
                     {!inCar && (
                       <button
@@ -2361,16 +3425,10 @@ function CityGame({
         return;
       }
       if (id === "eat") {
-        setPanel({
-          kind: "busy",
-          title: "Bismillah… cooking jollof rice",
-          ms: 3000,
-          done: () => {
-            need({ hunger: 60 });
-            doTask("eat");
-            sayDhikr("afterEating");
-          },
-        });
+        // the dining table: eat the food you collected, or order some
+        const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
+        if (m) openMealRef.current(m);
+        else openFood("order");
         return;
       }
       if (id === "prayermat") {
@@ -2432,6 +3490,8 @@ function CityGame({
       }
     },
     [
+      playRope,
+      endVisit,
       greeted,
       startWork,
       toast,
@@ -2447,6 +3507,7 @@ function CityGame({
       need,
       sayDhikr,
       handIn,
+      openFood,
     ],
   );
 
@@ -2492,6 +3553,7 @@ function CityGame({
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
+    if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
     // every visit starts at home: you are only out in the city while you are playing
     {
       const sv = saveRef.current;
@@ -2698,8 +3760,9 @@ function CityGame({
     .map((l) => lectureNow(l.id, clock))
     .find(Boolean);
 
+  openChatRef.current = (o) => void openChatWith(o);
   const goal =
-    save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride
+    save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride && !delivery && !meal
       ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? "lekki")
       : null;
   const runGoal = (g: Goal) => {
@@ -2786,6 +3849,7 @@ function CityGame({
               const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
               update((x) => ({ ...x, coins: x.coins - pts, items }));
               engine.current?.setHomeItems(items);
+              setTimeout(() => publishHome(), 0);
               setPanel(null);
               toast(
                 `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${pts} points`,
@@ -2965,6 +4029,14 @@ function CityGame({
             )}
           </button>
           {save.profile && (
+            <button
+              onClick={openPhone}
+              className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+            >
+              📱 Phone
+            </button>
+          )}
+          {save.profile && (
             <div className="pointer-events-auto flex max-w-[170px] items-center gap-1 rounded-xl bg-[#10201e]/85 py-1 pl-2.5 pr-1 text-[11.5px] font-semibold text-[#fdf8ec] shadow">
               <button
                 onClick={openRadio}
@@ -3001,6 +4073,160 @@ function CityGame({
           )}
         </div>
       </div>
+      {pitchRoom && !match && pitch.current && (
+        <PitchLobby
+          r={pitchRoom}
+          me={pitch.current.net.uid}
+          watching={watching}
+          others={(() => {
+            const e = engine.current;
+            const here = pitch.current?.zone;
+            if (!e) return [];
+            const p0 = e.playerPos();
+            return [...e.pitches.entries()]
+              .filter(([id]) => id !== here)
+              .map(([id, p]) => ({ id, d: Math.hypot(p.x - p0.x, p.z - p0.z) }))
+              .sort((a, b) => a.d - b.d)
+              .slice(0, 3)
+              .map(({ id, d }) => ({
+                id,
+                name: `${districtById(id.replace(/^field:/, "").replace(/-(pitch|field)$/, "")).name} pitch`,
+                km: d / 1000,
+              }));
+          })()}
+          onTeam={(t) => {
+            const P = pitch.current;
+            if (!P) return;
+            const n = Object.values(pitchRoom.players).filter((v) => v.team === t).length;
+            if (n >= MAX_PER_TEAM) return toast("That team is full.");
+            void P.net.join(saveRef.current.profile?.name ?? "Player", t);
+          }}
+          onKickoff={() => {
+            const P = pitch.current;
+            if (!P) return;
+            const slots: Record<string, { uid: string; name: string } | null> = {};
+            ([0, 1] as const).forEach((t) => {
+              const ps = Object.entries(pitchRoom.players)
+                .filter(([, v]) => v.team === t)
+                .sort((a, b) => a[1].at - b[1].at);
+              SLOT_KEYS[t].forEach((k, i) => {
+                slots[k] = ps[i] ? { uid: ps[i][0], name: ps[i][1].name } : null;
+              });
+            });
+            void P.net.setRoom({ status: "playing", slots, at: Date.now() });
+          }}
+          onRestart={() => {
+            const z = pitch.current?.zone;
+            if (z) void joinPitch(z);
+          }}
+          onGo={(id) => {
+            void leavePitch().then(() => {
+              engine.current?.goToBench(id);
+              openFootballRef.current(id);
+            });
+          }}
+          onLeave={() => void leavePitch()}
+        />
+      )}
+      {visiting && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center px-3"
+        >
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-[#10201e]/90 py-1.5 pl-4 pr-1.5 text-[13px] text-[#fdf8ec] shadow-xl">
+            <span className="font-bold">🏠 {visiting.name}'s home</span>
+            <span className="opacity-80">❤️ {visiting.likes}</span>
+            <button
+              onClick={() => void likeHome()}
+              disabled={visiting.liked}
+              className="rounded-full bg-[#c0392b] px-3 py-1.5 font-bold disabled:opacity-60"
+            >
+              {visiting.liked ? "Liked ❤️" : "❤️ Like"}
+            </button>
+          </div>
+        </div>
+      )}
+      {incoming && !call && (
+        <IncomingCall
+          from={incoming.fromName}
+          onAccept={() => void acceptCall()}
+          onDecline={declineCall}
+        />
+      )}
+      {call && (
+        <CallScreen
+          c={call}
+          onMute={(m) => callObj.current?.mute(m)}
+          onHangUp={() => callObj.current?.hangUp()}
+        />
+      )}
+      {rope && (
+        <RopeHud
+          r={rope}
+          onTap={() => engine.current?.ropeTap()}
+          onAgain={(role) => {
+            ropeOut.current = false;
+            engine.current?.ropeAgain(role);
+          }}
+          onLeave={leaveRope}
+        />
+      )}
+      {match && (
+        <MatchHud
+          m={match}
+          act={(a) => engine.current?.matchAction(a)}
+          onLeave={() => {
+            if (pitch.current) void leavePitch();
+            else {
+              engine.current?.endMatch();
+              setMatch(null);
+            }
+          }}
+        />
+      )}
+      {(hungry || delivery || meal) && !match && !dhikr && !panel && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center px-3"
+        >
+          <button
+            onClick={() => {
+              const e = engine.current;
+              if (delivery) {
+                if (delivery.near) {
+                  e?.collectFood();
+                  return;
+                }
+                if (delivery.outside && e?.scenePlace() !== "out")
+                  toast("Tap Exit to go outside. The rider is at your door.");
+                return;
+              }
+              if (meal) {
+                if (e?.scenePlace() === "out") {
+                  if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
+                } else openMeal(meal);
+                return;
+              }
+              openFood("order");
+            }}
+            className={`pointer-events-auto rounded-full px-4 py-2 text-center text-[13px] font-bold shadow-xl ${delivery || meal ? "bg-[#2f8f3a] text-white" : "animate-pulse bg-[#b8573a] text-white"} ${delivery?.outside ? "animate-pulse" : ""}`}
+          >
+            {delivery
+              ? delivery.near
+                ? "🛵 Collect your food from the rider"
+                : delivery.outside
+                  ? inside
+                    ? "🛵 Your rider is outside · go out to collect your food"
+                    : "🛵 Walk to the Ilm Food Delivery bike to collect your food"
+                  : `🛵 Your ${delivery.dish.name.toLowerCase()} is on the way…`
+              : meal
+                ? inside
+                  ? `${meal.icon} Tap here: wash your hands, then eat`
+                  : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
+                : "😩 I'm hungry · tap to order food"}
+          </button>
+        </div>
+      )}
       {dhikr && PLACE_DHIKR[dhikr.id] && (
         <DhikrCard
           d={PLACE_DHIKR[dhikr.id]}
@@ -3581,6 +4807,12 @@ function Sheet({
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [panel, onClose]);
+  if (panel.kind === "info" && panel.phone)
+    return (
+      <PhoneFrame title={panel.title} onHome={panel.phone.home} onClose={onClose}>
+        {panel.body}
+      </PhoneFrame>
+    );
   return (
     <div
       data-game-ui
@@ -4095,6 +5327,7 @@ function PlotView({
   plot,
   own,
   points,
+  players,
   onPay,
   onPaystack,
   onSet,
@@ -4112,6 +5345,7 @@ function PlotView({
   };
   own?: PlotOwn;
   points: number;
+  players?: PlayersRooms;
   onPay: (pts: number, next: PlotOwn, msg: string) => void;
   onPaystack: (amount: number, what: string) => void;
   onSet: (next: PlotOwn) => void;
@@ -4167,6 +5401,7 @@ function PlotView({
             Go inside
           </button>
           <RoomsView
+            players={players}
             rooms={own.rooms ?? []}
             count={beds}
             onRooms={(rooms, earned) => onRooms(rooms, earned)}
@@ -4318,6 +5553,7 @@ function PlotView({
       </button>
       {!own.tenant && (
         <RoomsView
+          players={players}
           rooms={own.rooms ?? []}
           count={roomsIn(own.floors)}
           onRooms={(rooms, earned) => onRooms(rooms, earned)}
@@ -4328,11 +5564,18 @@ function PlotView({
 }
 
 /** Rooms in a house you own: each can be rented to a tenant for a week at a time. */
+type PlayersRooms = {
+  ads: RoomAd[];
+  onList: (i: number) => void;
+  onUnlist: (id: string) => void;
+};
 function RoomsView({
   rooms,
   count,
   onRooms,
+  players,
 }: {
+  players?: PlayersRooms;
   rooms: Room[];
   count: number;
   onRooms: (rooms: Room[], earned: number) => void;
@@ -4370,14 +5613,42 @@ function RoomsView({
                 <span className="opacity-70">empty</span>
               )}
             </span>
-            {!live && (
-              <button
-                onClick={() => rentOut(i)}
-                className="shrink-0 rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
-              >
-                Rent out · +{ROOM_RENT_WEEK}
-              </button>
-            )}
+            {!live &&
+              (() => {
+                const ad = players?.ads.find((a) => a.i === i);
+                if (ad && !(ad.tenant && (ad.until ?? 0) > now))
+                  return (
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-[11.5px] font-semibold text-[#1f6f63]">
+                        Listed for players
+                      </span>
+                      <button
+                        onClick={() => players!.onUnlist(ad.id)}
+                        className="rounded-lg border border-[#10201e]/15 px-2 py-1 text-[11.5px]"
+                      >
+                        Unlist
+                      </button>
+                    </span>
+                  );
+                return (
+                  <span className="flex shrink-0 gap-1.5">
+                    <button
+                      onClick={() => rentOut(i)}
+                      className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
+                    >
+                      Rent out · +{ROOM_RENT_WEEK}
+                    </button>
+                    {players && (
+                      <button
+                        onClick={() => players.onList(i)}
+                        className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold"
+                      >
+                        To players
+                      </button>
+                    )}
+                  </span>
+                );
+              })()}
           </div>
         );
       })}
@@ -5478,6 +6749,20 @@ function placesIn(id: string): Place[] {
       sub: "Play a match",
       prefix: `field:${D.id}-pitch`,
     });
+  if (D.id === "ikeja")
+    out.push({
+      icon: "🏬",
+      name: "IlmWorld Mall",
+      sub: "Shops by real sellers",
+      prefix: "door:mall:ikeja",
+    });
+  if (D.id === "ikeja" || D.id === "lekki")
+    out.push({
+      icon: "🚗",
+      name: "IlmMotors",
+      sub: "Buy a car",
+      prefix: `dealer:${D.id}`,
+    });
   out.push({
     icon: "🪢",
     name: "Sisters' Corner",
@@ -5523,6 +6808,844 @@ function PlacesView({ area, onGo }: { area: string; onGo: (prefix: string) => vo
           </span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/* ---------------- wash your hands, then eat ---------------- */
+function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
+  const [step, setStep] = useState<"wash" | "washing" | "eat">("wash");
+  useEffect(() => {
+    if (step !== "washing") return;
+    const t = setTimeout(() => setStep("eat"), 2000);
+    return () => clearTimeout(t);
+  }, [step]);
+  return (
+    <div className="space-y-3">
+      <div className="text-center text-[52px] leading-none">{dish.icon}</div>
+      <button
+        disabled={step !== "wash"}
+        onClick={() => setStep("washing")}
+        className={`w-full rounded-xl px-4 py-3 text-left font-bold ${step === "wash" ? "bg-[#1f6f63] text-[#fdf8ec]" : "border border-[#1f6f63]/30 bg-white"}`}
+      >
+        {step === "wash"
+          ? "🧼 1. Wash your hands"
+          : step === "washing"
+            ? "🧼 Washing…"
+            : "✅ Hands washed"}
+      </button>
+      <button
+        disabled={step !== "eat"}
+        onClick={onEat}
+        className={`w-full rounded-xl px-4 py-3 text-left font-bold ${step === "eat" ? "bg-[#f2c230] text-[#2a1c05]" : "border border-[#10201e]/15 bg-white opacity-50"}`}
+      >
+        🍽️ 2. Say Bismillah and eat
+      </button>
+      <p className="text-[12px] opacity-70">
+        Eat with your right hand, from what is in front of you.
+      </p>
+    </div>
+  );
+}
+
+/* ---------------- IlmMotors ---------------- */
+type CarKind = "small" | "sedan" | "pickup" | "suv" | "luxury";
+const CARS: { kind: CarKind; price: number }[] = [
+  { kind: "small", price: 300 },
+  { kind: "sedan", price: 600 },
+  { kind: "pickup", price: 750 },
+  { kind: "suv", price: 1200 },
+  { kind: "luxury", price: 2500 },
+];
+const PAINT = [0xf4f4f2, 0x1d1d26, 0xc0392b, 0x1f6f63, 0x2f4a7a, 0xb8bcc2, 0xe6b84a, 0x6d4a2b];
+const REPAINT = 60;
+function DealerView({
+  points,
+  mine,
+  onBuy,
+}: {
+  points: number;
+  mine?: { kind: CarKind; color: number };
+  onBuy: (kind: CarKind, color: number, price: number) => void;
+}) {
+  const [color, setColor] = useState<number>(mine?.color ?? PAINT[0]);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Pick a colour, then a car. You have {points} points. Your old car is traded in.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {PAINT.map((c) => (
+          <button
+            key={c}
+            onClick={() => setColor(c)}
+            className={`size-8 rounded-full border-2 ${color === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/20"}`}
+            style={{ background: hex(c) }}
+            aria-label="Colour"
+          />
+        ))}
+      </div>
+      <div className="space-y-2">
+        {CARS.map(({ kind, price }) => {
+          const v = VEHICLE_INFO[kind];
+          const owned = mine?.kind === kind;
+          const cost = owned ? (mine.color === color ? 0 : REPAINT) : price;
+          return (
+            <div
+              key={kind}
+              className="flex items-center gap-3 rounded-xl bg-white px-3 py-2.5 shadow-sm"
+            >
+              <span className="text-[26px]">
+                {kind === "pickup" ? "🛻" : kind === "suv" ? "🚙" : "🚗"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-bold">{v.name}</span>
+                <span className="block text-[12px] opacity-70">
+                  {v.blurb} Top speed {Math.round((v.top + 4) * 3.6)} km/h.
+                </span>
+              </span>
+              <button
+                disabled={owned && cost === 0}
+                onClick={() => onBuy(kind, color, cost)}
+                className="rounded-lg bg-[#f2c230] px-3 py-2 text-[12.5px] font-bold disabled:opacity-50"
+              >
+                {owned ? (cost ? `Repaint · ${cost}` : "Yours") : `${price} pts`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- rooms to let between players ---------------- */
+function RoomsMarketView({
+  net,
+  me,
+  points,
+  lodging,
+  onRent,
+  onGo,
+}: {
+  net: RoomsNet;
+  me: string;
+  points: number;
+  lodging?: Save["lodging"];
+  onRent: (r: RoomAd) => void;
+  onGo: (l: { area: string; plot: string }) => void;
+}) {
+  const [list, setList] = useState<RoomAd[] | null>(null);
+  useEffect(() => net.watchFree(setList), [net]);
+  const mine = lodging && lodging.until > Date.now() ? lodging : null;
+  const rooms = (list ?? []).filter((r) => r.owner !== me);
+  return (
+    <div className="space-y-3">
+      {mine && (
+        <div className="rounded-xl bg-[#1f6f63] px-3 py-2.5 text-[#fdf8ec]">
+          <div className="text-[12px] opacity-80">Your room</div>
+          <div className="text-[14px] font-bold">{mine.label}</div>
+          <div className="text-[12px] opacity-80">
+            {mine.owner}'s house · {Math.ceil((mine.until - Date.now()) / 86400000)} days left
+          </div>
+          <button
+            onClick={() => onGo(mine)}
+            className="mt-1.5 rounded-lg bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63]"
+          >
+            Go there
+          </button>
+        </div>
+      )}
+      <p className="text-[13px] opacity-75">
+        Rooms in houses owned by other players. Rent is paid for a week at a time. You have {points}{" "}
+        points.
+      </p>
+      {!list && <p className="text-[13px] opacity-70">Loading rooms…</p>}
+      {list && rooms.length === 0 && (
+        <p className="text-[13px] opacity-70">No rooms listed right now. Check again later.</p>
+      )}
+      <div className="space-y-2">
+        {rooms.map((r) => (
+          <div
+            key={r.id}
+            className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm"
+          >
+            <span className="text-[22px]">🛏️</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-bold">{r.label}</span>
+              <span className="block text-[11.5px] opacity-60">
+                Room {r.i + 1} · {r.ownerName}'s house
+              </span>
+            </span>
+            <button
+              disabled={!!mine}
+              onClick={() => onRent(r)}
+              className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold disabled:opacity-40"
+            >
+              Rent · {r.rent}/wk
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- homes on show ---------------- */
+function HomesView({
+  homes,
+  me,
+  myItems,
+  onVisit,
+}: {
+  homes: Homes;
+  me: string | null;
+  myItems: number;
+  onVisit: (h: ShownHome) => void;
+}) {
+  const [list, setList] = useState<ShownHome[] | null>(null);
+  useEffect(() => homes.top(setList), [homes]);
+  const mine = list?.find((h) => h.uid === me);
+  const others = (list ?? []).filter((h) => h.uid !== me);
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#c77d2a] px-3 py-2.5 text-white">
+        <div className="text-[15px] font-black">🏆 Best home of the week</div>
+        <div className="text-[12px] opacity-90">
+          Visit homes and like the ones you love. Every Saturday the best furnished home wins.
+        </div>
+      </div>
+      <div className="rounded-xl bg-white px-3 py-2 text-[13px] shadow-sm">
+        {myItems === 0
+          ? "Your home isn't on show yet. Buy furniture from ☰ Menu → Furnish your home."
+          : `Your home: ❤️ ${mine?.likes ?? 0} likes this week · ${myItems} items`}
+      </div>
+      {!list && <p className="text-[13px] opacity-70">Loading homes…</p>}
+      {list && others.length === 0 && (
+        <p className="text-[13px] opacity-70">No other homes on show yet.</p>
+      )}
+      <div className="space-y-2">
+        {others.map((h, i) => (
+          <div
+            key={h.uid}
+            className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm"
+          >
+            <span className="w-6 text-center text-[13px] font-bold opacity-60">{i + 1}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-bold">{h.name}'s home</span>
+              <span className="block truncate text-[11.5px] opacity-60">
+                {h.place} · {h.items.length} items
+              </span>
+            </span>
+            <span className="text-[12.5px] font-bold">❤️ {h.likes}</span>
+            <button
+              onClick={() => onVisit(h)}
+              className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-white"
+            >
+              Visit
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- calls and contacts ---------------- */
+type Contact = { uid: string; name: string; number: string };
+function CallsView({
+  tab,
+  myNumber,
+  contacts,
+  log,
+  lookup,
+  onCall,
+  onMessage,
+  onSave,
+  onRemove,
+}: {
+  tab: "calls" | "contacts";
+  myNumber: string;
+  contacts: Contact[];
+  log: NonNullable<Save["calls"]>;
+  lookup: (n: string) => Promise<PhoneEntry | null>;
+  onCall: (e: Contact) => void;
+  onMessage: (e: Contact) => void;
+  onSave: (e: Contact) => void;
+  onRemove: (n: string) => void;
+}) {
+  const [num, setNum] = useState("");
+  const [found, setFound] = useState<PhoneEntry | null>(null);
+  const [err, setErr] = useState("");
+  const [list, setList] = useState(contacts);
+  const find = async () => {
+    setErr("");
+    setFound(null);
+    const n = cleanNumber(num);
+    if (!n) return setErr("IlmWorld numbers have 7 digits, like IW 482 1937.");
+    const e = await lookup(n).catch(() => null);
+    if (!e) return setErr("No player has that number.");
+    setFound(e);
+  };
+  const row = (c: Contact) => (
+    <div key={c.number} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm">
+      <span className="grid size-9 place-items-center rounded-full bg-[#8a2f4f] text-[15px] font-bold text-white">
+        {c.name.slice(0, 1).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-bold">{c.name}</span>
+        <span className="block text-[11.5px] opacity-60">{c.number}</span>
+      </span>
+      <button
+        onClick={() => onMessage(c)}
+        className="rounded-full bg-[#1f6f63]/10 px-2.5 py-1.5 text-[15px]"
+        aria-label="Message"
+      >
+        💬
+      </button>
+      <button
+        onClick={() => onCall(c)}
+        className="rounded-full bg-[#2e7d32] px-2.5 py-1.5 text-[15px]"
+        aria-label="Call"
+      >
+        📞
+      </button>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#1f6f63] px-3 py-2 text-[#fdf8ec]">
+        <div className="text-[11px] opacity-80">My IlmWorld number</div>
+        <div className="text-[18px] font-bold tracking-wide">{myNumber}</div>
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={num}
+          onChange={(e) => setNum(e.target.value)}
+          inputMode="numeric"
+          placeholder="IW 000 0000"
+          className="min-w-0 flex-1 rounded-xl border border-[#10201e]/15 bg-white px-3 py-2 text-[15px] tracking-wide"
+        />
+        <button
+          onClick={() => void find()}
+          className="rounded-xl bg-[#10201e] px-3 py-2 text-[13px] font-bold text-white"
+        >
+          Find
+        </button>
+      </div>
+      {err && <p className="text-[12.5px] text-[#b8573a]">{err}</p>}
+      {found && (
+        <div className="space-y-2 rounded-xl border border-[#1f6f63]/30 p-2">
+          {row(found)}
+          {!list.some((c) => c.number === found.number) && (
+            <button
+              onClick={() => {
+                onSave(found);
+                setList((l) => [...l, found]);
+              }}
+              className="w-full rounded-lg bg-[#f2c230] py-2 text-[13px] font-bold"
+            >
+              ＋ Save to contacts
+            </button>
+          )}
+        </div>
+      )}
+      {tab === "contacts" ? (
+        <div className="space-y-2">
+          <div className="text-[12px] font-bold uppercase opacity-60">Contacts</div>
+          {list.length === 0 && (
+            <p className="text-[13px] opacity-70">
+              No contacts yet. Ask a friend for their IlmWorld number and find it above.
+            </p>
+          )}
+          {list.map((c) => (
+            <div key={c.number} className="space-y-1">
+              {row(c)}
+              <button
+                onClick={() => {
+                  onRemove(c.number);
+                  setList((l) => l.filter((x) => x.number !== c.number));
+                }}
+                className="ml-1 text-[11px] opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-[12px] font-bold uppercase opacity-60">Recent</div>
+          {log.length === 0 && <p className="text-[13px] opacity-70">No calls yet.</p>}
+          {log.map((l, i) => {
+            const c = list.find((x) => x.number === l.number);
+            return (
+              <div key={i} className="flex items-center gap-2 text-[13.5px]">
+                <span>{l.dir === "out" ? "↗️" : l.dir === "in" ? "↙️" : "❌"}</span>
+                <span
+                  className={`flex-1 font-semibold ${l.dir === "missed" ? "text-[#b8573a]" : ""}`}
+                >
+                  {l.name}
+                </span>
+                <span className="text-[11px] opacity-50">
+                  {new Date(l.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                {c && (
+                  <button onClick={() => onCall(c)} className="text-[15px]" aria-label="Call back">
+                    📞
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="text-[11px] opacity-55">
+        Calls are voice only, between players aged 18+. Be kind; you can block anyone from their
+        chat.
+      </p>
+    </div>
+  );
+}
+
+function IncomingCall({
+  from,
+  onAccept,
+  onDecline,
+}: {
+  from: string;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  return (
+    <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+      <div className="flex items-center gap-3 rounded-[26px] bg-[#111]/95 px-4 py-3 text-white shadow-2xl">
+        <span className="grid size-11 animate-pulse place-items-center rounded-full bg-[#2e7d32] text-[20px]">
+          📞
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[15px] font-bold">{from}</div>
+          <div className="text-[12px] opacity-70">IlmWorld call…</div>
+        </div>
+        <button
+          onClick={onDecline}
+          className="grid size-11 place-items-center rounded-full bg-[#c0392b] text-[18px]"
+          aria-label="Decline"
+        >
+          ✕
+        </button>
+        <button
+          onClick={onAccept}
+          className="grid size-11 place-items-center rounded-full bg-[#2e7d32] text-[18px]"
+          aria-label="Answer"
+        >
+          ✓
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CallScreen({
+  c,
+  onMute,
+  onHangUp,
+}: {
+  c: CallUi;
+  onMute: (m: boolean) => void;
+  onHangUp: () => void;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+  const secs = c.since ? Math.floor((Date.now() - c.since) / 1000) : 0;
+  const status =
+    c.state === "ringing"
+      ? "Ringing…"
+      : c.state === "connecting"
+        ? "Connecting…"
+        : c.state === "live"
+          ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`
+          : (c.why ?? "Call ended");
+  return (
+    <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+      <div className="rounded-[28px] bg-gradient-to-b from-[#1f3d37] to-[#10201e] px-5 py-4 text-center text-white shadow-2xl">
+        <div className="mx-auto grid size-14 place-items-center rounded-full bg-white/15 text-[24px] font-bold">
+          {c.other.slice(0, 1).toUpperCase()}
+        </div>
+        <div className="mt-1.5 text-[17px] font-bold">{c.other}</div>
+        <div className="text-[13px] opacity-75">{status}</div>
+        {c.state !== "ended" && (
+          <div className="mt-3 flex justify-center gap-6">
+            <button
+              onClick={() => onMute(!c.muted)}
+              className={`grid size-12 place-items-center rounded-full text-[18px] ${c.muted ? "bg-white text-[#10201e]" : "bg-white/15"}`}
+              aria-label="Mute"
+            >
+              {c.muted ? "🔇" : "🎙️"}
+            </button>
+            <button
+              onClick={onHangUp}
+              className="grid size-12 place-items-center rounded-full bg-[#c0392b] text-[18px]"
+              aria-label="Hang up"
+            >
+              📵
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- wallet ---------------- */
+/** 1,000 points = ₦2,000 when withdrawals open. */
+const NAIRA_PER_POINT = 2;
+const MIN_WITHDRAW = 1000;
+function WalletView({ points }: { points: number }) {
+  const naira = points * NAIRA_PER_POINT;
+  const toGo = Math.max(0, MIN_WITHDRAW - points);
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-gradient-to-br from-[#1d6b3a] to-[#10201e] p-4 text-white">
+        <div className="text-[12px] opacity-80">Your points</div>
+        <div className="text-[30px] font-black leading-tight">{points.toLocaleString()}</div>
+        <div className="text-[13px] opacity-85">Worth ₦{naira.toLocaleString()}</div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-[#10201e]/10">
+        <div
+          className="h-full rounded-full bg-[#1d6b3a]"
+          style={{ width: `${Math.min(100, (points / MIN_WITHDRAW) * 100)}%` }}
+        />
+      </div>
+      <p className="text-[12.5px] opacity-75">
+        {toGo > 0
+          ? `${toGo.toLocaleString()} more points to reach the ${MIN_WITHDRAW.toLocaleString()}-point minimum.`
+          : "You've reached the minimum to withdraw."}
+      </p>
+      <button
+        disabled
+        className="w-full rounded-xl bg-[#1d6b3a] py-3 font-bold text-white opacity-50"
+      >
+        Withdraw to bank · coming soon
+      </button>
+      <div className="space-y-1 rounded-xl bg-white p-3 text-[12.5px] shadow-sm">
+        <div className="font-bold">How it will work</div>
+        <div>• 1,000 points = ₦2,000, paid to your Nigerian bank account.</div>
+        <div>• Only points you earn (salah on time, lectures, quizzes) can be withdrawn.</div>
+        <div>• Up to 2 withdrawals a week, for players aged 18+ with a verified account.</div>
+        <div>• Every request is checked by the IlmWorld team before payment.</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- the phone ---------------- */
+function PhoneFrame({
+  title,
+  onHome,
+  onClose,
+  children,
+}: {
+  title: string;
+  onHome?: () => void;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 15000);
+    return () => clearInterval(iv);
+  }, []);
+  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div
+      data-game-ui
+      className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-3"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-[min(86vh,720px)] w-[min(92vw,360px)] flex-col overflow-hidden rounded-[44px] border-[10px] border-[#111] bg-[#111] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="absolute left-1/2 top-1.5 z-10 h-[22px] w-[96px] -translate-x-1/2 rounded-full bg-black" />
+        <div
+          className={`flex flex-1 flex-col overflow-hidden rounded-[34px] ${title ? "bg-[#fdf8ec]" : "bg-gradient-to-b from-[#1f6f63] via-[#24443d] to-[#10201e]"}`}
+        >
+          <div
+            className={`flex items-center justify-between px-6 pb-1 pt-2.5 text-[12px] font-bold ${title ? "text-[#10201e]" : "text-white"}`}
+          >
+            <span>{time}</span>
+            <span className="tracking-wide">IlmNet ▂▄▆ 🔋</span>
+          </div>
+          {title && (
+            <div className="flex items-center gap-2 border-b border-[#10201e]/10 px-4 pb-2 pt-1">
+              {onHome && (
+                <button
+                  onClick={onHome}
+                  className="text-[20px] font-bold text-[#1f6f63]"
+                  aria-label="Back"
+                >
+                  ‹
+                </button>
+              )}
+              <div className="truncate text-[16px] font-bold">{title}</div>
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto px-4 py-3 text-[14px] leading-relaxed">
+            {children}
+          </div>
+          <button
+            onClick={onHome ?? onClose}
+            className="mx-auto mb-2 mt-1 h-[5px] w-[120px] rounded-full bg-current opacity-40"
+            style={{ color: title ? "#10201e" : "#fff" }}
+            aria-label="Home"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- eating: finish when you are done ---------------- */
+function EatingView({ dish, onDone }: { dish: Dish; onDone: () => void }) {
+  const [t, setT] = useState(0);
+  const FULL = 12;
+  useEffect(() => {
+    const t0 = Date.now();
+    const iv = setInterval(() => setT((Date.now() - t0) / 1000), 250);
+    return () => clearInterval(iv);
+  }, []);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+  useEffect(() => {
+    if (t >= FULL) doneRef.current();
+  }, [t]);
+  const ready = t >= 2;
+  return (
+    <div className="space-y-3">
+      <div className="text-center text-[52px] leading-none">{dish.icon}</div>
+      <div className="h-2.5 overflow-hidden rounded-full bg-[#10201e]/10">
+        <div
+          className="h-full rounded-full bg-[#1f6f63] transition-[width] duration-200"
+          style={{ width: `${Math.min(100, (t / FULL) * 100)}%` }}
+        />
+      </div>
+      <button
+        disabled={!ready}
+        onClick={onDone}
+        className={`w-full rounded-xl py-3 font-bold ${ready ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#10201e]/10 opacity-60"}`}
+      >
+        ✅ Done eating · Alhamdulillah
+      </button>
+      <p className="text-[12px] opacity-70">
+        Eat at your own pace. Tap Done when you have finished.
+      </p>
+    </div>
+  );
+}
+
+/* ---------------- OutingStation: where to go in the game ---------------- */
+type Outing = Place & { area: string; live?: boolean };
+const OUTING_TABS = [
+  { id: "now", label: "Happening now" },
+  { id: "lectures", label: "Lectures & mosques" },
+  { id: "food", label: "Food" },
+  { id: "sport", label: "Football & play" },
+  { id: "campus", label: "Campus & MSSN" },
+  { id: "shop", label: "Markets" },
+  { id: "travel", label: "🚌 Travel" },
+] as const;
+function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
+  const out: Outing[] = [];
+  if (tab === "travel")
+    return DISTRICTS.filter((D) => D.id !== here).map((D) => ({
+      icon: D.parent ? "🏘️" : "🌆",
+      name: fullName(D),
+      sub: `${D.busStop ?? D.name} Bus Stop`,
+      prefix: "",
+      area: D.id,
+    }));
+  for (const D of DISTRICTS) {
+    const at = (p: Place, live?: boolean) => out.push({ ...p, area: D.id, live });
+    if (tab === "now" || tab === "lectures")
+      for (const l of D.landmarks.filter((x) => x.kind === "masjid")) {
+        const now = lectureNow(l.id, c);
+        const next = lectureNext(l.id, c);
+        if (tab === "now" && !now) continue;
+        at(
+          {
+            icon: "🕌",
+            name: l.name,
+            sub: now
+              ? `Live now: ${now.title} · ${now.speaker}`
+              : next
+                ? `${next.start}: ${next.title} · ${next.speaker}`
+                : "Pray in congregation",
+            prefix: `door:masjid:${l.id}`,
+          },
+          !!now,
+        );
+      }
+    if (tab === "food") {
+      if (has(`door:restaurant:${D.id}`))
+        at({
+          icon: "🍽️",
+          name: `Al-Ma'idah Restaurant, ${D.name}`,
+          sub: "Walk in · sit at a table and eat",
+          prefix: `door:restaurant:${D.id}`,
+        });
+      if (has(`eatery:${D.id}`))
+        at({
+          icon: "🍗",
+          name: `Al-Barakah Broast, ${D.name}`,
+          sub: "Roadside food truck · quick bites",
+          prefix: `eatery:${D.id}`,
+        });
+    }
+    if (tab === "sport") {
+      const f = D.landmarks.find((l) => l.kind === "field");
+      at({
+        icon: "⚽",
+        name: f?.name ?? `${D.name} Football Pitch`,
+        sub: "Join a team and play a match",
+        prefix: f ? `field:${f.id}` : `field:${D.id}-pitch`,
+      });
+      at({
+        icon: "🪢",
+        name: `Sisters' Corner, ${D.name}`,
+        sub: "Skipping rope",
+        prefix: `sisters:${D.id}`,
+      });
+    }
+    if (tab === "campus")
+      for (const l of D.landmarks.filter((x) => x.kind === "campus" || x.kind === "hangout"))
+        at({
+          icon: l.kind === "campus" ? "🎓" : "🤝",
+          name: l.name,
+          sub: l.kind === "campus" ? "Faculties, classes and MSSN" : "Meet other students",
+          prefix: l.kind === "campus" ? `campus:${l.id}:admin` : `hangout:${l.id}`,
+        });
+    if (tab === "shop")
+      for (const p of placesIn(D.id).filter(
+        (x) =>
+          x.prefix === "souq" ||
+          x.prefix.startsWith("stall:") ||
+          x.prefix.startsWith("door:mall:") ||
+          x.prefix.startsWith("dealer:"),
+      ))
+        at(p);
+  }
+  // your area first, then nearest by name
+  return out.sort(
+    (a, b) =>
+      (a.area === here ? -1 : 0) - (b.area === here ? -1 : 0) ||
+      Number(!!b.live) - Number(!!a.live),
+  );
+}
+function OutingView({
+  here,
+  clock,
+  driving,
+  coins,
+  has,
+  tab0,
+  onGo,
+}: {
+  tab0?: string;
+  here: string;
+  has: (id: string) => boolean;
+  clock: Clock;
+  driving: boolean;
+  coins: number;
+  onGo: (area: string, prefix: string) => void;
+}) {
+  const [tab, setTab] = useState<string>(tab0 ?? "now");
+  const list = outingsFor(tab, here, clock, has);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 rounded-2xl bg-[#5adaee] p-3 text-[#0d3b44]">
+        <img src="/outingstation-icon.png" alt="" className="size-11 shrink-0 rounded-xl" />
+        <div className="min-w-0">
+          <div className="text-[17px] font-black">Where do you want to go?</div>
+          <div className="text-[12px] opacity-80">
+            Powered by OutingStation · rides{" "}
+            {driving ? "free in your car" : `${BUS_FARE} pts by danfo`} · you have {coins} pts
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {OUTING_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-full px-3 py-1 text-[12px] font-bold ${tab === t.id ? "bg-[#1a8fa3] text-white" : "bg-white"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {list.length === 0 && tab !== "travel" && (
+        <p className="text-[13px] opacity-70">
+          Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
+        </p>
+      )}
+      {tab === "travel" && (
+        <div className="space-y-1.5">
+          <div className="text-[12px] font-bold uppercase opacity-60">
+            Other cities · coming soon
+          </div>
+          {WORLD_CITIES.filter((c) => !c.live).map((c) => (
+            <div
+              key={c.id}
+              className="rounded-xl border border-dashed border-[#10201e]/20 bg-white/60 px-3 py-2"
+            >
+              <div className="text-[14px] font-bold">
+                {c.name}, {c.country === "Nigeria" ? `${c.state} State` : c.country}
+                <span className="ml-1.5 rounded bg-[#f2b84b] px-1.5 py-0.5 text-[10px] font-bold">
+                  SOON
+                </span>
+              </div>
+              <div className="text-[12px] opacity-70">{c.blurb}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="max-h-[52vh] space-y-2 overflow-y-auto">
+        {list.map((p) => {
+          const local = p.area === here;
+          return (
+            <button
+              key={p.area + p.prefix + p.name}
+              onClick={() => onGo(p.area, p.prefix)}
+              className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+            >
+              <span className="text-[22px]">{p.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-bold leading-tight">
+                  {p.live && (
+                    <span className="mr-1 rounded bg-[#c0392b] px-1 text-[10px] text-white">
+                      LIVE
+                    </span>
+                  )}
+                  {p.name}
+                </span>
+                <span className="block truncate text-[12px] opacity-70">
+                  {fullName(districtById(p.area))} · {p.sub}
+                </span>
+              </span>
+              <span
+                className={`rounded-lg px-2.5 py-1 text-[12px] font-bold ${local ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#f2c230] text-[#2a1c05]"}`}
+              >
+                {local ? "Walk" : "Ride"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -5808,7 +7931,12 @@ function FineView({
 /* ---------------- daily life ---------------- */
 type Needs = { hunger: number; energy: number; iman: number; social: number; clean: number };
 const NEED_META: { id: keyof Needs; icon: string; name: string; tip: string }[] = [
-  { id: "hunger", icon: "🍽️", name: "Food", tip: "Cook at home or buy food at a market." },
+  {
+    id: "hunger",
+    icon: "🍽️",
+    name: "Food",
+    tip: "Order food on your phone, or eat at the eatery.",
+  },
   { id: "energy", icon: "⚡", name: "Energy", tip: "Sleep or rest on a sofa." },
   { id: "iman", icon: "🕌", name: "Iman", tip: "Pray, read the Qur'an, make dhikr or learn." },
   { id: "social", icon: "👥", name: "Friends", tip: "Greet neighbours and chat with players." },
@@ -6236,10 +8364,12 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
           prefix: inside && (s.items ?? []).includes("prayermat") ? "prayermat" : "door:masjid:",
         }
       : { text: `Make wudu for ${cp.name}`, prefix: inside ? "bath" : "door:masjid:" };
+  if (s.meal)
+    return inside
+      ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
+      : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
-    return (s.items ?? []).includes("kitchen")
-      ? { text: "You're hungry: cook at home", prefix: inside ? "eat" : homeDoor }
-      : { text: "You're hungry: buy food at the market", prefix: `stall:${area}-m` };
+    return { text: "You're hungry: order food (📱) or eat at a restaurant", prefix: "eatery:" };
   if (n && n.energy < 25)
     return { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
   const job = JOBS.find((j) => j.id === s.job);
@@ -6873,6 +9003,561 @@ function MssnView({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+const JERSEY_PRICE = 25;
+
+/* ---------------- skipping rope ---------------- */
+function RopeHud({
+  r,
+  onTap,
+  onAgain,
+  onLeave,
+}: {
+  r: RopeState;
+  onTap: () => void;
+  onAgain: (role: "jump" | "turn") => void;
+  onLeave: () => void;
+}) {
+  const tapRef = useRef(onTap);
+  tapRef.current = onTap;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        tapRef.current();
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const solo = !r.together && r.role !== "hold";
+  return (
+    <>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#3a1a2a]/90 px-4 py-2 text-[#fdf8ec] shadow-xl">
+          <span className="text-[12px] font-bold text-[#f3b6cc]">🪢 {r.names.jumper} jumping</span>
+          <span className="font-serif text-3xl tabular-nums">{r.count}</span>
+          {r.lives !== undefined && (
+            <span className="text-[13px]">{"❤️".repeat(Math.max(0, r.lives))}</span>
+          )}
+          <button onClick={onLeave} className="rounded-lg bg-white/10 px-2 py-0.5 text-[12px]">
+            Leave
+          </button>
+        </div>
+      </div>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[128px] z-30 flex justify-center px-3"
+      >
+        <div className="rounded-xl bg-[#fdf8ec]/95 px-4 py-2 text-center text-[14px] font-bold shadow-lg">
+          {r.phase === "count"
+            ? r.role === "jump"
+              ? `Get ready to jump… ${r.countdown}`
+              : r.role === "turn"
+                ? `Get ready to turn… ${r.countdown}`
+                : `${r.names.jumper} jumps next… ${r.countdown}`
+            : r.msg ||
+              (r.role === "jump"
+                ? "Tap Jump as the rope reaches your feet"
+                : r.role === "turn"
+                  ? "Tap Turn when the rope is at the top"
+                  : `You're turning the rope with ${r.names.left === "You" ? r.names.right : r.names.left}. Your turn to jump comes next!`)}
+          {r.together && (
+            <div className="text-[11.5px] font-semibold opacity-70">
+              Playing together · {r.uids.length} sisters here
+            </div>
+          )}
+        </div>
+      </div>
+      <div
+        data-game-ui
+        className="absolute bottom-[max(24px,env(safe-area-inset-bottom))] right-4 z-30 flex items-end gap-3"
+      >
+        {r.phase === "out" && solo ? (
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => onAgain("jump")}
+              className="rounded-xl bg-[#8a2f4f] px-4 py-3 text-[14px] font-bold text-white shadow-xl"
+            >
+              🦘 Jump again
+            </button>
+            <button
+              onClick={() => onAgain("turn")}
+              className="rounded-xl bg-[#fdf8ec] px-4 py-3 text-[14px] font-bold shadow-xl"
+            >
+              🤲 Turn the rope
+            </button>
+          </div>
+        ) : (
+          r.role !== "hold" && (
+            <button
+              onClick={onTap}
+              disabled={r.phase !== "play"}
+              className="grid size-24 place-items-center rounded-full bg-[#8a2f4f] text-[18px] font-extrabold text-white shadow-xl active:scale-95 disabled:opacity-40"
+            >
+              {r.role === "jump" ? "Jump" : "Turn"}
+              <span className="-mt-4 text-[10px] font-semibold opacity-70">Space</span>
+            </button>
+          )
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------------- football match on the pitch ---------------- */
+function MatchHud({
+  m,
+  act,
+  onLeave,
+}: {
+  m: MatchState;
+  act: (a: "shoot" | "pass" | "tackle" | "L" | "C" | "R") => void;
+  onLeave: () => void;
+}) {
+  // keyboard: Space shoots, E passes, Q tackles
+  const actRef = useRef(act);
+  actRef.current = act;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        actRef.current("shoot");
+      } else if (e.key === "e" || e.key === "E") actRef.current("pass");
+      else if (e.key === "q" || e.key === "Q") actRef.current("tackle");
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const mm = Math.floor(m.clock / 60),
+    ss = Math.floor(m.clock % 60);
+  const big = "grid place-items-center rounded-full font-extrabold shadow-xl active:scale-95";
+  return (
+    <>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#10201e]/90 px-4 py-2 text-[#fdf8ec] shadow-xl">
+          <span
+            className={`text-[12px] font-bold text-[#7fd1c4] ${m.myTeam === 0 ? "underline" : ""}`}
+          >
+            {m.labels[0]}
+          </span>
+          <span className="font-serif text-3xl tabular-nums">
+            {m.score[0]} – {m.score[1]}
+          </span>
+          <span
+            className={`text-[12px] font-bold text-[#f0a070] ${m.myTeam === 1 ? "underline" : ""}`}
+          >
+            {m.labels[1]}
+          </span>
+          <span className="ml-1 rounded-lg bg-white/10 px-2 py-0.5 text-[12px] font-semibold tabular-nums">
+            {m.phase === "pens"
+              ? "Penalties"
+              : `${m.half === 1 ? "1st" : "2nd"} · ${mm}:${String(ss).padStart(2, "0")}`}
+          </span>
+          {m.phase !== "over" && (
+            <button
+              onClick={onLeave}
+              className="ml-1 rounded-lg bg-white/10 px-2 py-0.5 text-[12px]"
+            >
+              Leave
+            </button>
+          )}
+        </div>
+      </div>
+      {m.msg && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 top-[132px] z-30 flex justify-center"
+        >
+          <div className="rounded-xl bg-[#fdf8ec]/95 px-4 py-2 text-center text-[15px] font-bold shadow-lg">
+            {m.msg}
+            {m.pen && (
+              <div className="text-[12px] font-semibold opacity-70">
+                You {m.pen.scored[0]}/{m.pen.taken[0]} · FC {m.pen.scored[1]}/{m.pen.taken[1]}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div
+        data-game-ui
+        className="absolute bottom-[max(24px,env(safe-area-inset-bottom))] right-4 z-30 flex items-end gap-3"
+      >
+        {m.phase === "pens" && m.pen ? (
+          <div className="flex gap-2">
+            {(["L", "C", "R"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => act(k)}
+                className="rounded-xl bg-[#1f6f63] px-4 py-3 text-[14px] font-bold text-[#fdf8ec] shadow-xl"
+              >
+                {m.pen!.you === "shoot" ? "Shoot " : "Dive "}
+                {k === "L" ? "left" : k === "C" ? "middle" : "right"}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => act("tackle")}
+              disabled={!m.canTackle}
+              className={`${big} size-14 bg-[#b8573a] text-[12px] text-white disabled:opacity-35`}
+            >
+              Tackle
+              <span className="-mt-3 text-[9px] font-semibold opacity-70">Q</span>
+            </button>
+            <button
+              onClick={() => act("pass")}
+              disabled={!m.hasBall}
+              className={`${big} size-16 bg-[#fdf8ec] text-[14px] text-[#1f6f63] disabled:opacity-40`}
+            >
+              Pass
+              <span className="-mt-3 text-[9px] font-semibold opacity-60">E</span>
+            </button>
+            <button
+              onClick={() => act("shoot")}
+              disabled={!m.hasBall || !!m.throwing}
+              className={`${big} size-20 bg-[#e6b84a] text-[16px] text-[#2a1c05] disabled:opacity-40`}
+            >
+              Shoot
+              <span className="-mt-3 text-[9px] font-semibold opacity-60">Space</span>
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------------- where the bus goes ---------------- */
+/** From outside a town you travel to its entrance (Ikorodu → Igbe Laara); inside a town
+    you can ride to each of its bus stops. */
+function travelOptions(here: string) {
+  const hereRoot = rootOf(districtById(here)).id;
+  const stopsOf = (root: string) => DISTRICTS.filter((x) => rootOf(x).id === root);
+  const places = (d: (typeof DISTRICTS)[number]) =>
+    d.landmarks
+      .filter((l) => l.kind !== "home")
+      .map((l) => l.name)
+      .join(" · ") || "Homes and shops";
+  const local = stopsOf(hereRoot)
+    .filter((d) => d.id !== here)
+    .map((d) => ({
+      d,
+      title: `🚏 ${d.busStop ?? d.name} Bus Stop · ${regionOf(d)}`,
+      sub: places(d),
+      local: true,
+    }));
+  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot).map((d) => {
+    const stops = stopsOf(d.id);
+    return {
+      d,
+      title: `${regionOf(d)}, ${d.state}`,
+      sub:
+        stops.length > 1
+          ? `Arrive at ${d.busStop ?? d.name}. Bus stops: ${stops.map((x) => x.busStop ?? x.name).join(" · ")}`
+          : places(d),
+      local: false,
+    };
+  });
+  return [...local, ...away];
+}
+
+/* ---------------- live football: teams and the bench ---------------- */
+function PitchLobby({
+  r,
+  me,
+  watching,
+  others,
+  onTeam,
+  onKickoff,
+  onRestart,
+  onGo,
+  onLeave,
+}: {
+  r: PitchRoom;
+  me: string;
+  watching: MatchState | null;
+  others: { id: string; name: string; km: number }[];
+  onTeam: (t: 0 | 1) => void;
+  onKickoff: () => void;
+  onRestart: () => void;
+  onGo: (id: string) => void;
+  onLeave: () => void;
+}) {
+  const room = r.room;
+  const host = room?.host === me;
+  const mine = r.players[me];
+  const queue = Object.entries(r.queue).sort((a, b) => a[1].at - b[1].at);
+  const place = queue.findIndex(([u]) => u === me);
+  const team = (t: 0 | 1) =>
+    Object.entries(r.players)
+      .filter(([, v]) => v.team === t)
+      .sort((a, b) => a[1].at - b[1].at);
+  const btn = "w-full rounded-xl py-3 font-bold";
+  return (
+    <div data-game-ui className="absolute inset-x-3 bottom-3 z-40 mx-auto max-w-md">
+      <div className="rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        {room?.status === "playing" ? (
+          <div className="space-y-2">
+            <div className="text-[13px] font-bold uppercase tracking-wide text-[#1f6f63]">
+              Match on ·{" "}
+              {watching ? `Team A ${watching.score[0]} – ${watching.score[1]} Team B` : "watching"}
+            </div>
+            <p className="text-[15px]">
+              {place >= 0
+                ? `You're on the bench, number ${place + 1} in line. You'll come on when a player leaves.`
+                : "You're watching this match."}
+            </p>
+            {others.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[12px] font-semibold opacity-70">Or go to another pitch:</div>
+                {others.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => onGo(o.id)}
+                    className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-3 py-2 text-left text-[14px] font-bold"
+                  >
+                    ⚽ {o.name}{" "}
+                    <span className="font-normal opacity-60">· {o.km.toFixed(1)} km</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={onLeave} className={`${btn} border border-[#10201e]/20 bg-white`}>
+              Leave the bench
+            </button>
+          </div>
+        ) : room?.status === "waiting" ? (
+          <div className="space-y-3">
+            <div className="text-[13px] font-bold uppercase tracking-wide text-[#1f6f63]">
+              Picking teams · up to 3 a side
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([0, 1] as const).map((t) => (
+                <div
+                  key={t}
+                  className={`rounded-xl p-2.5 ${t === 0 ? "bg-[#1f6f63]/10" : "bg-[#d8682a]/10"}`}
+                >
+                  <div className="text-[13px] font-bold">{t === 0 ? "Team A" : "Team B"}</div>
+                  {team(t).map(([u, v]) => (
+                    <div key={u} className="truncate text-[13px]">
+                      {u === room.host ? "⭐ " : "• "}
+                      {v.name}
+                      {u === me ? " (you)" : ""}
+                    </div>
+                  ))}
+                  {team(t).length < MAX_PER_TEAM && (
+                    <div className="text-[12px] opacity-50">+ computer players</div>
+                  )}
+                  {mine && mine.team !== t && (
+                    <button
+                      onClick={() => onTeam(t)}
+                      className="mt-1.5 w-full rounded-lg bg-white py-1.5 text-[12px] font-bold"
+                    >
+                      Join {t === 0 ? "Team A" : "Team B"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {place >= 0 && <p className="text-[13px]">Both teams are full: you're on the bench.</p>}
+            {host ? (
+              <button onClick={onKickoff} className={`${btn} bg-[#1f6f63] text-[#fdf8ec]`}>
+                Bismillah · kick off
+              </button>
+            ) : (
+              <p className="text-center text-[13px] opacity-70">
+                Waiting for {r.players[room.host]?.name ?? "the host"} to kick off…
+              </p>
+            )}
+            <button onClick={onLeave} className={`${btn} border border-[#10201e]/20 bg-white`}>
+              Leave
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[15px]">The match has finished. Start another one?</p>
+            <button onClick={onRestart} className={`${btn} bg-[#1f6f63] text-[#fdf8ec]`}>
+              Start a new match
+            </button>
+            <button onClick={onLeave} className={`${btn} border border-[#10201e]/20 bg-white`}>
+              Leave
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- food and the phone ---------------- */
+function FoodView({
+  where,
+  points,
+  hunger,
+  onBuy,
+}: {
+  where: "order" | "eatery";
+  points: number;
+  hunger: number;
+  onBuy: (d: Dish) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] opacity-75">
+        {where === "order"
+          ? "Delivered to you wherever you are by an IlmDash rider. Cheaper than the eatery."
+          : "Fresh and hot, straight away. Ordering on your phone costs less."}{" "}
+        Food {hunger}% · you have {points} points.
+      </p>
+      {MENU.map((d) => {
+        const price = where === "eatery" ? eateryPrice(d) : d.points;
+        return (
+          <button
+            key={d.id}
+            onClick={() => onBuy(d)}
+            className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+          >
+            <span className="text-[26px]">{d.icon}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-bold">{d.name}</span>
+              <span className="block text-[12px] opacity-65">fills {d.fills}%</span>
+            </span>
+            <span
+              className={`rounded-lg px-2.5 py-1 text-[13px] font-bold ${points >= price ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#10201e]/10 opacity-60"}`}
+            >
+              {price} pts
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function HungryView({ onOrder, onEatery }: { onOrder: () => void; onEatery: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p>You're too hungry to do anything else. Eat first, then carry on.</p>
+      <button
+        onClick={onOrder}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        📱 Order food (cheaper)
+      </button>
+      <button
+        onClick={onEatery}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+      >
+        🍗 Walk to the nearest eatery
+      </button>
+      <p className="text-[12px] opacity-70">You can still pray and go home while you're hungry.</p>
+    </div>
+  );
+}
+
+function NoPointsView({ price, points }: { price: number; points: number }) {
+  return (
+    <div className="space-y-3">
+      <p>
+        This costs {price} points and you have {points}.
+      </p>
+      <p className="rounded-xl bg-white p-3 text-[14px]">
+        Earn points by praying on time (+2 for each fard salah), lecture minutes and the mosque
+        quiz, or buy points.
+      </p>
+      <button
+        disabled
+        className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05] opacity-60"
+      >
+        Buy points · coming soon with Paystack
+      </button>
+    </div>
+  );
+}
+
+function PhoneView({
+  onWallet,
+  onRooms,
+  onHomes,
+  onCalls,
+  onContacts,
+  onFood,
+  onOutings,
+  onTravel,
+  onPlaces,
+}: {
+  onWallet: () => void;
+  onRooms: () => void;
+  onHomes: () => void;
+  onCalls: () => void;
+  onContacts: () => void;
+  onFood: () => void;
+  onOutings: () => void;
+  onTravel: () => void;
+  onPlaces: () => void;
+}) {
+  const now = new Date();
+  const icon = (bg: string, e: ReactNode, name: string, on?: () => void) => (
+    <button
+      key={name}
+      onClick={on}
+      disabled={!on}
+      className={`flex flex-col items-center gap-1 text-[11px] font-semibold text-white ${on ? "" : "opacity-45"}`}
+    >
+      <span
+        className="grid size-[54px] place-items-center rounded-[16px] text-[28px] shadow-lg"
+        style={{ background: bg }}
+      >
+        {e}
+      </span>
+      <span className="max-w-[70px] truncate">{name}</span>
+    </button>
+  );
+  return (
+    <div className="flex h-full min-h-[520px] flex-col">
+      <div className="pt-6 text-center text-white">
+        <div className="text-[54px] font-light leading-none tracking-tight">
+          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </div>
+        <div className="mt-1 text-[13px] opacity-80">
+          {now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
+        </div>
+      </div>
+      <div className="mt-10 grid grid-cols-4 gap-x-2 gap-y-5">
+        {icon("#2f8f3a", "🛵", "IlmDash", onFood)}
+        {icon(
+          "transparent",
+          <img src="/outingstation-icon.png" alt="" className="size-[54px] rounded-[16px]" />,
+          "OutingStation",
+          onOutings,
+        )}
+        {icon("#3a7bd5", "🚌", "Travel", onTravel)}
+        {icon("#1f6f63", "📍", "Places", onPlaces)}
+        {icon("#2e7d32", "📞", "Calls", onCalls)}
+        {icon("#8a2f4f", "👥", "Contacts", onContacts)}
+        {icon("#c77d2a", "🏠", "Homes", onHomes)}
+        {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
+        {icon("#1d6b3a", "💰", "Wallet", onWallet)}
+      </div>
+      <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
+        <div className="grid grid-cols-4 gap-2">
+          {icon("#2e7d32", "📞", "Phone", onCalls)}
+          {icon("#2f8f3a", "🛵", "Food", onFood)}
+          {icon("#3a7bd5", "🚌", "Travel", onTravel)}
+          {icon("#1f6f63", "📍", "Places", onPlaces)}
+        </div>
+      </div>
     </div>
   );
 }

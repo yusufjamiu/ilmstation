@@ -1307,10 +1307,31 @@ export function faculty(
 }
 
 /** A football field with lines, goals and a small covered stand. */
+export type Pitch = {
+  /** centre of the playing area, in area coordinates */
+  x: number;
+  z: number;
+  /** length (goal to goal) and width of the playing area */
+  len: number;
+  wid: number;
+  /** the pitch's turn: its length runs along (cos turn, -sin turn) */
+  turn: number;
+  /** where spectators wait, in area coordinates */
+  stand: { x: number; z: number };
+};
 export function field(
   b: Batch,
-  o: { x: number; z: number; turn: number; width: number; depth: number; name: string },
-): Built {
+  o: {
+    x: number;
+    z: number;
+    turn: number;
+    width: number;
+    depth: number;
+    name: string;
+    /** a small neighbourhood pitch: benches instead of a covered stand */
+    small?: boolean;
+  },
+): Built & { pitch: Pitch } {
   const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
   const W = o.width,
     D = o.depth;
@@ -1318,41 +1339,98 @@ export function field(
   const line = MAT.plain(0xf7f5ef);
   const stripe = (w: number, d: number, x: number, z: number) =>
     b.add(new THREE.BoxGeometry(w, 0.02, d), line, x, 0.06, z, 0, false);
-  const PW = W - 6,
-    PD = D - 10,
-    pz = -2;
+  const PW = o.small ? W - 4 : W - 6,
+    PD = o.small ? D - 5 : D - 10,
+    pz = o.small ? 0.8 : -2;
   stripe(PW, 0.2, 0, pz - PD / 2);
   stripe(PW, 0.2, 0, pz + PD / 2);
   stripe(0.2, PD, -PW / 2, pz);
   stripe(0.2, PD, PW / 2, pz);
   stripe(0.2, PD, 0, pz);
-  const ring = new THREE.RingGeometry(3.6, 3.8, 32);
+  const ring = new THREE.RingGeometry(Math.min(3.6, PD / 4), Math.min(3.8, PD / 4 + 0.2), 32);
   ring.rotateX(-Math.PI / 2);
   b.add(ring, line, 0, 0.07, pz, 0, false);
-  // goals at both ends
+  const boxW = Math.min(12, PD - 2),
+    boxL = o.small ? 4 : 5;
+  // goals with nets at both ends
+  const white = MAT.plain(0xffffff, 0.4);
+  const net = M_NET();
   for (const s of [-1, 1]) {
     const gx = s * (PW / 2);
-    const white = MAT.plain(0xffffff, 0.4);
     b.box(0.15, 2.2, 0.15, white, gx, 0, pz - 3);
     b.box(0.15, 2.2, 0.15, white, gx, 0, pz + 3);
     b.box(0.15, 0.15, 6.15, white, gx, 2.2, pz);
+    // the net: back, top and sides
+    b.add(new THREE.PlaneGeometry(6, 2.2), net, gx + s * 1.2, 1.1, pz, Math.PI / 2, false);
+    const top = new THREE.PlaneGeometry(1.2, 6);
+    top.rotateX(-Math.PI / 2);
+    b.add(top, net, gx + s * 0.6, 2.2, pz, 0, false);
+    for (const side of [-3, 3])
+      b.add(new THREE.PlaneGeometry(1.2, 2.2), net, gx + s * 0.6, 1.1, pz + side, 0, false);
     solid(gx - 0.2, gx + 0.2, pz - 3.2, pz - 2.8);
     solid(gx - 0.2, gx + 0.2, pz + 2.8, pz + 3.2);
-    stripe(0.2, 12, gx - s * 5, pz);
-    stripe(5, 0.2, gx - s * 2.5, pz - 6);
-    stripe(5, 0.2, gx - s * 2.5, pz + 6);
+    stripe(0.2, boxW, gx - s * boxL, pz);
+    stripe(boxL, 0.2, gx - s * (boxL / 2), pz - boxW / 2);
+    stripe(boxL, 0.2, gx - s * (boxL / 2), pz + boxW / 2);
   }
-  // a covered stand along the back
-  const sz = -D / 2 + 2;
-  for (let r = 0; r < 3; r++)
-    b.box(PW * 0.5, 0.45 + r * 0.45, 1, MAT.plain(0xd8d2c2), 0, 0, sz + 2 - r);
-  b.box(PW * 0.55, 0.15, 4, MAT.plain(0x1f6f63, 0.5), 0, 4.2, sz + 1);
-  for (const x of [-PW * 0.26, PW * 0.26]) b.box(0.2, 4.2, 0.2, MAT.plain(0x5a5f66), x, 0, sz + 1);
-  solid(-PW * 0.25, PW * 0.25, sz - 0.5, sz + 2.6);
-  b.plane(14, 1.4, textMat(o.name, { bg: "#1f6f63", fg: "#fdf8ec" }), 0, 4.9, sz + 3.05);
+  let stand: { x: number; z: number };
+  if (o.small) {
+    // benches along the back for players waiting their turn
+    const bz = -D / 2 + 1;
+    for (const x of [-PW * 0.3, 0, PW * 0.3]) {
+      b.box(3, 0.45, 0.6, MAT.plain(0x8a5a3a), x, 0, bz);
+      solid(x - 1.5, x + 1.5, bz - 0.3, bz + 0.3);
+    }
+    b.plane(10, 1, textMat(o.name, { bg: "#1f6f63", fg: "#fdf8ec" }), 0, 2.4, -D / 2 + 0.3);
+    for (const x of [-5.2, 5.2]) b.box(0.12, 2.9, 0.12, MAT.plain(0x5a5f66), x, 0, -D / 2 + 0.3);
+    stand = to(PW * 0.3 + 2, bz + 0.6);
+  } else {
+    // a covered stand along the back
+    const sz = -D / 2 + 2;
+    for (let r = 0; r < 3; r++)
+      b.box(PW * 0.5, 0.45 + r * 0.45, 1, MAT.plain(0xd8d2c2), 0, 0, sz + 2 - r);
+    b.box(PW * 0.55, 0.15, 4, MAT.plain(0x1f6f63, 0.5), 0, 4.2, sz + 1);
+    for (const x of [-PW * 0.26, PW * 0.26])
+      b.box(0.2, 4.2, 0.2, MAT.plain(0x5a5f66), x, 0, sz + 1);
+    solid(-PW * 0.25, PW * 0.25, sz - 0.5, sz + 2.6);
+    b.plane(14, 1.4, textMat(o.name, { bg: "#1f6f63", fg: "#fdf8ec" }), 0, 4.9, sz + 3.05);
+    stand = to(PW * 0.25 + 2, sz + 3.6);
+  }
   const spot = to(0, D / 2 - 1.5);
+  const c = to(0, pz);
   b.base.identity();
-  return { colliders, spots: [{ key: "field", x: spot.x, z: spot.z, label: o.name, labelY: 3.4 }] };
+  return {
+    colliders,
+    spots: [{ key: "field", x: spot.x, z: spot.z, label: o.name, labelY: 3.4 }],
+    pitch: { x: c.x, z: c.z, len: PW, wid: PD, turn: o.turn, stand },
+  };
+}
+let netMat: THREE.Material | null = null;
+function M_NET() {
+  if (netMat) return netMat;
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 64;
+  const c = cv.getContext("2d")!;
+  c.strokeStyle = "rgba(255,255,255,0.85)";
+  c.lineWidth = 2;
+  for (let i = 0; i <= 64; i += 8) {
+    c.beginPath();
+    c.moveTo(i, 0);
+    c.lineTo(i, 64);
+    c.moveTo(0, i);
+    c.lineTo(64, i);
+    c.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6, 3);
+  netMat = new THREE.MeshBasicMaterial({
+    map: t,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  return netMat;
 }
 
 /** A shaded meeting point: a green canopy over mats, potted palms and a notice board. */
@@ -1442,9 +1520,7 @@ export function sistersCorner(
   solid(-W / 2, W / 2, -D / 2, -D / 2 + 0.8);
   solid(-W / 2, -W / 2 + 0.8, -D / 2, D / 2);
   solid(W / 2 - 0.8, W / 2, -D / 2, D / 2);
-  // the rope swinging between two sisters
-  const rope = new THREE.TorusGeometry(2.2, 0.035, 6, 24, Math.PI);
-  b.add(rope, MAT.plain(0xe6b84a), 0, 0.9, -1, 0, false);
+  // the rope itself is drawn and turned by the game (rope.ts)
   for (const bx of [-W / 2 + 2.5, W / 2 - 2.5]) {
     b.box(2, 0.45, 0.6, MAT.plain(0x8a5a3a), bx, 0, -D / 2 + 2);
     solid(bx - 1, bx + 1, -D / 2 + 1.7, -D / 2 + 2.3);
