@@ -146,6 +146,8 @@ type Save = {
   student?: { area: string; faculty: string };
   /** something you found and are taking to the police */
   carrying?: FoundKind;
+  /** food you collected and haven't eaten yet (dish id) */
+  meal?: string;
   /** you kept something that wasn't yours */
   wanted?: { at: number; item: FoundKind };
   /** you are in the police cell */
@@ -676,20 +678,39 @@ function CityGame({
   const openPlacesRef = useRef<(area: string) => void>(() => {});
   const eat = useCallback(
     (d: Dish) => {
+      setPanel(null);
+      sayDhikr("beforeEating", () =>
+        setPanel({
+          kind: "busy",
+          title: `Bismillah… eating ${d.name.toLowerCase()}`,
+          ms: 5000,
+          done: () => {
+            need({ hunger: d.fills });
+            doTask("eat");
+            update((x) => ({ ...x, meal: undefined }));
+            sayDhikr("afterEating", () => {});
+          },
+        }),
+      );
+    },
+    [need, doTask, sayDhikr, update],
+  );
+  /** Wash your hands, then eat. */
+  const openMeal = useCallback(
+    (d: Dish) => {
       setPanel({
-        kind: "busy",
-        title: `Bismillah… eating ${d.name.toLowerCase()}`,
-        ms: 5000,
-        done: () => {
-          need({ hunger: d.fills });
-          doTask("eat");
-          sayDhikr("afterEating");
-        },
+        kind: "info",
+        title: `${d.icon} ${d.name}`,
+        body: <MealView dish={d} onEat={() => eat(d)} />,
       });
     },
-    [need, doTask, sayDhikr],
+    [eat],
   );
-  const [delivering, setDelivering] = useState<Dish | null>(null);
+  const openMealRef = useRef(openMeal);
+  openMealRef.current = openMeal;
+  /** your order: on the way, or the rider is waiting outside */
+  const [delivery, setDelivery] = useState<{ dish: Dish; outside: boolean } | null>(null);
+  const meal = save.meal ? MENU.find((m) => m.id === save.meal) : undefined;
   const buyFood = useCallback(
     (d: Dish, where: "order" | "eatery") => {
       const price = where === "eatery" ? eateryPrice(d) : d.points;
@@ -704,19 +725,33 @@ function CityGame({
       update((x) => ({ ...x, coins: x.coins - price }));
       if (where === "eatery") {
         toast(`−${price} points. Here's your ${d.name.toLowerCase()}!`, "good");
-        eat(d);
+        openMeal(d);
         return;
       }
       setPanel(null);
-      setDelivering(d);
-      toast(`Ordered! −${price} points. Your IlmDash rider is on the way 🛵`, "good");
-      engine.current?.deliverFood(() => {
-        setDelivering(null);
-        toast("IlmDash: your food is here. Enjoy!", "good");
-        eat(d);
-      });
+      setDelivery({ dish: d, outside: false });
+      toast(`Ordered! −${price} points. Your Ilm Food Delivery rider is on the way 🛵`, "good");
+      engine.current?.deliverFood(
+        () => {
+          setDelivery({ dish: d, outside: true });
+          toast(
+            engine.current?.scenePlace() === "out"
+              ? "Your rider is here. Walk to the bike to collect your food."
+              : "Your rider is outside. Go out to collect your food.",
+            "good",
+          );
+        },
+        () => {
+          setDelivery(null);
+          update((x) => ({ ...x, meal: d.id }));
+          toast(
+            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! Go inside, wash your hands, then eat.`,
+            "good",
+          );
+        },
+      );
     },
-    [update, toast, eat],
+    [update, toast, openMeal],
   );
   const openFood = useCallback(
     (where: "order" | "eatery") => {
@@ -2494,9 +2529,16 @@ function CityGame({
               <button
                 onClick={() => {
                   setPanel(null);
-                  update((x) => ({ ...x, wudu: false }));
-                  toast(
-                    'Entering: "Allahumma inni a\'udhu bika minal-khubuthi wal-khaba\'ith." Leaving: "Ghufranak."',
+                  sayDhikr("enterToilet", () =>
+                    setPanel({
+                      kind: "busy",
+                      title: "Using the toilet",
+                      ms: 3000,
+                      done: () => {
+                        update((x) => ({ ...x, wudu: false }));
+                        sayDhikr("leaveToilet", () => {});
+                      },
+                    }),
                   );
                 }}
                 className="w-full rounded-xl border border-[#1f6f63]/30 bg-white px-4 py-3 text-left font-bold"
@@ -2714,8 +2756,10 @@ function CityGame({
         return;
       }
       if (id === "eat") {
-        // the dining table: order food to your door
-        openFood("order");
+        // the dining table: eat the food you collected, or order some
+        const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
+        if (m) openMealRef.current(m);
+        else openFood("order");
         return;
       }
       if (id === "prayermat") {
@@ -3423,18 +3467,40 @@ function CityGame({
           }}
         />
       )}
-      {(hungry || delivering) && !match && (
+      {(hungry || delivery || meal) && !match && (
         <div
           data-game-ui
-          className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center"
+          className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center px-3"
         >
           <button
-            onClick={() => (delivering ? undefined : openFood("order"))}
-            className={`pointer-events-auto rounded-full px-4 py-2 text-[13px] font-bold shadow-xl ${delivering ? "bg-[#2f8f3a] text-white" : "animate-pulse bg-[#b8573a] text-white"}`}
+            onClick={() => {
+              const e = engine.current;
+              if (delivery) {
+                if (delivery.outside && e?.scenePlace() !== "out")
+                  toast("Tap Exit to go outside. The rider is at your door.");
+                return;
+              }
+              if (meal) {
+                if (e?.scenePlace() === "out") {
+                  if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
+                } else openMeal(meal);
+                return;
+              }
+              openFood("order");
+            }}
+            className={`pointer-events-auto rounded-full px-4 py-2 text-center text-[13px] font-bold shadow-xl ${delivery || meal ? "bg-[#2f8f3a] text-white" : "animate-pulse bg-[#b8573a] text-white"} ${delivery?.outside ? "animate-pulse" : ""}`}
           >
-            {delivering
-              ? `🛵 Your ${delivering.name.toLowerCase()} is on the way…`
-              : "😩 I'm hungry · tap to order food"}
+            {delivery
+              ? delivery.outside
+                ? inside
+                  ? "🛵 Your rider is outside · go out to collect your food"
+                  : "🛵 Walk to the Ilm Food Delivery bike to collect your food"
+                : `🛵 Your ${delivery.dish.name.toLowerCase()} is on the way…`
+              : meal
+                ? inside
+                  ? `${meal.icon} Tap here: wash your hands, then eat`
+                  : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
+                : "😩 I'm hungry · tap to order food"}
           </button>
         </div>
       )}
@@ -5964,6 +6030,42 @@ function PlacesView({ area, onGo }: { area: string; onGo: (prefix: string) => vo
   );
 }
 
+/* ---------------- wash your hands, then eat ---------------- */
+function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
+  const [step, setStep] = useState<"wash" | "washing" | "eat">("wash");
+  useEffect(() => {
+    if (step !== "washing") return;
+    const t = setTimeout(() => setStep("eat"), 2000);
+    return () => clearTimeout(t);
+  }, [step]);
+  return (
+    <div className="space-y-3">
+      <div className="text-center text-[52px] leading-none">{dish.icon}</div>
+      <button
+        disabled={step !== "wash"}
+        onClick={() => setStep("washing")}
+        className={`w-full rounded-xl px-4 py-3 text-left font-bold ${step === "wash" ? "bg-[#1f6f63] text-[#fdf8ec]" : "border border-[#1f6f63]/30 bg-white"}`}
+      >
+        {step === "wash"
+          ? "🧼 1. Wash your hands"
+          : step === "washing"
+            ? "🧼 Washing…"
+            : "✅ Hands washed"}
+      </button>
+      <button
+        disabled={step !== "eat"}
+        onClick={onEat}
+        className={`w-full rounded-xl px-4 py-3 text-left font-bold ${step === "eat" ? "bg-[#f2c230] text-[#2a1c05]" : "border border-[#10201e]/15 bg-white opacity-50"}`}
+      >
+        🍽️ 2. Say Bismillah and eat
+      </button>
+      <p className="text-[12px] opacity-70">
+        Eat with your right hand, from what is in front of you.
+      </p>
+    </div>
+  );
+}
+
 /* ---------------- OutingStation: where to go in the game ---------------- */
 type Outing = Place & { area: string; live?: boolean };
 const OUTING_TABS = [
@@ -6830,6 +6932,10 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
           prefix: inside && (s.items ?? []).includes("prayermat") ? "prayermat" : "door:masjid:",
         }
       : { text: `Make wudu for ${cp.name}`, prefix: inside ? "bath" : "door:masjid:" };
+  if (s.meal)
+    return inside
+      ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
+      : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
     return { text: "You're hungry: order food (📱) or eat at the eatery", prefix: "eatery:" };
   if (n && n.energy < 25)

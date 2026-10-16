@@ -2394,50 +2394,99 @@ export class IlmCityEngine {
   }
 
   /* ---------------- food delivery ---------------- */
-  private rider: { g: THREE.Object3D; done: () => void; t: number } | null = null;
-  /** A delivery rider runs your order to you; `done` is called when they arrive. */
-  deliverFood(done: () => void) {
-    if (this.rider) this.rider.g.removeFromParent();
-    if (this.where !== "out") {
-      // indoors: the rider knocks at the door after a short wait
-      const t = window.setTimeout(done, 7000);
-      this.rider = { g: new THREE.Group(), done: () => clearTimeout(t), t: 0 };
-      return;
-    }
-    const g = person(0x2f8f3a, { cap: 0x2f8f3a, trousers: 0x1d1d26, seed: 91 });
-    const bag = box(0.55, 0.55, 0.4, 0x2f8f3a, 0, 1.0, -0.32);
-    g.add(bag);
-    const tag = label("IlmDash delivery", { size: 0.6, bg: "rgba(47,143,58,0.92)" });
-    tag.position.y = 2.6;
+  private rider: {
+    g: THREE.Group;
+    man: THREE.Object3D;
+    t: number;
+    state: "coming" | "waiting" | "leaving";
+    away: THREE.Vector3;
+    onArrive: () => void;
+    onCollect: () => void;
+  } | null = null;
+  /** A delivery bike with the food box on the back. */
+  private deliveryBike() {
+    const g = new THREE.Group();
+    const wheel = (z: number) => {
+      const w = cyl(0.32, 0.32, 0.12, 0x1d1d22, 14);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(0, 0.32, z);
+      return w;
+    };
+    g.add(wheel(0.62), wheel(-0.62));
+    g.add(box(0.26, 0.28, 1.15, 0xc8102e, 0, 0.42, 0));
+    g.add(box(0.36, 0.12, 0.6, 0x1d1d22, 0, 0.72, -0.12)); // seat
+    const bar = box(0.7, 0.06, 0.06, 0x2a2a2a, 0, 1.05, 0.5);
+    g.add(bar, box(0.06, 0.5, 0.06, 0x2a2a2a, 0, 0.58, 0.55));
+    // the food box
+    g.add(box(0.62, 0.55, 0.55, 0x2f8f3a, 0, 0.86, -0.62));
+    g.add(box(0.64, 0.08, 0.57, 0xfdf8ec, 0, 1.24, -0.62));
+    const tag = label("Ilm Food Delivery", { size: 0.36, bg: "rgba(47,143,58,0.95)" });
+    tag.position.set(0, 1.55, -0.62);
     g.add(tag);
-    const p = this.player.position;
+    const man = person(0x2f8f3a, { cap: 0x2f8f3a, trousers: 0x1d1d26, seed: 91 });
+    man.position.set(0, 0.42, 0.05);
+    man.scale.setScalar(0.92);
+    g.add(man);
+    return { g, man };
+  }
+  /**
+   * A rider brings your order. They ride to you (or to your door if you are
+   * indoors), call `onArrive`, then wait until you walk up to them (`onCollect`).
+   */
+  deliverFood(onArrive: () => void, onCollect: () => void) {
+    if (this.rider) this.rider.g.removeFromParent();
+    const { g, man } = this.deliveryBike();
+    const t = this.where === "out" ? this.player.position : this.outPos;
     const a = Math.random() * Math.PI * 2;
-    g.position.set(p.x + Math.cos(a) * 26, 0, p.z + Math.sin(a) * 26);
+    g.position.set(t.x + Math.cos(a) * 30, 0, t.z + Math.sin(a) * 30);
     this.scene.add(g);
-    this.rider = { g, done, t: 0 };
+    this.rider = { g, man, t: 0, state: "coming", away: g.position.clone(), onArrive, onCollect };
+  }
+  /** Where the rider is waiting, if they have arrived. */
+  riderWaiting() {
+    return this.rider?.state === "waiting";
   }
   private stepRider(dt: number) {
     const r = this.rider;
-    if (!r || !r.g.parent) return;
-    const p = this.player.position;
-    const dx = p.x - r.g.position.x,
-      dz = p.z - r.g.position.z,
-      d = Math.hypot(dx, dz);
+    if (!r) return;
     r.t += dt;
-    if (d < 1.4 || r.t > 20) {
-      r.g.rotation.y = Math.atan2(dx, dz);
-      animatePerson(r.g, 0, 0);
-      const done = r.done;
-      this.rider = null;
-      done();
-      window.setTimeout(() => r.g.removeFromParent(), 6000);
-      return;
+    const g = r.g;
+    const goTo = (tx: number, tz: number, speed: number) => {
+      const dx = tx - g.position.x,
+        dz = tz - g.position.z,
+        d = Math.hypot(dx, dz);
+      if (d > 0.01) {
+        const sp = Math.min(d, speed * dt);
+        g.position.x += (dx / d) * sp;
+        g.position.z += (dz / d) * sp;
+        g.rotation.y = Math.atan2(dx, dz);
+      }
+      return d;
+    };
+    if (r.state === "coming") {
+      const t = this.where === "out" ? this.player.position : this.outPos;
+      const d = goTo(t.x, t.z, 9);
+      if (d < 2.4 || r.t > 25) {
+        if (d >= 2.4) g.position.set(t.x + 2, 0, t.z + 2);
+        r.state = "waiting";
+        r.onArrive();
+      }
+    } else if (r.state === "waiting") {
+      if (this.where !== "out") return;
+      const p = this.player.position;
+      const d = Math.hypot(p.x - g.position.x, p.z - g.position.z);
+      if (d < 2.6) {
+        r.state = "leaving";
+        r.t = 0;
+        r.onCollect();
+      }
+    } else {
+      goTo(r.away.x, r.away.z, 9);
+      if (r.t > 6) {
+        g.removeFromParent();
+        this.rider = null;
+      }
     }
-    const sp = Math.min(d, 6.5 * dt);
-    r.g.position.x += (dx / d) * sp;
-    r.g.position.z += (dz / d) * sp;
-    r.g.rotation.y = Math.atan2(dx, dz);
-    animatePerson(r.g, r.t * 11, 1, 5);
   }
 
   /** A block of flats near the market where new players live. */
@@ -3819,7 +3868,7 @@ export class IlmCityEngine {
           B(1.4, 0.15, 0.9, 0x1d1f22, 1.2, 1.92, 0),
         );
         k.position.set(0, 0, -6.2);
-        item("kitchen", k, 5, 1.4, { id: "eat", label: "Cook and eat", r: 2, dz: 1.6 });
+        item("kitchen", k, 5, 1.4, { id: "eat", label: "Eat at the table", r: 2, dz: 1.6 });
       }
       {
         const f = new THREE.Group();

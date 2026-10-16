@@ -1962,6 +1962,30 @@ export const PLACE_DHIKR: Record<string, PlaceDhikr> = {
     source: "Qur'an 20:114",
     tip: "Make your intention to learn for Allah and to benefit people.",
   },
+  beforeEating: {
+    title: "Before eating",
+    arabic: "بِسْمِ اللَّهِ",
+    say: "Bismillah.",
+    meaning: "In the name of Allah.",
+    source: "Abu Dawud, Tirmidhi",
+    tip: "If you forget at the start, say: Bismillahi awwalahu wa akhirahu.",
+  },
+  enterToilet: {
+    title: "Entering the toilet",
+    arabic: "بِسْمِ اللَّهِ، اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْخُبُثِ وَالْخَبَائِثِ",
+    say: "Bismillah. Allahumma inni a'udhu bika minal-khubuthi wal-khaba'ith.",
+    meaning: "In the name of Allah. O Allah, I seek refuge with You from all evil and evil-doers.",
+    source: "Bukhari, Muslim; Bismillah: Tirmidhi",
+    tip: "Enter with your left foot.",
+  },
+  leaveToilet: {
+    title: "Leaving the toilet",
+    arabic: "غُفْرَانَكَ",
+    say: "Ghufranak.",
+    meaning: "I ask You for Your forgiveness.",
+    source: "Abu Dawud, Tirmidhi",
+    tip: "Leave with your right foot.",
+  },
   afterEating: {
     title: "After eating",
     arabic:
