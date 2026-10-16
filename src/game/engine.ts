@@ -2400,7 +2400,9 @@ export class IlmCityEngine {
     t: number;
     state: "coming" | "waiting" | "leaving";
     away: THREE.Vector3;
+    near: boolean;
     onArrive: () => void;
+    onNear: (near: boolean) => void;
     onCollect: () => void;
   } | null = null;
   /** A delivery bike with the food box on the back. */
@@ -2433,14 +2435,33 @@ export class IlmCityEngine {
    * A rider brings your order. They ride to you (or to your door if you are
    * indoors), call `onArrive`, then wait until you walk up to them (`onCollect`).
    */
-  deliverFood(onArrive: () => void, onCollect: () => void) {
+  deliverFood(onArrive: () => void, onNear: (near: boolean) => void, onCollect: () => void) {
     if (this.rider) this.rider.g.removeFromParent();
     const { g, man } = this.deliveryBike();
     const t = this.where === "out" ? this.player.position : this.outPos;
     const a = Math.random() * Math.PI * 2;
     g.position.set(t.x + Math.cos(a) * 30, 0, t.z + Math.sin(a) * 30);
     this.scene.add(g);
-    this.rider = { g, man, t: 0, state: "coming", away: g.position.clone(), onArrive, onCollect };
+    this.rider = {
+      g,
+      man,
+      t: 0,
+      state: "coming",
+      away: g.position.clone(),
+      near: false,
+      onArrive,
+      onNear,
+      onCollect,
+    };
+  }
+  /** Take the food from the rider (you must be standing by the bike). */
+  collectFood() {
+    const r = this.rider;
+    if (!r || r.state !== "waiting" || !r.near) return false;
+    r.state = "leaving";
+    r.t = 0;
+    r.onCollect();
+    return true;
   }
   /** Where the rider is waiting, if they have arrived. */
   riderWaiting() {
@@ -2472,13 +2493,11 @@ export class IlmCityEngine {
         r.onArrive();
       }
     } else if (r.state === "waiting") {
-      if (this.where !== "out") return;
       const p = this.player.position;
-      const d = Math.hypot(p.x - g.position.x, p.z - g.position.z);
-      if (d < 2.6) {
-        r.state = "leaving";
-        r.t = 0;
-        r.onCollect();
+      const near = this.where === "out" && Math.hypot(p.x - g.position.x, p.z - g.position.z) < 3.2;
+      if (near !== r.near) {
+        r.near = near;
+        r.onNear(near);
       }
     } else {
       goTo(r.away.x, r.away.z, 9);

@@ -709,7 +709,11 @@ function CityGame({
   const openMealRef = useRef(openMeal);
   openMealRef.current = openMeal;
   /** your order: on the way, or the rider is waiting outside */
-  const [delivery, setDelivery] = useState<{ dish: Dish; outside: boolean } | null>(null);
+  const [delivery, setDelivery] = useState<{
+    dish: Dish;
+    outside: boolean;
+    near?: boolean;
+  } | null>(null);
   const meal = save.meal ? MENU.find((m) => m.id === save.meal) : undefined;
   const buyFood = useCallback(
     (d: Dish, where: "order" | "eatery") => {
@@ -741,6 +745,7 @@ function CityGame({
             "good",
           );
         },
+        (near) => setDelivery((x) => (x ? { ...x, near } : x)),
         () => {
           setDelivery(null);
           update((x) => ({ ...x, meal: d.id }));
@@ -3467,7 +3472,7 @@ function CityGame({
           }}
         />
       )}
-      {(hungry || delivery || meal) && !match && (
+      {(hungry || delivery || meal) && !match && !dhikr && (
         <div
           data-game-ui
           className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center px-3"
@@ -3476,6 +3481,10 @@ function CityGame({
             onClick={() => {
               const e = engine.current;
               if (delivery) {
+                if (delivery.near) {
+                  e?.collectFood();
+                  return;
+                }
                 if (delivery.outside && e?.scenePlace() !== "out")
                   toast("Tap Exit to go outside. The rider is at your door.");
                 return;
@@ -3491,11 +3500,13 @@ function CityGame({
             className={`pointer-events-auto rounded-full px-4 py-2 text-center text-[13px] font-bold shadow-xl ${delivery || meal ? "bg-[#2f8f3a] text-white" : "animate-pulse bg-[#b8573a] text-white"} ${delivery?.outside ? "animate-pulse" : ""}`}
           >
             {delivery
-              ? delivery.outside
-                ? inside
-                  ? "🛵 Your rider is outside · go out to collect your food"
-                  : "🛵 Walk to the Ilm Food Delivery bike to collect your food"
-                : `🛵 Your ${delivery.dish.name.toLowerCase()} is on the way…`
+              ? delivery.near
+                ? "🛵 Collect your food from the rider"
+                : delivery.outside
+                  ? inside
+                    ? "🛵 Your rider is outside · go out to collect your food"
+                    : "🛵 Walk to the Ilm Food Delivery bike to collect your food"
+                  : `🛵 Your ${delivery.dish.name.toLowerCase()} is on the way…`
               : meal
                 ? inside
                   ? `${meal.icon} Tap here: wash your hands, then eat`
