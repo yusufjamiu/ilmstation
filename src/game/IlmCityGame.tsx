@@ -6,6 +6,7 @@ import type { RopeState } from "./rope";
 import { connectRope, connectRopeLocal } from "./ropenet";
 import { VEHICLE_INFO } from "./vehicles";
 import { connectHomes, connectHomesLocal, type Homes, type ShownHome } from "./homes";
+import { connectRooms, connectRoomsLocal, roomId, type RoomAd, type RoomsNet } from "./rooms";
 import {
   cleanNumber,
   connectCalls,
@@ -163,6 +164,8 @@ type Save = {
   student?: { area: string; faculty: string };
   /** something you found and are taking to the police */
   carrying?: FoundKind;
+  /** a room you rent in another player's house */
+  lodging?: { id: string; plot: string; area: string; label: string; until: number; owner: string };
   /** people saved on your phone */
   contacts?: { uid: string; name: string; number: string }[];
   /** recent calls */
@@ -813,6 +816,7 @@ function CityGame({
         <PhoneView
           onCalls={() => openCallsRef.current("calls")}
           onHomes={() => openHomesRef.current()}
+          onRooms={() => openRoomsRef.current()}
           onContacts={() => openCallsRef.current("contacts")}
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
@@ -1478,6 +1482,34 @@ function CityGame({
         });
         return;
       }
+      const lod = saveRef.current.lodging;
+      if (lod && lod.plot === pid && lod.until > Date.now() && !saveRef.current.plots?.[pid]) {
+        const days = Math.ceil((lod.until - Date.now()) / 86400000);
+        setPanel({
+          kind: "info",
+          title: "Your room",
+          body: (
+            <div className="space-y-3">
+              <p>
+                You rent a room in {lod.owner}'s house at {lod.label}. {days} day
+                {days === 1 ? "" : "s"} left this week.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  e.enterInterior("home", `Your room · ${lod.label}`);
+                  setInside(true);
+                  sayDhikr("enterHome");
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                Go inside
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       const setOwn = (next: PlotOwn) => {
         update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
         e.setPlot(pid, plotStateFn(next) ?? { kind: p.kind === "land" ? "land" : "tolet" });
@@ -1501,6 +1533,56 @@ function CityGame({
               plot={p}
               own={own}
               points={saveRef.current.coins}
+              players={
+                roomsNet.current && uid
+                  ? {
+                      ads: myAds.current.filter((a) => a.plot === pid),
+                      onList: (i) => {
+                        const net = roomsNet.current!;
+                        void net
+                          .list(uid, pid, i, {
+                            owner: uid,
+                            ownerName: saveRef.current.profile?.name ?? "Player",
+                            plot: pid,
+                            area: p.district,
+                            label: `No. ${p.number}, ${p.street}, ${districtById(p.district).name}`,
+                            i,
+                            rent: ROOM_RENT_WEEK,
+                            tenant: null,
+                            tenantName: null,
+                          })
+                          .then(() => {
+                            myAds.current = [
+                              ...myAds.current.filter((a) => a.id !== roomId(uid, pid, i)),
+                              {
+                                id: roomId(uid, pid, i),
+                                owner: uid,
+                                ownerName: "",
+                                plot: pid,
+                                area: p.district,
+                                label: "",
+                                i,
+                                rent: ROOM_RENT_WEEK,
+                                at: Date.now(),
+                              },
+                            ];
+                            toast(
+                              "Your room is listed. Players can find it in 📱 Phone → Rooms.",
+                              "good",
+                            );
+                            render();
+                          })
+                          .catch(() => toast("Couldn't list the room. Try again.", "warn"));
+                      },
+                      onUnlist: (id) => {
+                        void roomsNet.current!.unlist(id).then(() => {
+                          myAds.current = myAds.current.filter((a) => a.id !== id);
+                          render();
+                        });
+                      },
+                    }
+                  : undefined
+              }
               onPay={(pts, next, msg) => {
                 if (saveRef.current.coins < pts) return;
                 update((x) => ({ ...x, coins: x.coins - pts }));
@@ -1551,7 +1633,7 @@ function CityGame({
       };
       render();
     },
-    [toast, update],
+    [toast, update, sayDhikr, uid],
   );
 
   /** Paint every shop and stall: yours, the market's traders, or "for rent". */
@@ -1796,6 +1878,111 @@ function CityGame({
       onlineRef.current = null;
     };
   }, [uid, adult]);
+
+  /* ---------- rooms to let between players ---------- */
+  const roomsNet = useRef<RoomsNet | null>(null);
+  const myAds = useRef<RoomAd[]>([]);
+  useEffect(() => {
+    if (!uid) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    let live = true;
+    (local ? Promise.resolve(connectRoomsLocal()) : connectRooms())
+      .then((net) => {
+        if (!live) return;
+        roomsNet.current = net;
+        off = net.watchMine(uid, (ads) => {
+          myAds.current = ads;
+          // a player rented one of your rooms: collect the week's rent
+          for (const a of ads)
+            if (a.tenant && !a.paid && (a.until ?? 0) > Date.now()) {
+              void net.collected(a.id).catch(() => {});
+              update((x) => {
+                const own = x.plots?.[a.plot];
+                const plots = { ...x.plots };
+                if (own && (own.kind === "built" || own.kind === "bought")) {
+                  const rooms = [...(own.rooms ?? [])];
+                  rooms[a.i] = {
+                    tenant: `${a.tenantName ?? "A player"} (player)`,
+                    until: a.until!,
+                  };
+                  plots[a.plot] = { ...own, rooms };
+                }
+                return { ...x, coins: x.coins + a.rent, plots };
+              });
+              toast(
+                `${a.tenantName ?? "A player"} rented Room ${a.i + 1} at ${a.label}. +${a.rent} points rent!`,
+                "good",
+              );
+            }
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [uid, update, toast]);
+  const openRooms = useCallback(() => {
+    const net = roomsNet.current;
+    setPanel({
+      kind: "info",
+      title: "🔑 Rooms to let",
+      phone: { home: () => openPhoneRef.current() },
+      body:
+        !net || !uid ? (
+          <p className="text-[14px]">Log in to IlmStation to rent a room from other players.</p>
+        ) : (
+          <RoomsMarketView
+            net={net}
+            me={uid}
+            points={saveRef.current.coins}
+            lodging={saveRef.current.lodging}
+            onRent={async (r) => {
+              if (saveRef.current.coins < r.rent) {
+                toast(
+                  `The rent is ${r.rent} points a week. You have ${saveRef.current.coins}.`,
+                  "warn",
+                );
+                return;
+              }
+              const got = await net
+                .rent(r.id, { uid, name: saveRef.current.profile?.name ?? "Player" })
+                .catch(() => null);
+              if (!got) {
+                toast("Someone just rented that room. Try another.", "warn");
+                return;
+              }
+              update((x) => ({
+                ...x,
+                coins: x.coins - r.rent,
+                lodging: {
+                  id: r.id,
+                  plot: r.plot,
+                  area: r.area,
+                  label: r.label,
+                  until: got.until!,
+                  owner: r.ownerName,
+                },
+              }));
+              setPanel(null);
+              toast(`You rented a room at ${r.label}. −${r.rent} points. Welcome home!`, "good");
+            }}
+            onGo={(l) => {
+              setPanel(null);
+              const e = engine.current;
+              if (!e) return;
+              if (e.districtId() === l.area) {
+                if (!e.goToZone("plot:" + l.plot)) toast("Go outside first, then try again.");
+              } else tripRef.current(l.area, e.isDriving(), "plot:" + l.plot);
+            }}
+          />
+        ),
+    });
+  }, [uid, toast, update]);
+  const openRoomsRef = useRef(openRooms);
+  openRoomsRef.current = openRooms;
 
   /* ---------- homes on show: visits and likes ---------- */
   const homes = useRef<Homes | null>(null);
@@ -5095,6 +5282,7 @@ function PlotView({
   plot,
   own,
   points,
+  players,
   onPay,
   onPaystack,
   onSet,
@@ -5112,6 +5300,7 @@ function PlotView({
   };
   own?: PlotOwn;
   points: number;
+  players?: PlayersRooms;
   onPay: (pts: number, next: PlotOwn, msg: string) => void;
   onPaystack: (amount: number, what: string) => void;
   onSet: (next: PlotOwn) => void;
@@ -5167,6 +5356,7 @@ function PlotView({
             Go inside
           </button>
           <RoomsView
+            players={players}
             rooms={own.rooms ?? []}
             count={beds}
             onRooms={(rooms, earned) => onRooms(rooms, earned)}
@@ -5318,6 +5508,7 @@ function PlotView({
       </button>
       {!own.tenant && (
         <RoomsView
+          players={players}
           rooms={own.rooms ?? []}
           count={roomsIn(own.floors)}
           onRooms={(rooms, earned) => onRooms(rooms, earned)}
@@ -5328,11 +5519,18 @@ function PlotView({
 }
 
 /** Rooms in a house you own: each can be rented to a tenant for a week at a time. */
+type PlayersRooms = {
+  ads: RoomAd[];
+  onList: (i: number) => void;
+  onUnlist: (id: string) => void;
+};
 function RoomsView({
   rooms,
   count,
   onRooms,
+  players,
 }: {
+  players?: PlayersRooms;
   rooms: Room[];
   count: number;
   onRooms: (rooms: Room[], earned: number) => void;
@@ -5370,14 +5568,42 @@ function RoomsView({
                 <span className="opacity-70">empty</span>
               )}
             </span>
-            {!live && (
-              <button
-                onClick={() => rentOut(i)}
-                className="shrink-0 rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
-              >
-                Rent out · +{ROOM_RENT_WEEK}
-              </button>
-            )}
+            {!live &&
+              (() => {
+                const ad = players?.ads.find((a) => a.i === i);
+                if (ad && !(ad.tenant && (ad.until ?? 0) > now))
+                  return (
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-[11.5px] font-semibold text-[#1f6f63]">
+                        Listed for players
+                      </span>
+                      <button
+                        onClick={() => players!.onUnlist(ad.id)}
+                        className="rounded-lg border border-[#10201e]/15 px-2 py-1 text-[11.5px]"
+                      >
+                        Unlist
+                      </button>
+                    </span>
+                  );
+                return (
+                  <span className="flex shrink-0 gap-1.5">
+                    <button
+                      onClick={() => rentOut(i)}
+                      className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
+                    >
+                      Rent out · +{ROOM_RENT_WEEK}
+                    </button>
+                    {players && (
+                      <button
+                        onClick={() => players.onList(i)}
+                        className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold"
+                      >
+                        To players
+                      </button>
+                    )}
+                  </span>
+                );
+              })()}
           </div>
         );
       })}
@@ -6644,6 +6870,78 @@ function DealerView({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- rooms to let between players ---------------- */
+function RoomsMarketView({
+  net,
+  me,
+  points,
+  lodging,
+  onRent,
+  onGo,
+}: {
+  net: RoomsNet;
+  me: string;
+  points: number;
+  lodging?: Save["lodging"];
+  onRent: (r: RoomAd) => void;
+  onGo: (l: { area: string; plot: string }) => void;
+}) {
+  const [list, setList] = useState<RoomAd[] | null>(null);
+  useEffect(() => net.watchFree(setList), [net]);
+  const mine = lodging && lodging.until > Date.now() ? lodging : null;
+  const rooms = (list ?? []).filter((r) => r.owner !== me);
+  return (
+    <div className="space-y-3">
+      {mine && (
+        <div className="rounded-xl bg-[#1f6f63] px-3 py-2.5 text-[#fdf8ec]">
+          <div className="text-[12px] opacity-80">Your room</div>
+          <div className="text-[14px] font-bold">{mine.label}</div>
+          <div className="text-[12px] opacity-80">
+            {mine.owner}'s house · {Math.ceil((mine.until - Date.now()) / 86400000)} days left
+          </div>
+          <button
+            onClick={() => onGo(mine)}
+            className="mt-1.5 rounded-lg bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63]"
+          >
+            Go there
+          </button>
+        </div>
+      )}
+      <p className="text-[13px] opacity-75">
+        Rooms in houses owned by other players. Rent is paid for a week at a time. You have {points}{" "}
+        points.
+      </p>
+      {!list && <p className="text-[13px] opacity-70">Loading rooms…</p>}
+      {list && rooms.length === 0 && (
+        <p className="text-[13px] opacity-70">No rooms listed right now. Check again later.</p>
+      )}
+      <div className="space-y-2">
+        {rooms.map((r) => (
+          <div
+            key={r.id}
+            className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm"
+          >
+            <span className="text-[22px]">🛏️</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-bold">{r.label}</span>
+              <span className="block text-[11.5px] opacity-60">
+                Room {r.i + 1} · {r.ownerName}'s house
+              </span>
+            </span>
+            <button
+              disabled={!!mine}
+              onClick={() => onRent(r)}
+              className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold disabled:opacity-40"
+            >
+              Rent · {r.rent}/wk
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -9076,6 +9374,7 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
 }
 
 function PhoneView({
+  onRooms,
   onHomes,
   onCalls,
   onContacts,
@@ -9084,6 +9383,7 @@ function PhoneView({
   onTravel,
   onPlaces,
 }: {
+  onRooms: () => void;
   onHomes: () => void;
   onCalls: () => void;
   onContacts: () => void;
@@ -9127,6 +9427,7 @@ function PhoneView({
         {icon("#2e7d32", "📞", "Calls", onCalls)}
         {icon("#8a2f4f", "👥", "Contacts", onContacts)}
         {icon("#c77d2a", "🏠", "Homes", onHomes)}
+        {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">

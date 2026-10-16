@@ -135,3 +135,17 @@
         && request.resource.data.from != request.resource.data.owner
         && id == request.resource.data.week + '_' + request.resource.data.owner + '_' + request.auth.uid;
     }
+
+    // ---- rooms to let between players ----
+    match /city_rooms/{id} {
+      allow read: if signedIn();
+      // the owner lists, unlists and marks rent collected
+      allow create, delete: if signedIn() && request.auth.uid == (resource == null ? request.resource.data.owner : resource.data.owner);
+      allow update: if signedIn() && (
+        request.auth.uid == resource.data.owner
+        // a tenant can only take a free room, for themselves
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenant', 'tenantName', 'until', 'paid'])
+            && request.resource.data.tenant == request.auth.uid
+            && request.resource.data.paid == false
+            && (resource.data.get('tenant', null) == null || resource.data.get('until', 0) < request.time.toMillis())));
+    }
