@@ -239,6 +239,10 @@ export class Soccer {
   camYaw() {
     return Math.atan2(-this.ua.x, -this.ua.y);
   }
+  /** Where the ball is, in the world (for the camera). */
+  ballWorld() {
+    return this.world(this.ball.a, this.ball.b);
+  }
   /** Where you are, in the world (for the camera). */
   myWorld() {
     const p = this.mine;
@@ -298,16 +302,37 @@ export class Soccer {
   /** Slide in on the player with the ball: win it, or miss and lose a second. */
   private tackleFor(me: P) {
     const o = this.owner;
-    if (!o || o.team === me.team || me.cd > 0 || this.state.phase !== "play") return;
+    if (me.cd > 0 || this.state.phase !== "play") return;
+    if (!o) {
+      // a loose ball close by: dive in and take it
+      if (Math.hypot(this.ball.a - me.a, this.ball.b - me.b) < 2.6) {
+        this.owner = me;
+        this.lastTeam = me.team;
+      }
+      return;
+    }
+    if (o.team === me.team) return;
     const d = Math.hypot(o.a - me.a, o.b - me.b);
-    if (d > 2.6) return;
+    if (d > 3.4) {
+      // too far: sprint at them
+      const da = o.a - me.a,
+        db = o.b - me.b;
+      me.va = (da / d) * 8.5;
+      me.vb = (db / d) * 8.5;
+      me.cd = 0.35;
+      if (me.me) {
+        this.state.msg = "Get closer, then tackle!";
+        this.msgT = 1;
+      }
+      return;
+    }
     // lunge towards the ball
     const da = this.ball.a - me.a,
       db = this.ball.b - me.b,
       L = Math.hypot(da, db) || 1;
     me.va = (da / L) * 9;
     me.vb = (db / L) * 9;
-    if (Math.random() < (d < 1.4 ? 0.8 : 0.55)) {
+    if (Math.random() < (d < 1.6 ? 0.85 : 0.6)) {
       this.owner = me;
       this.lastTeam = me.team;
       o.cd = 0.9;
@@ -955,12 +980,13 @@ export class Soccer {
     const s = this.state;
     s.hasBall = this.owner === this.mine && this.mine.me;
     const o = this.owner;
+    // Tackle is ready whenever the other side has the ball (or it is loose near you)
     s.canTackle =
-      !!o &&
       this.mine.me &&
-      o.team !== this.mine.team &&
       s.phase === "play" &&
-      Math.hypot(o.a - this.mine.a, o.b - this.mine.b) < 2.6;
+      (o
+        ? o.team !== this.mine.team
+        : Math.hypot(this.ball.a - this.mine.a, this.ball.b - this.mine.b) < 2.6);
     s.throwing = s.phase === "throw" && s.hasBall;
     s.myGoals = this.goalsBy[this.myKey] ?? this.goalsBy[this.mine.key] ?? 0;
     if (s.phase === "over" && !s.pen) {

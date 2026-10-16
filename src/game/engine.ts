@@ -168,6 +168,23 @@ function label(
   return s;
 }
 
+/** A two-sided sign: seen from behind, the picture is flipped so the words still read
+    left to right (instead of showing mirror writing). */
+function bothWays<T extends THREE.Material>(m: T): T {
+  m.side = THREE.DoubleSide;
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#ifdef USE_MAP
+        vec2 readUv = gl_FrontFacing ? vMapUv : vec2(1.0 - vMapUv.x, vMapUv.y);
+        diffuseColor *= texture2D( map, readUv );
+      #endif`,
+    );
+  };
+  m.customProgramCacheKey = () => "both-ways";
+  return m;
+}
+
 function canvasPlane(
   w: number,
   h: number,
@@ -184,7 +201,7 @@ function canvasPlane(
   tex.anisotropy = 4;
   const m = new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false }),
+    bothWays(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })),
   );
   return { mesh: m, tex, canvas: c };
 }
@@ -2045,25 +2062,63 @@ export class IlmCityEngine {
         trousers: 0xf4f1ea,
         seed: 70 + i,
       });
-      if (human) {
-        const tag = label(name, {
-          size: 0.65,
-          bg: team === 0 ? "rgba(31,111,99,0.9)" : "rgba(216,104,42,0.9)",
-        });
-        tag.position.y = 2.6;
-        g.add(tag);
-      }
+      // everyone's name over their head; real players stand out
+      const tag = label(name, {
+        size: human ? 0.65 : 0.5,
+        bold: human,
+        bg: team === 0 ? "rgba(31,111,99,0.9)" : "rgba(216,104,42,0.9)",
+      });
+      tag.position.y = 2.6;
+      g.add(tag);
       return g;
     };
     this.spectating = !!online?.spectate;
-    this.match = new Soccer(this.scene, p, this.player, kit, animatePerson, onState, online);
+    // you change into your team's jersey for the match
+    let me: THREE.Object3D = this.player;
     if (!this.spectating) {
+      const myTeam = online ? (online.slots.find((x) => x.key === online.myKey)?.team ?? 0) : 0;
+      const j = person(myTeam === 0 ? 0x1f6f63 : 0xd8682a, {
+        cap: myTeam === 0 ? 0x1f6f63 : 0xffffff,
+        trousers: 0xf4f1ea,
+        seed: 7,
+      });
+      const tag = label("You", { size: 0.7, bg: "rgba(242,194,48,0.95)", fg: "#2a1c05" });
+      tag.position.y = 2.75;
+      j.add(tag);
+      // a gold arrow over your head and a ring at your feet
+      const arrow = new THREE.Mesh(
+        new THREE.ConeGeometry(0.22, 0.4, 4),
+        new THREE.MeshBasicMaterial({ color: 0xf2c230 }),
+      );
+      arrow.rotation.x = Math.PI;
+      arrow.position.y = 3.35;
+      j.add(arrow);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.55, 0.72, 24),
+        new THREE.MeshBasicMaterial({ color: 0xf2c230, transparent: true, opacity: 0.85 }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04;
+      j.add(ring);
+      j.position.copy(this.player.position);
+      this.scene.add(j);
+      this.player.visible = false;
+      this.jersey = j;
+      me = j;
+    }
+    this.match = new Soccer(this.scene, p, me, kit, animatePerson, onState, online);
+    if (!this.spectating) {
+      const w = this.match.myWorld();
+      this.matchCam.set(w.x, 0, w.z);
       this.camYaw = this.match.camYawFor();
       this.snapCamera();
     }
     return true;
   }
   private spectating = false;
+  /** you, in your team's jersey, during a match */
+  private jersey: THREE.Object3D | null = null;
+  private matchCam = new THREE.Vector3();
   /** Online: the running phone hears what each real player presses. */
   matchInput(key: string, i: NetInput) {
     this.match?.setInput(key, i);
@@ -2136,6 +2191,13 @@ export class IlmCityEngine {
     const wasPlaying = !this.spectating;
     this.match.dispose();
     this.match = null;
+    // back into your own clothes
+    if (this.jersey) {
+      this.player.position.set(this.jersey.position.x, 0, this.jersey.position.z);
+      this.jersey.removeFromParent();
+      this.jersey = null;
+      this.player.visible = true;
+    }
     this.spectating = false;
     this.matchTap = null;
     this.marker.visible = false;
@@ -2178,6 +2240,20 @@ export class IlmCityEngine {
       } else move = { x: dx / d, z: dz / d };
     }
     m.step(dt, move);
+    // the camera watches the play: between you and the ball, leaning to the ball
+    const me = m.myWorld(),
+      b = m.ballWorld();
+    let tx = me.x + (b.x - me.x) * 0.6,
+      tz = me.z + (b.z - me.z) * 0.6;
+    const far = Math.hypot(tx - me.x, tz - me.z);
+    if (far > 9) {
+      tx = me.x + ((tx - me.x) / far) * 9;
+      tz = me.z + ((tz - me.z) / far) * 9;
+    }
+    if (this.matchCam.lengthSq() === 0) this.matchCam.set(tx, 0, tz);
+    const k = 1 - Math.exp(-dt * 4);
+    this.matchCam.x += (tx - this.matchCam.x) * k;
+    this.matchCam.z += (tz - this.matchCam.z) * k;
   }
 
   /** Muslim students, brothers and sisters, sitting and talking at a meeting point. */
@@ -4535,6 +4611,7 @@ export class IlmCityEngine {
     if (this.cine) return this.cine.vehicle.position;
     if (this.riding) return this.riding.mesh.position;
     if (this.kekeTrip) return this.kekeTrip.mesh.position;
+    if (this.match && !this.spectating && this.jersey) return this.matchCam;
     return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
@@ -4710,7 +4787,7 @@ export class IlmCityEngine {
     c.fillText(small, 128, 118);
     const t = new THREE.CanvasTexture(cv);
     t.colorSpace = THREE.SRGBColorSpace;
-    m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, side: THREE.DoubleSide });
+    m = bothWays(new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 }));
     this.signCache.set(key, m);
     return m;
   }

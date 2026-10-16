@@ -133,6 +133,8 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** you bought a football kit (needed to play matches) */
+  jersey?: boolean;
   /** the car you bought at IlmMotors (none: the starter car) */
   ride?: { kind: CarKind; color: number };
   /** positions are on the one connected Lagos map */
@@ -1163,6 +1165,40 @@ function CityGame({
   }, [match, update, need, toast, stopLive]);
   const openFootball = useCallback(
     (zoneId: string) => {
+      if (!saveRef.current.jersey) {
+        setPanel({
+          kind: "info",
+          title: "⚽ You need a jersey",
+          body: (
+            <div className="space-y-3">
+              <p className="text-[14px]">
+                Players wear their team's jersey on the pitch. Buy your football kit once: you
+                change into your team's colours for each match, and back into your own clothes when
+                you leave.
+              </p>
+              <button
+                disabled={saveRef.current.coins < JERSEY_PRICE}
+                onClick={() => {
+                  if (saveRef.current.coins < JERSEY_PRICE) return;
+                  update((x) => ({ ...x, coins: x.coins - JERSEY_PRICE, jersey: true }));
+                  toast(`Football kit bought! −${JERSEY_PRICE} points`, "good");
+                  setTimeout(() => openFootballRef.current(zoneId), 0);
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+              >
+                👕 Buy football kit · {JERSEY_PRICE} points
+              </button>
+              {saveRef.current.coins < JERSEY_PRICE && (
+                <p className="text-[12.5px] opacity-75">
+                  You have {saveRef.current.coins} points. Earn more at the mosque, a lecture or the
+                  quiz.
+                </p>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
       setPanel({
         kind: "info",
         title: "Football pitch",
@@ -1193,7 +1229,7 @@ function CityGame({
         ),
       });
     },
-    [startPitchMatch, joinPitch],
+    [startPitchMatch, joinPitch, update, toast],
   );
   const openFootballRef = useRef(openFootball);
   openFootballRef.current = openFootball;
@@ -1395,7 +1431,7 @@ function CityGame({
       setPanel({
         kind: "info",
         phone: phone ? { home: () => openPhoneRef.current() } : undefined,
-        title: "🎟️ OutingStation",
+        title: "OutingStation",
         body: (
           <OutingView
             here={here}
@@ -7481,11 +7517,14 @@ function OutingView({
   const list = outingsFor(tab, here, clock, has);
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl bg-[#f2b84b] p-3 text-[#2a1c05]">
-        <div className="text-[17px] font-black">Where do you want to go?</div>
-        <div className="text-[12px] opacity-80">
-          Powered by OutingStation · rides{" "}
-          {driving ? "free in your car" : `${BUS_FARE} pts by danfo`} · you have {coins} pts
+      <div className="flex items-center gap-3 rounded-2xl bg-[#5adaee] p-3 text-[#0d3b44]">
+        <img src="/outingstation-icon.png" alt="" className="size-11 shrink-0 rounded-xl" />
+        <div className="min-w-0">
+          <div className="text-[17px] font-black">Where do you want to go?</div>
+          <div className="text-[12px] opacity-80">
+            Powered by OutingStation · rides{" "}
+            {driving ? "free in your car" : `${BUS_FARE} pts by danfo`} · you have {coins} pts
+          </div>
         </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -7493,7 +7532,7 @@ function OutingView({
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`rounded-full px-3 py-1 text-[12px] font-bold ${tab === t.id ? "bg-[#10201e] text-[#fdf8ec]" : "bg-white"}`}
+            className={`rounded-full px-3 py-1 text-[12px] font-bold ${tab === t.id ? "bg-[#1a8fa3] text-white" : "bg-white"}`}
           >
             {t.label}
           </button>
@@ -8918,6 +8957,8 @@ function MssnView({
   );
 }
 
+const JERSEY_PRICE = 25;
+
 /* ---------------- skipping rope ---------------- */
 function RopeHud({
   r,
@@ -9415,7 +9456,7 @@ function PhoneView({
   onPlaces: () => void;
 }) {
   const now = new Date();
-  const icon = (bg: string, e: string, name: string, on?: () => void) => (
+  const icon = (bg: string, e: ReactNode, name: string, on?: () => void) => (
     <button
       key={name}
       onClick={on}
@@ -9443,7 +9484,12 @@ function PhoneView({
       </div>
       <div className="mt-10 grid grid-cols-4 gap-x-2 gap-y-5">
         {icon("#2f8f3a", "🛵", "IlmDash", onFood)}
-        {icon("#f2b84b", "🎟️", "OutingStation", onOutings)}
+        {icon(
+          "transparent",
+          <img src="/outingstation-icon.png" alt="" className="size-[54px] rounded-[16px]" />,
+          "OutingStation",
+          onOutings,
+        )}
         {icon("#3a7bd5", "🚌", "Travel", onTravel)}
         {icon("#1f6f63", "📍", "Places", onPlaces)}
         {icon("#2e7d32", "📞", "Calls", onCalls)}
