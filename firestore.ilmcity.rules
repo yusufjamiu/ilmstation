@@ -120,3 +120,18 @@
               || request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.to);
       }
     }
+
+    // ---- homes on show: visits and weekly likes ----
+    match /city_homes/{uid} {
+      allow read: if true;
+      // your own home: anything; someone else: only add one like, with their like record
+      allow create, update: if signedIn() && (request.auth.uid == uid
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likesWeek'])
+            && existsAfter(/databases/$(database)/documents/city_home_likes/$(request.resource.data.likesWeek + '_' + uid + '_' + request.auth.uid))));
+    }
+    match /city_home_likes/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.from != request.resource.data.owner
+        && id == request.resource.data.week + '_' + request.resource.data.owner + '_' + request.auth.uid;
+    }

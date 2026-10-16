@@ -4,6 +4,7 @@ import { TravelMap } from "./TravelMap";
 import type { MatchState, Slot } from "./soccer";
 import type { RopeState } from "./rope";
 import { connectRope, connectRopeLocal } from "./ropenet";
+import { connectHomes, connectHomesLocal, type Homes, type ShownHome } from "./homes";
 import {
   cleanNumber,
   connectCalls,
@@ -808,6 +809,7 @@ function CityGame({
       body: (
         <PhoneView
           onCalls={() => openCallsRef.current("calls")}
+          onHomes={() => openHomesRef.current()}
           onContacts={() => openCallsRef.current("contacts")}
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
@@ -1792,6 +1794,95 @@ function CityGame({
     };
   }, [uid, adult]);
 
+  /* ---------- homes on show: visits and likes ---------- */
+  const homes = useRef<Homes | null>(null);
+  const [visiting, setVisiting] = useState<(ShownHome & { liked?: boolean }) | null>(null);
+  const visitingRef = useRef(visiting);
+  visitingRef.current = visiting;
+  const myPlace = () => {
+    const s = saveRef.current;
+    const a = districtById(s.homeArea ?? "lekki").name;
+    return s.homePlot ? `Family house · ${a}` : `Flat · ${a}`;
+  };
+  const publishHome = useCallback(() => {
+    const h = homes.current;
+    const s = saveRef.current;
+    if (!h || !uid || !s.profile || !(s.items ?? []).length) return;
+    void h
+      .publish({ uid, name: s.profile.name, place: myPlace(), items: s.items ?? [] })
+      .catch(() => {});
+  }, [uid]);
+  useEffect(() => {
+    if (!uid) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let live = true;
+    (local ? Promise.resolve(connectHomesLocal()) : connectHomes())
+      .then((h) => {
+        if (!live) return;
+        homes.current = h;
+        publishHome();
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [uid, publishHome]);
+  const visitHome = useCallback(
+    async (h: ShownHome) => {
+      const e = engine.current;
+      if (!e) return;
+      if (h.uid === uid) {
+        toast("That's your own home!");
+        return;
+      }
+      setPanel(null);
+      if (e.scenePlace() !== "out") e.exitInterior();
+      e.enterInterior("home", `${h.name}'s home`);
+      e.setHomeItems(h.items);
+      setInside(true);
+      tuneRef.current();
+      sayDhikr("enterHome");
+      const liked = uid ? await homes.current?.liked(h.uid, uid).catch(() => false) : false;
+      setVisiting({ ...h, liked: !!liked });
+    },
+    [uid, toast, sayDhikr],
+  );
+  const endVisit = useCallback(() => {
+    if (!visitingRef.current) return;
+    engine.current?.setHomeItems(saveRef.current.items ?? []);
+    setVisiting(null);
+  }, []);
+  const likeHome = useCallback(async () => {
+    const v = visitingRef.current;
+    if (!v || !uid || v.liked) return;
+    setVisiting({ ...v, liked: true, likes: v.likes + 1 });
+    const ok = await homes.current?.like(v.uid, uid).catch(() => false);
+    if (ok) {
+      toast(`You liked ${v.name}'s home ❤️`, "good");
+      need({ social: 6 });
+    } else setVisiting({ ...v, liked: false });
+  }, [uid, toast, need]);
+  const openHomes = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🏠 Homes",
+      phone: { home: () => openPhoneRef.current() },
+      body: !homes.current ? (
+        <p className="text-[14px]">Log in to IlmStation to visit and like other players' homes.</p>
+      ) : (
+        <HomesView
+          homes={homes.current}
+          me={uid}
+          myItems={(saveRef.current.items ?? []).length}
+          onVisit={(h) => void visitHome(h)}
+        />
+      ),
+    });
+  }, [uid, visitHome]);
+  const openHomesRef = useRef(openHomes);
+  openHomesRef.current = openHomes;
+
   /* ---------- phone calls ---------- */
   const callNet = useRef<CallNet | null>(null);
   const callObj = useRef<VoiceCall | null>(null);
@@ -2155,6 +2246,10 @@ function CityGame({
       const c = clockRef.current,
         s = saveRef.current;
       // too hungry to do anything but eat (salah and the way home are still open)
+      if (visitingRef.current && id !== "exit") {
+        toast("You're visiting. Use these in your own home.");
+        return;
+      }
       const allowed =
         id === "exit" ||
         id === "eat" ||
@@ -2874,6 +2969,7 @@ function CityGame({
       }
       if (id === "exit") {
         const was = e.scenePlace();
+        endVisit();
         e.exitInterior();
         setInside(false);
         tuneRef.current();
@@ -3123,6 +3219,7 @@ function CityGame({
     },
     [
       playRope,
+      endVisit,
       greeted,
       startWork,
       toast,
@@ -3479,6 +3576,7 @@ function CityGame({
               const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
               update((x) => ({ ...x, coins: x.coins - pts, items }));
               engine.current?.setHomeItems(items);
+              setTimeout(() => publishHome(), 0);
               setPanel(null);
               toast(
                 `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${pts} points`,
@@ -3756,6 +3854,24 @@ function CityGame({
           }}
           onLeave={() => void leavePitch()}
         />
+      )}
+      {visiting && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center px-3"
+        >
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-[#10201e]/90 py-1.5 pl-4 pr-1.5 text-[13px] text-[#fdf8ec] shadow-xl">
+            <span className="font-bold">🏠 {visiting.name}'s home</span>
+            <span className="opacity-80">❤️ {visiting.likes}</span>
+            <button
+              onClick={() => void likeHome()}
+              disabled={visiting.liked}
+              className="rounded-full bg-[#c0392b] px-3 py-1.5 font-bold disabled:opacity-60"
+            >
+              {visiting.liked ? "Liked ❤️" : "❤️ Like"}
+            </button>
+          </div>
+        </div>
       )}
       {incoming && !call && (
         <IncomingCall
@@ -6406,6 +6522,66 @@ function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
   );
 }
 
+/* ---------------- homes on show ---------------- */
+function HomesView({
+  homes,
+  me,
+  myItems,
+  onVisit,
+}: {
+  homes: Homes;
+  me: string | null;
+  myItems: number;
+  onVisit: (h: ShownHome) => void;
+}) {
+  const [list, setList] = useState<ShownHome[] | null>(null);
+  useEffect(() => homes.top(setList), [homes]);
+  const mine = list?.find((h) => h.uid === me);
+  const others = (list ?? []).filter((h) => h.uid !== me);
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#c77d2a] px-3 py-2.5 text-white">
+        <div className="text-[15px] font-black">🏆 Best home of the week</div>
+        <div className="text-[12px] opacity-90">
+          Visit homes and like the ones you love. Every Saturday the best furnished home wins.
+        </div>
+      </div>
+      <div className="rounded-xl bg-white px-3 py-2 text-[13px] shadow-sm">
+        {myItems === 0
+          ? "Your home isn't on show yet. Buy furniture from ☰ Menu → Furnish your home."
+          : `Your home: ❤️ ${mine?.likes ?? 0} likes this week · ${myItems} items`}
+      </div>
+      {!list && <p className="text-[13px] opacity-70">Loading homes…</p>}
+      {list && others.length === 0 && (
+        <p className="text-[13px] opacity-70">No other homes on show yet.</p>
+      )}
+      <div className="space-y-2">
+        {others.map((h, i) => (
+          <div
+            key={h.uid}
+            className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm"
+          >
+            <span className="w-6 text-center text-[13px] font-bold opacity-60">{i + 1}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-bold">{h.name}'s home</span>
+              <span className="block truncate text-[11.5px] opacity-60">
+                {h.place} · {h.items.length} items
+              </span>
+            </span>
+            <span className="text-[12.5px] font-bold">❤️ {h.likes}</span>
+            <button
+              onClick={() => onVisit(h)}
+              className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-white"
+            >
+              Visit
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- calls and contacts ---------------- */
 type Contact = { uid: string; name: string; number: string };
 function CallsView({
@@ -8769,6 +8945,7 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
 }
 
 function PhoneView({
+  onHomes,
   onCalls,
   onContacts,
   onFood,
@@ -8776,6 +8953,7 @@ function PhoneView({
   onTravel,
   onPlaces,
 }: {
+  onHomes: () => void;
   onCalls: () => void;
   onContacts: () => void;
   onFood: () => void;
@@ -8817,6 +8995,7 @@ function PhoneView({
         {icon("#1f6f63", "📍", "Places", onPlaces)}
         {icon("#2e7d32", "📞", "Calls", onCalls)}
         {icon("#8a2f4f", "👥", "Contacts", onContacts)}
+        {icon("#c77d2a", "🏠", "Homes", onHomes)}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">
