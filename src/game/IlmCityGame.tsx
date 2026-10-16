@@ -56,6 +56,8 @@ import {
   SHOP_PRICES,
   MARKET_TRADERS,
   fullName,
+  rootOf,
+  regionOf,
   districtById,
   type Lecture,
   type District,
@@ -2239,17 +2241,13 @@ function CityGame({
           title: inCar ? "Where are you driving?" : "Where are you going?",
           body: (
             <div className="grid gap-2">
-              {DISTRICTS.filter((d) => d.id !== here).map((d) => (
-                <div key={d.id} className="rounded-xl border border-[#10201e]/15 p-3">
-                  <div className="font-bold">
-                    {d.name}, {d.state}
-                  </div>
-                  <div className="text-[12.5px] opacity-75">
-                    {d.landmarks
-                      .filter((l) => l.kind !== "home")
-                      .map((l) => l.name)
-                      .join(" · ") || "Homes and shops"}
-                  </div>
+              {travelOptions(here).map(({ d, title, sub, local }) => (
+                <div
+                  key={d.id}
+                  className={`rounded-xl border p-3 ${local ? "border-[#1f6f63]/40 bg-[#1f6f63]/5" : "border-[#10201e]/15"}`}
+                >
+                  <div className="font-bold">{title}</div>
+                  <div className="text-[12.5px] opacity-75">{sub}</div>
                   <div className="mt-2 flex gap-2">
                     {!inCar && (
                       <button
@@ -7029,4 +7027,38 @@ function MatchHud({
       </div>
     </>
   );
+}
+
+/* ---------------- where the bus goes ---------------- */
+/** From outside a town you travel to its entrance (Ikorodu → Igbe Laara); inside a town
+    you can ride to each of its bus stops. */
+function travelOptions(here: string) {
+  const hereRoot = rootOf(districtById(here)).id;
+  const stopsOf = (root: string) => DISTRICTS.filter((x) => rootOf(x).id === root);
+  const places = (d: (typeof DISTRICTS)[number]) =>
+    d.landmarks
+      .filter((l) => l.kind !== "home")
+      .map((l) => l.name)
+      .join(" · ") || "Homes and shops";
+  const local = stopsOf(hereRoot)
+    .filter((d) => d.id !== here)
+    .map((d) => ({
+      d,
+      title: `🚏 ${d.busStop ?? d.name} Bus Stop · ${regionOf(d)}`,
+      sub: places(d),
+      local: true,
+    }));
+  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot).map((d) => {
+    const stops = stopsOf(d.id);
+    return {
+      d,
+      title: `${regionOf(d)}, ${d.state}`,
+      sub:
+        stops.length > 1
+          ? `Arrive at ${d.busStop ?? d.name}. Bus stops: ${stops.map((x) => x.busStop ?? x.name).join(" · ")}`
+          : places(d),
+      local: false,
+    };
+  });
+  return [...local, ...away];
 }

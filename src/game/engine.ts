@@ -9,6 +9,7 @@ import {
   halfOf,
   fullName,
   rootOf,
+  regionOf,
   type Billboard,
   type District,
   type Landmark,
@@ -798,6 +799,7 @@ export class IlmCityEngine {
 
     // a football pitch and the sisters' corner take three plots in a row
     const play = this.choosePlayPlots(D, zs, H, southEdge);
+    const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
     zs.forEach((sz, si) => {
       let num = 1 + si * 40;
@@ -810,9 +812,11 @@ export class IlmCityEngine {
           if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
           const id = `${D.id}-${num}`;
           const r1 = rnd();
-          const land = r1 < (D.land ?? 0.13);
-          const shops = !land && r1 < (D.land ?? 0.13) + (D.shops ?? 0.2);
-          const toLet = !land && !shops && rnd() < 0.3;
+          const st = D.streets[si];
+          const landShare = st.land ?? D.land ?? 0.13;
+          const land = r1 < landShare;
+          const shops = !land && r1 < landShare + (D.shops ?? 0.2);
+          const toLet = !land && !shops && rnd() < (st.toLet ?? D.toLet ?? 0.3);
           if (
             play &&
             ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
@@ -821,8 +825,22 @@ export class IlmCityEngine {
             // this plot is the pitch or the sisters' corner; draw the house it replaces into a
             // throwaway batch so every later plot keeps the same number and look as before
             const turn0 = north ? 0 : Math.PI;
-            if (shops) shopRow(new Batch(), { x, z: cz, turn: turn0, rnd });
-            else if (!land) compound(new Batch(), { x, z: cz, turn: turn0, number: num, rnd });
+            const ghost = shops
+              ? shopRow(new Batch(), { x, z: cz, turn: turn0, rnd }).colliders
+              : !land
+                ? compound(new Batch(), { x, z: cz, turn: turn0, number: num, rnd }).colliders
+                : [];
+            // while the streets are laid out, the replaced house still takes up its space
+            for (const g of ghost) {
+              const box = {
+                x0: g.x0 + this.ox,
+                x1: g.x1 + this.ox,
+                z0: g.z0 + this.oz,
+                z1: g.z1 + this.oz,
+              };
+              ghosts.push(box);
+              this.reserved.push(box);
+            }
             num += 2;
             continue;
           }
@@ -910,6 +928,7 @@ export class IlmCityEngine {
         }
       }
     });
+    this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
@@ -1222,6 +1241,10 @@ export class IlmCityEngine {
       const len0 = Math.hypot(ax, az);
       this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
     });
+    // the lagoon with its bridges, and the city that fills the land between the areas
+    this.buildLagoon();
+    this.buildCityFill();
+
     // big roadside billboards along every expressway and Ikorodu Road
     const roadside = new THREE.Group();
     this.scene.add(roadside);
@@ -1267,6 +1290,232 @@ export class IlmCityEngine {
     }
     this.dg = keepDg;
     for (const m of this.worldBatch.build()) this.scene.add(m);
+  }
+
+  /* ---------------- the megacity ---------------- */
+  /** Every road between areas, as straight segments (for keeping buildings off them). */
+  private roadSegments() {
+    const segs: [number, number, number, number][] = [];
+    for (const d of DISTRICTS) {
+      if (d.parent) {
+        const p = districtById(d.parent);
+        if (d.link === "east")
+          segs.push([p.origin.x + halfOf(p).x, d.origin.z, d.origin.x - halfOf(d).x, d.origin.z]);
+        else
+          segs.push([d.origin.x, p.origin.z - halfOf(p).z, d.origin.x, d.origin.z + halfOf(d).z]);
+      } else {
+        const [ax, az] = this.roadEnd(d);
+        segs.push([0, 0, ax, az]);
+      }
+    }
+    return segs;
+  }
+  private static distToSeg(x: number, z: number, s: [number, number, number, number]) {
+    const [x0, z0, x1, z1] = s;
+    const dx = x1 - x0,
+      dz = z1 - z0;
+    const t = Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / (dx * dx + dz * dz || 1)));
+    return Math.hypot(x - (x0 + dx * t), z - (z0 + dz * t));
+  }
+  /** The Lagos Lagoon between the mainland and the island, crossed by three bridges. */
+  private static LAGOON = { x0: -460, x1: 470, z0: 172, z1: 214 };
+  private buildLagoon() {
+    const L = IlmCityEngine.LAGOON;
+    const S = this.scene;
+    const w = new THREE.Mesh(
+      new THREE.PlaneGeometry(L.x1 - L.x0, L.z1 - L.z0),
+      new THREE.MeshStandardMaterial({ color: PALETTE.water, roughness: 0.25, metalness: 0.1 }),
+    );
+    w.rotation.x = -Math.PI / 2;
+    w.position.set((L.x0 + L.x1) / 2, -0.004, (L.z0 + L.z1) / 2);
+    S.add(w);
+    // where roads cross the water, build a bridge; the rest of the water is out of bounds
+    const crossings: { x0: number; x1: number; seg: [number, number, number, number] }[] = [];
+    for (const seg of this.roadSegments()) {
+      const [x0, z0, x1, z1] = seg;
+      if (Math.max(z0, z1) < L.z0 || Math.min(z0, z1) > L.z1) continue;
+      const xAt = (z: number) => x0 + ((x1 - x0) * (z - z0)) / (z1 - z0 || 1);
+      const a = xAt(L.z0 - 4),
+        b = xAt(L.z1 + 4);
+      crossings.push({ x0: Math.min(a, b) - 9, x1: Math.max(a, b) + 9, seg });
+    }
+    crossings.sort((p, q) => p.x0 - q.x0);
+    let x = L.x0;
+    for (const c of crossings) {
+      if (c.x0 > x) this.colliders.out.push({ x0: x, x1: c.x0, z0: L.z0, z1: L.z1 });
+      x = Math.max(x, c.x1);
+    }
+    if (x < L.x1) this.colliders.out.push({ x0: x, x1: L.x1, z0: L.z0, z1: L.z1 });
+    const names = ["Ijora Bridge", "Eko Bridge", "Third Mainland Bridge"];
+    const rail = MAT.plain(0xd8d2c2),
+      pillar = MAT.plain(0xb9b2a2);
+    const b = new Batch();
+    crossings.forEach((c, i) => {
+      const [x0, z0, x1, z1] = c.seg;
+      const len0 = Math.hypot(x1 - x0, z1 - z0);
+      const ux = (x1 - x0) / len0,
+        uz = (z1 - z0) / len0;
+      const nx = -uz,
+        nz = ux;
+      const ry = Math.atan2(ux, uz);
+      // the stretch of road over the water, a little longer on each bank
+      const tAt = (z: number) => (z - z0) / (uz || 1e-6);
+      const t0 = Math.min(tAt(L.z0 - 6), tAt(L.z1 + 6)),
+        t1 = Math.max(tAt(L.z0 - 6), tAt(L.z1 + 6));
+      const len = t1 - t0,
+        tm = (t0 + t1) / 2;
+      const cx = x0 + ux * tm,
+        cz = z0 + uz * tm;
+      for (const side of [-1, 1]) {
+        b.box(0.5, 1.1, len, rail, cx + nx * side * 9, 0, cz + nz * side * 9, ry);
+        for (let t = -len / 2 + 4; t < len / 2; t += 9)
+          b.box(
+            1.2,
+            1.6,
+            1.2,
+            pillar,
+            cx + nx * side * 9 + ux * t,
+            -1.5,
+            cz + nz * side * 9 + uz * t,
+            ry,
+          );
+        // keep people on the bridge
+        const ex = cx + nx * side * 9.3,
+          ez = cz + nz * side * 9.3;
+        for (let t = -len / 2; t < len / 2; t += 3)
+          this.colliders.out.push({
+            x0: ex + ux * t - 0.5,
+            x1: ex + ux * t + 0.5,
+            z0: ez + uz * t - 0.5,
+            z1: ez + uz * t + 0.5,
+          });
+      }
+      // lamp posts with arches
+      for (let t = -len / 2 + 6; t < len / 2; t += 18)
+        for (const side of [-1, 1])
+          b.box(
+            0.2,
+            6,
+            0.2,
+            MAT.plain(0x5a5f66),
+            cx + nx * side * 9 + ux * t,
+            1.1,
+            cz + nz * side * 9 + uz * t,
+            ry,
+          );
+      const tag = label(names[i % names.length], { bg: "rgba(31,111,99,0.92)", size: 1.2 });
+      tag.position.set(cx + nx * 11, 5, cz + nz * 11);
+      S.add(tag);
+    });
+    for (const m of b.build()) S.add(m);
+    const lt = label("Lagos Lagoon", { bg: "rgba(42,58,52,0.85)", size: 1.6 });
+    lt.position.set(-250, 6, (L.z0 + L.z1) / 2);
+    S.add(lt);
+    const oc = label("Atlantic Ocean · Bar Beach", { bg: "rgba(42,58,52,0.85)", size: 1.8 });
+    oc.position.set(150, 7, 560);
+    S.add(oc);
+  }
+  /** Lagos is a megacity: the land between the areas is full of buildings, richer in
+      Lekki and Ikeja, crowded and poorer in Ajegunle. Each block is one solid box. */
+  private buildCityFill() {
+    const rnd = mulberry(4242);
+    const segs = this.roadSegments();
+    const L = IlmCityEngine.LAGOON;
+    const CELL = 16;
+    const owner = (x: number, z: number) => {
+      let best: District | null = null,
+        bd = Infinity;
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        const dx = Math.max(0, Math.abs(x - d.origin.x) - H.x),
+          dz = Math.max(0, Math.abs(z - d.origin.z) - H.z);
+        const dd = Math.hypot(dx, dz);
+        if (dd < bd) {
+          bd = dd;
+          best = d;
+        }
+      }
+      return { d: best!, dist: bd };
+    };
+    const blocked = (x: number, z: number) => {
+      const r = CELL / 2 + 2;
+      if (x < -790 || x > 1050 || z > 520) return true;
+      if (x < 420 && z < -672) return true;
+      if (z < -1605) return true;
+      if (Math.hypot(x, z) < 50) return true;
+      if (x > L.x0 - r && x < L.x1 + r && z > L.z0 - r && z < L.z1 + r) return true;
+      if (Math.hypot(x - 540, z - 20) < 85) return true; // the small lagoon
+      for (const s of segs) if (IlmCityEngine.distToSeg(x, z, s) < 15 + CELL / 2) return true;
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        if (Math.abs(x - d.origin.x) < H.x + r && Math.abs(z - d.origin.z) < H.z + r) return true;
+      }
+      return false;
+    };
+    const glass = MAT2.glass(),
+      zinc = MAT.zinc(0x8a6a4a),
+      zinc2 = MAT.zinc(0x9aa0a6);
+    const paints = [0xf2ead6, 0xe9d8b4, 0xdfe7e2, 0xf4e0c8, 0xe6d2d2, 0xd8e2ea, 0xf0f0ea];
+    const faded = [0xcfc3a8, 0xbfae92, 0xc9bfae, 0xb8a990, 0xd2c6b0];
+    const batches = new Map<string, Batch>();
+    const batchFor = (d: District) => {
+      let b = batches.get(d.id);
+      if (!b) {
+        b = new Batch();
+        batches.set(d.id, b);
+      }
+      return b;
+    };
+    for (let x = -780; x <= 1040; x += CELL)
+      for (let z = -1600; z <= 510; z += CELL) {
+        if (blocked(x, z)) continue;
+        const { d, dist } = owner(x, z);
+        if (dist > 120) continue; // open land far from any area
+        // thinner towards the edge of the city
+        if (rnd() < dist / 160) continue;
+        const tier = d.tier ?? 2;
+        const b = batchFor(d);
+        const lx = x - d.origin.x,
+          lz = z - d.origin.z;
+        const pick = <T>(a: T[]) => a[Math.floor(rnd() * a.length)];
+        if (tier === 1) {
+          if (rnd() < 0.45) {
+            const h = 16 + rnd() * 40;
+            const w = 9 + rnd() * 4;
+            b.box(w, h, w, glass, lx, 0, lz);
+            b.box(w + 0.6, 0.8, w + 0.6, MAT.plain(0xe9ecee, 0.3), lx, h, lz);
+          } else {
+            const h = 6 + rnd() * 5;
+            b.box(11, h, 10, MAT.plaster(pick(paints)), lx, 0, lz);
+            b.box(11.6, 0.5, 10.6, MAT.plain(0xfdfbf5), lx, h, lz);
+            b.box(13, 0.15, 12, MAT2.lawn(), lx, 0.02, lz);
+          }
+        } else if (tier === 2) {
+          const h = 3.4 * (1 + Math.floor(rnd() * 3));
+          b.box(11 + rnd() * 2, h, 10 + rnd() * 2, MAT.plaster(pick(paints)), lx, 0, lz);
+          if (rnd() < 0.6)
+            b.box(12.5, 0.4, 11.5, MAT.zinc(pick([0x8a3b2b, 0x3d5a7a, 0x2f6a4a])), lx, h, lz);
+        } else if (tier === 3) {
+          const h = 3.2 * (1 + Math.floor(rnd() * 2.5));
+          b.box(13, h, 12.5, MAT.plaster(pick(faded)), lx, 0, lz);
+          b.box(13.4, 0.35, 12.9, rnd() < 0.5 ? zinc : zinc2, lx, h, lz);
+        } else {
+          // crowded one-room houses with rusty zinc roofs
+          for (let k = 0; k < 4; k++) {
+            const sx = lx + (k % 2 ? 3.6 : -3.6) + (rnd() - 0.5),
+              sz = lz + (k < 2 ? 3.6 : -3.6) + (rnd() - 0.5);
+            const h = 2.6 + rnd() * 0.8;
+            b.box(6.4, h, 6, MAT.plaster(pick(faded)), sx, 0, sz);
+            const roof = new THREE.BoxGeometry(7, 0.2, 6.6);
+            b.add(roof, rnd() < 0.7 ? zinc : zinc2, sx, h + 0.15, sz, rnd() * 0.1, true);
+          }
+        }
+        this.fillCells.add(`${Math.round((x + 780) / CELL)},${Math.round((z + 1600) / CELL)}`);
+      }
+    for (const [id, b] of batches) {
+      const g = this.areaGroup(id);
+      for (const m of b.build()) g.add(m);
+    }
   }
 
   /** Where an area's main street meets its expressway. */
@@ -2298,11 +2547,11 @@ export class IlmCityEngine {
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.font = `800 ${Math.round(H * 0.42)}px "Work Sans", system-ui, sans-serif`;
-        c.fillText(`Welcome to ${D.name}`, W / 2, H * 0.42);
-        if (D.parent) {
+        c.fillText(`Welcome to ${D.parent ? D.name : regionOf(D)}`, W / 2, H * 0.42);
+        if (D.parent || D.region) {
           c.fillStyle = "#e6b84a";
           c.font = `600 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-          c.fillText(`${rootOf(D).name} · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
+          c.fillText(`${regionOf(D)} · ${D.busStop ?? D.name} Bus Stop`, W / 2, H * 0.78);
           return;
         }
         c.fillStyle = "#e6b84a";
@@ -3603,7 +3852,21 @@ export class IlmCityEngine {
     this.camera.lookAt(t.x, t.y + 1.5, t.z);
   }
 
+  /** Blocks of the city between the areas (16 m cells), checked by a quick lookup. */
+  private fillCells = new Set<string>();
   private free(x: number, z: number, r: number) {
+    if (this.where === "out" && this.fillCells.size) {
+      const C = 16;
+      const cx = Math.round((x + 780) / C),
+        cz = Math.round((z + 1600) / C);
+      for (let i = cx - 1; i <= cx + 1; i++)
+        for (let k = cz - 1; k <= cz + 1; k++) {
+          if (!this.fillCells.has(`${i},${k}`)) continue;
+          const bx = i * C - 780,
+            bz = k * C - 1600;
+          if (Math.abs(x - bx) < C / 2 - 1 + r && Math.abs(z - bz) < C / 2 - 1 + r) return false;
+        }
+    }
     for (const b of this.colliders[this.where])
       if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
     return true;
