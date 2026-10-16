@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "pitches": {
+      "$pitch": {
+        ".read": "auth != null",
+        "room": {
+          ".write": "auth != null && (!data.exists() || data.child('status').val() === 'over' || data.child('at').val() < now - 900000 || data.child('host').val() === auth.uid || newData.child('host').val() === data.child('host').val())"
+        },
+        "players": {
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('pitches').child($pitch).child('room/host').val() === auth.uid)"
+          }
+        },
+        "queue": {
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('pitches').child($pitch).child('room/host').val() === auth.uid)"
+          }
+        },
+        "input": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
+        "state": {
+          ".write": "auth != null && root.child('pitches').child($pitch).child('room/host').val() === auth.uid"
+        }
+      }
+    }
+  }
+}

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
-import { FootballMatch, MatchInvite } from "./Football";
-import type { MatchState } from "./soccer";
+import type { MatchState, Slot } from "./soccer";
+import {
+  connectPitch,
+  connectPitchLocal,
+  MAX_PER_TEAM,
+  SLOT_KEYS,
+  type PitchNet,
+  type PitchRoom,
+} from "./pitchnet";
 import {
   AD_PRICES,
   requestAd,
@@ -662,30 +669,11 @@ function CityGame({
   }, [update, toast]);
 
   /* ---------- football ---------- */
-  const playMatch = useCallback(
-    (vs: { kind: "cpu" } | { kind: "online"; online: Online; id: string }) => {
-      setPanel({
-        kind: "info",
-        title: "Football match",
-        body: (
-          <FootballMatch
-            myName={saveRef.current.profile?.name ?? "You"}
-            vs={vs}
-            onClose={() => setPanel(null)}
-            onEnd={(goals, won) => {
-              const pts = goals * FOOTBALL.perGoal + (won ? FOOTBALL.win : 0);
-              update((x) => ({ ...x, coins: x.coins + pts }));
-              need({ energy: -12, social: 18, hunger: -8 });
-              toast(`${won ? "Victory!" : "Good game!"} +${pts} points`, "good");
-            }}
-          />
-        ),
-      });
-    },
-    [update, need, toast],
-  );
+  const [onlineReady, setOnlineReady] = useState(0);
+  void onlineReady;
   /* the match on the pitch */
   const [match, setMatch] = useState<MatchState | null>(null);
+  const [watching, setWatching] = useState<MatchState | null>(null);
   const matchDone = useRef(false);
   const startPitchMatch = useCallback(
     (zoneId: string) => {
@@ -697,6 +685,233 @@ function CityGame({
     },
     [toast],
   );
+
+  /* live matches with other players on the same pitch */
+  const pitch = useRef<{
+    zone: string;
+    net: PitchNet;
+    off: () => void;
+    live: (() => void)[];
+    iv?: number;
+    playing: "none" | "play" | "watch";
+    host: boolean;
+    room: PitchRoom | null;
+  } | null>(null);
+  const [pitchRoom, setPitchRoom] = useState<PitchRoom | null>(null);
+  const stopLive = useCallback(() => {
+    const P = pitch.current;
+    if (!P) return;
+    P.live.forEach((f) => f());
+    P.live = [];
+    if (P.iv) clearInterval(P.iv);
+    P.iv = undefined;
+    P.playing = "none";
+  }, []);
+  const leavePitch = useCallback(async () => {
+    const P = pitch.current;
+    if (!P) return;
+    stopLive();
+    const e = engine.current;
+    if (e?.inMatch() || e?.isSpectating()) e.endMatch();
+    setMatch(null);
+    setWatching(null);
+    try {
+      if (P.room?.room?.host === P.net.uid && P.room.room.status !== "over")
+        await P.net.setRoom({ status: "over", slots: null });
+      await P.net.leave();
+    } catch {
+      /* offline */
+    }
+    P.off();
+    P.net.close();
+    e?.hideRemotes([]);
+    pitch.current = null;
+    setPitchRoom(null);
+  }, [stopLive]);
+  /** Who plays where, from the room's slots (keepers are always the computer). */
+  const slotsFor = (r: PitchRoom, me: string): Slot[] => {
+    const out: Slot[] = [];
+    ([0, 1] as const).forEach((t) => {
+      SLOT_KEYS[t].forEach((k) => {
+        const v = r.room?.slots?.[k];
+        out.push({
+          key: k,
+          team: t,
+          gk: false,
+          ctrl: v ? (v.uid === me ? "me" : "remote") : "cpu",
+          name: v?.name ?? "Computer",
+        });
+      });
+      out.push({ key: "g" + t, team: t, gk: true, ctrl: "cpu", name: "Keeper" });
+    });
+    return out;
+  };
+  const onPitchRoom = useCallback(
+    (r: PitchRoom) => {
+      const P = pitch.current;
+      const e = engine.current;
+      if (!P || !e) return;
+      const prev = P.room;
+      P.room = r;
+      setPitchRoom(r);
+      // players in this match are drawn on the pitch, not walking around the city
+      e.hideRemotes(
+        r.room?.status === "playing"
+          ? Object.values(r.room.slots ?? {}).flatMap((v) => (v ? [v.uid] : []))
+          : [],
+      );
+      const me = P.net.uid;
+      const room = r.room;
+      const slots = room?.slots ?? {};
+      const mySlot = Object.keys(slots).find((k) => slots[k]?.uid === me);
+      P.host = room?.host === me;
+      if (room?.status === "playing") {
+        if (mySlot && P.playing !== "play") {
+          // kick off: play (running the match if you are the host)
+          stopLive();
+          matchDone.current = false;
+          setWatching(null);
+          setPanel(null);
+          const ok = e.startMatch(P.zone, setMatch, {
+            mode: P.host ? "host" : "view",
+            slots: slotsFor(r, me),
+            myKey: mySlot,
+            labels: ["Team A", "Team B"],
+            send: P.host ? undefined : (i) => P.net.sendInput(i),
+          });
+          if (!ok) return;
+          P.playing = "play";
+          if (P.host) {
+            P.live.push(
+              P.net.watchInputs((all) => {
+                const cur = pitch.current?.room?.room?.slots ?? {};
+                for (const [uid, inp] of Object.entries(all)) {
+                  const k = Object.keys(cur).find((x) => cur[x]?.uid === uid);
+                  if (k) engine.current?.matchInput(k, inp);
+                }
+              }),
+            );
+            P.iv = window.setInterval(() => {
+              const snap = engine.current?.matchSnapshot();
+              if (snap) P.net.sendState(snap);
+            }, 100);
+          } else P.live.push(P.net.watchState((sn) => engine.current?.matchApply(sn)));
+        } else if (!mySlot && P.playing === "none") {
+          // a match is on: watch it from the bench
+          e.startMatch(P.zone, setWatching, {
+            mode: "view",
+            slots: slotsFor(r, me),
+            myKey: "",
+            labels: ["Team A", "Team B"],
+            spectate: true,
+          });
+          P.playing = "watch";
+          P.live.push(P.net.watchState((sn) => engine.current?.matchApply(sn)));
+        }
+        // the host fills empty places from the bench, or with the computer
+        if (P.host && P.playing === "play") {
+          const next = { ...slots };
+          let changed = false;
+          const queue = Object.entries(r.queue).sort((a, b) => a[1].at - b[1].at);
+          for (const k of [...SLOT_KEYS[0], ...SLOT_KEYS[1]]) {
+            const v = next[k];
+            if (v && !r.players[v.uid]) {
+              const q = queue.shift();
+              next[k] = q ? { uid: q[0], name: q[1].name } : null;
+              if (q) {
+                void P.net.setPlayer(q[0], {
+                  name: q[1].name,
+                  team: SLOT_KEYS[0].includes(k) ? 0 : 1,
+                  at: Date.now(),
+                });
+                void P.net.setQueued(q[0], null);
+              }
+              e.matchSetCtrl(k, q ? "remote" : "cpu", q ? q[1].name : "Computer");
+              changed = true;
+            }
+          }
+          if (changed) void P.net.setRoom({ slots: next });
+        }
+      } else if (P.playing === "watch") {
+        stopLive();
+        e.endMatch();
+        setWatching(null);
+      } else if (P.playing === "play" && !P.host && room?.status === "over" && !matchDone.current) {
+        // the phone running the match went away
+        stopLive();
+        e.endMatch();
+        setMatch(null);
+        toast("The match stopped: the player running it left.", "warn");
+      }
+      void prev;
+    },
+    [stopLive, toast],
+  );
+  const onPitchRoomRef = useRef(onPitchRoom);
+  onPitchRoomRef.current = onPitchRoom;
+  /** Join the pitch: start a match, join a team, or wait on the bench. */
+  const joinPitch = useCallback(
+    async (zoneId: string) => {
+      const uid = onlineRef.current?.uid;
+      const name = saveRef.current.profile?.name ?? "Player";
+      if (!uid) {
+        toast("Log in to IlmStation to play with other players.", "warn");
+        return;
+      }
+      if (pitch.current) await leavePitch();
+      setPanel(null);
+      let net: PitchNet;
+      try {
+        const local =
+          import.meta.env.DEV &&
+          new URLSearchParams(window.location.search).get("online") === "local";
+        net = local ? connectPitchLocal(zoneId, uid) : await connectPitch(zoneId, uid);
+      } catch {
+        toast("Live football isn't switched on yet. Play the computer for now.", "warn");
+        return;
+      }
+      pitch.current = {
+        zone: zoneId,
+        net,
+        off: () => {},
+        live: [],
+        playing: "none",
+        host: false,
+        room: null,
+      };
+      let first = true;
+      let latest: PitchRoom | null = null;
+      pitch.current.off = net.watch(async (r) => {
+        latest = r;
+        if (first) {
+          first = false;
+          try {
+            const status = r.room?.status;
+            if (!r.room || status === "over") {
+              if (await net.claim()) await net.join(name, 0);
+            } else if (status === "waiting") {
+              const n = [0, 0];
+              for (const v of Object.values(r.players)) n[v.team]++;
+              if (n[0] >= MAX_PER_TEAM && n[1] >= MAX_PER_TEAM) await net.enqueue(name);
+              else await net.join(name, n[1] < n[0] ? 1 : 0);
+            } else {
+              await net.enqueue(name);
+              engine.current?.goToBench(zoneId);
+            }
+          } catch {
+            toast("Live football isn't switched on yet. Play the computer for now.", "warn");
+            void leavePitch();
+            return;
+          }
+          // joining changed the room: show the newest version, not the one from before
+          if (latest) onPitchRoomRef.current(latest);
+          return;
+        }
+        onPitchRoomRef.current(r);
+      });
+    },
+    [toast, leavePitch],
+  );
   // full time: rewards, then back to the side of the pitch
   useEffect(() => {
     if (!match || match.phase !== "over" || matchDone.current) return;
@@ -705,25 +920,27 @@ function CityGame({
     const t = setTimeout(() => {
       update((x) => ({ ...x, coins: x.coins + pts }));
       need({ energy: -15, social: 18, hunger: -10 });
-      toast(`${match.won ? "Victory!" : "Good game!"} +${pts} points`, "good");
+      toast(
+        `${match.won ? "Victory!" : match.draw ? "A draw!" : "Good game!"} +${pts} points`,
+        "good",
+      );
+      const P = pitch.current;
+      if (P && P.playing === "play") {
+        stopLive();
+        if (P.host) void P.net.setRoom({ status: "over", slots: null });
+      }
       engine.current?.endMatch();
       setMatch(null);
     }, 3500);
     return () => clearTimeout(t);
-  }, [match, update, need, toast]);
+  }, [match, update, need, toast, stopLive]);
   const openFootball = useCallback(
     (zoneId: string) => {
-      const o = onlineRef.current;
-      const players = areaPlayers.current;
       setPanel({
         kind: "info",
         title: "Football pitch",
         body: (
           <div className="space-y-2">
-            <p className="text-[13px] opacity-75">
-              Play a match: take turns to shoot and keep goal. +{FOOTBALL.perGoal} points a goal, +
-              {FOOTBALL.win} for the win.
-            </p>
             <button
               onClick={() => startPitchMatch(zoneId)}
               className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
@@ -733,69 +950,26 @@ function CityGame({
                 You, a teammate and a keeper. Run with the stick or tap; Pass and Shoot buttons.
               </span>
             </button>
-            <div className="pt-1 text-[13px] font-semibold">Invite a player in this area</div>
-            {!o ? (
-              <p className="text-[13px] opacity-70">Log in to IlmStation to play other players.</p>
-            ) : players.length === 0 ? (
-              <p className="text-[13px] opacity-70">No other players in this area right now.</p>
-            ) : (
-              players.map((pl) => (
-                <button
-                  key={pl.uid}
-                  onClick={async () => {
-                    try {
-                      const id = await o.inviteMatch(pl, saveRef.current.profile?.name ?? "Player");
-                      playMatch({ kind: "online", online: o, id });
-                    } catch {
-                      toast("Could not send the invite. Try again.", "warn");
-                    }
-                  }}
-                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left font-bold"
-                >
-                  📨 Invite {pl.name}
-                </button>
-              ))
-            )}
+            <button
+              onClick={() => void joinPitch(zoneId)}
+              className="w-full rounded-xl bg-[#e6b84a] px-4 py-3 text-left font-bold text-[#2a1c05]"
+            >
+              👥 Play with other players · Team A vs Team B
+              <span className="block text-[12px] font-medium opacity-80">
+                Up to 3 a side. If a match is on, wait on the bench or go to another pitch.
+              </span>
+            </button>
+            <p className="text-[12px] opacity-70">
+              +{FOOTBALL.perGoal} points a goal, +{FOOTBALL.win} for the win.
+            </p>
           </div>
         ),
       });
     },
-    [playMatch, toast, startPitchMatch],
+    [startPitchMatch, joinPitch],
   );
   const openFootballRef = useRef(openFootball);
   openFootballRef.current = openFootball;
-  // invites from other players
-  const [onlineReady, setOnlineReady] = useState(0);
-  useEffect(() => {
-    const o = onlineRef.current;
-    if (!o) return;
-    const seenInv = new Set<string>();
-    return o.watchInvites((list) => {
-      for (const m of list) {
-        if (seenInv.has(m.id)) continue;
-        seenInv.add(m.id);
-        const from = m.names[m.a] ?? "A player";
-        toast(`⚽ ${from} invites you to a football match!`, "good");
-        setPanel({
-          kind: "info",
-          title: "Match invite",
-          body: (
-            <MatchInvite
-              from={from}
-              onAccept={() => {
-                void o.setMatch(m.id, { status: "playing" });
-                playMatch({ kind: "online", online: o, id: m.id });
-              }}
-              onDecline={() => {
-                void o.setMatch(m.id, { status: "declined" });
-                setPanel(null);
-              }}
-            />
-          ),
-        });
-      }
-    });
-  }, [onlineReady, playMatch, toast]);
 
   /* ---------- live from the admin: adverts, award, nasheeds ---------- */
   const adsRef = useRef<Record<string, NonNullable<(typeof BILLBOARDS)[number]["ad"]>>>({});
@@ -3033,13 +3207,71 @@ function CityGame({
           )}
         </div>
       </div>
+      {pitchRoom && !match && pitch.current && (
+        <PitchLobby
+          r={pitchRoom}
+          me={pitch.current.net.uid}
+          watching={watching}
+          others={(() => {
+            const e = engine.current;
+            const here = pitch.current?.zone;
+            if (!e) return [];
+            const p0 = e.playerPos();
+            return [...e.pitches.entries()]
+              .filter(([id]) => id !== here)
+              .map(([id, p]) => ({ id, d: Math.hypot(p.x - p0.x, p.z - p0.z) }))
+              .sort((a, b) => a.d - b.d)
+              .slice(0, 3)
+              .map(({ id, d }) => ({
+                id,
+                name: `${districtById(id.replace(/^field:/, "").replace(/-(pitch|field)$/, "")).name} pitch`,
+                km: d / 1000,
+              }));
+          })()}
+          onTeam={(t) => {
+            const P = pitch.current;
+            if (!P) return;
+            const n = Object.values(pitchRoom.players).filter((v) => v.team === t).length;
+            if (n >= MAX_PER_TEAM) return toast("That team is full.");
+            void P.net.join(saveRef.current.profile?.name ?? "Player", t);
+          }}
+          onKickoff={() => {
+            const P = pitch.current;
+            if (!P) return;
+            const slots: Record<string, { uid: string; name: string } | null> = {};
+            ([0, 1] as const).forEach((t) => {
+              const ps = Object.entries(pitchRoom.players)
+                .filter(([, v]) => v.team === t)
+                .sort((a, b) => a[1].at - b[1].at);
+              SLOT_KEYS[t].forEach((k, i) => {
+                slots[k] = ps[i] ? { uid: ps[i][0], name: ps[i][1].name } : null;
+              });
+            });
+            void P.net.setRoom({ status: "playing", slots, at: Date.now() });
+          }}
+          onRestart={() => {
+            const z = pitch.current?.zone;
+            if (z) void joinPitch(z);
+          }}
+          onGo={(id) => {
+            void leavePitch().then(() => {
+              engine.current?.goToBench(id);
+              openFootballRef.current(id);
+            });
+          }}
+          onLeave={() => void leavePitch()}
+        />
+      )}
       {match && (
         <MatchHud
           m={match}
           act={(a) => engine.current?.matchAction(a)}
           onLeave={() => {
-            engine.current?.endMatch();
-            setMatch(null);
+            if (pitch.current) void leavePitch();
+            else {
+              engine.current?.endMatch();
+              setMatch(null);
+            }
           }}
         />
       )}
@@ -6952,11 +7184,19 @@ function MatchHud({
         className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
       >
         <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#10201e]/90 px-4 py-2 text-[#fdf8ec] shadow-xl">
-          <span className="text-[12px] font-bold text-[#7fd1c4]">YOU</span>
+          <span
+            className={`text-[12px] font-bold text-[#7fd1c4] ${m.myTeam === 0 ? "underline" : ""}`}
+          >
+            {m.labels[0]}
+          </span>
           <span className="font-serif text-3xl tabular-nums">
             {m.score[0]} – {m.score[1]}
           </span>
-          <span className="text-[12px] font-bold text-[#f0a070]">FC</span>
+          <span
+            className={`text-[12px] font-bold text-[#f0a070] ${m.myTeam === 1 ? "underline" : ""}`}
+          >
+            {m.labels[1]}
+          </span>
           <span className="ml-1 rounded-lg bg-white/10 px-2 py-0.5 text-[12px] font-semibold tabular-nums">
             {m.phase === "pens"
               ? "Penalties"
@@ -7061,4 +7301,132 @@ function travelOptions(here: string) {
     };
   });
   return [...local, ...away];
+}
+
+/* ---------------- live football: teams and the bench ---------------- */
+function PitchLobby({
+  r,
+  me,
+  watching,
+  others,
+  onTeam,
+  onKickoff,
+  onRestart,
+  onGo,
+  onLeave,
+}: {
+  r: PitchRoom;
+  me: string;
+  watching: MatchState | null;
+  others: { id: string; name: string; km: number }[];
+  onTeam: (t: 0 | 1) => void;
+  onKickoff: () => void;
+  onRestart: () => void;
+  onGo: (id: string) => void;
+  onLeave: () => void;
+}) {
+  const room = r.room;
+  const host = room?.host === me;
+  const mine = r.players[me];
+  const queue = Object.entries(r.queue).sort((a, b) => a[1].at - b[1].at);
+  const place = queue.findIndex(([u]) => u === me);
+  const team = (t: 0 | 1) =>
+    Object.entries(r.players)
+      .filter(([, v]) => v.team === t)
+      .sort((a, b) => a[1].at - b[1].at);
+  const btn = "w-full rounded-xl py-3 font-bold";
+  return (
+    <div data-game-ui className="absolute inset-x-3 bottom-3 z-40 mx-auto max-w-md">
+      <div className="rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        {room?.status === "playing" ? (
+          <div className="space-y-2">
+            <div className="text-[13px] font-bold uppercase tracking-wide text-[#1f6f63]">
+              Match on ·{" "}
+              {watching ? `Team A ${watching.score[0]} – ${watching.score[1]} Team B` : "watching"}
+            </div>
+            <p className="text-[15px]">
+              {place >= 0
+                ? `You're on the bench, number ${place + 1} in line. You'll come on when a player leaves.`
+                : "You're watching this match."}
+            </p>
+            {others.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[12px] font-semibold opacity-70">Or go to another pitch:</div>
+                {others.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => onGo(o.id)}
+                    className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-3 py-2 text-left text-[14px] font-bold"
+                  >
+                    ⚽ {o.name}{" "}
+                    <span className="font-normal opacity-60">· {o.km.toFixed(1)} km</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={onLeave} className={`${btn} border border-[#10201e]/20 bg-white`}>
+              Leave the bench
+            </button>
+          </div>
+        ) : room?.status === "waiting" ? (
+          <div className="space-y-3">
+            <div className="text-[13px] font-bold uppercase tracking-wide text-[#1f6f63]">
+              Picking teams · up to 3 a side
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([0, 1] as const).map((t) => (
+                <div
+                  key={t}
+                  className={`rounded-xl p-2.5 ${t === 0 ? "bg-[#1f6f63]/10" : "bg-[#d8682a]/10"}`}
+                >
+                  <div className="text-[13px] font-bold">{t === 0 ? "Team A" : "Team B"}</div>
+                  {team(t).map(([u, v]) => (
+                    <div key={u} className="truncate text-[13px]">
+                      {u === room.host ? "⭐ " : "• "}
+                      {v.name}
+                      {u === me ? " (you)" : ""}
+                    </div>
+                  ))}
+                  {team(t).length < MAX_PER_TEAM && (
+                    <div className="text-[12px] opacity-50">+ computer players</div>
+                  )}
+                  {mine && mine.team !== t && (
+                    <button
+                      onClick={() => onTeam(t)}
+                      className="mt-1.5 w-full rounded-lg bg-white py-1.5 text-[12px] font-bold"
+                    >
+                      Join {t === 0 ? "Team A" : "Team B"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {place >= 0 && <p className="text-[13px]">Both teams are full: you're on the bench.</p>}
+            {host ? (
+              <button onClick={onKickoff} className={`${btn} bg-[#1f6f63] text-[#fdf8ec]`}>
+                Bismillah · kick off
+              </button>
+            ) : (
+              <p className="text-center text-[13px] opacity-70">
+                Waiting for {r.players[room.host]?.name ?? "the host"} to kick off…
+              </p>
+            )}
+            <button onClick={onLeave} className={`${btn} border border-[#10201e]/20 bg-white`}>
+              Leave
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[15px]">The match has finished. Start another one?</p>
+            <button onClick={onRestart} className={`${btn} bg-[#1f6f63] text-[#fdf8ec]`}>
+              Start a new match
+            </button>
+            <button onClick={onLeave} className={`${btn} border border-[#10201e]/20 bg-white`}>
+              Leave
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

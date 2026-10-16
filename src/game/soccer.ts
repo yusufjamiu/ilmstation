@@ -25,12 +25,45 @@ export type MatchState = {
   pen: null | { you: "shoot" | "save"; taken: [number, number]; scored: [number, number] };
   /** the side that won, when over */
   won?: boolean;
+  /** a draw (online matches have no penalties) */
+  draw?: boolean;
   myGoals: number;
+  /** names of the two sides, and yours */
+  labels: [string, string];
+  myTeam: 0 | 1;
 };
-type Kit = (team: 0 | 1, i: number) => THREE.Object3D;
+/** One player on the pitch: you, another real player, or the computer. */
+export type Slot = {
+  key: string;
+  team: 0 | 1;
+  gk: boolean;
+  ctrl: "me" | "remote" | "cpu";
+  name: string;
+};
+/** What a real player sends to the phone running the match. */
+export type NetInput = { a: number; b: number; shoot: number; pass: number };
+/** The match as the running phone sees it, sent to everyone else ten times a second. */
+export type Snapshot = {
+  ps: Record<string, [number, number, number, number, number]>;
+  ball: [number, number, number, number, number, number];
+  owner: string | null;
+  score: [number, number];
+  clock: number;
+  half: 1 | 2;
+  phase: MatchState["phase"];
+  msg: string;
+  goals: Record<string, number>;
+};
+type Kit = (team: 0 | 1, i: number, name: string, human: boolean) => THREE.Object3D;
 type Animate = (g: THREE.Object3D, phase: number, amount: number, speed?: number) => void;
 
 type P = {
+  key: string;
+  ctrl: Slot["ctrl"];
+  name: string;
+  /** where the running phone says this player is (online, watching) */
+  ta?: number;
+  tb?: number;
   g: THREE.Object3D;
   team: 0 | 1;
   gk: boolean;
@@ -69,6 +102,16 @@ export class Soccer {
     taken: [0, 0] as [number, number],
   };
   private penShot: { aim: number; dive: number } | null = null;
+  /** solo: you and the computer; host: this phone runs an online match; view: another phone does */
+  private mode: "solo" | "host" | "view";
+  private myKey: string;
+  private send?: (i: NetInput) => void;
+  private inputs = new Map<string, NetInput>();
+  private seen = new Map<string, { shoot: number; pass: number }>();
+  private acts = { shoot: 0, pass: 0 };
+  private sentAt = 0;
+  private goalsBy: Record<string, number> = {};
+  private ballTarget: Snapshot["ball"] | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -77,35 +120,59 @@ export class Soccer {
     kit: Kit,
     private animate: Animate,
     private onState: (s: MatchState) => void,
+    opts: {
+      slots?: Slot[];
+      mode?: "solo" | "host" | "view";
+      myKey?: string;
+      labels?: [string, string];
+      send?: (i: NetInput) => void;
+    } = {},
   ) {
+    this.mode = opts.mode ?? "solo";
+    this.myKey = opts.myKey ?? "me";
+    this.send = opts.send;
     this.L = pitch.len / 2;
     this.W = pitch.wid / 2;
     this.ua = new THREE.Vector2(Math.cos(pitch.turn), -Math.sin(pitch.turn));
     this.ub = new THREE.Vector2(Math.sin(pitch.turn), Math.cos(pitch.turn));
     const L = this.L,
       W = this.W;
-    // you, a teammate and a keeper (team 0, attacking +a) against three (team 1)
-    const homes: [0 | 1, boolean, number, number][] = [
-      [0, false, -L * 0.25, W * 0.3],
-      [0, false, -L * 0.45, -W * 0.35],
-      [0, true, -L + 0.8, 0],
-      [1, false, L * 0.25, -W * 0.3],
-      [1, false, L * 0.45, W * 0.35],
-      [1, true, L - 0.8, 0],
+    // solo: you, a teammate and a keeper (team 0, attacking +a) against three (team 1)
+    const slots: Slot[] = opts.slots ?? [
+      { key: "me", team: 0, gk: false, ctrl: "me", name: "You" },
+      { key: "cpu1", team: 0, gk: false, ctrl: "cpu", name: "Teammate" },
+      { key: "cpu2", team: 0, gk: true, ctrl: "cpu", name: "Keeper" },
+      { key: "cpu3", team: 1, gk: false, ctrl: "cpu", name: "FC" },
+      { key: "cpu4", team: 1, gk: false, ctrl: "cpu", name: "FC" },
+      { key: "cpu5", team: 1, gk: true, ctrl: "cpu", name: "FC keeper" },
     ];
-    homes.forEach(([team, gk, a, b], i) => {
-      const g = i === 0 ? me : kit(team, i);
-      if (i !== 0) this.group.add(g);
+    const count = [0, 0];
+    slots.forEach((sl, i) => {
+      const side = sl.team === 0 ? -1 : 1;
+      let a: number, b: number;
+      if (sl.gk) {
+        a = side * (L - 0.8);
+        b = 0;
+      } else {
+        const k = count[sl.team]++;
+        a = side * L * (0.22 + 0.22 * (k % 3));
+        b = W * (k % 2 ? -0.38 : 0.32) * side;
+      }
+      const g = sl.ctrl === "me" ? me : kit(sl.team, i, sl.name, sl.ctrl === "remote");
+      if (sl.ctrl !== "me") this.group.add(g);
       this.ps.push({
+        key: sl.key,
+        ctrl: sl.ctrl,
+        name: sl.name,
         g,
-        team,
-        gk,
-        me: i === 0,
+        team: sl.team,
+        gk: sl.gk,
+        me: sl.ctrl === "me",
         a,
         b,
         va: 0,
         vb: 0,
-        face: team === 0 ? 0 : Math.PI,
+        face: sl.team === 0 ? 0 : Math.PI,
         cd: 0,
         t: Math.random() * 5,
         home: [a, b],
@@ -132,8 +199,15 @@ export class Soccer {
       hasBall: false,
       pen: null,
       myGoals: 0,
+      labels: opts.labels ?? ["YOU", "FC"],
+      myTeam: slots.find((x) => x.ctrl === "me")?.team ?? 0,
     };
     this.kickoff(0);
+  }
+
+  /** Your player (the first one if you are only watching). */
+  private get mine() {
+    return this.ps.find((p) => p.me) ?? this.ps[0];
   }
 
   /* ---------- coordinates ---------- */
@@ -159,8 +233,13 @@ export class Soccer {
   }
   /** Where you are, in the world (for the camera). */
   myWorld() {
-    const p = this.ps[0];
+    const p = this.mine;
     return this.world(p.a, p.b);
+  }
+  /** The camera looks towards the goal your team attacks. */
+  camYawFor() {
+    const t = this.state.myTeam;
+    return t === 0 ? this.camYaw() : this.camYaw() + Math.PI;
   }
 
   /* ---------- set pieces ---------- */
@@ -184,30 +263,65 @@ export class Soccer {
 
   /* ---------- your buttons ---------- */
   shoot() {
-    const me = this.ps[0];
     if (this.state.phase === "pens") return;
+    if (this.mode === "view") {
+      this.acts.shoot++;
+      this.sentAt = 0;
+      return;
+    }
+    this.shootFor(this.mine);
+  }
+  pass() {
+    if (this.mode === "view") {
+      this.acts.pass++;
+      this.sentAt = 0;
+      return;
+    }
+    this.passFor(this.mine);
+  }
+  private shootFor(me: P) {
     if (this.owner !== me) return;
+    const attack = me.team === 0 ? 1 : -1;
     // aim for the goal, a little towards where you face
-    const ga = this.L + 0.5,
-      gb = THREE.MathUtils.clamp(me.b + Math.sin(me.face - this.yaw(1, 0)) * -4, -2.4, 2.4);
+    const ga = attack * (this.L + 0.5),
+      gb = THREE.MathUtils.clamp(
+        me.b + Math.sin(me.face - this.yaw(attack, 0)) * -4 * attack,
+        -2.4,
+        2.4,
+      );
     const da = ga - me.a,
       db = gb - me.b,
       d = Math.hypot(da, db);
     const power = Math.min(24, 13 + d * 0.5);
     this.kick(me, (da / d) * power, (db / d) * power, 1.5 + Math.random() * 2.2);
   }
-  pass() {
-    const me = this.ps[0];
+  private passFor(me: P) {
     if (this.owner !== me) return;
-    const mate = this.ps[1];
-    // lead the pass a little ahead of your teammate
-    const ta = mate.a + mate.va * 0.4 + 1,
+    const attack = me.team === 0 ? 1 : -1;
+    const mates = this.ps.filter((q) => q.team === me.team && !q.gk && q !== me);
+    if (!mates.length) return;
+    // the teammate furthest forward, leading the pass a little ahead of them
+    const mate = mates.sort((x, y) => y.a * attack - x.a * attack)[0];
+    const ta = mate.a + mate.va * 0.4 + attack,
       tb = mate.b + mate.vb * 0.4;
     const da = ta - me.a,
       db = tb - me.b,
       d = Math.hypot(da, db) || 1;
     const power = Math.min(16, 5 + d * 0.9);
     this.kick(me, (da / d) * power, (db / d) * power, 0.3);
+  }
+  /** Online: a position changes hands (someone left, or came off the bench). */
+  setCtrl(key: string, ctrl: "remote" | "cpu", name: string) {
+    const p = this.ps.find((q) => q.key === key);
+    if (!p || p.me) return;
+    p.ctrl = ctrl;
+    p.name = name;
+    if (ctrl === "cpu") this.inputs.delete(key);
+    this.seen.delete(key);
+  }
+  /** Online: what a real player is pressing (from the phone running the match). */
+  setInput(key: string, i: NetInput) {
+    this.inputs.set(key, i);
   }
   /** Penalties: aim (or dive) left, middle or right. */
   penalty(side: -1 | 0 | 1) {
@@ -236,6 +350,10 @@ export class Soccer {
   /* ---------- every frame ---------- */
   step(dt: number, move: { x: number; z: number } | null) {
     const s = this.state;
+    if (this.mode === "view") {
+      this.stepView(dt, move);
+      return;
+    }
     if (s.phase === "over") return;
     if (this.wait > 0) {
       this.wait -= dt;
@@ -276,11 +394,21 @@ export class Soccer {
     }
 
     // you
-    const me = this.ps[0];
     const want = move ? this.local(move.x, move.z) : { a: 0, b: 0 };
-    this.steer(me, want.a, want.b, 6.2, dt);
-    // the computer players
-    for (const p of this.ps) if (!p.me) this.think(p, dt);
+    for (const p of this.ps) {
+      if (p.ctrl === "me") this.steer(p, want.a, want.b, 6.2, dt);
+      else if (p.ctrl === "remote") {
+        // another real player: move as they push, kick when they press
+        const i = this.inputs.get(p.key);
+        this.steer(p, i?.a ?? 0, i?.b ?? 0, 6.2, dt);
+        if (i) {
+          const was = this.seen.get(p.key) ?? { shoot: i.shoot, pass: i.pass };
+          if (i.shoot > was.shoot) this.shootFor(p);
+          if (i.pass > was.pass) this.passFor(p);
+          this.seen.set(p.key, { shoot: i.shoot, pass: i.pass });
+        }
+      } else this.think(p, dt);
+    }
     for (const p of this.ps) {
       p.a = THREE.MathUtils.clamp(p.a + p.va * dt, -this.L - 1, this.L + 1);
       p.b = THREE.MathUtils.clamp(p.b + p.vb * dt, -this.W - 1, this.W + 1);
@@ -398,7 +526,7 @@ export class Soccer {
       // tackles: an opponent right on the ball can win it
       for (const q of this.ps)
         if (q.team !== p.team && q.cd === 0 && Math.hypot(q.a - B.a, q.b - B.b) < 0.7) {
-          const chance = q.me ? 0.8 : p.me ? 0.35 : 0.5;
+          const chance = q.ctrl !== "cpu" ? 0.8 : p.ctrl !== "cpu" ? 0.35 : 0.5;
           if (Math.random() < chance * dt * 4) {
             this.owner = q;
             p.cd = 0.8;
@@ -461,7 +589,8 @@ export class Soccer {
     const speed = Math.hypot(B.va, B.vb);
     for (const p of this.ps) {
       if (p.gk || p.cd > 0 || B.y > 1) continue;
-      if (Math.hypot(p.a - B.a, p.b - B.b) < (p.me ? 0.9 : 0.75) && speed < (p.me ? 14 : 11)) {
+      const human = p.ctrl !== "cpu";
+      if (Math.hypot(p.a - B.a, p.b - B.b) < (human ? 0.9 : 0.75) && speed < (human ? 14 : 11)) {
         this.owner = p;
         break;
       }
@@ -472,13 +601,17 @@ export class Soccer {
     const s = this.state;
     s.score[team]++;
     const scorer = this.lastToucher();
-    if (team === 0 && scorer?.me) s.myGoals++;
-    s.msg =
-      team === 0
-        ? scorer?.me
-          ? "GOAL! Masha Allah!"
-          : "GOAL! Your teammate scores!"
-        : "Goal for IlmWorld FC.";
+    if (scorer && scorer.team === team)
+      this.goalsBy[scorer.key] = (this.goalsBy[scorer.key] ?? 0) + 1;
+    if (this.mode === "solo")
+      s.msg =
+        team === 0
+          ? scorer?.me
+            ? "GOAL! Masha Allah!"
+            : "GOAL! Your teammate scores!"
+          : "Goal for IlmWorld FC.";
+    else
+      s.msg = `GOAL for ${s.labels[team]}!${scorer && scorer.team === team && scorer.ctrl !== "cpu" ? ` ${scorer.name} scores.` : ""}`;
     s.phase = "goal";
     this.owner = null;
     this.wait = 2.2;
@@ -494,6 +627,12 @@ export class Soccer {
 
   private fullTime() {
     const s = this.state;
+    if (this.mode !== "solo" && s.score[0] === s.score[1]) {
+      s.phase = "over";
+      s.msg = "Full time: a draw. Well played, everyone!";
+      this.emit();
+      return;
+    }
     if (s.score[0] !== s.score[1]) {
       s.phase = "over";
       s.won = s.score[0] > s.score[1];
@@ -552,7 +691,7 @@ export class Soccer {
       P.taken[team]++;
       if (scored) {
         P.scored[team]++;
-        if (team === 0) this.state.myGoals++;
+        if (team === 0) this.goalsBy[this.mine.key] = (this.goalsBy[this.mine.key] ?? 0) + 1;
       }
       this.state.msg = scored ? "GOAL!" : "Saved!";
       P.i++;
@@ -584,6 +723,88 @@ export class Soccer {
     }
   }
 
+  /* ---------- online ---------- */
+  /** The running phone: the whole match in a small message. */
+  snapshot(): Snapshot {
+    const r = (n: number) => Math.round(n * 100) / 100;
+    const ps: Snapshot["ps"] = {};
+    for (const p of this.ps) ps[p.key] = [r(p.a), r(p.b), r(p.face), r(p.va), r(p.vb)];
+    const B = this.ball;
+    const s = this.state;
+    return {
+      ps,
+      ball: [r(B.a), r(B.b), r(B.y), r(B.va), r(B.vb), r(B.vy)],
+      owner: this.owner?.key ?? null,
+      score: [...s.score],
+      clock: Math.round(s.clock * 10) / 10,
+      half: s.half,
+      phase: s.phase,
+      msg: s.msg,
+      goals: { ...this.goalsBy },
+    };
+  }
+  /** Another phone: show the match as the running phone sends it. */
+  applySnapshot(n: Snapshot) {
+    for (const p of this.ps) {
+      const v = n.ps[p.key];
+      if (!v) continue;
+      [p.ta, p.tb] = [v[0], v[1]];
+      if (!p.me) {
+        p.face = v[2];
+        p.va = v[3];
+        p.vb = v[4];
+      }
+    }
+    this.ballTarget = n.ball;
+    this.owner = this.ps.find((p) => p.key === n.owner) ?? null;
+    const s = this.state;
+    Object.assign(s, {
+      score: n.score,
+      clock: n.clock,
+      half: n.half,
+      phase: n.phase,
+      msg: n.msg,
+    });
+    this.goalsBy = n.goals ?? {};
+  }
+  private stepView(dt: number, move: { x: number; z: number } | null) {
+    const k = 1 - Math.exp(-dt * 12);
+    const want = move ? this.local(move.x, move.z) : { a: 0, b: 0 };
+    for (const p of this.ps) {
+      if (p.me) {
+        // move straight away on this phone, and settle where the running phone has you
+        this.steer(p, want.a, want.b, 6.2, dt);
+        p.a += p.va * dt;
+        p.b += p.vb * dt;
+        if (p.ta !== undefined && p.tb !== undefined) {
+          const kk = 1 - Math.exp(-dt * 3);
+          p.a += (p.ta - p.a) * kk;
+          p.b += (p.tb - p.b) * kk;
+        }
+      } else if (p.ta !== undefined && p.tb !== undefined) {
+        p.a += (p.ta + p.va * 0.05 - p.a) * k;
+        p.b += (p.tb + p.vb * 0.05 - p.b) * k;
+      }
+    }
+    const B = this.ball,
+      T = this.ballTarget;
+    if (T) {
+      B.a += (T[0] - B.a) * k;
+      B.b += (T[1] - B.b) * k;
+      B.y += (T[2] - B.y) * k;
+      B.va = T[3];
+      B.vb = T[4];
+    }
+    this.sentAt -= dt;
+    if (this.send && this.sentAt <= 0) {
+      this.sentAt = 0.1;
+      const r = (n: number) => Math.round(n * 100) / 100;
+      this.send({ a: r(want.a), b: r(want.b), shoot: this.acts.shoot, pass: this.acts.pass });
+    }
+    this.place();
+    this.emit();
+  }
+
   /* ---------- drawing ---------- */
   private place() {
     for (const p of this.ps) {
@@ -603,7 +824,13 @@ export class Soccer {
   private last = "";
   private emit() {
     const s = this.state;
-    s.hasBall = this.owner === this.ps[0];
+    s.hasBall = this.owner === this.mine && this.mine.me;
+    s.myGoals = this.goalsBy[this.myKey] ?? this.goalsBy[this.mine.key] ?? 0;
+    if (s.phase === "over" && !s.pen) {
+      const t = s.myTeam;
+      s.draw = s.score[0] === s.score[1] && this.mode !== "solo";
+      if (this.mode !== "solo" || s.score[0] !== s.score[1]) s.won = s.score[t] > s.score[1 - t];
+    }
     const key = JSON.stringify([
       s.score,
       Math.ceil(s.clock),

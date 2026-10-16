@@ -15,7 +15,7 @@ import {
   type Landmark,
 } from "./content";
 import { darkness, type Clock } from "./time";
-import { Soccer, type MatchState } from "./soccer";
+import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
 import {
   Batch,
   MAT,
@@ -1969,25 +1969,75 @@ export class IlmCityEngine {
       stand: { x: p.stand.x + this.ox, z: p.stand.z + this.oz },
     });
   }
-  /** Start a match on this pitch: you, a teammate and a keeper against the computer. */
-  startMatch(zoneId: string, onState: (s: MatchState) => void) {
+  /** Start a match on this pitch: you, a teammate and a keeper against the computer;
+      or, online, a match between real players (this phone runs it, or shows it). */
+  startMatch(
+    zoneId: string,
+    onState: (s: MatchState) => void,
+    online?: {
+      mode: "host" | "view";
+      slots: Slot[];
+      myKey: string;
+      labels: [string, string];
+      send?: (i: NetInput) => void;
+      /** watching from the bench: you keep walking */
+      spectate?: boolean;
+    },
+  ) {
     const p = this.pitches.get(zoneId);
-    if (!p || this.match) return false;
+    if (!p) return false;
+    if (this.match) this.endMatch(true);
     if (this.driving) this.exitCar();
     if (this.where !== "out") this.exitInterior();
     this.tapTarget = null;
     this.marker.visible = false;
     this.matchZone = zoneId;
-    const kit = (team: 0 | 1, i: number) =>
-      person(team === 0 ? 0x1f6f63 : 0xd8682a, {
+    const kit = (team: 0 | 1, i: number, name: string, human: boolean) => {
+      const g = person(team === 0 ? 0x1f6f63 : 0xd8682a, {
         cap: team === 0 ? 0x1f6f63 : 0xffffff,
         trousers: 0xf4f1ea,
         seed: 70 + i,
       });
-    this.match = new Soccer(this.scene, p, this.player, kit, animatePerson, onState);
-    this.camYaw = this.match.camYaw();
-    this.snapCamera();
+      if (human) {
+        const tag = label(name, {
+          size: 0.65,
+          bg: team === 0 ? "rgba(31,111,99,0.9)" : "rgba(216,104,42,0.9)",
+        });
+        tag.position.y = 2.6;
+        g.add(tag);
+      }
+      return g;
+    };
+    this.spectating = !!online?.spectate;
+    this.match = new Soccer(this.scene, p, this.player, kit, animatePerson, onState, online);
+    if (!this.spectating) {
+      this.camYaw = this.match.camYawFor();
+      this.snapCamera();
+    }
     return true;
+  }
+  private spectating = false;
+  /** Online: the running phone hears what each real player presses. */
+  matchInput(key: string, i: NetInput) {
+    this.match?.setInput(key, i);
+  }
+  matchSetCtrl(key: string, ctrl: "remote" | "cpu", name: string) {
+    this.match?.setCtrl(key, ctrl, name);
+  }
+  matchSnapshot(): Snapshot | null {
+    return this.match && !this.spectating ? this.match.snapshot() : null;
+  }
+  matchApply(s: Snapshot) {
+    this.match?.applySnapshot(s);
+  }
+  isSpectating() {
+    return this.spectating;
+  }
+  /** Players in the match on the pitch are drawn by the match, not walking in the city. */
+  private hiddenRemotes = new Set<string>();
+  hideRemotes(uids: string[]) {
+    this.hiddenRemotes = new Set(uids);
+    for (const [uid, r] of this.remotes) r.g.visible = !this.hiddenRemotes.has(uid);
   }
   matchAction(a: "shoot" | "pass" | "L" | "C" | "R") {
     const m = this.match;
@@ -1997,17 +2047,31 @@ export class IlmCityEngine {
     else m.penalty(a === "L" ? -1 : a === "C" ? 0 : 1);
   }
   inMatch() {
-    return !!this.match;
+    return !!this.match && !this.spectating;
   }
-  endMatch() {
+  endMatch(quiet = false) {
     if (!this.match) return;
+    const wasPlaying = !this.spectating;
     this.match.dispose();
     this.match = null;
+    this.spectating = false;
     this.matchTap = null;
     this.marker.visible = false;
+    if (!wasPlaying || quiet) return;
     const p = this.pitches.get(this.matchZone);
     if (p) this.player.position.set(p.stand.x, 0, p.stand.z);
     this.player.rotation.y = 0;
+    this.snapCamera();
+  }
+  /** The bench beside a pitch, where players wait for their turn. */
+  benchOf(zoneId: string) {
+    return this.pitches.get(zoneId)?.stand ?? null;
+  }
+  goToBench(zoneId: string) {
+    const b = this.pitches.get(zoneId)?.stand;
+    if (!b) return;
+    if (this.where !== "out") this.exitInterior();
+    this.player.position.set(b.x, 0, b.z);
     this.snapCamera();
   }
   private stepMatch(v: THREE.Vector2, dt: number) {
@@ -2982,7 +3046,7 @@ export class IlmCityEngine {
       }
   }
   private stepRemotes(dt: number) {
-    for (const r of this.remotes.values()) {
+    for (const [uid, r] of this.remotes) {
       const dx = r.tx - r.g.position.x,
         dz = r.tz - r.g.position.z,
         d = Math.hypot(dx, dz);
@@ -2994,7 +3058,7 @@ export class IlmCityEngine {
       }
       r.g.rotation.y = lerpAngle(r.g.rotation.y, r.th, Math.min(1, dt * 8));
       animatePerson(r.g, 0, d > 0.15 || r.moving ? 1 : 0, Math.max(2, d * 2));
-      r.g.visible = this.where === "out";
+      r.g.visible = this.where === "out" && !this.hiddenRemotes.has(uid);
     }
   }
   /** Where you are and which way you face, for other players. */
@@ -3823,7 +3887,7 @@ export class IlmCityEngine {
     const portrait = this.camera.aspect < 0.8;
     if (this.cine) return { d: 14, h: 5.5 };
     if (this.preview) return { d: 5.2, h: 1.4 };
-    if (this.match) return { d: portrait ? 15 : 12, h: portrait ? 10 : 8 };
+    if (this.match && !this.spectating) return { d: portrait ? 15 : 12, h: portrait ? 10 : 8 };
     if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
     if (this.riding) return { d: portrait ? 14 : 12, h: 5.2 };
     return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
@@ -3922,7 +3986,7 @@ export class IlmCityEngine {
       -((e.clientY - r.top) / r.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(p, this.camera);
-    if (this.match) {
+    if (this.match && !this.spectating) {
       // in a match, tap (or click) where you want to run
       const pt = new THREE.Vector3();
       if (this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt)) {
@@ -4398,13 +4462,14 @@ export class IlmCityEngine {
 
   private update(dt: number, t: number) {
     const v = this.moveVec();
-    if (this.match) {
+    if (this.match && !this.spectating) {
       this.stepMatch(v, dt);
     } else if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
+    if (this.match && this.spectating) this.match.step(dt, null);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
@@ -4487,8 +4552,8 @@ export class IlmCityEngine {
         Math.atan2(-Math.cos(h), Math.sin(h)),
         1 - Math.exp(-dt * 2.5),
       );
-    } else if (this.match && performance.now() - this.lastDrag > 2500) {
-      this.camYaw = lerpAngle(this.camYaw, this.match.camYaw(), 1 - Math.exp(-dt * 2));
+    } else if (this.match && !this.spectating && performance.now() - this.lastDrag > 2500) {
+      this.camYaw = lerpAngle(this.camYaw, this.match.camYawFor(), 1 - Math.exp(-dt * 2));
     } else if (
       !this.driving &&
       this.followYaw !== null &&
@@ -4514,7 +4579,7 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding || this.kekeTrip || this.match) best = null;
+    if (this.cine || this.riding || this.kekeTrip || (this.match && !this.spectating)) best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
@@ -4531,7 +4596,13 @@ export class IlmCityEngine {
           bd = dd;
         }
       }
-    if (!this.cine && !this.driving && !this.riding && !this.match && this.where === "out")
+    if (
+      !this.cine &&
+      !this.driving &&
+      !this.riding &&
+      !(this.match && !this.spectating) &&
+      this.where === "out"
+    )
       this.walkers.forEach((w, i) => {
         if (!w.name || !w.g.parent?.visible) return;
         const dw = Math.hypot(
@@ -4543,7 +4614,7 @@ export class IlmCityEngine {
           bd = dw;
         }
       });
-    if (!this.cine && !this.driving && !this.riding && this.where === "out")
+    if (!this.cine && !this.driving && !this.riding && !this.match && this.where === "out")
       for (const [uid, r] of this.remotes) {
         const dr = Math.hypot(r.g.position.x - pos.x, r.g.position.z - pos.z);
         if (dr < 3 && dr < bd) {
