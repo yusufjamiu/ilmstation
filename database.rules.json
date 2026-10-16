@@ -25,6 +25,24 @@
           ".write": "auth != null && root.child('pitches').child($pitch).child('room/host').val() === auth.uid"
         }
       }
+    },
+    "ropes": {
+      "$rope": {
+        ".read": "auth != null",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
+        "jumps": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
+        "round": {
+          ".write": "auth != null && root.child('ropes').child($rope).child('players').child(auth.uid).exists()"
+        }
+      }
     }
   }
 }

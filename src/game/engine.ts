@@ -36,6 +36,7 @@ import {
   type Compound,
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
+import { RopeRig, type RopeMode, type RopeState } from "./rope";
 import { vehicleMesh } from "./vehicles";
 import {
   forgetHuman,
@@ -1855,6 +1856,7 @@ export class IlmCityEngine {
     });
     put(sc, `sisters:${D.id}`, "Sisters' Corner · skipping", cornerX - 10.5, cornerX + 10.5);
     const names = ["Sister Zainab", "Sister Habibah", "Sister Rodiyah", "Sister Aishat"];
+    const ropers: THREE.Object3D[] = [];
     sc.spots2.forEach((st, i) => {
       const g = person([0x8a2f4f, 0x2a4a6a, 0x5a3f6a, 0x3d5a4a][i], {
         hijab: [0xe9e2d0, 0x1d1d26, 0xd8c8a8, 0x8a2f4f][i],
@@ -1866,6 +1868,7 @@ export class IlmCityEngine {
       g.position.set(st.x, 0, st.z);
       g.rotation.y = st.face;
       if (i === 3) sitPerson(g);
+      else ropers.push(g);
       this.dg.add(g);
       this.walkers.push({
         g,
@@ -1879,6 +1882,32 @@ export class IlmCityEngine {
         seated: true,
       });
     });
+    {
+      const [l, r, m, w] = sc.spots2;
+      this.ropes.set(
+        `sisters:${D.id}`,
+        new RopeRig(
+          this.dg,
+          {
+            left: l,
+            right: r,
+            mid: m,
+            wait: { x: w.x + (m.x - w.x) * 0.3, z: w.z + (m.z - w.z) * 0.3 },
+            face: m.face,
+          },
+          ropers as [THREE.Object3D, THREE.Object3D, THREE.Object3D],
+          this.player,
+          animatePerson,
+          (name) => {
+            const g = person(0x5a3f6a, { hijab: 0xe9e2d0, seed: name.length });
+            const tag = label(name, { size: 0.6, bold: false });
+            tag.position.y = 2.5;
+            g.add(tag);
+            return g;
+          },
+        ),
+      );
+    }
   }
 
   /* ---------------- lost things on the ground ---------------- */
@@ -2053,6 +2082,40 @@ export class IlmCityEngine {
     this.hiddenRemotes = new Set(uids);
     for (const [uid, r] of this.remotes) r.g.visible = !this.hiddenRemotes.has(uid);
   }
+  /* ---------------- skipping rope ---------------- */
+  private ropes = new Map<string, RopeRig>();
+  private rope: RopeRig | null = null;
+  /** Join the rope at this Sisters' Corner (you must be standing there). */
+  startRope(zoneId: string, mode: RopeMode, onState: (s: RopeState) => void) {
+    const rig = this.ropes.get(zoneId);
+    if (!rig || this.where !== "out" || this.driving) return false;
+    this.endRope();
+    this.rope = rig;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    rig.start(mode, onState);
+    return true;
+  }
+  ropeTap() {
+    this.rope?.tap();
+  }
+  ropeAgain(role: "jump" | "turn") {
+    this.rope?.again(role);
+  }
+  inRope() {
+    return !!this.rope;
+  }
+  endRope() {
+    if (!this.rope) return;
+    const c = this.rope.centre();
+    this.rope.stop();
+    this.rope = null;
+    // step out to the front of the corner
+    this.player.position.set(c.x, 0, c.z);
+    for (let k = 0; k < 12 && !this.free(this.player.position.x, this.player.position.z, 0.5); k++)
+      this.player.position.z += 1;
+  }
+
   matchAction(a: "shoot" | "pass" | "tackle" | "L" | "C" | "R") {
     const m = this.match;
     if (!m) return;
@@ -4842,12 +4905,22 @@ export class IlmCityEngine {
     const v = this.moveVec();
     if (this.match && !this.spectating) {
       this.stepMatch(v, dt);
+    } else if (this.rope) {
+      // in the rope game you stay in your place
     } else if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
     if (this.match && this.spectating) this.match.step(dt, null);
+    for (const rig of this.ropes.values()) {
+      const c = rig.centre();
+      if (
+        rig === this.rope ||
+        Math.hypot(this.camera.position.x - c.x, this.camera.position.z - c.z) < 80
+      )
+        rig.update(dt);
+    }
     this.stepRider(dt);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
@@ -4958,7 +5031,8 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding || this.kekeTrip || (this.match && !this.spectating)) best = null;
+    if (this.cine || this.riding || this.kekeTrip || this.rope || (this.match && !this.spectating))
+      best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
@@ -4980,6 +5054,7 @@ export class IlmCityEngine {
       !this.driving &&
       !this.riding &&
       !(this.match && !this.spectating) &&
+      !this.rope &&
       this.where === "out"
     )
       this.walkers.forEach((w, i) => {

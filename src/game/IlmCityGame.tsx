@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import type { MatchState, Slot } from "./soccer";
+import type { RopeState } from "./rope";
+import { connectRope, connectRopeLocal } from "./ropenet";
 import {
   connectPitch,
   connectPitchLocal,
@@ -810,6 +812,65 @@ function CityGame({
   void onlineReady;
   /* the match on the pitch */
   const [match, setMatch] = useState<MatchState | null>(null);
+  /* ---------- skipping rope ---------- */
+  const [rope, setRope] = useState<RopeState | null>(null);
+  const ropeOut = useRef(false);
+  const onRope = useCallback(
+    (r: RopeState) => {
+      setRope(r);
+      engine.current?.hideRemotes(r.uids);
+      if (r.phase === "out" && !ropeOut.current) {
+        ropeOut.current = true;
+        const pts = Math.min(5, Math.floor(r.count / 10));
+        need({ energy: -6, social: 15, hunger: -4 });
+        if (pts) {
+          update((x) => ({ ...x, coins: x.coins + pts }));
+          toast(`${r.count} skips! +${pts} points. Masha Allah!`, "good");
+        }
+      } else if (r.phase !== "out") ropeOut.current = false;
+    },
+    [need, update, toast],
+  );
+  const playRope = useCallback(
+    async (zoneId: string, how: "jump" | "turn" | "together") => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      ropeOut.current = false;
+      if (how !== "together") {
+        if (!e.startRope(zoneId, { kind: "solo", role: how }, onRope))
+          toast("Walk into the Sisters' Corner first.");
+        return;
+      }
+      const uid = onlineRef.current?.uid;
+      if (!uid) {
+        toast("Log in to IlmStation to skip with other sisters.", "warn");
+        return;
+      }
+      try {
+        const local =
+          import.meta.env.DEV &&
+          new URLSearchParams(window.location.search).get("online") === "local";
+        const net = local ? connectRopeLocal(zoneId, uid) : await connectRope(zoneId, uid);
+        const name = saveRef.current.profile?.name ?? "Sister";
+        if (!e.startRope(zoneId, { kind: "net", net, name }, onRope)) {
+          net.close();
+          toast("Walk into the Sisters' Corner first.");
+        }
+      } catch {
+        toast(
+          "Playing together isn't switched on yet. Skip with the sisters here for now.",
+          "warn",
+        );
+      }
+    },
+    [onRope, toast],
+  );
+  const leaveRope = useCallback(() => {
+    engine.current?.endRope();
+    engine.current?.hideRemotes([]);
+    setRope(null);
+  }, []);
   const [watching, setWatching] = useState<MatchState | null>(null);
   const matchDone = useRef(false);
   const startPitchMatch = useCallback(
@@ -2246,13 +2307,42 @@ function CityGame({
           return;
         }
         setPanel({
-          kind: "busy",
-          title: "Skipping rope with the sisters",
-          ms: 4000,
-          done: () => {
-            need({ energy: -8, social: 18, hunger: -5 });
-            toast("Bismillah… 1, 2, 3… you skipped 40 times! Masha Allah.", "good");
-          },
+          kind: "info",
+          title: "🪢 Skipping rope",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13.5px] opacity-80">
+                Two sisters turn the rope and one jumps. Swap whenever you like.
+              </p>
+              <button
+                onClick={() => void playRope(id, "jump")}
+                className="w-full rounded-xl bg-[#8a2f4f] px-4 py-3 text-left font-bold text-white"
+              >
+                🦘 Jump in
+                <span className="block text-[12px] font-normal opacity-80">
+                  Tap Jump as the rope comes under your feet
+                </span>
+              </button>
+              <button
+                onClick={() => void playRope(id, "turn")}
+                className="w-full rounded-xl border border-[#8a2f4f]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                🤲 Turn the rope
+                <span className="block text-[12px] font-normal opacity-70">
+                  Tap Turn each time the rope is at the top
+                </span>
+              </button>
+              <button
+                onClick={() => void playRope(id, "together")}
+                className="w-full rounded-xl border border-[#8a2f4f]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                👭 Play with other sisters here
+                <span className="block text-[12px] font-normal opacity-70">
+                  Real players share one rope and take turns to jump
+                </span>
+              </button>
+            </div>
+          ),
         });
         return;
       }
@@ -3505,6 +3595,17 @@ function CityGame({
             });
           }}
           onLeave={() => void leavePitch()}
+        />
+      )}
+      {rope && (
+        <RopeHud
+          r={rope}
+          onTap={() => engine.current?.ropeTap()}
+          onAgain={(role) => {
+            ropeOut.current = false;
+            engine.current?.ropeAgain(role);
+          }}
+          onLeave={leaveRope}
         />
       )}
       {match && (
@@ -7764,6 +7865,108 @@ function MssnView({
         </div>
       )}
     </div>
+  );
+}
+
+/* ---------------- skipping rope ---------------- */
+function RopeHud({
+  r,
+  onTap,
+  onAgain,
+  onLeave,
+}: {
+  r: RopeState;
+  onTap: () => void;
+  onAgain: (role: "jump" | "turn") => void;
+  onLeave: () => void;
+}) {
+  const tapRef = useRef(onTap);
+  tapRef.current = onTap;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        tapRef.current();
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const solo = !r.together && r.role !== "hold";
+  return (
+    <>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#3a1a2a]/90 px-4 py-2 text-[#fdf8ec] shadow-xl">
+          <span className="text-[12px] font-bold text-[#f3b6cc]">🪢 {r.names.jumper} jumping</span>
+          <span className="font-serif text-3xl tabular-nums">{r.count}</span>
+          {r.lives !== undefined && (
+            <span className="text-[13px]">{"❤️".repeat(Math.max(0, r.lives))}</span>
+          )}
+          <button onClick={onLeave} className="rounded-lg bg-white/10 px-2 py-0.5 text-[12px]">
+            Leave
+          </button>
+        </div>
+      </div>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[128px] z-30 flex justify-center px-3"
+      >
+        <div className="rounded-xl bg-[#fdf8ec]/95 px-4 py-2 text-center text-[14px] font-bold shadow-lg">
+          {r.phase === "count"
+            ? r.role === "jump"
+              ? `Get ready to jump… ${r.countdown}`
+              : r.role === "turn"
+                ? `Get ready to turn… ${r.countdown}`
+                : `${r.names.jumper} jumps next… ${r.countdown}`
+            : r.msg ||
+              (r.role === "jump"
+                ? "Tap Jump as the rope reaches your feet"
+                : r.role === "turn"
+                  ? "Tap Turn when the rope is at the top"
+                  : `You're turning the rope with ${r.names.left === "You" ? r.names.right : r.names.left}. Your turn to jump comes next!`)}
+          {r.together && (
+            <div className="text-[11.5px] font-semibold opacity-70">
+              Playing together · {r.uids.length} sisters here
+            </div>
+          )}
+        </div>
+      </div>
+      <div
+        data-game-ui
+        className="absolute bottom-[max(24px,env(safe-area-inset-bottom))] right-4 z-30 flex items-end gap-3"
+      >
+        {r.phase === "out" && solo ? (
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => onAgain("jump")}
+              className="rounded-xl bg-[#8a2f4f] px-4 py-3 text-[14px] font-bold text-white shadow-xl"
+            >
+              🦘 Jump again
+            </button>
+            <button
+              onClick={() => onAgain("turn")}
+              className="rounded-xl bg-[#fdf8ec] px-4 py-3 text-[14px] font-bold shadow-xl"
+            >
+              🤲 Turn the rope
+            </button>
+          </div>
+        ) : (
+          r.role !== "hold" && (
+            <button
+              onClick={onTap}
+              disabled={r.phase !== "play"}
+              className="grid size-24 place-items-center rounded-full bg-[#8a2f4f] text-[18px] font-extrabold text-white shadow-xl active:scale-95 disabled:opacity-40"
+            >
+              {r.role === "jump" ? "Jump" : "Turn"}
+              <span className="-mt-4 text-[10px] font-semibold opacity-70">Space</span>
+            </button>
+          )
+        )}
+      </div>
+    </>
   );
 }
 

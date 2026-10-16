@@ -1520,9 +1520,7 @@ export function sistersCorner(
   solid(-W / 2, W / 2, -D / 2, -D / 2 + 0.8);
   solid(-W / 2, -W / 2 + 0.8, -D / 2, D / 2);
   solid(W / 2 - 0.8, W / 2, -D / 2, D / 2);
-  // the rope swinging between two sisters
-  const rope = new THREE.TorusGeometry(2.2, 0.035, 6, 24, Math.PI);
-  b.add(rope, MAT.plain(0xe6b84a), 0, 0.9, -1, 0, false);
+  // the rope itself is drawn and turned by the game (rope.ts)
   for (const bx of [-W / 2 + 2.5, W / 2 - 2.5]) {
     b.box(2, 0.45, 0.6, MAT.plain(0x8a5a3a), bx, 0, -D / 2 + 2);
     solid(bx - 1, bx + 1, -D / 2 + 1.7, -D / 2 + 2.3);
