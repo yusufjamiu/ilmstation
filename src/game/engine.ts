@@ -4813,9 +4813,52 @@ export class IlmCityEngine {
     }
   }
 
+  /* ---------------- graphics: beautiful or smooth ---------------- */
+  private low = false;
+  private viewDist = 300;
+  /** called when the game switches itself to smooth graphics on a slow phone */
+  onSlowPhone: (() => void) | null = null;
+  private fps = { t: 0, frames: 0, checked: false, auto: true };
+  /** Smooth: fewer pixels, no shadows, a shorter view. Beautiful: everything. */
+  setQuality(q: "low" | "high", auto = false) {
+    this.low = q === "low";
+    this.fps.auto = auto;
+    const dpr = window.devicePixelRatio || 1;
+    // smooth keeps the look: full sharpness on normal screens, lighter shadows, a little less view
+    this.renderer.setPixelRatio(this.low ? Math.min(1.25, dpr) : Math.min(2, dpr));
+    const size = this.low ? 512 : 1024;
+    if (this.sun.shadow.mapSize.x !== size) {
+      this.sun.shadow.mapSize.set(size, size);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+    this.viewDist = this.low ? 220 : 300;
+    this.camera.far = this.low ? 400 : 600;
+    this.camera.updateProjectionMatrix();
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = this.low ? 60 : 70;
+    fog.far = this.low ? 215 : 260;
+    this.applyLight();
+  }
+  isLow() {
+    return this.low;
+  }
   private loop = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    // a slow phone: after a few seconds outside, switch to smooth graphics once
+    const f = this.fps;
+    if (f.auto && !f.checked && !this.low && this.where === "out" && dt > 0) {
+      f.t += dt;
+      f.frames++;
+      if (f.t > 8) {
+        f.checked = true;
+        if (f.frames / f.t < 20) {
+          this.setQuality("low", true);
+          this.onSlowPhone?.();
+        }
+      }
+    }
     this.update(dt, now / 1000);
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
@@ -5272,7 +5315,8 @@ export class IlmCityEngine {
     // only draw areas near the camera
     if (this.where === "out")
       for (const a of this.areaGroups)
-        a.g.visible = Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z) < 300;
+        a.g.visible =
+          Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z) < this.viewDist;
 
     // neighbours
     for (const w of this.walkers) {

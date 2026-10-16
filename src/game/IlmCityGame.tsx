@@ -3576,6 +3576,16 @@ function CityGame({
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
+    {
+      // graphics: the player's choice, or a guess from the phone (checked again as it runs)
+      const q = readQuality();
+      if (q === "auto") e.setQuality(weakPhone() ? "low" : "high", true);
+      else e.setQuality(q);
+      e.onSlowPhone = () =>
+        toast(
+          "Switched to Smooth graphics so the game runs better. Change it in ☰ Menu → Graphics.",
+        );
+    }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
     // every visit starts at home: you are only out in the city while you are playing
     {
@@ -4036,6 +4046,39 @@ function CityGame({
                           }),
                       },
                       { icon: "📋", label: "My Day", run: openMyDay },
+                      {
+                        icon: "🎮",
+                        label: "Graphics",
+                        run: () =>
+                          setPanel({
+                            kind: "info",
+                            title: "Graphics",
+                            body: (
+                              <GraphicsView
+                                now={readQuality()}
+                                low={!!engine.current?.isLow()}
+                                onPick={(q) => {
+                                  writeQuality(q);
+                                  const e = engine.current;
+                                  if (e) {
+                                    if (q === "auto")
+                                      e.setQuality(weakPhone() ? "low" : "high", true);
+                                    else e.setQuality(q);
+                                  }
+                                  setPanel(null);
+                                  toast(
+                                    q === "low"
+                                      ? "Smooth graphics: same look, runs faster."
+                                      : q === "high"
+                                        ? "Beautiful graphics: shadows and a long view."
+                                        : "Auto: the game picks what suits your phone.",
+                                    "good",
+                                  );
+                                }}
+                              />
+                            ),
+                          }),
+                      },
                       { icon: "🚪", label: "Exit", run: () => (window.location.href = "/app") },
                     ]}
                   />
@@ -4406,7 +4449,9 @@ function CityGame({
           <Guide
             step={save.guide ?? 5}
             onGo={(prefix) => {
-              if (!engine.current?.goToZone(prefix)) toast("Go outside first.");
+              const e = engine.current;
+              if (!e?.goToZone(prefix)) toast("Go outside first.");
+              else e.guideTo(prefix);
             }}
             onNext={() => advance(GUIDE.length)}
             onSkip={() => update((x) => ({ ...x, guide: GUIDE.length + 1 }))}
@@ -6649,6 +6694,19 @@ const GUIDE: { title: string; text: string; go?: { prefix: string; label: string
     title: "Your day",
     text: "Tap 📋 My Day for today's tasks, and watch your needs under the clock: food, energy, iman, friends and clean. Buy furniture with 🛋️ Home.",
   },
+  {
+    title: "Your phone",
+    text: "Tap 📱 Phone: order food, find where to go with OutingStation, travel, call friends, visit homes, rent a room and check your wallet.",
+  },
+  {
+    title: "Play with others",
+    text: "Brothers play football at the pitch (buy your kit first). Sisters skip rope at the Sisters' Corner. Real players can join you.",
+    go: { prefix: "field:", label: "Show me the pitch" },
+  },
+  {
+    title: "Earn and grow",
+    text: "Work a job (☰ Menu → Work), rent a market stall, buy a house and rent out its rooms, and furnish your home for the Saturday best-home award.",
+  },
 ];
 
 function Guide({
@@ -8419,6 +8477,63 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   if (!t.sleep && (c.min >= c.times.isha || c.min < c.times.fajr))
     return { text: "Sleep early after Isha", prefix: inside ? "sleep" : homeDoor };
   return { text: "Explore another area of Lagos", act: "travel" };
+}
+
+/* ---------------- graphics setting ---------------- */
+type Quality = "auto" | "low" | "high";
+const QKEY = "ilmcity-quality";
+function readQuality(): Quality {
+  try {
+    const q = localStorage.getItem(QKEY);
+    return q === "low" || q === "high" ? q : "auto";
+  } catch {
+    return "auto";
+  }
+}
+function writeQuality(q: Quality) {
+  try {
+    localStorage.setItem(QKEY, q);
+  } catch {
+    /* storage off */
+  }
+}
+/** Phones with little memory or few cores start on smooth graphics. */
+function weakPhone() {
+  const n = navigator as Navigator & { deviceMemory?: number };
+  const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  return (n.deviceMemory ?? 8) <= 4 || (mobile && (navigator.hardwareConcurrency ?? 8) <= 4);
+}
+function GraphicsView({
+  now,
+  low,
+  onPick,
+}: {
+  now: Quality;
+  low: boolean;
+  onPick: (q: Quality) => void;
+}) {
+  const opt = (q: Quality, title: string, sub: string) => (
+    <button
+      onClick={() => onPick(q)}
+      className={`w-full rounded-xl border px-4 py-3 text-left ${now === q ? "border-[#1f6f63] bg-[#1f6f63]/10" : "border-[#10201e]/15 bg-white"}`}
+    >
+      <div className="font-bold">
+        {title} {now === q && "✓"}
+      </div>
+      <div className="text-[12.5px] opacity-70">{sub}</div>
+    </button>
+  );
+  return (
+    <div className="space-y-2">
+      {opt("auto", "Auto", `The game picks for your phone (now: ${low ? "Smooth" : "Beautiful"}).`)}
+      {opt(
+        "low",
+        "Smooth",
+        "Best for cheaper phones: same look, lighter shadows, a little less view.",
+      )}
+      {opt("high", "Beautiful", "Shadows and a long view. Needs a stronger phone.")}
+    </div>
+  );
 }
 
 function MenuView({
