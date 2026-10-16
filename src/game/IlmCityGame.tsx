@@ -1796,6 +1796,8 @@ function CityGame({
   );
 
   /** Step-by-step wudu; `then` runs after (for example, the prayer you were about to start). */
+  /** where to send you after wudu (e.g. back to your prayer mat) */
+  const afterWudu = useRef<string | null>(null);
   const openWudu = useCallback(
     (then?: () => void) =>
       setPanel({
@@ -1824,6 +1826,14 @@ function CityGame({
   /** Pray in the masjid: the obligatory prayer if it is due, or two voluntary rak'ahs. */
   const startPrayer = useCallback(
     (voluntary: boolean) => {
+      const e = engine.current;
+      if (!saveRef.current.wudu && e?.scenePlace() === "home" && e.guideTo("bath")) {
+        // at home: go to the bathroom for wudu, then come back to the mat
+        setPanel(null);
+        afterWudu.current = "prayermat";
+        toast("Salah needs wudu. Follow the gold arrow to the bathroom 💧");
+        return;
+      }
       if (!saveRef.current.wudu) {
         setPanel({
           kind: "info",
@@ -3145,7 +3155,20 @@ function CityGame({
           body: (
             <div className="space-y-2">
               <button
-                onClick={() => openWudu()}
+                onClick={() => {
+                  setPanel(null);
+                  // say the du'a on entering, make wudu, then the shahada after wudu
+                  sayDhikr("enterToilet", () =>
+                    openWudu(() =>
+                      sayDhikr("afterWudu", () => {
+                        const next = afterWudu.current;
+                        afterWudu.current = null;
+                        if (next && engine.current?.guideTo(next))
+                          toast("You have wudu. Follow the arrow back to your prayer mat.", "good");
+                      }),
+                    ),
+                  );
+                }}
                 className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
               >
                 💧 Make wudu

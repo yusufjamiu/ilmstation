@@ -2044,6 +2044,16 @@ export const PLACE_DHIKR: Record<string, PlaceDhikr> = {
     source: "Abu Dawud, Tirmidhi",
     tip: "Leave with your right foot.",
   },
+  afterWudu: {
+    title: "After wudu",
+    arabic:
+      "أَشْهَدُ أَنْ لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، وَأَشْهَدُ أَنَّ مُحَمَّدًا عَبْدُهُ وَرَسُولُهُ",
+    say: "Ash-hadu an la ilaha illallahu wahdahu la sharika lah, wa ash-hadu anna Muhammadan 'abduhu wa rasuluh.",
+    meaning:
+      "I bear witness that none has the right to be worshipped but Allah alone, without partner, and I bear witness that Muhammad is His servant and Messenger.",
+    source: "Muslim",
+    tip: "The eight gates of Paradise are opened for the one who says this.",
+  },
   afterEating: {
     title: "After eating",
     arabic:

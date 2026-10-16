@@ -2811,6 +2811,81 @@ export class IlmCityEngine {
     return this.zones.some((z) => z.id.startsWith(prefix));
   }
 
+  /* ---------------- a gold arrow showing the way ---------------- */
+  private guide: { zone: Zone; arrow: THREE.Object3D } | null = null;
+  /** Point the way to the nearest place with this id (in the scene you are in). */
+  guideTo(prefix: string) {
+    this.clearGuide();
+    const p = this.player.position;
+    const zone = this.zones
+      .filter((z) => z.scene === this.where && !z.off && z.id.startsWith(prefix))
+      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+    if (!zone) return false;
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0.9);
+    shape.lineTo(0.55, 0.25);
+    shape.lineTo(0.2, 0.25);
+    shape.lineTo(0.2, -0.6);
+    shape.lineTo(-0.2, -0.6);
+    shape.lineTo(-0.2, 0.25);
+    shape.lineTo(-0.55, 0.25);
+    shape.closePath();
+    const m = new THREE.Mesh(
+      new THREE.ShapeGeometry(shape),
+      new THREE.MeshBasicMaterial({
+        color: 0xf2c230,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.renderOrder = 20;
+    m.scale.setScalar(1.4);
+    const arrow = new THREE.Group();
+    arrow.add(m);
+    // a small marker over the place you're going to
+    const pin = new THREE.Mesh(
+      new THREE.ConeGeometry(0.28, 0.6, 4),
+      new THREE.MeshBasicMaterial({ color: 0xf2c230 }),
+    );
+    pin.rotation.x = Math.PI;
+    pin.position.set(zone.x, 2.6, zone.z);
+    pin.userData.pin = true;
+    this.scene.add(arrow, pin);
+    arrow.userData.pin = pin;
+    this.guide = { zone, arrow };
+    return true;
+  }
+  clearGuide() {
+    if (!this.guide) return;
+    (this.guide.arrow.userData.pin as THREE.Object3D).removeFromParent();
+    this.guide.arrow.removeFromParent();
+    this.guide = null;
+  }
+  private stepGuide(t: number) {
+    const g = this.guide;
+    if (!g) return;
+    const p = this.player.position;
+    const dx = g.zone.x - p.x,
+      dz = g.zone.z - p.z,
+      d = Math.hypot(dx, dz);
+    if (g.zone.scene !== this.where || d < g.zone.r * 0.8) {
+      this.clearGuide();
+      return;
+    }
+    const ux = dx / d,
+      uz = dz / d;
+    const lead = 1.3 + Math.sin(t * 5) * 0.15;
+    g.arrow.position.set(p.x + ux * lead, 0.08, p.z + uz * lead);
+    // the arrow's tip points along +y of its shape: turn it towards the place
+    g.arrow.rotation.y = Math.atan2(-ux, -uz);
+    const pin = g.arrow.userData.pin as THREE.Object3D;
+    pin.position.y = 2.6 + Math.sin(t * 4) * 0.15;
+    pin.rotation.y = t * 2;
+  }
+
   /* ---------------- food delivery ---------------- */
   private rider: {
     g: THREE.Group;
@@ -5190,6 +5265,7 @@ export class IlmCityEngine {
         rig.update(dt);
     }
     this.stepRider(dt);
+    this.stepGuide(performance.now() / 1000);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
