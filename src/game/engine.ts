@@ -797,7 +797,7 @@ export class IlmCityEngine {
     BILLBOARDS.filter((b) => b.district === D.id).forEach((b) => {
       while (si < spots.length) {
         const [x, z, r] = spots[si++];
-        if (this.boxFree(x - 6, x + 6, z - 1.5, z + 1.5)) {
+        if (this.boxFree(x - 8, x + 8, z - 1.8, z + 1.8)) {
           this.billboard(b, x, z, r);
           break;
         }
@@ -2159,6 +2159,7 @@ export class IlmCityEngine {
     {
       kind: "shop" | "stall";
       sign: THREE.Mesh;
+      blade: THREE.MeshBasicMaterial;
       shutter?: THREE.Mesh;
       zone: Zone;
       district: string;
@@ -2187,6 +2188,25 @@ export class IlmCityEngine {
     sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 2.75, center.z + uz * sd);
     sign.rotation.y = ry;
     this.dg.add(sign);
+    // a small sign sticking out sideways, so you can read the name walking along the street
+    const vx = uz,
+      vz = -ux;
+    const halfW = kind === "shop" ? 2.3 : 2.2;
+    const bladeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const blade = new THREE.Group();
+    for (const r of [0, Math.PI]) {
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 0.9), bladeMat);
+      pl.rotation.y = r;
+      blade.add(pl);
+    }
+    blade.add(box(2.4, 0.06, 0.06, 0x2a2a2a, 0, 0.48, 0, false));
+    blade.position.set(
+      center.x + ux * (sd + 1.25) + vx * (halfW - 0.1),
+      kind === "shop" ? 3.1 : 2.5,
+      center.z + uz * (sd + 1.25) + vz * (halfW - 0.1),
+    );
+    blade.rotation.y = ry + Math.PI / 2;
+    this.dg.add(blade);
     let shutter: THREE.Mesh | undefined;
     if (kind === "shop") {
       shutter = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 3.5), MAT2.shutter());
@@ -2203,7 +2223,7 @@ export class IlmCityEngine {
       scene: "out",
     };
     this.zones.push(zone);
-    this.shopFx.set(id, { kind, sign, shutter, zone, district: D.id, street });
+    this.shopFx.set(id, { kind, sign, blade: bladeMat, shutter, zone, district: D.id, street });
   }
   private shopTexCache = new Map<string, THREE.Texture>();
   /** Paint a shop's signboard: its name and up to three product pictures. */
@@ -2269,6 +2289,35 @@ export class IlmCityEngine {
       }
       tex.needsUpdate = true;
     };
+    // the side sign: just the name
+    {
+      const bc = document.createElement("canvas");
+      bc.width = 256;
+      bc.height = 100;
+      const b = bc.getContext("2d")!;
+      const rent = !s.name;
+      b.fillStyle = rent ? "#fdfbf5" : "#1f6f63";
+      b.fillRect(0, 0, 256, 100);
+      b.strokeStyle = rent ? "#c62828" : "#e6b84a";
+      b.lineWidth = 6;
+      b.strokeRect(3, 3, 250, 94);
+      b.fillStyle = rent ? "#c62828" : "#fdf8ec";
+      b.textAlign = "center";
+      b.textBaseline = "middle";
+      const text = s.name ?? (fx.kind === "shop" ? "TO LET" : "FOR RENT");
+      let size = 40;
+      b.font = `800 ${size}px system-ui, sans-serif`;
+      while (b.measureText(text).width > 230 && size > 14) {
+        size -= 2;
+        b.font = `800 ${size}px system-ui, sans-serif`;
+      }
+      b.fillText(text, 128, 52);
+      const bt = new THREE.CanvasTexture(bc);
+      bt.colorSpace = THREE.SRGBColorSpace;
+      fx.blade.map?.dispose();
+      fx.blade.map = bt;
+      fx.blade.needsUpdate = true;
+    }
     const srcs = (s.imgs ?? []).slice(0, 3);
     if (!srcs.length) draw([]);
     else
@@ -3629,11 +3678,18 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set(bx, 0, bz);
     g.rotation.y = rot;
-    [-2.6, 2.6].forEach((px) => {
-      const p = box(0.35, 4, 0.35, 0x5a5f66, px, 0, -0.3);
-      g.add(p);
+    // two faces in a V, each turned towards one direction of traffic
+    const A = 0.36,
+      PW = 8.4;
+    const faces = [-1, 1].map((sgn) => {
+      const f = new THREE.Group();
+      f.position.set(sgn * Math.cos(A) * (PW / 2 + 0.1), 0, -1.6 + Math.sin(A) * (PW / 2 + 0.1));
+      f.rotation.y = -sgn * A;
+      f.add(box(0.3, 4, 0.3, 0x5a5f66, 0, 0, -0.3));
+      f.add(box(PW + 0.5, 3.9, 0.35, 0x2e3338, 0, 3.8, -0.5));
+      g.add(f);
+      return f;
     });
-    g.add(box(10.6, 4.6, 0.4, 0x2e3338, 0, 3.8, -0.5));
     const draw = (c: CanvasRenderingContext2D, W: number, H: number) => {
       const ad = b.ad;
       if (!ad) {
@@ -3669,10 +3725,15 @@ export class IlmCityEngine {
       c.font = `500 ${Math.round(H * 0.085)}px "Work Sans", system-ui, sans-serif`;
       c.fillText(ad.line, W * 0.06, H * 0.76);
     };
-    const { mesh, tex, canvas } = canvasPlane(10, 4, draw, 1000);
-    mesh.position.set(0, 3.8 + 2.3, -0.28);
+    const { mesh, tex, canvas } = canvasPlane(PW, PW * 0.4, draw, 1000);
+    mesh.position.set(0, 3.8 + 1.95, -0.3);
     mesh.userData.tap = "billboard:" + b.id;
-    g.add(mesh);
+    faces[0].add(mesh);
+    const twin = new THREE.Mesh(mesh.geometry, mesh.material);
+    twin.position.copy(mesh.position);
+    twin.userData.tap = mesh.userData.tap;
+    faces[1].add(twin);
+    this.tappables.push(twin);
     const paint = () => {
       const c = canvas.getContext("2d")!;
       draw(c, canvas.width, canvas.height);
@@ -3691,9 +3752,12 @@ export class IlmCityEngine {
     this.boards.set(b.id, { b, base: b.ad, paint });
     this.tappables.push(mesh);
     this.dg.add(g);
-    const ex = Math.abs(Math.cos(rot)) * 5.5 + Math.abs(Math.sin(rot)) * 1,
-      ez = Math.abs(Math.sin(rot)) * 5.5 + Math.abs(Math.cos(rot)) * 1;
-    this.addCollider("out", bx - ex, bx + ex, bz - ez, bz + ez);
+    // the V's footprint, turned with the board
+    const cx = bx - Math.sin(rot) * 0.1,
+      cz = bz - Math.cos(rot) * 0.1;
+    const ex = Math.abs(Math.cos(rot)) * 7.9 + Math.abs(Math.sin(rot)) * 1.7,
+      ez = Math.abs(Math.sin(rot)) * 7.9 + Math.abs(Math.cos(rot)) * 1.7;
+    this.addCollider("out", cx - ex, cx + ex, cz - ez, cz + ez);
   }
 
   private buildCar() {

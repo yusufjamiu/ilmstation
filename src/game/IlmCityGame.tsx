@@ -260,7 +260,7 @@ function useTestOffset() {
 }
 
 type Panel =
-  | { kind: "info"; title: string; body: ReactNode }
+  | { kind: "info"; title: string; body: ReactNode; phone?: { home?: () => void } }
   | { kind: "quiz"; q: Question; qi: number; picked?: number }
   | { kind: "busy"; title: string; ms: number; done: () => void };
 
@@ -675,7 +675,8 @@ function CityGame({
   }, [update, toast]);
 
   /* ---------- food: order on the phone or eat at the eatery ---------- */
-  const openPlacesRef = useRef<(area: string) => void>(() => {});
+  const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
+  const openPhoneRef = useRef<() => void>(() => {});
   const eat = useCallback(
     (d: Dish) => {
       setPanel(null);
@@ -760,9 +761,10 @@ function CityGame({
     [update, toast, openMeal],
   );
   const openFood = useCallback(
-    (where: "order" | "eatery") => {
+    (where: "order" | "eatery", phone = false) => {
       setPanel({
         kind: "info",
+        phone: phone ? { home: () => openPhoneRef.current() } : undefined,
         title:
           where === "order"
             ? "IlmDash · order food"
@@ -784,17 +786,18 @@ function CityGame({
   const openPhone = useCallback(() => {
     setPanel({
       kind: "info",
-      title: "📱 Phone",
+      title: "",
+      phone: {},
       body: (
         <PhoneView
-          onFood={() => openFood("order")}
-          onOutings={() => openOutingsRef.current()}
-          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki")}
+          onFood={() => openFood("order", true)}
+          onOutings={() => openOutingsRef.current(true)}
+          onTravel={() => openOutingsRef.current(true, "travel")}
+          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki", true)}
         />
       ),
     });
   }, [openFood]);
-  const openPhoneRef = useRef(openPhone);
   openPhoneRef.current = openPhone;
   const hungry = !!save.profile && (save.needs ?? freshNeeds()).hunger <= HUNGRY_AT;
   const hungryRef = useRef(hungry);
@@ -1236,10 +1239,11 @@ function CityGame({
   loggedInRef.current = loggedIn;
 
   const openPlaces = useCallback(
-    (area: string) => {
+    (area: string, phone = false) => {
       setNewArea(null);
       setPanel({
         kind: "info",
+        phone: phone ? { home: () => openPhoneRef.current() } : undefined,
         title: `Places in ${fullName(districtById(area))}`,
         body: (
           <PlacesView
@@ -1294,29 +1298,39 @@ function CityGame({
   );
   const tripRef = useRef(startTrip);
   tripRef.current = startTrip;
-  const openOutings = useCallback(() => {
-    const e = engine.current;
-    const here = e?.districtId() ?? "lekki";
-    setPanel({
-      kind: "info",
-      title: "🎟️ OutingStation",
-      body: (
-        <OutingView
-          here={here}
-          clock={clockRef.current}
-          driving={!!e?.isDriving()}
-          coins={saveRef.current.coins}
-          has={(id) => !!engine.current?.hasZone(id)}
-          onGo={(area, prefix) => {
-            if (area === here) {
-              setPanel(null);
-              if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
-            } else tripRef.current(area, !!engine.current?.isDriving(), prefix);
-          }}
-        />
-      ),
-    });
-  }, [toast]);
+  const openOutings = useCallback(
+    (phone = false, tab = "now") => {
+      const e = engine.current;
+      const here = e?.districtId() ?? "lekki";
+      setPanel({
+        kind: "info",
+        phone: phone ? { home: () => openPhoneRef.current() } : undefined,
+        title: "🎟️ OutingStation",
+        body: (
+          <OutingView
+            here={here}
+            clock={clockRef.current}
+            driving={!!e?.isDriving()}
+            coins={saveRef.current.coins}
+            has={(id) => !!engine.current?.hasZone(id)}
+            tab0={tab}
+            onGo={(area, prefix) => {
+              if (!prefix) {
+                if (area === here) toast("You are already here.");
+                else tripRef.current(area, !!engine.current?.isDriving());
+                return;
+              }
+              if (area === here) {
+                setPanel(null);
+                if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
+              } else tripRef.current(area, !!engine.current?.isDriving(), prefix);
+            }}
+          />
+        ),
+      });
+    },
+    [toast],
+  );
   const openOutingsRef = useRef(openOutings);
   openOutingsRef.current = openOutings;
 
@@ -1465,12 +1479,14 @@ function CityGame({
         name: own.name || "My shop",
         imgs: own.products.map((p) => p.img),
         open: true,
+        label: `Your shop · ${own.name || "My shop"}`,
       });
     else if (trader && info?.kind === "stall")
       e.setShop(sid, {
         name: trader.name,
         imgs: trader.items.map(([em]) => emojiPic(em)),
         open: true,
+        label: `Buy from ${trader.name}`,
       });
     else e.setShop(sid, { open: false });
   }, []);
@@ -4127,6 +4143,12 @@ function Sheet({
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [panel, onClose]);
+  if (panel.kind === "info" && panel.phone)
+    return (
+      <PhoneFrame title={panel.title} onHome={panel.phone.home} onClose={onClose}>
+        {panel.body}
+      </PhoneFrame>
+    );
   return (
     <div
       data-game-ui
@@ -6109,6 +6131,73 @@ function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
   );
 }
 
+/* ---------------- the phone ---------------- */
+function PhoneFrame({
+  title,
+  onHome,
+  onClose,
+  children,
+}: {
+  title: string;
+  onHome?: () => void;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 15000);
+    return () => clearInterval(iv);
+  }, []);
+  const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div
+      data-game-ui
+      className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-3"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-[min(86vh,720px)] w-[min(92vw,360px)] flex-col overflow-hidden rounded-[44px] border-[10px] border-[#111] bg-[#111] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="absolute left-1/2 top-1.5 z-10 h-[22px] w-[96px] -translate-x-1/2 rounded-full bg-black" />
+        <div
+          className={`flex flex-1 flex-col overflow-hidden rounded-[34px] ${title ? "bg-[#fdf8ec]" : "bg-gradient-to-b from-[#1f6f63] via-[#24443d] to-[#10201e]"}`}
+        >
+          <div
+            className={`flex items-center justify-between px-6 pb-1 pt-2.5 text-[12px] font-bold ${title ? "text-[#10201e]" : "text-white"}`}
+          >
+            <span>{time}</span>
+            <span className="tracking-wide">IlmNet ▂▄▆ 🔋</span>
+          </div>
+          {title && (
+            <div className="flex items-center gap-2 border-b border-[#10201e]/10 px-4 pb-2 pt-1">
+              {onHome && (
+                <button
+                  onClick={onHome}
+                  className="text-[20px] font-bold text-[#1f6f63]"
+                  aria-label="Back"
+                >
+                  ‹
+                </button>
+              )}
+              <div className="truncate text-[16px] font-bold">{title}</div>
+            </div>
+          )}
+          <div className="flex-1 overflow-y-auto px-4 py-3 text-[14px] leading-relaxed">
+            {children}
+          </div>
+          <button
+            onClick={onHome ?? onClose}
+            className="mx-auto mb-2 mt-1 h-[5px] w-[120px] rounded-full bg-current opacity-40"
+            style={{ color: title ? "#10201e" : "#fff" }}
+            aria-label="Home"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- eating: finish when you are done ---------------- */
 function EatingView({ dish, onDone }: { dish: Dish; onDone: () => void }) {
   const [t, setT] = useState(0);
@@ -6156,9 +6245,18 @@ const OUTING_TABS = [
   { id: "sport", label: "Football & play" },
   { id: "campus", label: "Campus & MSSN" },
   { id: "shop", label: "Markets" },
+  { id: "travel", label: "🚌 Travel" },
 ] as const;
 function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
   const out: Outing[] = [];
+  if (tab === "travel")
+    return DISTRICTS.filter((D) => D.id !== here).map((D) => ({
+      icon: D.parent ? "🏘️" : "🌆",
+      name: fullName(D),
+      sub: `${D.busStop ?? D.name} Bus Stop`,
+      prefix: "",
+      area: D.id,
+    }));
   for (const D of DISTRICTS) {
     const at = (p: Place, live?: boolean) => out.push({ ...p, area: D.id, live });
     if (tab === "now" || tab === "lectures")
@@ -6238,8 +6336,10 @@ function OutingView({
   driving,
   coins,
   has,
+  tab0,
   onGo,
 }: {
+  tab0?: string;
   here: string;
   has: (id: string) => boolean;
   clock: Clock;
@@ -6247,7 +6347,7 @@ function OutingView({
   coins: number;
   onGo: (area: string, prefix: string) => void;
 }) {
-  const [tab, setTab] = useState<string>("now");
+  const [tab, setTab] = useState<string>(tab0 ?? "now");
   const list = outingsFor(tab, here, clock, has);
   return (
     <div className="space-y-3">
@@ -8036,51 +8136,57 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
 function PhoneView({
   onFood,
   onOutings,
+  onTravel,
   onPlaces,
 }: {
   onFood: () => void;
   onOutings: () => void;
+  onTravel: () => void;
   onPlaces: () => void;
 }) {
-  const app =
-    "flex flex-col items-center gap-1 rounded-2xl bg-white p-3 text-[12px] font-bold shadow-sm";
+  const now = new Date();
+  const icon = (bg: string, e: string, name: string, on?: () => void) => (
+    <button
+      key={name}
+      onClick={on}
+      disabled={!on}
+      className={`flex flex-col items-center gap-1 text-[11px] font-semibold text-white ${on ? "" : "opacity-45"}`}
+    >
+      <span
+        className="grid size-[54px] place-items-center rounded-[16px] text-[28px] shadow-lg"
+        style={{ background: bg }}
+      >
+        {e}
+      </span>
+      <span className="max-w-[70px] truncate">{name}</span>
+    </button>
+  );
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2">
-        <button onClick={onFood} className={app}>
-          <span className="grid size-12 place-items-center rounded-xl bg-[#2f8f3a] text-[26px]">
-            🛵
-          </span>
-          IlmDash food
-        </button>
-        <button onClick={onOutings} className={app}>
-          <span className="grid size-12 place-items-center rounded-xl bg-[#f2b84b] text-[26px]">
-            🎟️
-          </span>
-          OutingStation
-        </button>
-        <button onClick={onPlaces} className={app}>
-          <span className="grid size-12 place-items-center rounded-xl bg-[#1f6f63] text-[26px]">
-            📍
-          </span>
-          Places
-        </button>
-        <div className={`${app} opacity-50`}>
-          <span className="grid size-12 place-items-center rounded-xl bg-[#3d5a7a] text-[26px]">
-            📞
-          </span>
-          Calls · soon
+    <div className="flex h-full min-h-[520px] flex-col">
+      <div className="pt-6 text-center text-white">
+        <div className="text-[54px] font-light leading-none tracking-tight">
+          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
-        <div className={`${app} opacity-50`}>
-          <span className="grid size-12 place-items-center rounded-xl bg-[#8a2f4f] text-[26px]">
-            👥
-          </span>
-          Contacts · soon
+        <div className="mt-1 text-[13px] opacity-80">
+          {now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
         </div>
       </div>
-      <p className="text-[11.5px] opacity-60">
-        OutingStation finds where to go in IlmWorld: lectures, matches, food and more.
-      </p>
+      <div className="mt-10 grid grid-cols-4 gap-x-2 gap-y-5">
+        {icon("#2f8f3a", "🛵", "IlmDash", onFood)}
+        {icon("#f2b84b", "🎟️", "OutingStation", onOutings)}
+        {icon("#3a7bd5", "🚌", "Travel", onTravel)}
+        {icon("#1f6f63", "📍", "Places", onPlaces)}
+        {icon("#3d5a7a", "📞", "Calls")}
+        {icon("#8a2f4f", "👥", "Contacts")}
+      </div>
+      <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
+        <div className="grid grid-cols-4 gap-2">
+          {icon("#2f8f3a", "🛵", "Food", onFood)}
+          {icon("#f2b84b", "🎟️", "Outings", onOutings)}
+          {icon("#3a7bd5", "🚌", "Travel", onTravel)}
+          {icon("#1f6f63", "📍", "Places", onPlaces)}
+        </div>
+      </div>
     </div>
   );
 }
