@@ -793,6 +793,8 @@ function CityGame({
   const hungry = !!save.profile && (save.needs ?? freshNeeds()).hunger <= HUNGRY_AT;
   const hungryRef = useRef(hungry);
   hungryRef.current = hungry;
+  const foodRef = useRef<{ delivery: typeof delivery; meal: typeof meal }>({ delivery, meal });
+  foodRef.current = { delivery, meal };
 
   /* ---------- football ---------- */
   const [onlineReady, setOnlineReady] = useState(0);
@@ -1922,6 +1924,22 @@ function CityGame({
         id.startsWith("door:") ||
         id.startsWith("eatery:") ||
         id.startsWith("talk:");
+      if (hungryRef.current && !allowed && (foodRef.current.delivery || foodRef.current.meal)) {
+        const f = foodRef.current;
+        if (f.delivery)
+          toast(
+            f.delivery.outside
+              ? "Your rider is outside. Go out and collect your food first."
+              : "Your food is on the way. Wait for the rider, then eat.",
+          );
+        else if (f.meal) {
+          if (e.scenePlace() === "out") {
+            toast("Go home and eat your food first.");
+            e.goToZone("door:home:");
+          } else openMealRef.current(f.meal);
+        }
+        return;
+      }
       if (hungryRef.current && !allowed) {
         setPanel({
           kind: "info",
@@ -3094,7 +3112,7 @@ function CityGame({
     .find(Boolean);
 
   const goal =
-    save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride
+    save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride && !delivery && !meal
       ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? "lekki")
       : null;
   const runGoal = (g: Goal) => {
@@ -3472,7 +3490,7 @@ function CityGame({
           }}
         />
       )}
-      {(hungry || delivery || meal) && !match && !dhikr && (
+      {(hungry || delivery || meal) && !match && !dhikr && !panel && (
         <div
           data-game-ui
           className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center px-3"
