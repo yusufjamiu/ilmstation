@@ -37,7 +37,7 @@ import {
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
 import { RopeRig, type RopeMode, type RopeState } from "./rope";
-import { vehicleMesh } from "./vehicles";
+import { VEHICLE_INFO, vehicleMesh, type VehicleKind } from "./vehicles";
 import {
   forgetHuman,
   gesture,
@@ -55,7 +55,7 @@ import {
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
 
-export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant";
+export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant" | "mall";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -469,6 +469,7 @@ export class IlmCityEngine {
     home: [],
     madrasah: [],
     restaurant: [],
+    mall: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -489,6 +490,7 @@ export class IlmCityEngine {
     home: new THREE.Vector3(1100, 0, 0),
     madrasah: new THREE.Vector3(1200, 0, 0),
     restaurant: new THREE.Vector3(1300, 0, 0),
+    mall: new THREE.Vector3(1420, 0, 0),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -939,6 +941,8 @@ export class IlmCityEngine {
     this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
     this.buildEatery(D);
     this.buildRestaurant(D);
+    if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
+    if (D.id === "ikeja") this.buildMall(D);
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
@@ -2238,7 +2242,9 @@ export class IlmCityEngine {
     front: { x: number; z: number },
     D: District,
     street: string,
+    opt: { parent?: THREE.Object3D; scene?: Zone["scene"]; ox?: number; oz?: number } = {},
   ) {
+    const parent = opt.parent ?? this.dg;
     const dx = front.x - center.x,
       dz = front.z - center.z,
       L = Math.hypot(dx, dz);
@@ -2251,7 +2257,7 @@ export class IlmCityEngine {
     const sd = kind === "shop" ? 3.95 : 2.15;
     sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 2.75, center.z + uz * sd);
     sign.rotation.y = ry;
-    this.dg.add(sign);
+    parent.add(sign);
     // a small sign sticking out sideways, so you can read the name walking along the street
     const vx = uz,
       vz = -ux;
@@ -2270,21 +2276,21 @@ export class IlmCityEngine {
       center.z + uz * (sd + 1.25) + vz * (halfW - 0.1),
     );
     blade.rotation.y = ry + Math.PI / 2;
-    this.dg.add(blade);
+    parent.add(blade);
     let shutter: THREE.Mesh | undefined;
     if (kind === "shop") {
       shutter = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 3.5), MAT2.shutter());
       shutter.position.set(center.x + ux * 3.5, 1.75, center.z + uz * 3.5);
       shutter.rotation.y = ry;
-      this.dg.add(shutter);
+      parent.add(shutter);
     }
     const zone: Zone = {
       id: (kind === "shop" ? "shop:" : "stall:") + id,
       label: "",
-      x: front.x + this.ox,
-      z: front.z + this.oz,
+      x: front.x + (opt.ox ?? this.ox),
+      z: front.z + (opt.oz ?? this.oz),
       r: 2.4,
-      scene: "out",
+      scene: opt.scene ?? "out",
     };
     this.zones.push(zone);
     this.shopFx.set(id, { kind, sign, blade: bladeMat, shutter, zone, district: D.id, street });
@@ -2575,6 +2581,155 @@ export class IlmCityEngine {
       }
     }
   }
+  /** A free lot beside the market street, for a building W wide and Dp deep. */
+  private findLot(D: District, W: number, Dp: number) {
+    const m = this.marketSpot.get(D.id);
+    const sz = m?.sz ?? 0;
+    const x0 = m?.x ?? 0;
+    const xs: number[] = [];
+    for (let k = 3; k < 34; k++) xs.push(k * 6, -k * 6);
+    for (const north of [m?.north ?? true, !(m?.north ?? true)])
+      for (const off of [Dp / 2 + 6.4, Dp / 2 + 7.4, Dp / 2 + 9])
+        for (const dx of xs) {
+          const x = x0 + dx,
+            z = sz + (north ? -off : off);
+          if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - W / 2 - 6) continue;
+          if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
+            continue;
+          this.reserved.push({ x0: x - W / 2, x1: x + W / 2, z0: z - Dp / 2, z1: z + Dp / 2 });
+          this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
+          const fz = z + (north ? Dp / 2 + 1.6 : -Dp / 2 - 1.6);
+          return { x, z, north, fz };
+        }
+    return null;
+  }
+  private signBoard(text: string, w: number, h: number, bg: string, fg: string) {
+    return canvasPlane(
+      w,
+      h,
+      (c, CW, CH) => {
+        c.fillStyle = bg;
+        c.fillRect(0, 0, CW, CH);
+        c.fillStyle = fg;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        let size = Math.round(CH * 0.52);
+        c.font = `800 ${size}px "Work Sans", system-ui, sans-serif`;
+        while (c.measureText(text).width > CW * 0.92 && size > 12) {
+          size -= 2;
+          c.font = `800 ${size}px "Work Sans", system-ui, sans-serif`;
+        }
+        c.fillText(text, CW / 2, CH * 0.53);
+      },
+      512,
+    ).mesh;
+  }
+  /** IlmMotors: a glass showroom with cars on display. */
+  private buildDealer(D: District) {
+    const W = 14,
+      Dp = 9;
+    const lot = this.findLot(D, W, Dp + 4);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = north ? 0 : Math.PI;
+    g.add(box(W, 4.6, Dp, 0xe9edf0, 0, 0, -2));
+    g.add(box(W + 0.4, 0.3, Dp + 0.4, 0x2b3a4a, 0, 4.6, -2));
+    g.add(box(W - 1, 3.6, 0.1, 0x6d8fa8, 0, 0.3, Dp / 2 - 1.95));
+    const sign = this.signBoard("IlmMotors · Car Dealership", 10, 1.1, "#2b3a4a", "#f2c230");
+    sign.position.set(0, 4.2, Dp / 2 - 1.85);
+    g.add(sign);
+    // cars on the forecourt
+    (
+      [
+        ["suv", 0xc0392b, -3.6],
+        ["luxury", 0x1d1d26, 3.6],
+      ] as [VehicleKind, number, number][]
+    ).forEach(([k, col, cx]) => {
+      const m = vehicleMesh(k, col);
+      m.position.set(cx, 0, Dp / 2 + 0.4);
+      m.rotation.y = Math.PI / 2 + 0.3;
+      g.add(m);
+    });
+    this.dg.add(g);
+    this.zones.push({
+      id: "dealer:" + D.id,
+      label: "IlmMotors · buy a car",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 2.6,
+      scene: "out",
+    });
+  }
+  /** IlmWorld Mall: a big building; inside, shop units for real sellers. */
+  private buildMall(D: District) {
+    const W = 20,
+      Dp = 11;
+    const lot = this.findLot(D, W, Dp);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = north ? 0 : Math.PI;
+    g.add(box(W, 7, Dp, 0xf3ede2, 0, 0, 0));
+    g.add(box(W + 0.6, 0.4, Dp + 0.6, 0x7a3b2a, 0, 7, 0));
+    g.add(box(W - 3, 4.4, 0.1, 0x5b7c94, 0, 0.4, Dp / 2 + 0.02));
+    g.add(box(3, 3, 0.12, 0x2a1c05, 0, 0, Dp / 2 + 0.06));
+    const sign = this.signBoard("IlmWorld Mall", 12, 1.5, "#7a3b2a", "#fdf8ec");
+    sign.position.set(0, 5.8, Dp / 2 + 0.08);
+    g.add(sign);
+    this.dg.add(g);
+    this.zones.push({
+      id: "door:mall:" + D.id,
+      label: "Enter IlmWorld Mall",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 2.4,
+      scene: "out",
+    });
+    // the shops inside
+    const o = this.interiorOrigin.mall;
+    const ig = this.mallGroup;
+    const unit = (i: number, cx: number, cz: number, ux: number, uz: number) => {
+      // partition walls either side of the unit
+      const px = -uz,
+        pz = ux;
+      for (const s of [-1, 1]) {
+        const w = box(
+          0.25,
+          3.8,
+          6.6,
+          0xd8cfc0,
+          cx + px * s * 2.55 - ux * 0.3,
+          0,
+          cz + pz * s * 2.55 - uz * 0.3,
+        );
+        w.rotation.y = Math.atan2(ux, uz);
+        ig.add(w);
+      }
+      const counter = box(3.2, 1, 0.8, 0x8a5a3a, cx + ux * 1.6, 0, cz + uz * 1.6);
+      counter.rotation.y = Math.atan2(ux, uz);
+      ig.add(counter);
+      this.addShopUnit(
+        `${D.id}-mall${i}`,
+        "shop",
+        { x: cx, z: cz },
+        { x: cx + ux * 4.9, z: cz + uz * 4.9 },
+        D,
+        "IlmWorld Mall",
+        { parent: ig, scene: "mall", ox: o.x, oz: o.z },
+      );
+    };
+    let i = 0;
+    for (const cx of [-10.2, -5.1, 0, 5.1, 10.2]) unit(i++, cx, -14 + 3.6, 0, 1);
+    for (const cz of [-2, 3.4]) {
+      unit(i++, -17 + 3.6, cz, 1, 0);
+      unit(i++, 17 - 3.6, cz, -1, 0);
+    }
+  }
+  private mallGroup = new THREE.Group();
+
   /** Is there a place with this id (or prefix) anywhere in the city? */
   hasZone(prefix: string) {
     return this.zones.some((z) => z.id.startsWith(prefix));
@@ -3824,8 +3979,19 @@ export class IlmCityEngine {
     this.addCollider("out", cx - ex, cx + ex, cz - ez, cz + ez);
   }
 
+  private carBody = new THREE.Group();
+  private carMax = 34;
+  /** Your car: a model and colour from the dealership. */
+  setCar(kind: VehicleKind, color: number) {
+    this.carBody.clear();
+    const m = vehicleMesh(kind, color);
+    m.castShadow = true;
+    this.carBody.add(m);
+    this.carMax = VEHICLE_INFO[kind].top + 4;
+  }
   private buildCar() {
-    const g = this.car;
+    this.car.add(this.carBody);
+    const g = this.carBody;
     g.add(box(4.2, 1, 2, 0x1f6f63, 0, 0.45, 0));
     g.add(box(2.4, 0.9, 1.8, 0x1f6f63, -0.2, 1.45, 0));
     g.add(box(2.2, 0.7, 1.84, 0x9fd0e0, -0.2, 1.55, 0, false));
@@ -3848,10 +4014,10 @@ export class IlmCityEngine {
     g.add(box(0.1, 0.25, 0.5, 0xd23b3b, -2.12, 0.8, -0.6, false));
     const tag = label("Your car", { size: 0.7, bg: "rgba(31,111,99,0.9)" });
     tag.position.y = 2.8;
-    g.add(tag);
-    g.position.set(-16, 0, 9.8);
-    g.rotation.y = this.carHeading;
-    this.scene.add(g);
+    this.car.add(tag);
+    this.car.position.set(-16, 0, 9.8);
+    this.car.rotation.y = this.carHeading;
+    this.scene.add(this.car);
   }
 
   /* ---------------- interiors ---------------- */
@@ -3919,6 +4085,31 @@ export class IlmCityEngine {
   }
 
   private buildInteriors() {
+    // IlmWorld Mall: a wide hall; the shop units are added with the Ikeja area
+    {
+      const { g, o } = this.room("mall", 34, 28, 0xf6f1e8, 0xd9d4c8);
+      this.mallGroup.position.copy(o);
+      this.scene.add(this.mallGroup);
+      const fountain = new THREE.Group();
+      fountain.add(cyl(2.2, 2.4, 0.6, 0xcfd6dc, 20), cyl(0.4, 0.4, 1.6, 0xcfd6dc, 10));
+      fountain.children[0].position.y = 0.3;
+      fountain.children[1].position.y = 0.8;
+      fountain.position.set(0, 0, -0.5);
+      this.solid("mall", g, fountain, 4.6, 4.6);
+      const sign = label("IlmWorld Mall · shops by real sellers", {
+        size: 0.8,
+        bg: "rgba(122,59,42,0.95)",
+      });
+      sign.position.set(0, 5.6, -13.6);
+      g.add(sign);
+      for (const [lx, lz] of [
+        [-8, 8],
+        [8, 8],
+      ]) {
+        const bench = box(3, 0.5, 0.8, 0x6d4a2b, lx, 0, lz);
+        this.solid("mall", g, bench, 3, 0.8);
+      }
+    }
     // Restaurant: a counter at the back, tables and people eating
     {
       const { g, o } = this.room("restaurant", 20, 14, 0xf3e6cf, 0x9a6b45);
@@ -5176,7 +5367,7 @@ export class IlmCityEngine {
 
   /** Stick up = accelerate, down = brake and reverse, left and right = steer. */
   private drive(v: THREE.Vector2, dt: number) {
-    const max = 34;
+    const max = this.carMax;
     if (v.y > 0.1) this.carSpeed = Math.min(max * v.y, this.carSpeed + 16 * dt);
     else if (v.y < -0.1)
       this.carSpeed =

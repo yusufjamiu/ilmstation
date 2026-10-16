@@ -4,6 +4,7 @@ import { TravelMap } from "./TravelMap";
 import type { MatchState, Slot } from "./soccer";
 import type { RopeState } from "./rope";
 import { connectRope, connectRopeLocal } from "./ropenet";
+import { VEHICLE_INFO } from "./vehicles";
 import { connectHomes, connectHomesLocal, type Homes, type ShownHome } from "./homes";
 import {
   cleanNumber,
@@ -130,6 +131,8 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** the car you bought at IlmMotors (none: the starter car) */
+  ride?: { kind: CarKind; color: number };
   /** positions are on the one connected Lagos map */
   world?: boolean;
   lectureMin?: number;
@@ -2955,6 +2958,43 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("dealer:")) {
+        setPanel({
+          kind: "info",
+          title: "🚗 IlmMotors",
+          body: (
+            <DealerView
+              points={saveRef.current.coins}
+              mine={saveRef.current.ride}
+              onBuy={(kind, color, price) => {
+                if (saveRef.current.coins < price) {
+                  setPanel({
+                    kind: "info",
+                    title: "Not enough points",
+                    body: <NoPointsView price={price} points={saveRef.current.coins} />,
+                  });
+                  return;
+                }
+                update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
+                e.setCar(kind, color);
+                setPanel(null);
+                toast(
+                  `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
+                  "good",
+                );
+              }}
+            />
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("door:mall:")) {
+        e.enterInterior("mall", "IlmWorld Mall");
+        setInside(true);
+        tuneRef.current();
+        sayDhikr("market", undefined, true);
+        return;
+      }
       if (id.startsWith("door:restaurant:")) {
         e.enterInterior("restaurant", "Al-Ma'idah Restaurant");
         setInside(true);
@@ -3281,6 +3321,7 @@ function CityGame({
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
+    if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
     // every visit starts at home: you are only out in the city while you are playing
     {
       const sv = saveRef.current;
@@ -6437,6 +6478,20 @@ function placesIn(id: string): Place[] {
       sub: "Play a match",
       prefix: `field:${D.id}-pitch`,
     });
+  if (D.id === "ikeja")
+    out.push({
+      icon: "🏬",
+      name: "IlmWorld Mall",
+      sub: "Shops by real sellers",
+      prefix: "door:mall:ikeja",
+    });
+  if (D.id === "ikeja" || D.id === "lekki")
+    out.push({
+      icon: "🚗",
+      name: "IlmMotors",
+      sub: "Buy a car",
+      prefix: `dealer:${D.id}`,
+    });
   out.push({
     icon: "🪢",
     name: "Sisters' Corner",
@@ -6518,6 +6573,78 @@ function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
       <p className="text-[12px] opacity-70">
         Eat with your right hand, from what is in front of you.
       </p>
+    </div>
+  );
+}
+
+/* ---------------- IlmMotors ---------------- */
+type CarKind = "small" | "sedan" | "pickup" | "suv" | "luxury";
+const CARS: { kind: CarKind; price: number }[] = [
+  { kind: "small", price: 300 },
+  { kind: "sedan", price: 600 },
+  { kind: "pickup", price: 750 },
+  { kind: "suv", price: 1200 },
+  { kind: "luxury", price: 2500 },
+];
+const PAINT = [0xf4f4f2, 0x1d1d26, 0xc0392b, 0x1f6f63, 0x2f4a7a, 0xb8bcc2, 0xe6b84a, 0x6d4a2b];
+const REPAINT = 60;
+function DealerView({
+  points,
+  mine,
+  onBuy,
+}: {
+  points: number;
+  mine?: { kind: CarKind; color: number };
+  onBuy: (kind: CarKind, color: number, price: number) => void;
+}) {
+  const [color, setColor] = useState<number>(mine?.color ?? PAINT[0]);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Pick a colour, then a car. You have {points} points. Your old car is traded in.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {PAINT.map((c) => (
+          <button
+            key={c}
+            onClick={() => setColor(c)}
+            className={`size-8 rounded-full border-2 ${color === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/20"}`}
+            style={{ background: hex(c) }}
+            aria-label="Colour"
+          />
+        ))}
+      </div>
+      <div className="space-y-2">
+        {CARS.map(({ kind, price }) => {
+          const v = VEHICLE_INFO[kind];
+          const owned = mine?.kind === kind;
+          const cost = owned ? (mine.color === color ? 0 : REPAINT) : price;
+          return (
+            <div
+              key={kind}
+              className="flex items-center gap-3 rounded-xl bg-white px-3 py-2.5 shadow-sm"
+            >
+              <span className="text-[26px]">
+                {kind === "pickup" ? "🛻" : kind === "suv" ? "🚙" : "🚗"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-bold">{v.name}</span>
+                <span className="block text-[12px] opacity-70">
+                  {v.blurb} Top speed {Math.round((v.top + 4) * 3.6)} km/h.
+                </span>
+              </span>
+              <button
+                disabled={owned && cost === 0}
+                onClick={() => onBuy(kind, color, cost)}
+                className="rounded-lg bg-[#f2c230] px-3 py-2 text-[12.5px] font-bold disabled:opacity-50"
+              >
+                {owned ? (cost ? `Repaint · ${cost}` : "Yours") : `${price} pts`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -7019,7 +7146,11 @@ function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => bo
         });
     if (tab === "shop")
       for (const p of placesIn(D.id).filter(
-        (x) => x.prefix === "souq" || x.prefix.startsWith("stall:"),
+        (x) =>
+          x.prefix === "souq" ||
+          x.prefix.startsWith("stall:") ||
+          x.prefix.startsWith("door:mall:") ||
+          x.prefix.startsWith("dealer:"),
       ))
         at(p);
   }
