@@ -2097,6 +2097,10 @@ export const POLICE = {
   bailIlm: 15,
   /** minutes in the cell if you don't pay bail */
   cellMinutes: 2,
+  /** road offences: the car is towed to the station until the fine is paid */
+  hitFine: 40,
+  crashFine: 20,
+  towFee: 15,
 };
 
 /* ---------------- university students ---------------- */

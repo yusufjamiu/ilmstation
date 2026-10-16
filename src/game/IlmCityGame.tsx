@@ -133,6 +133,8 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** your car was towed to a police station */
+  impound?: { fee: number; reason: string; area: string; at: number };
   /** you bought a football kit (needed to play matches) */
   jersey?: boolean;
   /** the car you bought at IlmMotors (none: the starter car) */
@@ -2039,6 +2041,49 @@ function CityGame({
   const openRoomsRef = useRef(openRooms);
   openRoomsRef.current = openRooms;
 
+  /* ---------- road offences: the police tow your car ---------- */
+  const incidentRef = useRef<(kind: "hit" | "crash" | "blocking", who?: string) => void>(() => {});
+  incidentRef.current = (kind, who) => {
+    const e = engine.current;
+    if (!e || saveRef.current.impound) return;
+    const area = e.impoundCar();
+    setDriving(false);
+    tuneRef.current();
+    const fee =
+      kind === "hit" ? POLICE.hitFine : kind === "crash" ? POLICE.crashFine : POLICE.towFee;
+    const reason =
+      kind === "hit"
+        ? `You knocked down ${who ?? "someone"} with your car`
+        : kind === "crash"
+          ? "You crashed into another vehicle"
+          : "You left your car blocking the road";
+    update((x) => ({
+      ...x,
+      impound: { fee, reason, area, at: Date.now() },
+      car: e.carPos(),
+    }));
+    if (kind === "hit") need({ iman: -5 });
+    setPanel({
+      kind: "info",
+      title: kind === "blocking" ? "🚓 Car towed" : "🚨 Accident",
+      body: (
+        <div className="space-y-3">
+          <p>
+            {reason}
+            {kind === "hit" ? ". Alhamdulillah, they are not badly hurt." : "."}
+          </p>
+          <p className="rounded-xl bg-white p-3 text-[14px]">
+            The police have towed your car to the <b>{districtById(area).name} police station</b>.
+            Pay the fine of <b>{fee} points</b> there to get it back.
+          </p>
+          <p className="text-[12.5px] opacity-70">
+            Drive slowly where people walk, and park off the road.
+          </p>
+        </div>
+      ),
+    });
+  };
+
   /* ---------- homes on show: visits and likes ---------- */
   const homes = useRef<Homes | null>(null);
   const [visiting, setVisiting] = useState<(ShownHome & { liked?: boolean }) | null>(null);
@@ -2762,6 +2807,40 @@ function CityGame({
       }
       if (id.startsWith("police:")) {
         const sv = saveRef.current;
+        if (sv.impound) {
+          const im = sv.impound;
+          setPanel({
+            kind: "info",
+            title: "🚓 Your car is here",
+            body: (
+              <div className="space-y-3">
+                <p>{im.reason}, so your car was towed here.</p>
+                <button
+                  disabled={sv.coins < im.fee}
+                  onClick={() => {
+                    if (saveRef.current.coins < im.fee) return;
+                    update((x) => ({ ...x, coins: x.coins - im.fee, impound: undefined }));
+                    e.releaseCar();
+                    setPanel(null);
+                    toast(
+                      `Fine paid, −${im.fee} points. Your car is in the yard beside the station. Drive carefully!`,
+                      "good",
+                    );
+                  }}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+                >
+                  Pay {im.fee} points and collect your car
+                </button>
+                {sv.coins < im.fee && (
+                  <p className="text-[12.5px] opacity-75">
+                    You have {sv.coins} points. Earn more at the mosque, a lecture or work.
+                  </p>
+                )}
+              </div>
+            ),
+          });
+          return;
+        }
         if (sv.carrying) {
           handIn();
           return;
@@ -3273,6 +3352,10 @@ function CityGame({
         return;
       }
       if (id === "car") {
+        if (saveRef.current.impound) {
+          toast("Your car is at the police station. Pay the fine there to get it back.", "warn");
+          return;
+        }
         e.enterCar();
         setDriving(true);
         tuneRef.current();
@@ -3587,6 +3670,8 @@ function CityGame({
         );
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
+    if (saveRef.current.impound) e.setImpounded(true);
+    e.onIncident = (kind, who) => incidentRef.current(kind, who);
     // every visit starts at home: you are only out in the city while you are playing
     {
       const sv = saveRef.current;
@@ -8445,6 +8530,11 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
           prefix: inside && (s.items ?? []).includes("prayermat") ? "prayermat" : "door:masjid:",
         }
       : { text: `Make wudu for ${cp.name}`, prefix: inside ? "bath" : "door:masjid:" };
+  if (s.impound && !inside)
+    return {
+      text: `Collect your car at the ${districtById(s.impound.area).name} police station`,
+      prefix: "police:",
+    };
   if (s.meal)
     return inside
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }

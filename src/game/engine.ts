@@ -3783,7 +3783,7 @@ export class IlmCityEngine {
     return true;
   }
   carHere() {
-    return this.carArea() === this.district.id;
+    return !this.impounded && this.carArea() === this.district.id;
   }
   carAreaId() {
     return this.carArea();
@@ -5308,6 +5308,7 @@ export class IlmCityEngine {
         rig.update(dt);
     }
     this.stepRider(dt);
+    this.stepParking(dt);
     this.stepGuide(performance.now() / 1000);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
@@ -5574,12 +5575,121 @@ export class IlmCityEngine {
     this.carHeading -= v.x * 1.9 * grip * Math.sign(this.carSpeed || 1) * dt;
     const nx = this.car.position.x + Math.cos(this.carHeading) * this.carSpeed * dt;
     const nz = this.car.position.z - Math.sin(this.carHeading) * this.carSpeed * dt;
-    if (this.free(nx, nz, 1.8) && !this.hitsTraffic(nx, nz)) {
+    const crash = this.hitsTraffic(nx, nz);
+    if (this.free(nx, nz, 1.8) && !crash) {
       this.car.position.x = nx;
       this.car.position.z = nz;
-    } else this.carSpeed *= -0.3;
+    } else {
+      // smashing into another vehicle at speed is an accident
+      if (crash && Math.abs(this.carSpeed) > 9) this.incident("crash");
+      this.carSpeed *= -0.3;
+    }
     this.car.rotation.y = this.carHeading;
     this.player.position.set(this.car.position.x, 0, this.car.position.z);
+    // knocking down someone on foot
+    if (Math.abs(this.carSpeed) > 6) {
+      const cx = this.car.position.x,
+        cz = this.car.position.z;
+      for (const w of this.walkers) {
+        if (w.seated || !w.g.parent?.visible) continue;
+        const wx = w.g.position.x + w.g.parent.position.x,
+          wz = w.g.position.z + w.g.parent.position.z;
+        if (Math.hypot(wx - cx, wz - cz) < 1.9) {
+          // they fall back out of the way
+          w.g.position.x += (wx - cx) * 0.8;
+          w.g.position.z += (wz - cz) * 0.8;
+          this.incident("hit", w.name ?? "someone");
+          break;
+        }
+      }
+      for (const [, r] of this.remotes)
+        if (r.g.visible && Math.hypot(r.g.position.x - cx, r.g.position.z - cz) < 1.9) {
+          this.incident("hit", r.name);
+          break;
+        }
+    }
+  }
+
+  /* ---------------- road offences: accidents and blocking the road ---------------- */
+  /** the game is told when your driving gets you in trouble */
+  onIncident: ((kind: "hit" | "crash" | "blocking", who?: string) => void) | null = null;
+  private lastIncident = 0;
+  private incident(kind: "hit" | "crash" | "blocking", who?: string) {
+    const now = performance.now();
+    if (now - this.lastIncident < 4000) return;
+    this.lastIncident = now;
+    this.carSpeed = 0;
+    this.onIncident?.(kind, who);
+  }
+  /** Is this point on a lane where traffic drives? */
+  private onLane(x: number, z: number) {
+    const seen = new Set<unknown>();
+    for (const v of this.traffic.vehicles) {
+      if (seen.has(v.path)) continue;
+      seen.add(v.path);
+      if (v.path.nearest(x, z).d < 2.6) return true;
+    }
+    return false;
+  }
+  private blockT = 0;
+  private stepParking(dt: number) {
+    if (this.driving || this.impounded || this.where !== "out") {
+      this.blockT = 0;
+      return;
+    }
+    const c = this.car.position,
+      p = this.player.position;
+    // you left your car in the road and walked away
+    if (Math.hypot(c.x - p.x, c.z - p.z) > 25 && this.onLane(c.x, c.z)) {
+      this.blockT += dt;
+      if (this.blockT > 60) {
+        this.blockT = 0;
+        this.incident("blocking");
+      }
+    } else this.blockT = 0;
+  }
+  private impounded = false;
+  /** The police tow your car to the station yard. */
+  impoundCar() {
+    if (this.driving) this.exitCar();
+    const area = this.carArea() ?? this.district.id;
+    const st =
+      this.zones.find((z) => z.id === "police:" + area) ??
+      this.zones
+        .filter((z) => z.id.startsWith("police:"))
+        .sort(
+          (a, b) =>
+            Math.hypot(a.x - this.car.position.x, a.z - this.car.position.z) -
+            Math.hypot(b.x - this.car.position.x, b.z - this.car.position.z),
+        )[0];
+    if (st) {
+      // park it in the yard beside the station
+      for (const [ox, oz] of [
+        [6, 2],
+        [-6, 2],
+        [6, -3],
+        [-6, -3],
+        [9, 0],
+      ])
+        if (this.free(st.x + ox, st.z + oz, 1.8)) {
+          this.car.position.set(st.x + ox, 0, st.z + oz);
+          break;
+        }
+      this.carHeading = 0;
+      this.car.rotation.y = 0;
+    }
+    this.impounded = true;
+    this.car.visible = false;
+    return st ? st.id.slice(7) : area;
+  }
+  /** Fine paid: your car is back, in the police yard. */
+  releaseCar() {
+    this.impounded = false;
+    this.car.visible = true;
+  }
+  setImpounded(on: boolean) {
+    this.impounded = on;
+    this.car.visible = !on;
   }
   carSpeedKmh() {
     return Math.round(Math.abs(this.carSpeed) * 3.6);
