@@ -4824,15 +4824,20 @@ export class IlmCityEngine {
     this.low = q === "low";
     this.fps.auto = auto;
     const dpr = window.devicePixelRatio || 1;
-    this.renderer.setPixelRatio(
-      this.low ? Math.min(1, dpr) * (dpr > 1.5 ? 0.85 : 1) : Math.min(2, dpr),
-    );
-    this.viewDist = this.low ? 170 : 300;
-    this.camera.far = this.low ? 260 : 600;
+    // smooth keeps the look: full sharpness on normal screens, lighter shadows, a little less view
+    this.renderer.setPixelRatio(this.low ? Math.min(1.25, dpr) : Math.min(2, dpr));
+    const size = this.low ? 512 : 1024;
+    if (this.sun.shadow.mapSize.x !== size) {
+      this.sun.shadow.mapSize.set(size, size);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+    this.viewDist = this.low ? 220 : 300;
+    this.camera.far = this.low ? 400 : 600;
     this.camera.updateProjectionMatrix();
     const fog = this.scene.fog as THREE.Fog;
-    fog.near = this.low ? 50 : 70;
-    fog.far = this.low ? 165 : 260;
+    fog.near = this.low ? 60 : 70;
+    fog.far = this.low ? 215 : 260;
     this.applyLight();
   }
   isLow() {
@@ -4848,7 +4853,7 @@ export class IlmCityEngine {
       f.frames++;
       if (f.t > 8) {
         f.checked = true;
-        if (f.frames / f.t < 24) {
+        if (f.frames / f.t < 20) {
           this.setQuality("low", true);
           this.onSlowPhone?.();
         }
@@ -5659,7 +5664,7 @@ export class IlmCityEngine {
       (this.scene.fog as THREE.Fog).color.set(0x1a1612);
       return;
     }
-    this.sun.castShadow = !this.low;
+    this.sun.castShadow = true;
     const dk = darkness(c);
     const t = c.times,
       m = c.min;

@@ -4068,7 +4068,7 @@ function CityGame({
                                   setPanel(null);
                                   toast(
                                     q === "low"
-                                      ? "Smooth graphics: faster on any phone."
+                                      ? "Smooth graphics: same look, runs faster."
                                       : q === "high"
                                         ? "Beautiful graphics: shadows and a long view."
                                         : "Auto: the game picks what suits your phone.",
@@ -8526,7 +8526,11 @@ function GraphicsView({
   return (
     <div className="space-y-2">
       {opt("auto", "Auto", `The game picks for your phone (now: ${low ? "Smooth" : "Beautiful"}).`)}
-      {opt("low", "Smooth", "Best for cheaper phones: no shadows, shorter view, faster.")}
+      {opt(
+        "low",
+        "Smooth",
+        "Best for cheaper phones: same look, lighter shadows, a little less view.",
+      )}
       {opt("high", "Beautiful", "Shadows and a long view. Needs a stronger phone.")}
     </div>
   );
