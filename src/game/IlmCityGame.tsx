@@ -73,6 +73,10 @@ import {
   CAMPUS_GIST,
   FOUND_ITEMS,
   FOOTBALL,
+  MENU,
+  HUNGRY_AT,
+  eateryPrice,
+  type Dish,
   POLICE,
   UNIVERSITIES,
   facultiesOf,
@@ -668,6 +672,87 @@ function CityGame({
     return () => clearInterval(iv);
   }, [update, toast]);
 
+  /* ---------- food: order on the phone or eat at the eatery ---------- */
+  const openPlacesRef = useRef<(area: string) => void>(() => {});
+  const eat = useCallback(
+    (d: Dish) => {
+      setPanel({
+        kind: "busy",
+        title: `Bismillah… eating ${d.name.toLowerCase()}`,
+        ms: 5000,
+        done: () => {
+          need({ hunger: d.fills });
+          doTask("eat");
+          sayDhikr("afterEating");
+        },
+      });
+    },
+    [need, doTask, sayDhikr],
+  );
+  const [delivering, setDelivering] = useState<Dish | null>(null);
+  const buyFood = useCallback(
+    (d: Dish, where: "order" | "eatery") => {
+      const price = where === "eatery" ? eateryPrice(d) : d.points;
+      if (saveRef.current.coins < price) {
+        setPanel({
+          kind: "info",
+          title: "Not enough points",
+          body: <NoPointsView price={price} points={saveRef.current.coins} />,
+        });
+        return;
+      }
+      update((x) => ({ ...x, coins: x.coins - price }));
+      if (where === "eatery") {
+        toast(`−${price} points. Here's your ${d.name.toLowerCase()}!`, "good");
+        eat(d);
+        return;
+      }
+      setPanel(null);
+      setDelivering(d);
+      toast(`Ordered! −${price} points. Your IlmDash rider is on the way 🛵`, "good");
+      engine.current?.deliverFood(() => {
+        setDelivering(null);
+        toast("IlmDash: your food is here. Enjoy!", "good");
+        eat(d);
+      });
+    },
+    [update, toast, eat],
+  );
+  const openFood = useCallback(
+    (where: "order" | "eatery") => {
+      setPanel({
+        kind: "info",
+        title: where === "eatery" ? "Al-Barakah Broast · eatery" : "IlmDash · order food",
+        body: (
+          <FoodView
+            where={where}
+            points={saveRef.current.coins}
+            hunger={Math.round((saveRef.current.needs ?? freshNeeds()).hunger)}
+            onBuy={(d) => buyFood(d, where)}
+          />
+        ),
+      });
+    },
+    [buyFood],
+  );
+  const openPhone = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "📱 Phone",
+      body: (
+        <PhoneView
+          onFood={() => openFood("order")}
+          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki")}
+        />
+      ),
+    });
+  }, [openFood]);
+  const openPhoneRef = useRef(openPhone);
+  openPhoneRef.current = openPhone;
+  const hungry = !!save.profile && (save.needs ?? freshNeeds()).hunger <= HUNGRY_AT;
+  const hungryRef = useRef(hungry);
+  hungryRef.current = hungry;
+
   /* ---------- football ---------- */
   const [onlineReady, setOnlineReady] = useState(0);
   void onlineReady;
@@ -1120,6 +1205,7 @@ function CityGame({
     },
     [toast],
   );
+  openPlacesRef.current = openPlaces;
 
   // new day resets the daily salah tracker
   useEffect(() => {
@@ -1309,17 +1395,7 @@ function CityGame({
               where={`${info.street}, ${fullName(D)}`}
               own={own}
               trader={trader}
-              onFood={() => {
-                if (saveRef.current.coins < 5) {
-                  toast("A meal costs 5 points.", "warn");
-                  return;
-                }
-                update((x) => ({ ...x, coins: x.coins - 5 }));
-                need({ hunger: 40 });
-                doTask("eat");
-                setPanel(null);
-                toast("Bismillah… delicious! Alhamdulillah. −5 points", "good");
-              }}
+              onFood={() => openFood("eatery")}
               points={saveRef.current.coins}
               onCollect={() => {
                 const o2 = saveRef.current.shops?.[sid];
@@ -1375,7 +1451,7 @@ function CityGame({
       };
       render();
     },
-    [toast, update, paintShop, doTask, need],
+    [toast, update, paintShop, openFood, doTask],
   );
 
   /** Step-by-step wudu; `then` runs after (for example, the prayer you were about to start). */
@@ -1730,6 +1806,38 @@ function CityGame({
       if (!e) return;
       const c = clockRef.current,
         s = saveRef.current;
+      // too hungry to do anything but eat (salah and the way home are still open)
+      const allowed =
+        id === "exit" ||
+        id === "eat" ||
+        id === "pray" ||
+        id === "prayermat" ||
+        id === "bath" ||
+        id === "quran" ||
+        id === "quiz" ||
+        id.startsWith("door:") ||
+        id.startsWith("eatery:") ||
+        id.startsWith("talk:");
+      if (hungryRef.current && !allowed) {
+        setPanel({
+          kind: "info",
+          title: "I'm hungry 😩",
+          body: (
+            <HungryView
+              onOrder={() => openFood("order")}
+              onEatery={() => {
+                setPanel(null);
+                if (!e.goToZone("eatery:")) toast("Go outside first, then try again.");
+              }}
+            />
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("eatery:")) {
+        openFood("eatery");
+        return;
+      }
       const job = JOBS.find((j) => j.id === s.job);
       if (job && id.startsWith(job.at) && s.worked !== c.key && !workSkip.current) {
         if (!onShift(job, c)) {
@@ -2567,16 +2675,8 @@ function CityGame({
         return;
       }
       if (id === "eat") {
-        setPanel({
-          kind: "busy",
-          title: "Bismillah… cooking jollof rice",
-          ms: 3000,
-          done: () => {
-            need({ hunger: 60 });
-            doTask("eat");
-            sayDhikr("afterEating");
-          },
-        });
+        // the dining table: order food to your door
+        openFood("order");
         return;
       }
       if (id === "prayermat") {
@@ -2653,6 +2753,7 @@ function CityGame({
       need,
       sayDhikr,
       handIn,
+      openFood,
     ],
   );
 
@@ -3171,6 +3272,14 @@ function CityGame({
             )}
           </button>
           {save.profile && (
+            <button
+              onClick={openPhone}
+              className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+            >
+              📱 Phone
+            </button>
+          )}
+          {save.profile && (
             <div className="pointer-events-auto flex max-w-[170px] items-center gap-1 rounded-xl bg-[#10201e]/85 py-1 pl-2.5 pr-1 text-[11.5px] font-semibold text-[#fdf8ec] shadow">
               <button
                 onClick={openRadio}
@@ -3274,6 +3383,21 @@ function CityGame({
             }
           }}
         />
+      )}
+      {(hungry || delivering) && !match && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 bottom-[110px] z-20 flex justify-center"
+        >
+          <button
+            onClick={() => (delivering ? undefined : openFood("order"))}
+            className={`pointer-events-auto rounded-full px-4 py-2 text-[13px] font-bold shadow-xl ${delivering ? "bg-[#2f8f3a] text-white" : "animate-pulse bg-[#b8573a] text-white"}`}
+          >
+            {delivering
+              ? `🛵 Your ${delivering.name.toLowerCase()} is on the way…`
+              : "😩 I'm hungry · tap to order food"}
+          </button>
+        </div>
       )}
       {dhikr && PLACE_DHIKR[dhikr.id] && (
         <DhikrCard
@@ -6082,7 +6206,12 @@ function FineView({
 /* ---------------- daily life ---------------- */
 type Needs = { hunger: number; energy: number; iman: number; social: number; clean: number };
 const NEED_META: { id: keyof Needs; icon: string; name: string; tip: string }[] = [
-  { id: "hunger", icon: "🍽️", name: "Food", tip: "Cook at home or buy food at a market." },
+  {
+    id: "hunger",
+    icon: "🍽️",
+    name: "Food",
+    tip: "Order food on your phone, or eat at the eatery.",
+  },
   { id: "energy", icon: "⚡", name: "Energy", tip: "Sleep or rest on a sofa." },
   { id: "iman", icon: "🕌", name: "Iman", tip: "Pray, read the Qur'an, make dhikr or learn." },
   { id: "social", icon: "👥", name: "Friends", tip: "Greet neighbours and chat with players." },
@@ -6511,9 +6640,7 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
         }
       : { text: `Make wudu for ${cp.name}`, prefix: inside ? "bath" : "door:masjid:" };
   if (n && n.hunger < 30)
-    return (s.items ?? []).includes("kitchen")
-      ? { text: "You're hungry: cook at home", prefix: inside ? "eat" : homeDoor }
-      : { text: "You're hungry: buy food at the market", prefix: `stall:${area}-m` };
+    return { text: "You're hungry: order food (📱) or eat at the eatery", prefix: "eatery:" };
   if (n && n.energy < 25)
     return { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
   const job = JOBS.find((j) => j.id === s.job);
@@ -7427,6 +7554,136 @@ function PitchLobby({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------------- food and the phone ---------------- */
+function FoodView({
+  where,
+  points,
+  hunger,
+  onBuy,
+}: {
+  where: "order" | "eatery";
+  points: number;
+  hunger: number;
+  onBuy: (d: Dish) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[13px] opacity-75">
+        {where === "order"
+          ? "Delivered to you wherever you are by an IlmDash rider. Cheaper than the eatery."
+          : "Fresh and hot, straight away. Ordering on your phone costs less."}{" "}
+        Food {hunger}% · you have {points} points.
+      </p>
+      {MENU.map((d) => {
+        const price = where === "eatery" ? eateryPrice(d) : d.points;
+        return (
+          <button
+            key={d.id}
+            onClick={() => onBuy(d)}
+            className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+          >
+            <span className="text-[26px]">{d.icon}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-bold">{d.name}</span>
+              <span className="block text-[12px] opacity-65">fills {d.fills}%</span>
+            </span>
+            <span
+              className={`rounded-lg px-2.5 py-1 text-[13px] font-bold ${points >= price ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#10201e]/10 opacity-60"}`}
+            >
+              {price} pts
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function HungryView({ onOrder, onEatery }: { onOrder: () => void; onEatery: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p>You're too hungry to do anything else. Eat first, then carry on.</p>
+      <button
+        onClick={onOrder}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        📱 Order food (cheaper)
+      </button>
+      <button
+        onClick={onEatery}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+      >
+        🍗 Walk to the nearest eatery
+      </button>
+      <p className="text-[12px] opacity-70">You can still pray and go home while you're hungry.</p>
+    </div>
+  );
+}
+
+function NoPointsView({ price, points }: { price: number; points: number }) {
+  return (
+    <div className="space-y-3">
+      <p>
+        This costs {price} points and you have {points}.
+      </p>
+      <p className="rounded-xl bg-white p-3 text-[14px]">
+        Earn points by praying on time (+2 for each fard salah), lecture minutes and the mosque
+        quiz, or buy points.
+      </p>
+      <button
+        disabled
+        className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05] opacity-60"
+      >
+        Buy points · coming soon with Paystack
+      </button>
+    </div>
+  );
+}
+
+function PhoneView({ onFood, onPlaces }: { onFood: () => void; onPlaces: () => void }) {
+  const app =
+    "flex flex-col items-center gap-1 rounded-2xl bg-white p-3 text-[12px] font-bold shadow-sm";
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={onFood} className={app}>
+          <span className="grid size-12 place-items-center rounded-xl bg-[#2f8f3a] text-[26px]">
+            🛵
+          </span>
+          IlmDash food
+        </button>
+        <a href="https://outingstation.com" target="_blank" rel="noreferrer" className={app}>
+          <span className="grid size-12 place-items-center rounded-xl bg-[#f2b84b] text-[26px]">
+            🎟️
+          </span>
+          OutingStation
+        </a>
+        <button onClick={onPlaces} className={app}>
+          <span className="grid size-12 place-items-center rounded-xl bg-[#1f6f63] text-[26px]">
+            📍
+          </span>
+          Places
+        </button>
+        <div className={`${app} opacity-50`}>
+          <span className="grid size-12 place-items-center rounded-xl bg-[#3d5a7a] text-[26px]">
+            📞
+          </span>
+          Calls · soon
+        </div>
+        <div className={`${app} opacity-50`}>
+          <span className="grid size-12 place-items-center rounded-xl bg-[#8a2f4f] text-[26px]">
+            👥
+          </span>
+          Contacts · soon
+        </div>
+      </div>
+      <p className="text-[11.5px] opacity-60">
+        OutingStation opens the real OutingStation app: events, experiences and outings near you.
+      </p>
     </div>
   );
 }

@@ -2262,3 +2262,19 @@ export function facultyQuestions(faculty: string): FQ[] {
 
 /** Points for a football match: per goal, and for the win. */
 export const FOOTBALL = { perGoal: 2, win: 8 };
+
+/* ---------------- food: order on the phone, or eat at the eatery ---------------- */
+export type Dish = { id: string; name: string; icon: string; points: number; fills: number };
+/** Delivered by IlmDash. The eatery charges more for the same food. */
+export const MENU: Dish[] = [
+  { id: "jollof", name: "Jollof rice & chicken", icon: "🍛", points: 12, fills: 80 },
+  { id: "broast", name: "Broast chicken & fries", icon: "🍗", points: 13, fills: 85 },
+  { id: "shawarma", name: "Chicken shawarma", icon: "🌯", points: 9, fills: 60 },
+  { id: "amala", name: "Amala & ewedu", icon: "🥣", points: 10, fills: 75 },
+  { id: "kabsa", name: "Kabsa", icon: "🍚", points: 14, fills: 90 },
+  { id: "suya", name: "Suya", icon: "🍢", points: 8, fills: 45 },
+];
+export const EATERY_MARKUP = 1.5;
+export const eateryPrice = (d: Dish) => Math.ceil(d.points * EATERY_MARKUP);
+/** At or below this, you're too hungry to do anything but eat (and pray). */
+export const HUNGRY_AT = 5;

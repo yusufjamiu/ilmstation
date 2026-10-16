@@ -929,6 +929,7 @@ export class IlmCityEngine {
       }
     });
     this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
+    this.buildEatery(D);
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
@@ -1514,7 +1515,12 @@ export class IlmCityEngine {
       }
     for (const [id, b] of batches) {
       const g = this.areaGroup(id);
-      for (const m of b.build()) g.add(m);
+      for (const m of b.build()) {
+        // background buildings: no shadows, to keep phones fast
+        m.castShadow = false;
+        m.receiveShadow = false;
+        g.add(m);
+      }
     }
   }
 
@@ -2322,11 +2328,117 @@ export class IlmCityEngine {
           const t = label(`${D.name} Market`, { size: 1.1, bg: "rgba(31,111,99,0.92)" });
           t.position.set(cx, 5.2, z);
           this.dg.add(t);
-          this.marketSpot.set(D.id, { x: cx, z });
+          this.marketSpot.set(D.id, { x: cx, z, sz: st.z, north });
           return;
         }
   }
-  marketSpot = new Map<string, { x: number; z: number }>();
+  marketSpot = new Map<string, { x: number; z: number; sz?: number; north?: boolean }>();
+
+  /** The eatery: a food truck parked on the pavement near the market. */
+  private buildEatery(D: District) {
+    const m = this.marketSpot.get(D.id);
+    const sz = m?.sz ?? 0,
+      north = m?.north ?? true;
+    const z = sz + (north ? -8.4 : 8.4);
+    const x0 = m?.x ?? 30;
+    for (const dx of [30, -30, 38, -38, 46, -46, 54, -54, 22, -22]) {
+      const x = x0 + dx;
+      if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 20) continue;
+      if (!this.boxFree(x - 3.6, x + 3.6, z - 1.8, z + 1.8)) continue;
+      const g = new THREE.Group();
+      g.position.set(x, 0, z);
+      g.rotation.y = north ? 0 : Math.PI;
+      // the truck, its serving hatch and awning
+      g.add(box(6.6, 2.7, 2.6, 0xc8102e, 0, 0.55, 0));
+      g.add(box(6.8, 0.25, 2.8, 0xf4f1ea, 0, 3.25, 0));
+      g.add(box(3.6, 1.1, 0.06, 0x2a1c05, -0.6, 1.6, 1.31));
+      g.add(box(4, 0.12, 1.3, 0xf2c230, -0.6, 2.75, 1.9));
+      for (const wx of [-2.2, 2.2]) {
+        const w = cyl(0.42, 0.42, 0.3, 0x1d1d26, 12);
+        w.rotation.x = Math.PI / 2;
+        w.position.set(wx, 0.42, 1.25);
+        g.add(w);
+      }
+      const { mesh } = canvasPlane(
+        5.6,
+        1,
+        (c, W, H) => {
+          c.fillStyle = "#c8102e";
+          c.fillRect(0, 0, W, H);
+          c.fillStyle = "#fff";
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.font = `800 ${Math.round(H * 0.55)}px "Work Sans", system-ui, sans-serif`;
+          c.fillText("AL-BARAKAH BROAST", W / 2, H * 0.52);
+        },
+        512,
+      );
+      mesh.position.set(0, 3.9, 0.2);
+      g.add(mesh);
+      this.dg.add(g);
+      this.addCollider("out", x - 3.4, x + 3.4, z - 1.4, z + 1.4);
+      const fz = z + (north ? 2.8 : -2.8);
+      this.zones.push({
+        id: "eatery:" + D.id,
+        label: "Eat at Al-Barakah Broast",
+        x: x + this.ox,
+        z: fz + this.oz,
+        r: 2.8,
+        scene: "out",
+      });
+      const t = label("Al-Barakah Broast · eatery", { size: 0.85, bg: "rgba(200,16,46,0.92)" });
+      t.position.set(x, 5.2, z);
+      this.dg.add(t);
+      return;
+    }
+  }
+
+  /* ---------------- food delivery ---------------- */
+  private rider: { g: THREE.Object3D; done: () => void; t: number } | null = null;
+  /** A delivery rider runs your order to you; `done` is called when they arrive. */
+  deliverFood(done: () => void) {
+    if (this.rider) this.rider.g.removeFromParent();
+    if (this.where !== "out") {
+      // indoors: the rider knocks at the door after a short wait
+      const t = window.setTimeout(done, 7000);
+      this.rider = { g: new THREE.Group(), done: () => clearTimeout(t), t: 0 };
+      return;
+    }
+    const g = person(0x2f8f3a, { cap: 0x2f8f3a, trousers: 0x1d1d26, seed: 91 });
+    const bag = box(0.55, 0.55, 0.4, 0x2f8f3a, 0, 1.0, -0.32);
+    g.add(bag);
+    const tag = label("IlmDash delivery", { size: 0.6, bg: "rgba(47,143,58,0.92)" });
+    tag.position.y = 2.6;
+    g.add(tag);
+    const p = this.player.position;
+    const a = Math.random() * Math.PI * 2;
+    g.position.set(p.x + Math.cos(a) * 26, 0, p.z + Math.sin(a) * 26);
+    this.scene.add(g);
+    this.rider = { g, done, t: 0 };
+  }
+  private stepRider(dt: number) {
+    const r = this.rider;
+    if (!r || !r.g.parent) return;
+    const p = this.player.position;
+    const dx = p.x - r.g.position.x,
+      dz = p.z - r.g.position.z,
+      d = Math.hypot(dx, dz);
+    r.t += dt;
+    if (d < 1.4 || r.t > 20) {
+      r.g.rotation.y = Math.atan2(dx, dz);
+      animatePerson(r.g, 0, 0);
+      const done = r.done;
+      this.rider = null;
+      done();
+      window.setTimeout(() => r.g.removeFromParent(), 6000);
+      return;
+    }
+    const sp = Math.min(d, 6.5 * dt);
+    r.g.position.x += (dx / d) * sp;
+    r.g.position.z += (dz / d) * sp;
+    r.g.rotation.y = Math.atan2(dx, dz);
+    animatePerson(r.g, r.t * 11, 1, 5);
+  }
 
   /** A block of flats near the market where new players live. */
   private buildEstate(D: District, XR: number, rnd: () => number) {
@@ -4470,6 +4582,7 @@ export class IlmCityEngine {
     else if (!this.riding) this.walk(v, dt, t);
 
     if (this.match && this.spectating) this.match.step(dt, null);
+    this.stepRider(dt);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
