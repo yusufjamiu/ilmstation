@@ -53,6 +53,7 @@ import {
   AD_EMAIL,
   BILLBOARDS,
   BUS_FARE,
+  WORLD_CITIES,
   DISTRICTS,
   QUESTIONS,
   STREETS,
@@ -7498,10 +7499,31 @@ function OutingView({
           </button>
         ))}
       </div>
-      {list.length === 0 && (
+      {list.length === 0 && tab !== "travel" && (
         <p className="text-[13px] opacity-70">
           Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
         </p>
+      )}
+      {tab === "travel" && (
+        <div className="space-y-1.5">
+          <div className="text-[12px] font-bold uppercase opacity-60">
+            Other cities · coming soon
+          </div>
+          {WORLD_CITIES.filter((c) => !c.live).map((c) => (
+            <div
+              key={c.id}
+              className="rounded-xl border border-dashed border-[#10201e]/20 bg-white/60 px-3 py-2"
+            >
+              <div className="text-[14px] font-bold">
+                {c.name}, {c.country === "Nigeria" ? `${c.state} State` : c.country}
+                <span className="ml-1.5 rounded bg-[#f2b84b] px-1.5 py-0.5 text-[10px] font-bold">
+                  SOON
+                </span>
+              </div>
+              <div className="text-[12px] opacity-70">{c.blurb}</div>
+            </div>
+          ))}
+        </div>
       )}
       <div className="max-h-[52vh] space-y-2 overflow-y-auto">
         {list.map((p) => {

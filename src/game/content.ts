@@ -176,6 +176,8 @@ export type District = {
       override the area's shares on that street */
   streets: { id: string; z: number; decor?: boolean; land?: number; toLet?: number }[];
   landmarks: Landmark[];
+  /** the city this area is in (default Lagos); each city is its own map */
+  city?: string;
 };
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
@@ -1030,6 +1032,62 @@ export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */
 export const rootOf = (d: District): District => (d.parent ? rootOf(districtById(d.parent)) : d);
 /** The town an area belongs to: Agric, First Gate and Igbe Laara are all in Ikorodu. */
+/* ---------------- cities ---------------- */
+/** IlmWorld grows city by city. Lagos is open; the others are being built. Each new city
+    gets its own map and areas (District.city), reached from the intercity bus park. */
+export type WorldCity = {
+  id: string;
+  name: string;
+  state: string;
+  country: string;
+  live: boolean;
+  /** what it is known for, shown on the travel screen */
+  blurb: string;
+};
+export const WORLD_CITIES: WorldCity[] = [
+  {
+    id: "lagos",
+    name: "Lagos",
+    state: "Lagos",
+    country: "Nigeria",
+    live: true,
+    blurb: "The mega city: Lekki, Ikeja, Ikorodu, the lagoon and the bridges.",
+  },
+  {
+    id: "ilorin",
+    name: "Ilorin",
+    state: "Kwara",
+    country: "Nigeria",
+    live: false,
+    blurb: "The city of scholars: Markaz, Agbaji, Unilorin and the Emir's palace.",
+  },
+  {
+    id: "abuja",
+    name: "Abuja",
+    state: "FCT",
+    country: "Nigeria",
+    live: false,
+    blurb: "The capital: the National Mosque, Wuse market and the city gate.",
+  },
+  {
+    id: "kano",
+    name: "Kano",
+    state: "Kano",
+    country: "Nigeria",
+    live: false,
+    blurb: "The old walled city, Kurmi market and the Kano Central Mosque.",
+  },
+  {
+    id: "accra",
+    name: "Accra",
+    state: "Greater Accra",
+    country: "Ghana",
+    live: false,
+    blurb: "Our first city outside Nigeria: Nima, Madina and the coast.",
+  },
+];
+export const cityOf = (d: District) => d.city ?? "lagos";
+
 export const regionOf = (d: District) => rootOf(d).region ?? rootOf(d).name;
 export const fullName = (d: District) =>
   d.parent || d.region ? `${d.name}, ${regionOf(d)}` : d.name;
