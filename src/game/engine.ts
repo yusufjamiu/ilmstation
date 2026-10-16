@@ -14,6 +14,7 @@ import {
   type Landmark,
 } from "./content";
 import { darkness, type Clock } from "./time";
+import { Soccer, type MatchState } from "./soccer";
 import {
   Batch,
   MAT,
@@ -1394,7 +1395,11 @@ export class IlmCityEngine {
             : l.kind === "faculty"
               ? faculty(b, o)
               : l.kind === "field"
-                ? field(b, o)
+                ? (() => {
+                    const f = field(b, o);
+                    this.registerPitch(`field:${l.id}`, f.pitch);
+                    return f;
+                  })()
                 : l.kind === "hangout"
                   ? (() => {
                       const h = hangout(b, o);
@@ -1553,6 +1558,7 @@ export class IlmCityEngine {
     };
     if (p.field) {
       const f = field(b, {
+        small: true,
         x: pitchX,
         z: cz,
         turn,
@@ -1561,6 +1567,7 @@ export class IlmCityEngine {
         name: `${D.name} Football Pitch`,
       });
       put(f, `field:${D.id}-pitch`, "Play football", pitchX - 22, pitchX + 22);
+      this.registerPitch(`field:${D.id}-pitch`, f.pitch);
     }
     if (p.police) {
       const q = p.police;
@@ -1677,6 +1684,105 @@ export class IlmCityEngine {
     this.tapTarget = null;
     this.snapCamera();
     return true;
+  }
+
+  /* ---------------- football ---------------- */
+  /** Every pitch in the city, by the id of its zone (field:...). */
+  pitches = new Map<
+    string,
+    {
+      x: number;
+      z: number;
+      len: number;
+      wid: number;
+      turn: number;
+      stand: { x: number; z: number };
+    }
+  >();
+  private match: Soccer | null = null;
+  private matchTap: THREE.Vector3 | null = null;
+  private matchZone = "";
+  private registerPitch(
+    id: string,
+    p: {
+      x: number;
+      z: number;
+      len: number;
+      wid: number;
+      turn: number;
+      stand: { x: number; z: number };
+    },
+  ) {
+    this.pitches.set(id, {
+      ...p,
+      x: p.x + this.ox,
+      z: p.z + this.oz,
+      stand: { x: p.stand.x + this.ox, z: p.stand.z + this.oz },
+    });
+  }
+  /** Start a match on this pitch: you, a teammate and a keeper against the computer. */
+  startMatch(zoneId: string, onState: (s: MatchState) => void) {
+    const p = this.pitches.get(zoneId);
+    if (!p || this.match) return false;
+    if (this.driving) this.exitCar();
+    if (this.where !== "out") this.exitInterior();
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.matchZone = zoneId;
+    const kit = (team: 0 | 1, i: number) =>
+      person(team === 0 ? 0x1f6f63 : 0xd8682a, {
+        cap: team === 0 ? 0x1f6f63 : 0xffffff,
+        trousers: 0xf4f1ea,
+        seed: 70 + i,
+      });
+    this.match = new Soccer(this.scene, p, this.player, kit, animatePerson, onState);
+    this.camYaw = this.match.camYaw();
+    this.snapCamera();
+    return true;
+  }
+  matchAction(a: "shoot" | "pass" | "L" | "C" | "R") {
+    const m = this.match;
+    if (!m) return;
+    if (a === "shoot") m.shoot();
+    else if (a === "pass") m.pass();
+    else m.penalty(a === "L" ? -1 : a === "C" ? 0 : 1);
+  }
+  inMatch() {
+    return !!this.match;
+  }
+  endMatch() {
+    if (!this.match) return;
+    this.match.dispose();
+    this.match = null;
+    this.matchTap = null;
+    this.marker.visible = false;
+    const p = this.pitches.get(this.matchZone);
+    if (p) this.player.position.set(p.stand.x, 0, p.stand.z);
+    this.player.rotation.y = 0;
+    this.snapCamera();
+  }
+  private stepMatch(v: THREE.Vector2, dt: number) {
+    const m = this.match!;
+    let move: { x: number; z: number } | null = null;
+    if (v.lengthSq() > 0.01) {
+      this.matchTap = null;
+      this.marker.visible = false;
+      const fx = -Math.sin(this.camYaw),
+        fz = -Math.cos(this.camYaw);
+      const rx = Math.cos(this.camYaw),
+        rz = -Math.sin(this.camYaw);
+      move = { x: rx * v.x + fx * v.y, z: rz * v.x + fz * v.y };
+    } else if (this.matchTap) {
+      const me = m.myWorld();
+      const dx = this.matchTap.x - me.x,
+        dz = this.matchTap.z - me.z,
+        d = Math.hypot(dx, dz);
+      if (d < 0.5) {
+        this.matchTap = null;
+        this.marker.visible = false;
+      } else move = { x: dx / d, z: dz / d };
+    }
+    m.step(dt, move);
   }
 
   /** Muslim students, brothers and sisters, sitting and talking at a meeting point. */
@@ -3468,6 +3574,7 @@ export class IlmCityEngine {
     const portrait = this.camera.aspect < 0.8;
     if (this.cine) return { d: 14, h: 5.5 };
     if (this.preview) return { d: 5.2, h: 1.4 };
+    if (this.match) return { d: portrait ? 15 : 12, h: portrait ? 10 : 8 };
     if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
     if (this.riding) return { d: portrait ? 14 : 12, h: 5.2 };
     return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
@@ -3552,6 +3659,16 @@ export class IlmCityEngine {
       -((e.clientY - r.top) / r.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(p, this.camera);
+    if (this.match) {
+      // in a match, tap (or click) where you want to run
+      const pt = new THREE.Vector3();
+      if (this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt)) {
+        this.matchTap = pt;
+        this.marker.position.set(pt.x, 0.05, pt.z);
+        this.marker.visible = true;
+      }
+      return;
+    }
     if (this.where === "out") {
       const hit = this.raycaster.intersectObjects(this.tappables, false)[0];
       if (hit && hit.distance < 90) {
@@ -4018,7 +4135,9 @@ export class IlmCityEngine {
 
   private update(dt: number, t: number) {
     const v = this.moveVec();
-    if (this.cine) this.stepCinematic(dt);
+    if (this.match) {
+      this.stepMatch(v, dt);
+    } else if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (!this.riding) this.walk(v, dt, t);
@@ -4105,6 +4224,8 @@ export class IlmCityEngine {
         Math.atan2(-Math.cos(h), Math.sin(h)),
         1 - Math.exp(-dt * 2.5),
       );
+    } else if (this.match && performance.now() - this.lastDrag > 2500) {
+      this.camYaw = lerpAngle(this.camYaw, this.match.camYaw(), 1 - Math.exp(-dt * 2));
     } else if (
       !this.driving &&
       this.followYaw !== null &&
@@ -4130,7 +4251,7 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding || this.kekeTrip) best = null;
+    if (this.cine || this.riding || this.kekeTrip || this.match) best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
     else if (this.driving)
@@ -4147,7 +4268,7 @@ export class IlmCityEngine {
           bd = dd;
         }
       }
-    if (!this.cine && !this.driving && !this.riding && this.where === "out")
+    if (!this.cine && !this.driving && !this.riding && !this.match && this.where === "out")
       this.walkers.forEach((w, i) => {
         if (!w.name || !w.g.parent?.visible) return;
         const dw = Math.hypot(

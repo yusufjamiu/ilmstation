@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import { FootballMatch, MatchInvite } from "./Football";
+import type { MatchState } from "./soccer";
 import {
   AD_PRICES,
   requestAd,
@@ -681,51 +682,84 @@ function CityGame({
     },
     [update, need, toast],
   );
-  const openFootball = useCallback(() => {
-    const o = onlineRef.current;
-    const players = areaPlayers.current;
-    setPanel({
-      kind: "info",
-      title: "Football pitch",
-      body: (
-        <div className="space-y-2">
-          <p className="text-[13px] opacity-75">
-            Play a match: take turns to shoot and keep goal. +{FOOTBALL.perGoal} points a goal, +
-            {FOOTBALL.win} for the win.
-          </p>
-          <button
-            onClick={() => playMatch({ kind: "cpu" })}
-            className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
-          >
-            ⚽ Play IlmWorld FC (computer)
-          </button>
-          <div className="pt-1 text-[13px] font-semibold">Invite a player in this area</div>
-          {!o ? (
-            <p className="text-[13px] opacity-70">Log in to IlmStation to play other players.</p>
-          ) : players.length === 0 ? (
-            <p className="text-[13px] opacity-70">No other players in this area right now.</p>
-          ) : (
-            players.map((pl) => (
-              <button
-                key={pl.uid}
-                onClick={async () => {
-                  try {
-                    const id = await o.inviteMatch(pl, saveRef.current.profile?.name ?? "Player");
-                    playMatch({ kind: "online", online: o, id });
-                  } catch {
-                    toast("Could not send the invite. Try again.", "warn");
-                  }
-                }}
-                className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left font-bold"
-              >
-                📨 Invite {pl.name}
-              </button>
-            ))
-          )}
-        </div>
-      ),
-    });
-  }, [playMatch, toast]);
+  /* the match on the pitch */
+  const [match, setMatch] = useState<MatchState | null>(null);
+  const matchDone = useRef(false);
+  const startPitchMatch = useCallback(
+    (zoneId: string) => {
+      const e = engine.current;
+      if (!e) return;
+      matchDone.current = false;
+      setPanel(null);
+      if (!e.startMatch(zoneId, setMatch)) toast("Walk to the pitch first.");
+    },
+    [toast],
+  );
+  // full time: rewards, then back to the side of the pitch
+  useEffect(() => {
+    if (!match || match.phase !== "over" || matchDone.current) return;
+    matchDone.current = true;
+    const pts = match.myGoals * FOOTBALL.perGoal + (match.won ? FOOTBALL.win : 0);
+    const t = setTimeout(() => {
+      update((x) => ({ ...x, coins: x.coins + pts }));
+      need({ energy: -15, social: 18, hunger: -10 });
+      toast(`${match.won ? "Victory!" : "Good game!"} +${pts} points`, "good");
+      engine.current?.endMatch();
+      setMatch(null);
+    }, 3500);
+    return () => clearTimeout(t);
+  }, [match, update, need, toast]);
+  const openFootball = useCallback(
+    (zoneId: string) => {
+      const o = onlineRef.current;
+      const players = areaPlayers.current;
+      setPanel({
+        kind: "info",
+        title: "Football pitch",
+        body: (
+          <div className="space-y-2">
+            <p className="text-[13px] opacity-75">
+              Play a match: take turns to shoot and keep goal. +{FOOTBALL.perGoal} points a goal, +
+              {FOOTBALL.win} for the win.
+            </p>
+            <button
+              onClick={() => startPitchMatch(zoneId)}
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
+            >
+              ⚽ Play now · 3 vs 3 against IlmWorld FC
+              <span className="block text-[12px] font-medium opacity-80">
+                You, a teammate and a keeper. Run with the stick or tap; Pass and Shoot buttons.
+              </span>
+            </button>
+            <div className="pt-1 text-[13px] font-semibold">Invite a player in this area</div>
+            {!o ? (
+              <p className="text-[13px] opacity-70">Log in to IlmStation to play other players.</p>
+            ) : players.length === 0 ? (
+              <p className="text-[13px] opacity-70">No other players in this area right now.</p>
+            ) : (
+              players.map((pl) => (
+                <button
+                  key={pl.uid}
+                  onClick={async () => {
+                    try {
+                      const id = await o.inviteMatch(pl, saveRef.current.profile?.name ?? "Player");
+                      playMatch({ kind: "online", online: o, id });
+                    } catch {
+                      toast("Could not send the invite. Try again.", "warn");
+                    }
+                  }}
+                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left font-bold"
+                >
+                  📨 Invite {pl.name}
+                </button>
+              ))
+            )}
+          </div>
+        ),
+      });
+    },
+    [playMatch, toast, startPitchMatch],
+  );
   const openFootballRef = useRef(openFootball);
   openFootballRef.current = openFootball;
   // invites from other players
@@ -1679,7 +1713,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("field:")) {
-        openFootballRef.current();
+        openFootballRef.current(id);
         return;
       }
       if (id.startsWith("found:")) {
@@ -3001,6 +3035,16 @@ function CityGame({
           )}
         </div>
       </div>
+      {match && (
+        <MatchHud
+          m={match}
+          act={(a) => engine.current?.matchAction(a)}
+          onLeave={() => {
+            engine.current?.endMatch();
+            setMatch(null);
+          }}
+        />
+      )}
       {dhikr && PLACE_DHIKR[dhikr.id] && (
         <DhikrCard
           d={PLACE_DHIKR[dhikr.id]}
@@ -6874,5 +6918,115 @@ function MssnView({
         </div>
       )}
     </div>
+  );
+}
+
+/* ---------------- football match on the pitch ---------------- */
+function MatchHud({
+  m,
+  act,
+  onLeave,
+}: {
+  m: MatchState;
+  act: (a: "shoot" | "pass" | "L" | "C" | "R") => void;
+  onLeave: () => void;
+}) {
+  // keyboard: Space shoots, E passes
+  const actRef = useRef(act);
+  actRef.current = act;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        actRef.current("shoot");
+      } else if (e.key === "e" || e.key === "E") actRef.current("pass");
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const mm = Math.floor(m.clock / 60),
+    ss = Math.floor(m.clock % 60);
+  const big = "grid place-items-center rounded-full font-extrabold shadow-xl active:scale-95";
+  return (
+    <>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#10201e]/90 px-4 py-2 text-[#fdf8ec] shadow-xl">
+          <span className="text-[12px] font-bold text-[#7fd1c4]">YOU</span>
+          <span className="font-serif text-3xl tabular-nums">
+            {m.score[0]} – {m.score[1]}
+          </span>
+          <span className="text-[12px] font-bold text-[#f0a070]">FC</span>
+          <span className="ml-1 rounded-lg bg-white/10 px-2 py-0.5 text-[12px] font-semibold tabular-nums">
+            {m.phase === "pens"
+              ? "Penalties"
+              : `${m.half === 1 ? "1st" : "2nd"} · ${mm}:${String(ss).padStart(2, "0")}`}
+          </span>
+          {m.phase !== "over" && (
+            <button
+              onClick={onLeave}
+              className="ml-1 rounded-lg bg-white/10 px-2 py-0.5 text-[12px]"
+            >
+              Leave
+            </button>
+          )}
+        </div>
+      </div>
+      {m.msg && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 top-[132px] z-30 flex justify-center"
+        >
+          <div className="rounded-xl bg-[#fdf8ec]/95 px-4 py-2 text-center text-[15px] font-bold shadow-lg">
+            {m.msg}
+            {m.pen && (
+              <div className="text-[12px] font-semibold opacity-70">
+                You {m.pen.scored[0]}/{m.pen.taken[0]} · FC {m.pen.scored[1]}/{m.pen.taken[1]}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div
+        data-game-ui
+        className="absolute bottom-[max(24px,env(safe-area-inset-bottom))] right-4 z-30 flex items-end gap-3"
+      >
+        {m.phase === "pens" && m.pen ? (
+          <div className="flex gap-2">
+            {(["L", "C", "R"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => act(k)}
+                className="rounded-xl bg-[#1f6f63] px-4 py-3 text-[14px] font-bold text-[#fdf8ec] shadow-xl"
+              >
+                {m.pen!.you === "shoot" ? "Shoot " : "Dive "}
+                {k === "L" ? "left" : k === "C" ? "middle" : "right"}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => act("pass")}
+              disabled={!m.hasBall}
+              className={`${big} size-16 bg-[#fdf8ec] text-[14px] text-[#1f6f63] disabled:opacity-40`}
+            >
+              Pass
+              <span className="-mt-3 text-[9px] font-semibold opacity-60">E</span>
+            </button>
+            <button
+              onClick={() => act("shoot")}
+              disabled={!m.hasBall}
+              className={`${big} size-20 bg-[#e6b84a] text-[16px] text-[#2a1c05] disabled:opacity-40`}
+            >
+              Shoot
+              <span className="-mt-3 text-[9px] font-semibold opacity-60">Space</span>
+            </button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
