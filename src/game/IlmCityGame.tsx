@@ -5,6 +5,17 @@ import type { MatchState, Slot } from "./soccer";
 import type { RopeState } from "./rope";
 import { connectRope, connectRopeLocal } from "./ropenet";
 import {
+  cleanNumber,
+  connectCalls,
+  connectCallsLocal,
+  numberFor,
+  VoiceCall,
+  type CallDoc,
+  type CallNet,
+  type CallUi,
+  type PhoneEntry,
+} from "./calls";
+import {
   connectPitch,
   connectPitchLocal,
   MAX_PER_TEAM,
@@ -148,6 +159,10 @@ type Save = {
   student?: { area: string; faculty: string };
   /** something you found and are taking to the police */
   carrying?: FoundKind;
+  /** people saved on your phone */
+  contacts?: { uid: string; name: string; number: string }[];
+  /** recent calls */
+  calls?: { name: string; number: string; at: number; dir: "in" | "out" | "missed" }[];
   /** food you collected and haven't eaten yet (dish id) */
   meal?: string;
   /** you kept something that wasn't yours */
@@ -792,6 +807,8 @@ function CityGame({
       phone: {},
       body: (
         <PhoneView
+          onCalls={() => openCallsRef.current("calls")}
+          onContacts={() => openCallsRef.current("contacts")}
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
           onTravel={() => openOutingsRef.current(true, "travel")}
@@ -801,6 +818,8 @@ function CityGame({
     });
   }, [openFood]);
   openPhoneRef.current = openPhone;
+  const openCallsRef = useRef<(tab: "calls" | "contacts") => void>(() => {});
+  const openChatRef = useRef<(o: { uid: string; name: string }) => void>(() => {});
   const hungry = !!save.profile && (save.needs ?? freshNeeds()).hunger <= HUNGRY_AT;
   const hungryRef = useRef(hungry);
   hungryRef.current = hungry;
@@ -1772,6 +1791,145 @@ function CityGame({
       onlineRef.current = null;
     };
   }, [uid, adult]);
+
+  /* ---------- phone calls ---------- */
+  const callNet = useRef<CallNet | null>(null);
+  const callObj = useRef<VoiceCall | null>(null);
+  const [call, setCall] = useState<CallUi | null>(null);
+  const [incoming, setIncoming] = useState<CallDoc | null>(null);
+  const logCall = useCallback(
+    (name: string, number: string, dir: "in" | "out" | "missed") =>
+      update((x) => ({
+        ...x,
+        calls: [{ name, number, at: Date.now(), dir }, ...(x.calls ?? [])].slice(0, 30),
+      })),
+    [update],
+  );
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || callNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    let live = true;
+    (local ? Promise.resolve(connectCallsLocal(o.uid)) : connectCalls(o.uid))
+      .then((net) => {
+        if (!live) return;
+        callNet.current = net;
+        const name = saveRef.current.profile?.name ?? "Player";
+        void net.register({ uid: o.uid, name, number: numberFor(o.uid) }).catch(() => {});
+        off = net.watchIncoming((list) => {
+          const c = list.find((x) => !myStatus.current?.blocked.includes(x.from));
+          for (const x of list)
+            if (myStatus.current?.blocked.includes(x.from)) VoiceCall.decline(net, x);
+          if (c && callObj.current && callObj.current.ui.state !== "ended") {
+            VoiceCall.decline(net, c);
+            return;
+          }
+          setIncoming(c ?? null);
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [onlineReady]);
+  useEffect(() => {
+    radio.hushIf("call", !!call && call.state !== "ended");
+    if (call?.state !== "ended") return;
+    const t = setTimeout(() => setCall(null), 2200);
+    return () => clearTimeout(t);
+  }, [call]);
+  const dial = useCallback(
+    async (to: PhoneEntry) => {
+      const net = callNet.current;
+      if (!net) {
+        toast("Calls need you to be logged in (18+).", "warn");
+        return;
+      }
+      if (to.uid === net.uid) {
+        toast("That's your own number!");
+        return;
+      }
+      setPanel(null);
+      try {
+        callObj.current = await VoiceCall.dial(
+          net,
+          { name: saveRef.current.profile?.name ?? "Player" },
+          to,
+          setCall,
+        );
+        logCall(to.name, to.number, "out");
+      } catch {
+        toast("Allow the microphone to make calls.", "warn");
+      }
+    },
+    [toast, logCall],
+  );
+  const acceptCall = useCallback(async () => {
+    const net = callNet.current;
+    const c = incoming;
+    if (!net || !c) return;
+    setIncoming(null);
+    try {
+      callObj.current = await VoiceCall.answer(net, c, setCall);
+      logCall(c.fromName, numberFor(c.from), "in");
+    } catch {
+      VoiceCall.decline(net, c);
+      toast("Allow the microphone to answer calls.", "warn");
+    }
+  }, [incoming, toast, logCall]);
+  const declineCall = useCallback(() => {
+    const net = callNet.current;
+    if (net && incoming) {
+      VoiceCall.decline(net, incoming);
+      logCall(incoming.fromName, numberFor(incoming.from), "missed");
+    }
+    setIncoming(null);
+  }, [incoming, logCall]);
+  const openCalls = useCallback(
+    (tab: "calls" | "contacts") => {
+      const net = callNet.current;
+      setPanel({
+        kind: "info",
+        title: tab === "calls" ? "📞 Calls" : "👥 Contacts",
+        phone: { home: () => openPhoneRef.current() },
+        body: !net ? (
+          <p className="text-[14px]">
+            Calls and contacts are for players who are logged in to IlmStation and 18 or older.
+          </p>
+        ) : (
+          <CallsView
+            tab={tab}
+            myNumber={numberFor(net.uid)}
+            contacts={saveRef.current.contacts ?? []}
+            log={saveRef.current.calls ?? []}
+            lookup={(n) => net.lookup(n)}
+            onCall={(e) => void dial(e)}
+            onMessage={(e) => {
+              setPanel(null);
+              openChatRef.current({ uid: e.uid, name: e.name });
+            }}
+            onSave={(e) =>
+              update((x) => ({
+                ...x,
+                contacts: [...(x.contacts ?? []).filter((c) => c.number !== e.number), e],
+              }))
+            }
+            onRemove={(n) =>
+              update((x) => ({
+                ...x,
+                contacts: (x.contacts ?? []).filter((c) => c.number !== n),
+              }))
+            }
+          />
+        ),
+      });
+    },
+    [dial, update],
+  );
+  openCallsRef.current = openCalls;
   const unread = inbox.filter(
     (c) => c.lastFrom !== uid && c.lastText && c.lastAt > chatSeen(c.id),
   ).length;
@@ -2964,6 +3122,7 @@ function CityGame({
       }
     },
     [
+      playRope,
       greeted,
       startWork,
       toast,
@@ -3231,6 +3390,7 @@ function CityGame({
     .map((l) => lectureNow(l.id, clock))
     .find(Boolean);
 
+  openChatRef.current = (o) => void openChatWith(o);
   const goal =
     save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride && !delivery && !meal
       ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? "lekki")
@@ -3595,6 +3755,20 @@ function CityGame({
             });
           }}
           onLeave={() => void leavePitch()}
+        />
+      )}
+      {incoming && !call && (
+        <IncomingCall
+          from={incoming.fromName}
+          onAccept={() => void acceptCall()}
+          onDecline={declineCall}
+        />
+      )}
+      {call && (
+        <CallScreen
+          c={call}
+          onMute={(m) => callObj.current?.mute(m)}
+          onHangUp={() => callObj.current?.hangUp()}
         />
       )}
       {rope && (
@@ -6232,6 +6406,255 @@ function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
   );
 }
 
+/* ---------------- calls and contacts ---------------- */
+type Contact = { uid: string; name: string; number: string };
+function CallsView({
+  tab,
+  myNumber,
+  contacts,
+  log,
+  lookup,
+  onCall,
+  onMessage,
+  onSave,
+  onRemove,
+}: {
+  tab: "calls" | "contacts";
+  myNumber: string;
+  contacts: Contact[];
+  log: NonNullable<Save["calls"]>;
+  lookup: (n: string) => Promise<PhoneEntry | null>;
+  onCall: (e: Contact) => void;
+  onMessage: (e: Contact) => void;
+  onSave: (e: Contact) => void;
+  onRemove: (n: string) => void;
+}) {
+  const [num, setNum] = useState("");
+  const [found, setFound] = useState<PhoneEntry | null>(null);
+  const [err, setErr] = useState("");
+  const [list, setList] = useState(contacts);
+  const find = async () => {
+    setErr("");
+    setFound(null);
+    const n = cleanNumber(num);
+    if (!n) return setErr("IlmWorld numbers have 7 digits, like IW 482 1937.");
+    const e = await lookup(n).catch(() => null);
+    if (!e) return setErr("No player has that number.");
+    setFound(e);
+  };
+  const row = (c: Contact) => (
+    <div key={c.number} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm">
+      <span className="grid size-9 place-items-center rounded-full bg-[#8a2f4f] text-[15px] font-bold text-white">
+        {c.name.slice(0, 1).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-bold">{c.name}</span>
+        <span className="block text-[11.5px] opacity-60">{c.number}</span>
+      </span>
+      <button
+        onClick={() => onMessage(c)}
+        className="rounded-full bg-[#1f6f63]/10 px-2.5 py-1.5 text-[15px]"
+        aria-label="Message"
+      >
+        💬
+      </button>
+      <button
+        onClick={() => onCall(c)}
+        className="rounded-full bg-[#2e7d32] px-2.5 py-1.5 text-[15px]"
+        aria-label="Call"
+      >
+        📞
+      </button>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#1f6f63] px-3 py-2 text-[#fdf8ec]">
+        <div className="text-[11px] opacity-80">My IlmWorld number</div>
+        <div className="text-[18px] font-bold tracking-wide">{myNumber}</div>
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={num}
+          onChange={(e) => setNum(e.target.value)}
+          inputMode="numeric"
+          placeholder="IW 000 0000"
+          className="min-w-0 flex-1 rounded-xl border border-[#10201e]/15 bg-white px-3 py-2 text-[15px] tracking-wide"
+        />
+        <button
+          onClick={() => void find()}
+          className="rounded-xl bg-[#10201e] px-3 py-2 text-[13px] font-bold text-white"
+        >
+          Find
+        </button>
+      </div>
+      {err && <p className="text-[12.5px] text-[#b8573a]">{err}</p>}
+      {found && (
+        <div className="space-y-2 rounded-xl border border-[#1f6f63]/30 p-2">
+          {row(found)}
+          {!list.some((c) => c.number === found.number) && (
+            <button
+              onClick={() => {
+                onSave(found);
+                setList((l) => [...l, found]);
+              }}
+              className="w-full rounded-lg bg-[#f2c230] py-2 text-[13px] font-bold"
+            >
+              ＋ Save to contacts
+            </button>
+          )}
+        </div>
+      )}
+      {tab === "contacts" ? (
+        <div className="space-y-2">
+          <div className="text-[12px] font-bold uppercase opacity-60">Contacts</div>
+          {list.length === 0 && (
+            <p className="text-[13px] opacity-70">
+              No contacts yet. Ask a friend for their IlmWorld number and find it above.
+            </p>
+          )}
+          {list.map((c) => (
+            <div key={c.number} className="space-y-1">
+              {row(c)}
+              <button
+                onClick={() => {
+                  onRemove(c.number);
+                  setList((l) => l.filter((x) => x.number !== c.number));
+                }}
+                className="ml-1 text-[11px] opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-[12px] font-bold uppercase opacity-60">Recent</div>
+          {log.length === 0 && <p className="text-[13px] opacity-70">No calls yet.</p>}
+          {log.map((l, i) => {
+            const c = list.find((x) => x.number === l.number);
+            return (
+              <div key={i} className="flex items-center gap-2 text-[13.5px]">
+                <span>{l.dir === "out" ? "↗️" : l.dir === "in" ? "↙️" : "❌"}</span>
+                <span
+                  className={`flex-1 font-semibold ${l.dir === "missed" ? "text-[#b8573a]" : ""}`}
+                >
+                  {l.name}
+                </span>
+                <span className="text-[11px] opacity-50">
+                  {new Date(l.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                {c && (
+                  <button onClick={() => onCall(c)} className="text-[15px]" aria-label="Call back">
+                    📞
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="text-[11px] opacity-55">
+        Calls are voice only, between players aged 18+. Be kind; you can block anyone from their
+        chat.
+      </p>
+    </div>
+  );
+}
+
+function IncomingCall({
+  from,
+  onAccept,
+  onDecline,
+}: {
+  from: string;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  return (
+    <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+      <div className="flex items-center gap-3 rounded-[26px] bg-[#111]/95 px-4 py-3 text-white shadow-2xl">
+        <span className="grid size-11 animate-pulse place-items-center rounded-full bg-[#2e7d32] text-[20px]">
+          📞
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[15px] font-bold">{from}</div>
+          <div className="text-[12px] opacity-70">IlmWorld call…</div>
+        </div>
+        <button
+          onClick={onDecline}
+          className="grid size-11 place-items-center rounded-full bg-[#c0392b] text-[18px]"
+          aria-label="Decline"
+        >
+          ✕
+        </button>
+        <button
+          onClick={onAccept}
+          className="grid size-11 place-items-center rounded-full bg-[#2e7d32] text-[18px]"
+          aria-label="Answer"
+        >
+          ✓
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CallScreen({
+  c,
+  onMute,
+  onHangUp,
+}: {
+  c: CallUi;
+  onMute: (m: boolean) => void;
+  onHangUp: () => void;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+  const secs = c.since ? Math.floor((Date.now() - c.since) / 1000) : 0;
+  const status =
+    c.state === "ringing"
+      ? "Ringing…"
+      : c.state === "connecting"
+        ? "Connecting…"
+        : c.state === "live"
+          ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`
+          : (c.why ?? "Call ended");
+  return (
+    <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+      <div className="rounded-[28px] bg-gradient-to-b from-[#1f3d37] to-[#10201e] px-5 py-4 text-center text-white shadow-2xl">
+        <div className="mx-auto grid size-14 place-items-center rounded-full bg-white/15 text-[24px] font-bold">
+          {c.other.slice(0, 1).toUpperCase()}
+        </div>
+        <div className="mt-1.5 text-[17px] font-bold">{c.other}</div>
+        <div className="text-[13px] opacity-75">{status}</div>
+        {c.state !== "ended" && (
+          <div className="mt-3 flex justify-center gap-6">
+            <button
+              onClick={() => onMute(!c.muted)}
+              className={`grid size-12 place-items-center rounded-full text-[18px] ${c.muted ? "bg-white text-[#10201e]" : "bg-white/15"}`}
+              aria-label="Mute"
+            >
+              {c.muted ? "🔇" : "🎙️"}
+            </button>
+            <button
+              onClick={onHangUp}
+              className="grid size-12 place-items-center rounded-full bg-[#c0392b] text-[18px]"
+              aria-label="Hang up"
+            >
+              📵
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- the phone ---------------- */
 function PhoneFrame({
   title,
@@ -8346,11 +8769,15 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
 }
 
 function PhoneView({
+  onCalls,
+  onContacts,
   onFood,
   onOutings,
   onTravel,
   onPlaces,
 }: {
+  onCalls: () => void;
+  onContacts: () => void;
   onFood: () => void;
   onOutings: () => void;
   onTravel: () => void;
@@ -8388,13 +8815,13 @@ function PhoneView({
         {icon("#f2b84b", "🎟️", "OutingStation", onOutings)}
         {icon("#3a7bd5", "🚌", "Travel", onTravel)}
         {icon("#1f6f63", "📍", "Places", onPlaces)}
-        {icon("#3d5a7a", "📞", "Calls")}
-        {icon("#8a2f4f", "👥", "Contacts")}
+        {icon("#2e7d32", "📞", "Calls", onCalls)}
+        {icon("#8a2f4f", "👥", "Contacts", onContacts)}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">
+          {icon("#2e7d32", "📞", "Phone", onCalls)}
           {icon("#2f8f3a", "🛵", "Food", onFood)}
-          {icon("#f2b84b", "🎟️", "Outings", onOutings)}
           {icon("#3a7bd5", "🚌", "Travel", onTravel)}
           {icon("#1f6f63", "📍", "Places", onPlaces)}
         </div>

@@ -94,3 +94,29 @@
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // ---- added for IlmWorld phones: numbers and voice calls ----
+
+    // the phone book: IlmWorld number -> player (each player writes only their own entry)
+    match /city_phones/{num} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    // voice calls: only the caller and the person called can see or change a call
+    match /city_calls/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "ringing";
+      allow update: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to)
+        && request.resource.data.from == resource.data.from
+        && request.resource.data.to == resource.data.to;
+
+      match /{side}/{cand} {
+        allow read, create: if signedIn()
+          && (request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.from
+              || request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.to);
+      }
+    }
