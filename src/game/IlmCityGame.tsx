@@ -742,6 +742,7 @@ function CityGame({
       body: (
         <PhoneView
           onFood={() => openFood("order")}
+          onOutings={() => openOutingsRef.current()}
           onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki")}
         />
       ),
@@ -1206,6 +1207,69 @@ function CityGame({
     [toast],
   );
   openPlacesRef.current = openPlaces;
+
+  /** Ride to another area (bus fare, or free in your car); optionally walk to a place on arrival. */
+  const startTrip = useCallback(
+    (to: string, byCar: boolean, then?: string) => {
+      const e = engine.current;
+      if (!e) return;
+      if (!byCar && saveRef.current.coins < BUS_FARE) {
+        toast(
+          `The bus fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`,
+          "warn",
+        );
+        return;
+      }
+      const here = e.districtId();
+      setPanel(null);
+      const d = districtById(to);
+      arriveRef.current = () => {
+        e.travel(to, byCar);
+        advance(4);
+        advance(3);
+        setDriving(false);
+        setInside(false);
+        update((x) => ({
+          ...x,
+          coins: byCar ? x.coins : x.coins - BUS_FARE,
+          district: to,
+          car: byCar ? e.carPos() : x.car,
+          pos: undefined,
+        }));
+        setTravelling(null);
+        setArriving(d.name);
+        if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
+      };
+      setTravelling({ from: here, to, byCar });
+    },
+    [toast, advance, update],
+  );
+  const tripRef = useRef(startTrip);
+  tripRef.current = startTrip;
+  const openOutings = useCallback(() => {
+    const e = engine.current;
+    const here = e?.districtId() ?? "lekki";
+    setPanel({
+      kind: "info",
+      title: "🎟️ OutingStation",
+      body: (
+        <OutingView
+          here={here}
+          clock={clockRef.current}
+          driving={!!e?.isDriving()}
+          coins={saveRef.current.coins}
+          onGo={(area, prefix) => {
+            if (area === here) {
+              setPanel(null);
+              if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
+            } else tripRef.current(area, !!engine.current?.isDriving(), prefix);
+          }}
+        />
+      ),
+    });
+  }, [toast]);
+  const openOutingsRef = useRef(openOutings);
+  openOutingsRef.current = openOutings;
 
   // new day resets the daily salah tracker
   useEffect(() => {
@@ -2491,32 +2555,7 @@ function CityGame({
         const carHere = e.carHere();
         const inCar = e.isDriving();
         const go = (to: string, byCar: boolean) => {
-          if (!byCar && saveRef.current.coins < BUS_FARE) {
-            toast(
-              `The bus fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`,
-              "warn",
-            );
-            return;
-          }
-          setPanel(null);
-          const d = districtById(to);
-          arriveRef.current = () => {
-            e.travel(to, byCar);
-            advance(4);
-            advance(3);
-            setDriving(false);
-            setInside(false);
-            update((x) => ({
-              ...x,
-              coins: byCar ? x.coins : x.coins - BUS_FARE,
-              district: to,
-              car: byCar ? e.carPos() : x.car,
-              pos: undefined,
-            }));
-            setTravelling(null);
-            setArriving(d.name);
-          };
-          setTravelling({ from: here, to, byCar });
+          tripRef.current(to, byCar);
         };
         setPanel({
           kind: "info",
@@ -5925,6 +5964,158 @@ function PlacesView({ area, onGo }: { area: string; onGo: (prefix: string) => vo
   );
 }
 
+/* ---------------- OutingStation: where to go in the game ---------------- */
+type Outing = Place & { area: string; live?: boolean };
+const OUTING_TABS = [
+  { id: "now", label: "Happening now" },
+  { id: "lectures", label: "Lectures & mosques" },
+  { id: "food", label: "Food" },
+  { id: "sport", label: "Football & play" },
+  { id: "campus", label: "Campus & MSSN" },
+  { id: "shop", label: "Markets" },
+] as const;
+function outingsFor(tab: string, here: string, c: Clock): Outing[] {
+  const out: Outing[] = [];
+  for (const D of DISTRICTS) {
+    const at = (p: Place, live?: boolean) => out.push({ ...p, area: D.id, live });
+    if (tab === "now" || tab === "lectures")
+      for (const l of D.landmarks.filter((x) => x.kind === "masjid")) {
+        const now = lectureNow(l.id, c);
+        const next = lectureNext(l.id, c);
+        if (tab === "now" && !now) continue;
+        at(
+          {
+            icon: "🕌",
+            name: l.name,
+            sub: now
+              ? `Live now: ${now.title} · ${now.speaker}`
+              : next
+                ? `${next.start}: ${next.title} · ${next.speaker}`
+                : "Pray in congregation",
+            prefix: `door:masjid:${l.id}`,
+          },
+          !!now,
+        );
+      }
+    if (tab === "food")
+      at({
+        icon: "🍗",
+        name: `Al-Barakah Broast, ${D.name}`,
+        sub: "Eat in · quick bites",
+        prefix: `eatery:${D.id}`,
+      });
+    if (tab === "sport") {
+      const f = D.landmarks.find((l) => l.kind === "field");
+      at({
+        icon: "⚽",
+        name: f?.name ?? `${D.name} Football Pitch`,
+        sub: "Join a team and play a match",
+        prefix: f ? `field:${f.id}` : `field:${D.id}-pitch`,
+      });
+      at({
+        icon: "🪢",
+        name: `Sisters' Corner, ${D.name}`,
+        sub: "Skipping rope",
+        prefix: `sisters:${D.id}`,
+      });
+    }
+    if (tab === "campus")
+      for (const l of D.landmarks.filter((x) => x.kind === "campus" || x.kind === "hangout"))
+        at({
+          icon: l.kind === "campus" ? "🎓" : "🤝",
+          name: l.name,
+          sub: l.kind === "campus" ? "Faculties, classes and MSSN" : "Meet other students",
+          prefix: l.kind === "campus" ? `campus:${l.id}:admin` : `hangout:${l.id}`,
+        });
+    if (tab === "shop")
+      for (const p of placesIn(D.id).filter(
+        (x) => x.prefix === "souq" || x.prefix.startsWith("stall:"),
+      ))
+        at(p);
+  }
+  // your area first, then nearest by name
+  return out.sort(
+    (a, b) =>
+      (a.area === here ? -1 : 0) - (b.area === here ? -1 : 0) ||
+      Number(!!b.live) - Number(!!a.live),
+  );
+}
+function OutingView({
+  here,
+  clock,
+  driving,
+  coins,
+  onGo,
+}: {
+  here: string;
+  clock: Clock;
+  driving: boolean;
+  coins: number;
+  onGo: (area: string, prefix: string) => void;
+}) {
+  const [tab, setTab] = useState<string>("now");
+  const list = outingsFor(tab, here, clock);
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-[#f2b84b] p-3 text-[#2a1c05]">
+        <div className="text-[17px] font-black">Where do you want to go?</div>
+        <div className="text-[12px] opacity-80">
+          Powered by OutingStation · rides{" "}
+          {driving ? "free in your car" : `${BUS_FARE} pts by danfo`} · you have {coins} pts
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {OUTING_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-full px-3 py-1 text-[12px] font-bold ${tab === t.id ? "bg-[#10201e] text-[#fdf8ec]" : "bg-white"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {list.length === 0 && (
+        <p className="text-[13px] opacity-70">
+          Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
+        </p>
+      )}
+      <div className="max-h-[52vh] space-y-2 overflow-y-auto">
+        {list.map((p) => {
+          const local = p.area === here;
+          return (
+            <button
+              key={p.area + p.prefix + p.name}
+              onClick={() => onGo(p.area, p.prefix)}
+              className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/20 bg-white px-3 py-2.5 text-left"
+            >
+              <span className="text-[22px]">{p.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-bold leading-tight">
+                  {p.live && (
+                    <span className="mr-1 rounded bg-[#c0392b] px-1 text-[10px] text-white">
+                      LIVE
+                    </span>
+                  )}
+                  {p.name}
+                </span>
+                <span className="block truncate text-[12px] opacity-70">
+                  {fullName(districtById(p.area))} · {p.sub}
+                </span>
+              </span>
+              <span
+                className={`rounded-lg px-2.5 py-1 text-[12px] font-bold ${local ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#f2c230] text-[#2a1c05]"}`}
+              >
+                {local ? "Walk" : "Ride"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- chat with other players ---------------- */
 const chatSeen = (id: string) => {
   try {
@@ -7644,7 +7835,15 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
   );
 }
 
-function PhoneView({ onFood, onPlaces }: { onFood: () => void; onPlaces: () => void }) {
+function PhoneView({
+  onFood,
+  onOutings,
+  onPlaces,
+}: {
+  onFood: () => void;
+  onOutings: () => void;
+  onPlaces: () => void;
+}) {
   const app =
     "flex flex-col items-center gap-1 rounded-2xl bg-white p-3 text-[12px] font-bold shadow-sm";
   return (
@@ -7656,12 +7855,12 @@ function PhoneView({ onFood, onPlaces }: { onFood: () => void; onPlaces: () => v
           </span>
           IlmDash food
         </button>
-        <a href="https://outingstation.com" target="_blank" rel="noreferrer" className={app}>
+        <button onClick={onOutings} className={app}>
           <span className="grid size-12 place-items-center rounded-xl bg-[#f2b84b] text-[26px]">
             🎟️
           </span>
           OutingStation
-        </a>
+        </button>
         <button onClick={onPlaces} className={app}>
           <span className="grid size-12 place-items-center rounded-xl bg-[#1f6f63] text-[26px]">
             📍
@@ -7682,7 +7881,7 @@ function PhoneView({ onFood, onPlaces }: { onFood: () => void; onPlaces: () => v
         </div>
       </div>
       <p className="text-[11.5px] opacity-60">
-        OutingStation opens the real OutingStation app: events, experiences and outings near you.
+        OutingStation finds where to go in IlmWorld: lectures, matches, food and more.
       </p>
     </div>
   );
