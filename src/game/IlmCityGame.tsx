@@ -820,6 +820,14 @@ function CityGame({
           onCalls={() => openCallsRef.current("calls")}
           onHomes={() => openHomesRef.current()}
           onRooms={() => openRoomsRef.current()}
+          onWallet={() =>
+            setPanel({
+              kind: "info",
+              title: "💰 Wallet",
+              phone: { home: () => openPhoneRef.current() },
+              body: <WalletView points={saveRef.current.coins} />,
+            })
+          }
           onContacts={() => openCallsRef.current("contacts")}
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
@@ -7293,6 +7301,48 @@ function CallScreen({
   );
 }
 
+/* ---------------- wallet ---------------- */
+/** 1,000 points = ₦2,000 when withdrawals open. */
+const NAIRA_PER_POINT = 2;
+const MIN_WITHDRAW = 1000;
+function WalletView({ points }: { points: number }) {
+  const naira = points * NAIRA_PER_POINT;
+  const toGo = Math.max(0, MIN_WITHDRAW - points);
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-gradient-to-br from-[#1d6b3a] to-[#10201e] p-4 text-white">
+        <div className="text-[12px] opacity-80">Your points</div>
+        <div className="text-[30px] font-black leading-tight">{points.toLocaleString()}</div>
+        <div className="text-[13px] opacity-85">Worth ₦{naira.toLocaleString()}</div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-[#10201e]/10">
+        <div
+          className="h-full rounded-full bg-[#1d6b3a]"
+          style={{ width: `${Math.min(100, (points / MIN_WITHDRAW) * 100)}%` }}
+        />
+      </div>
+      <p className="text-[12.5px] opacity-75">
+        {toGo > 0
+          ? `${toGo.toLocaleString()} more points to reach the ${MIN_WITHDRAW.toLocaleString()}-point minimum.`
+          : "You've reached the minimum to withdraw."}
+      </p>
+      <button
+        disabled
+        className="w-full rounded-xl bg-[#1d6b3a] py-3 font-bold text-white opacity-50"
+      >
+        Withdraw to bank · coming soon
+      </button>
+      <div className="space-y-1 rounded-xl bg-white p-3 text-[12.5px] shadow-sm">
+        <div className="font-bold">How it will work</div>
+        <div>• 1,000 points = ₦2,000, paid to your Nigerian bank account.</div>
+        <div>• Only points you earn (salah on time, lectures, quizzes) can be withdrawn.</div>
+        <div>• Up to 2 withdrawals a week, for players aged 18+ with a verified account.</div>
+        <div>• Every request is checked by the IlmWorld team before payment.</div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- the phone ---------------- */
 function PhoneFrame({
   title,
@@ -9437,6 +9487,7 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
 }
 
 function PhoneView({
+  onWallet,
   onRooms,
   onHomes,
   onCalls,
@@ -9446,6 +9497,7 @@ function PhoneView({
   onTravel,
   onPlaces,
 }: {
+  onWallet: () => void;
   onRooms: () => void;
   onHomes: () => void;
   onCalls: () => void;
@@ -9496,6 +9548,7 @@ function PhoneView({
         {icon("#8a2f4f", "👥", "Contacts", onContacts)}
         {icon("#c77d2a", "🏠", "Homes", onHomes)}
         {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
+        {icon("#1d6b3a", "💰", "Wallet", onWallet)}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">
