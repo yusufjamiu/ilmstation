@@ -679,17 +679,18 @@ function CityGame({
   const eat = useCallback(
     (d: Dish) => {
       setPanel(null);
+      const done = () => {
+        setPanel(null);
+        need({ hunger: d.fills });
+        doTask("eat");
+        update((x) => ({ ...x, meal: undefined }));
+        sayDhikr("afterEating", () => {});
+      };
       sayDhikr("beforeEating", () =>
         setPanel({
-          kind: "busy",
-          title: `Bismillah… eating ${d.name.toLowerCase()}`,
-          ms: 5000,
-          done: () => {
-            need({ hunger: d.fills });
-            doTask("eat");
-            update((x) => ({ ...x, meal: undefined }));
-            sayDhikr("afterEating", () => {});
-          },
+          kind: "info",
+          title: `Bismillah… ${d.name}`,
+          body: <EatingView dish={d} onDone={done} />,
         }),
       );
     },
@@ -762,7 +763,12 @@ function CityGame({
     (where: "order" | "eatery") => {
       setPanel({
         kind: "info",
-        title: where === "eatery" ? "Al-Barakah Broast · eatery" : "IlmDash · order food",
+        title:
+          where === "order"
+            ? "IlmDash · order food"
+            : engine.current?.scenePlace() === "restaurant"
+              ? "Al-Ma'idah Restaurant · menu"
+              : "Al-Barakah Broast · eatery",
         body: (
           <FoodView
             where={where}
@@ -1300,6 +1306,7 @@ function CityGame({
           clock={clockRef.current}
           driving={!!e?.isDriving()}
           coins={saveRef.current.coins}
+          has={(id) => !!engine.current?.hasZone(id)}
           onGo={(area, prefix) => {
             if (area === here) {
               setPanel(null);
@@ -2587,6 +2594,13 @@ function CityGame({
             </div>
           ),
         });
+        return;
+      }
+      if (id.startsWith("door:restaurant:")) {
+        e.enterInterior("restaurant", "Al-Ma'idah Restaurant");
+        setInside(true);
+        tuneRef.current();
+        toast("Assalamu alaikum! Order at the counter, then sit and eat.");
         return;
       }
       if (id.startsWith("door:madrasah:")) {
@@ -6095,6 +6109,44 @@ function MealView({ dish, onEat }: { dish: Dish; onEat: () => void }) {
   );
 }
 
+/* ---------------- eating: finish when you are done ---------------- */
+function EatingView({ dish, onDone }: { dish: Dish; onDone: () => void }) {
+  const [t, setT] = useState(0);
+  const FULL = 12;
+  useEffect(() => {
+    const t0 = Date.now();
+    const iv = setInterval(() => setT((Date.now() - t0) / 1000), 250);
+    return () => clearInterval(iv);
+  }, []);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+  useEffect(() => {
+    if (t >= FULL) doneRef.current();
+  }, [t]);
+  const ready = t >= 2;
+  return (
+    <div className="space-y-3">
+      <div className="text-center text-[52px] leading-none">{dish.icon}</div>
+      <div className="h-2.5 overflow-hidden rounded-full bg-[#10201e]/10">
+        <div
+          className="h-full rounded-full bg-[#1f6f63] transition-[width] duration-200"
+          style={{ width: `${Math.min(100, (t / FULL) * 100)}%` }}
+        />
+      </div>
+      <button
+        disabled={!ready}
+        onClick={onDone}
+        className={`w-full rounded-xl py-3 font-bold ${ready ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#10201e]/10 opacity-60"}`}
+      >
+        ✅ Done eating · Alhamdulillah
+      </button>
+      <p className="text-[12px] opacity-70">
+        Eat at your own pace. Tap Done when you have finished.
+      </p>
+    </div>
+  );
+}
+
 /* ---------------- OutingStation: where to go in the game ---------------- */
 type Outing = Place & { area: string; live?: boolean };
 const OUTING_TABS = [
@@ -6105,7 +6157,7 @@ const OUTING_TABS = [
   { id: "campus", label: "Campus & MSSN" },
   { id: "shop", label: "Markets" },
 ] as const;
-function outingsFor(tab: string, here: string, c: Clock): Outing[] {
+function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
   const out: Outing[] = [];
   for (const D of DISTRICTS) {
     const at = (p: Place, live?: boolean) => out.push({ ...p, area: D.id, live });
@@ -6128,13 +6180,22 @@ function outingsFor(tab: string, here: string, c: Clock): Outing[] {
           !!now,
         );
       }
-    if (tab === "food")
-      at({
-        icon: "🍗",
-        name: `Al-Barakah Broast, ${D.name}`,
-        sub: "Eat in · quick bites",
-        prefix: `eatery:${D.id}`,
-      });
+    if (tab === "food") {
+      if (has(`door:restaurant:${D.id}`))
+        at({
+          icon: "🍽️",
+          name: `Al-Ma'idah Restaurant, ${D.name}`,
+          sub: "Walk in · sit at a table and eat",
+          prefix: `door:restaurant:${D.id}`,
+        });
+      if (has(`eatery:${D.id}`))
+        at({
+          icon: "🍗",
+          name: `Al-Barakah Broast, ${D.name}`,
+          sub: "Roadside food truck · quick bites",
+          prefix: `eatery:${D.id}`,
+        });
+    }
     if (tab === "sport") {
       const f = D.landmarks.find((l) => l.kind === "field");
       at({
@@ -6176,16 +6237,18 @@ function OutingView({
   clock,
   driving,
   coins,
+  has,
   onGo,
 }: {
   here: string;
+  has: (id: string) => boolean;
   clock: Clock;
   driving: boolean;
   coins: number;
   onGo: (area: string, prefix: string) => void;
 }) {
   const [tab, setTab] = useState<string>("now");
-  const list = outingsFor(tab, here, clock);
+  const list = outingsFor(tab, here, clock, has);
   return (
     <div className="space-y-3">
       <div className="rounded-2xl bg-[#f2b84b] p-3 text-[#2a1c05]">
@@ -6966,7 +7029,7 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
       : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
-    return { text: "You're hungry: order food (📱) or eat at the eatery", prefix: "eatery:" };
+    return { text: "You're hungry: order food (📱) or eat at a restaurant", prefix: "eatery:" };
   if (n && n.energy < 25)
     return { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
   const job = JOBS.find((j) => j.id === s.job);

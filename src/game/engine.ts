@@ -54,7 +54,7 @@ import {
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
 
-export type InteriorKind = "masjid" | "home" | "madrasah";
+export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -462,7 +462,13 @@ export class IlmCityEngine {
     emissive: 0xffd27a,
     emissiveIntensity: 0,
   });
-  private colliders: Record<string, Box[]> = { out: [], masjid: [], home: [], madrasah: [] };
+  private colliders: Record<string, Box[]> = {
+    out: [],
+    masjid: [],
+    home: [],
+    madrasah: [],
+    restaurant: [],
+  };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
   private walkers: Walker[] = [];
@@ -481,6 +487,7 @@ export class IlmCityEngine {
     masjid: new THREE.Vector3(1000, 0, 0),
     home: new THREE.Vector3(1100, 0, 0),
     madrasah: new THREE.Vector3(1200, 0, 0),
+    restaurant: new THREE.Vector3(1300, 0, 0),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -930,6 +937,7 @@ export class IlmCityEngine {
     });
     this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
     this.buildEatery(D);
+    this.buildRestaurant(D);
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
@@ -2393,6 +2401,72 @@ export class IlmCityEngine {
     }
   }
 
+  /** A walk-in restaurant near the market: go in, order at the counter, sit and eat. */
+  private buildRestaurant(D: District) {
+    const m = this.marketSpot.get(D.id);
+    const sz = m?.sz ?? 0;
+    const x0 = m?.x ?? 0;
+    const W = 9,
+      Dp = 6.5;
+    const xs: number[] = [];
+    for (let k = 3; k < 30; k++) xs.push(k * 6, -k * 6);
+    const sides = [m?.north ?? true, !(m?.north ?? true)];
+    const spots: { x: number; z: number; north: boolean }[] = [];
+    for (const north of sides)
+      for (const off of [9.6, 10.6, 12])
+        for (const dx of xs) spots.push({ x: x0 + dx, z: sz + (north ? -off : off), north });
+    for (const { x, z, north } of spots) {
+      {
+        if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 12) continue;
+        if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
+          continue;
+        const g = new THREE.Group();
+        g.position.set(x, 0, z);
+        g.rotation.y = north ? 0 : Math.PI;
+        g.add(box(W, 4.2, Dp, 0xf3e6cf, 0, 0, 0));
+        g.add(box(W + 0.4, 0.3, Dp + 0.4, 0x7a3b2a, 0, 4.2, 0));
+        // glass front, door and a green awning
+        g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, -3, 0.9, Dp / 2 + 0.02));
+        g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, 3, 0.9, Dp / 2 + 0.02));
+        g.add(box(1.6, 2.8, 0.1, 0x5a3a22, 0, 0, Dp / 2 + 0.03));
+        g.add(box(W, 0.15, 1.6, 0x1f6f63, 0, 3.2, Dp / 2 + 0.8));
+        const { mesh } = canvasPlane(
+          8,
+          1.1,
+          (c, CW, CH) => {
+            c.fillStyle = "#1f6f63";
+            c.fillRect(0, 0, CW, CH);
+            c.fillStyle = "#f2c230";
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.font = `800 ${Math.round(CH * 0.5)}px "Work Sans", system-ui, sans-serif`;
+            c.fillText("AL-MA'IDAH RESTAURANT", CW / 2, CH * 0.53);
+          },
+          512,
+        );
+        mesh.position.set(0, 3.75, Dp / 2 + 0.06);
+        g.add(mesh);
+        this.dg.add(g);
+        this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
+        this.reserved.push({ x0: x - W / 2, x1: x + W / 2, z0: z - Dp / 2, z1: z + Dp / 2 });
+        const fz = z + (north ? Dp / 2 + 1.4 : -Dp / 2 - 1.4);
+        this.zones.push({
+          id: "door:restaurant:" + D.id,
+          label: "Enter Al-Ma'idah Restaurant",
+          x: x + this.ox,
+          z: fz + this.oz,
+          r: 2.2,
+          scene: "out",
+        });
+        return;
+      }
+    }
+  }
+  /** Is there a place with this id (or prefix) anywhere in the city? */
+  hasZone(prefix: string) {
+    return this.zones.some((z) => z.id.startsWith(prefix));
+  }
+
   /* ---------------- food delivery ---------------- */
   private rider: {
     g: THREE.Group;
@@ -3717,6 +3791,65 @@ export class IlmCityEngine {
   }
 
   private buildInteriors() {
+    // Restaurant: a counter at the back, tables and people eating
+    {
+      const { g, o } = this.room("restaurant", 20, 14, 0xf3e6cf, 0x9a6b45);
+      const counter = new THREE.Group();
+      counter.add(box(8, 1.1, 1.2, 0x7a3b2a, 0, 0, 0), box(8.2, 0.1, 1.4, 0xf2c230, 0, 1.1, 0));
+      counter.add(box(1.2, 0.5, 0.8, 0xd9dde0, -2.5, 1.2, -0.1)); // warmer
+      counter.position.set(0, 0, -4.6);
+      this.solid("restaurant", g, counter, 8.2, 1.4);
+      const cook = person(0xffffff, { cap: 0xffffff, trousers: 0x1d1d26, seed: 7 });
+      cook.position.set(1, 0, -5.8);
+      g.add(cook);
+      const menu = label("Menu · jollof · broast · amala · shawarma · kabsa · suya", {
+        size: 0.5,
+        bg: "rgba(31,111,99,0.95)",
+      });
+      menu.position.set(0, 3.6, -6.7);
+      g.add(menu);
+      const sign = label("Al-Ma'idah Restaurant", { size: 0.7, bg: "rgba(122,59,42,0.95)" });
+      sign.position.set(0, 4.5, -6.7);
+      g.add(sign);
+      // hand-wash sink by the wall
+      const sink = new THREE.Group();
+      sink.add(box(1.2, 0.9, 0.6, 0xf7f7f4, 0, 0, 0), box(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.9, -0.15));
+      sink.position.set(-9.3, 0, 1.5);
+      sink.rotation.y = Math.PI / 2;
+      this.solid("restaurant", g, sink, 0.7, 1.3);
+      const tables: [number, number][] = [
+        [-5.5, -0.8],
+        [0, -0.8],
+        [5.5, -0.8],
+        [-5.5, 3],
+        [5.5, 3],
+      ];
+      tables.forEach(([x, z], i) => {
+        const t = new THREE.Group();
+        t.add(box(2, 0.85, 1.2, 0x6d4a2b, 0, 0, 0));
+        t.add(
+          box(0.5, 0.06, 0.5, 0xffffff, -0.45, 0.85, 0),
+          box(0.5, 0.06, 0.5, 0xffffff, 0.45, 0.85, 0),
+        );
+        for (const cz of [-0.95, 0.95]) t.add(box(0.7, 0.5, 0.6, 0x1f6f63, 0, 0, cz));
+        t.position.set(x, 0, z);
+        this.solid("restaurant", g, t, 2.1, 2.6);
+        if (i % 2 === 0) {
+          const p = person([0xf4efe4, 0x8fb8e8, 0xcdb38a][i % 3], { cap: 0xffffff, seed: 20 + i });
+          sitPerson(p);
+          p.position.set(x, 0.1, z - 0.95);
+          g.add(p);
+        }
+      });
+      this.zones.push({
+        id: "eatery:counter",
+        label: "Order at the counter",
+        x: o.x,
+        z: o.z - 3.3,
+        r: 2.2,
+        scene: "restaurant",
+      });
+    }
     // Masjid
     {
       const { g, o } = this.room("masjid", 26, 16, 0xf2efe6, 0x2f6f5f);
