@@ -7774,10 +7774,10 @@ function MatchHud({
   onLeave,
 }: {
   m: MatchState;
-  act: (a: "shoot" | "pass" | "L" | "C" | "R") => void;
+  act: (a: "shoot" | "pass" | "tackle" | "L" | "C" | "R") => void;
   onLeave: () => void;
 }) {
-  // keyboard: Space shoots, E passes
+  // keyboard: Space shoots, E passes, Q tackles
   const actRef = useRef(act);
   actRef.current = act;
   useEffect(() => {
@@ -7786,6 +7786,7 @@ function MatchHud({
         e.preventDefault();
         actRef.current("shoot");
       } else if (e.key === "e" || e.key === "E") actRef.current("pass");
+      else if (e.key === "q" || e.key === "Q") actRef.current("tackle");
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
@@ -7863,6 +7864,14 @@ function MatchHud({
         ) : (
           <>
             <button
+              onClick={() => act("tackle")}
+              disabled={!m.canTackle}
+              className={`${big} size-14 bg-[#b8573a] text-[12px] text-white disabled:opacity-35`}
+            >
+              Tackle
+              <span className="-mt-3 text-[9px] font-semibold opacity-70">Q</span>
+            </button>
+            <button
               onClick={() => act("pass")}
               disabled={!m.hasBall}
               className={`${big} size-16 bg-[#fdf8ec] text-[14px] text-[#1f6f63] disabled:opacity-40`}
@@ -7872,7 +7881,7 @@ function MatchHud({
             </button>
             <button
               onClick={() => act("shoot")}
-              disabled={!m.hasBall}
+              disabled={!m.hasBall || !!m.throwing}
               className={`${big} size-20 bg-[#e6b84a] text-[16px] text-[#2a1c05] disabled:opacity-40`}
             >
               Shoot

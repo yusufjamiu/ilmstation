@@ -2053,10 +2053,11 @@ export class IlmCityEngine {
     this.hiddenRemotes = new Set(uids);
     for (const [uid, r] of this.remotes) r.g.visible = !this.hiddenRemotes.has(uid);
   }
-  matchAction(a: "shoot" | "pass" | "L" | "C" | "R") {
+  matchAction(a: "shoot" | "pass" | "tackle" | "L" | "C" | "R") {
     const m = this.match;
     if (!m) return;
-    if (a === "shoot") m.shoot();
+    if (a === "tackle") m.tackle();
+    else if (a === "shoot") m.shoot();
     else if (a === "pass") m.pass();
     else m.penalty(a === "L" ? -1 : a === "C" ? 0 : 1);
   }
