@@ -913,12 +913,12 @@ function CityGame({
       setPanel(null);
       tennisDone.current = false;
       if (!online) {
-        if (!e.startTennis(zoneId, onTennis)) toast("Walk to the tennis court first.");
+        if (!e.startTennis(zoneId, onTennis)) toast("Walk to the table tennis spot first.");
         return;
       }
       const me = onlineRef.current?.uid;
       if (!me) {
-        toast("Log in to IlmStation to play tennis with other players.", "warn");
+        toast("Log in to IlmStation to play table tennis with other players.", "warn");
         return;
       }
       let net: CourtNet;
@@ -928,7 +928,7 @@ function CityGame({
           new URLSearchParams(window.location.search).get("online") === "local";
         net = local ? connectCourtLocal(zoneId, me) : await connectCourt(zoneId, me);
       } catch {
-        toast("Online tennis isn't switched on yet. Play the coach for now.", "warn");
+        toast("Online table tennis isn't switched on yet. Play the coach for now.", "warn");
         return;
       }
       const name = saveRef.current.profile?.name ?? "Player";
@@ -3116,19 +3116,19 @@ function CityGame({
       if (id.startsWith("tennis:")) {
         setPanel({
           kind: "info",
-          title: "🎾 Tennis court",
+          title: "🏓 Table tennis",
           body: (
             <div className="space-y-2">
               <p className="text-[13.5px] opacity-80">
-                Brothers and sisters are all welcome. First to 7 points, win by 2.
+                Brothers and sisters are all welcome. First to 11 points, win by 2.
               </p>
               <button
                 onClick={() => void playTennis(id, false)}
                 className="w-full rounded-xl bg-[#2f6fa8] px-4 py-3 text-left font-bold text-white"
               >
-                🎾 Play the coach
+                🏓 Play the coach
                 <span className="block text-[12px] font-normal opacity-85">
-                  Move with the stick, tap Hit when the ball reaches you
+                  Move with the stick, tap Hit after the ball bounces on your side
                 </span>
               </button>
               <button
@@ -3137,7 +3137,7 @@ function CityGame({
               >
                 👥 Play another player
                 <span className="block text-[12px] font-normal opacity-70">
-                  One against one with a real player on this court
+                  One against one with a real player at this table
                 </span>
               </button>
             </div>
@@ -7303,8 +7303,8 @@ function placesIn(id: string): Place[] {
       prefix: `dealer:${D.id}`,
     });
   out.push({
-    icon: "🎾",
-    name: `${D.name} Tennis Court`,
+    icon: "🏓",
+    name: `${D.name} Table Tennis`,
     sub: "Brothers and sisters welcome",
     prefix: `tennis:${D.id}`,
   });

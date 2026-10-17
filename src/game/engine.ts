@@ -2942,84 +2942,77 @@ export class IlmCityEngine {
   }
   private mallGroup = new THREE.Group();
 
-  /** A fenced tennis court beside the market street. */
+  /** A covered table tennis spot beside the street: one table, open to everyone. */
   private courts = new Map<string, Court>();
   private buildCourt(D: District) {
-    const W = 15,
-      Dp = 30;
-    // the court runs along the street (x), so its long side faces the road
-    const lot = this.findLot(D, Dp, W);
+    const W = 12,
+      Dp = 10;
+    const lot = this.findLot(D, W, Dp);
     if (!lot) return;
     const { x, z, north, fz } = lot;
     const g = new THREE.Group();
     g.position.set(x, 0, z);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(Dp, W), mat(0x3f7f5c));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0.03;
-    ground.receiveShadow = true;
-    g.add(ground);
-    const len = 23.8,
-      wid = 8.2;
-    const { mesh: surf } = canvasPlane(
-      len + 2,
-      wid + 2,
-      (c, CW, CH) => {
-        c.fillStyle = "#2f6fa8";
-        c.fillRect(0, 0, CW, CH);
-        const sx = CW / (len + 2),
-          sy = CH / (wid + 2);
-        c.strokeStyle = "#ffffff";
-        c.lineWidth = Math.max(3, sx * 0.08);
-        c.strokeRect(sx, sy, len * sx, wid * sy);
-        const s1 = sx * (1 + len / 2 - 6.4),
-          s2 = sx * (1 + len / 2 + 6.4);
-        c.beginPath();
-        c.moveTo(s1, sy);
-        c.lineTo(s1, sy * (1 + wid));
-        c.moveTo(s2, sy);
-        c.lineTo(s2, sy * (1 + wid));
-        c.moveTo(s1, CH / 2);
-        c.lineTo(s2, CH / 2);
-        c.stroke();
-      },
-      1024,
-    );
-    surf.rotation.x = -Math.PI / 2;
-    surf.position.y = 0.05;
-    surf.receiveShadow = true;
-    g.add(surf);
-    for (const pz of [-wid / 2 - 0.6, wid / 2 + 0.6])
-      g.add(box(0.1, 1.07, 0.1, 0x3a3f46, 0, 0, pz));
+    // a smooth concrete floor
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, Dp), mat(0xb9b3a6));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = 0.04;
+    floor.receiveShadow = true;
+    g.add(floor);
+    // the shade: four posts and a green roof
+    for (const [px, pz] of [
+      [-W / 2 + 0.3, -Dp / 2 + 0.3],
+      [W / 2 - 0.3, -Dp / 2 + 0.3],
+      [-W / 2 + 0.3, Dp / 2 - 0.3],
+      [W / 2 - 0.3, Dp / 2 - 0.3],
+    ])
+      g.add(box(0.22, 4.2, 0.22, 0xe9e2d0, px, 0, pz));
+    g.add(box(W + 0.6, 0.18, Dp + 0.6, 0x1f6f63, 0, 4.2, 0));
+    // the table: 2.74 m by 1.525 m, 76 cm high
+    const len = 2.74,
+      wid = 1.525,
+      th = 0.76;
+    const top = box(len, 0.05, wid, 0x1f4f9a, 0, th - 0.05, 0);
+    top.castShadow = true;
+    g.add(top);
+    const line = (w: number, d: number, lx: number, lz: number) =>
+      g.add(box(w, 0.006, d, 0xffffff, lx, th, lz));
+    line(len, 0.02, 0, wid / 2 - 0.01);
+    line(len, 0.02, 0, -wid / 2 + 0.01);
+    line(0.02, wid, len / 2 - 0.01, 0);
+    line(0.02, wid, -len / 2 + 0.01, 0);
+    line(len, 0.006, 0, 0);
+    for (const [lx, lz] of [
+      [-len / 2 + 0.2, -wid / 2 + 0.15],
+      [len / 2 - 0.2, -wid / 2 + 0.15],
+      [-len / 2 + 0.2, wid / 2 - 0.15],
+      [len / 2 - 0.2, wid / 2 - 0.15],
+    ])
+      g.add(box(0.06, th - 0.05, 0.06, 0x2a2f36, lx, 0, lz));
     const net = new THREE.Mesh(
-      new THREE.PlaneGeometry(wid + 1.2, 0.9),
+      new THREE.PlaneGeometry(wid + 0.3, 0.1525),
       new THREE.MeshBasicMaterial({
         color: 0x1d1d26,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.6,
         side: THREE.DoubleSide,
       }),
     );
     net.rotation.y = Math.PI / 2;
-    net.position.set(0, 0.5, 0);
-    g.add(net, box(0.05, 0.06, wid + 1.2, 0xffffff, 0, 0.93, 0));
-    const fence = new THREE.MeshBasicMaterial({
-      color: 0x2a3a2a,
-      transparent: true,
-      opacity: 0.25,
-      side: THREE.DoubleSide,
-    });
-    for (const [fx, fzz, fw, rot] of [
-      [0, -W / 2, Dp, 0],
-      [-Dp / 2, 0, W, Math.PI / 2],
-      [Dp / 2, 0, W, Math.PI / 2],
-    ] as [number, number, number, number][]) {
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(fw, 3), fence);
-      f.position.set(fx, 1.5, north ? fzz : -fzz);
-      f.rotation.y = rot;
-      g.add(f);
+    net.position.set(0, th + 0.076, 0);
+    g.add(net, box(0.02, 0.012, wid + 0.3, 0xffffff, 0, th + 0.15, 0));
+    for (const pz of [-wid / 2 - 0.15, wid / 2 + 0.15])
+      g.add(box(0.03, 0.17, 0.03, 0x2a2f36, 0, th - 0.02, pz));
+    // benches to wait for your turn
+    for (const bx of [-W / 2 + 1.6, W / 2 - 1.6]) {
+      const bz = north ? -Dp / 2 + 1 : Dp / 2 - 1;
+      g.add(box(2.2, 0.08, 0.45, 0x8a5a3a, bx, 0.45, bz));
+      g.add(
+        box(0.08, 0.45, 0.4, 0x5a3a24, bx - 1, 0, bz),
+        box(0.08, 0.45, 0.4, 0x5a3a24, bx + 1, 0, bz),
+      );
     }
-    const sign = this.signBoard("Tennis Court · all welcome", 7, 0.9, "#2f6fa8", "#ffffff");
-    sign.position.set(0, 3.4, north ? W / 2 - 0.2 : -W / 2 + 0.2);
+    const sign = this.signBoard("Table Tennis · all welcome", 6, 0.8, "#1f4f9a", "#ffffff");
+    sign.position.set(0, 3.5, north ? Dp / 2 + 0.32 : -Dp / 2 - 0.32);
     if (!north) sign.rotation.y = Math.PI;
     g.add(sign);
     this.dg.add(g);
@@ -3027,7 +3020,7 @@ export class IlmCityEngine {
     this.courts.set(id, { x: x + this.ox, z: z + this.oz, turn: 0, len, wid });
     this.zones.push({
       id,
-      label: "Play tennis",
+      label: "Play table tennis",
       x: x + this.ox,
       z: fz + this.oz,
       r: 3,
@@ -5270,6 +5263,7 @@ export class IlmCityEngine {
     if (this.cine) return { d: 14, h: 5.5 };
     if (this.preview) return { d: 5.2, h: 1.4 };
     if (this.match && !this.spectating) return { d: portrait ? 15 : 12, h: portrait ? 10 : 8 };
+    if (this.tennis) return { d: portrait ? 5.6 : 4.8, h: portrait ? 3.4 : 3 };
     if (this.driving) return { d: portrait ? 12 : 10, h: 4.6 };
     if (this.riding) return { d: portrait ? 14 : 12, h: 5.2 };
     return { d: portrait ? 8.5 : 7.2, h: portrait ? 4.4 : 3.8 };
@@ -5302,6 +5296,12 @@ export class IlmCityEngine {
 
   /** Blocks of the city between the areas (16 m cells), checked by a quick lookup. */
   private fillCells = new Set<string>();
+  /** Free ground outside, wherever you are. */
+  private freeOut(x: number, z: number, r: number) {
+    for (const b of this.colliders.out)
+      if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
+    return true;
+  }
   private free(x: number, z: number, r: number) {
     if (this.where === "out" && this.fillCells.size) {
       const C = 16;
@@ -5971,13 +5971,36 @@ export class IlmCityEngine {
         wz = w.g.position.z + oz;
       const ux = dx / d,
         uz = dz / d;
+      // the line of the route this walker is on, to come back to after stepping aside
+      const [fx, fz] = w.route[(w.k + w.route.length - 1) % w.route.length];
+      const off = (wx - ox - fx) * -uz + (wz - oz - fz) * ux;
+      let sx = 0,
+        sz = 0;
       if (this.personAhead(wx, wz, ux, uz, w.g)) {
         s *= 0.25;
-        w.g.position.x += -uz * 1.6 * dt;
-        w.g.position.z += ux * 1.6 * dt;
+        // step aside, but never more than a couple of metres off the pavement
+        if (off < 1.8) {
+          sx = -uz * 1.6 * dt;
+          sz = ux * 1.6 * dt;
+        }
+      } else if (Math.abs(off) > 0.05) {
+        // drift back onto the pavement
+        const back = Math.min(Math.abs(off), 1.2 * dt) * Math.sign(off);
+        sx = uz * back;
+        sz = -ux * back;
       }
-      w.g.position.x += ux * s;
-      w.g.position.z += uz * s;
+      const nx = wx + sx + ux * s,
+        nz = wz + sz + uz * s;
+      // never walk through a wall, a house or a car
+      if (!this.freeOut(nx, nz, 0.3) && this.freeOut(wx, wz, 0.3)) {
+        // blocked: turn back the way they came
+        w.k = (w.k + w.route.length - 1) % w.route.length;
+        w.wait = 0.6;
+        animatePerson(w.g, 0, 0);
+        continue;
+      }
+      w.g.position.x += sx + ux * s;
+      w.g.position.z += sz + uz * s;
       w.g.rotation.y = Math.atan2(dx, dz);
       w.t += dt;
       animatePerson(w.g, w.t * 7, 1);
