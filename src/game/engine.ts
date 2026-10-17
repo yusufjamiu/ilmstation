@@ -4304,6 +4304,15 @@ export class IlmCityEngine {
         for (const cz of [-0.95, 0.95]) t.add(box(0.7, 0.5, 0.6, 0x1f6f63, 0, 0, cz));
         t.position.set(x, 0, z);
         this.solid("restaurant", g, t, 2.1, 2.6);
+        // the free chair at each table: sit here to eat
+        this.zones.push({
+          id: `seat:${i}`,
+          label: "Sit and eat",
+          x: o.x + x,
+          z: o.z + z + 1.75,
+          r: 1.3,
+          scene: "restaurant",
+        });
         if (i % 2 === 0) {
           const p = person([0xf4efe4, 0x8fb8e8, 0xcdb38a][i % 3], { cap: 0xffffff, seed: 20 + i });
           sitPerson(p);
@@ -5041,6 +5050,20 @@ export class IlmCityEngine {
 
   /* ---------------- prayer ---------------- */
   /** Your character stands, bows, prostrates or sits during salah. */
+  /** Sit on the chair by this seat, facing the table. */
+  sitAt(id: string) {
+    const z = this.zones.find((zz) => zz.id === id && zz.scene === this.where);
+    if (!z) return false;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.player.position.set(z.x, 0, z.z - 0.8);
+    this.player.rotation.y = Math.PI;
+    poseHuman(this.player, "sit");
+    return true;
+  }
+  standUp() {
+    releasePose(this.player);
+  }
   prayPose(p: Pose | null) {
     if (p) poseHuman(this.player, p);
     else releasePose(this.player);

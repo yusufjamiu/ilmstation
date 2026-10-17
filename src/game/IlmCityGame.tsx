@@ -5,7 +5,7 @@ import type { MatchState, Slot } from "./soccer";
 import type { RopeState } from "./rope";
 import { connectRope, connectRopeLocal } from "./ropenet";
 import { VEHICLE_INFO } from "./vehicles";
-import { connectHomes, connectHomesLocal, type Homes, type ShownHome } from "./homes";
+import { connectHomes, connectHomesLocal, type Homes, type Knock, type ShownHome } from "./homes";
 import { connectRooms, connectRoomsLocal, roomId, type RoomAd, type RoomsNet } from "./rooms";
 import {
   cleanNumber,
@@ -133,6 +133,8 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** open house: other players may walk in without knocking */
+  openHouse?: boolean;
   /** your car was towed to a police station */
   impound?: { fee: number; reason: string; area: string; at: number };
   /** you bought a football kit (needed to play matches) */
@@ -714,6 +716,7 @@ function CityGame({
         need({ hunger: d.fills });
         doTask("eat");
         update((x) => ({ ...x, meal: undefined }));
+        engine.current?.standUp();
         sayDhikr("afterEating", () => {});
       };
       sayDhikr("beforeEating", () =>
@@ -759,6 +762,18 @@ function CityGame({
       }
       update((x) => ({ ...x, coins: x.coins - price }));
       if (where === "eatery") {
+        const e = engine.current;
+        if (e?.scenePlace() === "restaurant") {
+          // take your tray to a table, sit down, then eat
+          setPanel(null);
+          update((x) => ({ ...x, meal: d.id }));
+          e.guideTo("seat:");
+          toast(
+            `−${price} points. Here's your ${d.name.toLowerCase()}! Follow the arrow to a table and sit down.`,
+            "good",
+          );
+          return;
+        }
         toast(`−${price} points. Here's your ${d.name.toLowerCase()}!`, "good");
         openMeal(d);
         return;
@@ -819,6 +834,7 @@ function CityGame({
       phone: {},
       body: (
         <PhoneView
+          myNumber={callNet.current ? numberFor(callNet.current.uid) : undefined}
           onCalls={() => openCallsRef.current("calls")}
           onHomes={() => openHomesRef.current()}
           onRooms={() => openRoomsRef.current()}
@@ -2099,7 +2115,13 @@ function CityGame({
     const s = saveRef.current;
     if (!h || !uid || !s.profile || !(s.items ?? []).length) return;
     void h
-      .publish({ uid, name: s.profile.name, place: myPlace(), items: s.items ?? [] })
+      .publish({
+        uid,
+        name: s.profile.name,
+        place: myPlace(),
+        items: s.items ?? [],
+        open: !!s.openHouse,
+      })
       .catch(() => {});
   }, [uid]);
   useEffect(() => {
@@ -2118,15 +2140,68 @@ function CityGame({
       live = false;
     };
   }, [uid, publishHome]);
+  /* knocking: you wait at the door until they let you in */
+  const [knocking, setKnocking] = useState<{ id: string; name: string } | null>(null);
+  const knockOff = useRef<(() => void) | null>(null);
+  const visitKnock = useRef<string | null>(null);
+  const cancelKnock = useCallback(() => {
+    knockOff.current?.();
+    knockOff.current = null;
+    setKnocking(null);
+  }, []);
+  const enterHomeRef = useRef<(h: ShownHome) => void>(() => {});
   const visitHome = useCallback(
     async (h: ShownHome) => {
-      const e = engine.current;
-      if (!e) return;
+      const hs = homes.current;
+      if (!hs || !uid) return;
       if (h.uid === uid) {
         toast("That's your own home!");
         return;
       }
       setPanel(null);
+      if (h.open) {
+        visitKnock.current = null;
+        enterHomeRef.current(h);
+        return;
+      }
+      const id = await hs
+        .knock(h.uid, { uid, name: saveRef.current.profile?.name ?? "Player" })
+        .catch(() => null);
+      if (!id) {
+        toast("Couldn't knock. Try again.", "warn");
+        return;
+      }
+      setKnocking({ id, name: h.name });
+      const timer = setTimeout(() => {
+        cancelKnock();
+        void hs.answer(id, "left").catch(() => {});
+        toast(`No one answered at ${h.name}'s home. Try again later.`);
+      }, 40_000);
+      const off = hs.watchKnock(id, (k) => {
+        if (!k) return;
+        if (k.status === "in") {
+          clearTimeout(timer);
+          cancelKnock();
+          visitKnock.current = id;
+          toast(`${h.name} let you in. Assalamu alaikum!`, "good");
+          enterHomeRef.current(h);
+        } else if (k.status === "no") {
+          clearTimeout(timer);
+          cancelKnock();
+          toast(`${h.name} can't have visitors right now.`);
+        }
+      });
+      knockOff.current = () => {
+        clearTimeout(timer);
+        off();
+      };
+    },
+    [uid, toast, cancelKnock],
+  );
+  const enterHome = useCallback(
+    async (h: ShownHome) => {
+      const e = engine.current;
+      if (!e) return;
       if (e.scenePlace() !== "out") e.exitInterior();
       e.enterInterior("home", `${h.name}'s home`);
       e.setHomeItems(h.items);
@@ -2135,13 +2210,50 @@ function CityGame({
       sayDhikr("enterHome");
       const liked = uid ? await homes.current?.liked(h.uid, uid).catch(() => false) : false;
       setVisiting({ ...h, liked: !!liked });
+      // the owner can ask you to leave
+      const kid = visitKnock.current;
+      if (kid && homes.current) {
+        const off = homes.current.watchKnock(kid, (k) => {
+          if (k?.status !== "out") return;
+          off();
+          const en = engine.current;
+          en?.setHomeItems(saveRef.current.items ?? []);
+          setVisiting(null);
+          if (en?.scenePlace() === "home") {
+            en.exitInterior();
+            setInside(false);
+          }
+          toast(`${h.name} asked you to leave. Ma'a salama!`);
+        });
+      }
     },
-    [uid, toast, sayDhikr],
+    [uid, sayDhikr, toast],
   );
+  enterHomeRef.current = (h) => void enterHome(h);
   const endVisit = useCallback(() => {
     if (!visitingRef.current) return;
+    if (visitKnock.current) void homes.current?.answer(visitKnock.current, "left").catch(() => {});
+    visitKnock.current = null;
     engine.current?.setHomeItems(saveRef.current.items ?? []);
     setVisiting(null);
+  }, []);
+  /* your door: knocks and guests */
+  const [door, setDoor] = useState<Knock[]>([]);
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    const iv = setInterval(() => {
+      if (off || !homes.current || !uid) return;
+      off = homes.current.watchDoor(uid, setDoor);
+    }, 1000);
+    return () => {
+      clearInterval(iv);
+      off?.();
+    };
+  }, [uid]);
+  const atDoor = door.find((k) => k.status === "knocking" && Date.now() - k.at < 40_000);
+  const guests = door.filter((k) => k.status === "in");
+  const answerDoor = useCallback((id: string, status: Knock["status"]) => {
+    void homes.current?.answer(id, status).catch(() => {});
   }, []);
   const likeHome = useCallback(async () => {
     const v = visitingRef.current;
@@ -2165,11 +2277,16 @@ function CityGame({
           homes={homes.current}
           me={uid}
           myItems={(saveRef.current.items ?? []).length}
+          open={!!saveRef.current.openHouse}
+          onOpen={(on) => {
+            update((x) => ({ ...x, openHouse: on }));
+            setTimeout(() => publishHome(), 0);
+          }}
           onVisit={(h) => void visitHome(h)}
         />
       ),
     });
-  }, [uid, visitHome]);
+  }, [uid, visitHome, update, publishHome]);
   const openHomesRef = useRef(openHomes);
   openHomesRef.current = openHomes;
 
@@ -2541,6 +2658,7 @@ function CityGame({
         return;
       }
       const allowed =
+        id.startsWith("seat:") ||
         id === "exit" ||
         id === "eat" ||
         id === "pray" ||
@@ -3327,6 +3445,16 @@ function CityGame({
         setInside(true);
         tuneRef.current();
         sayDhikr("market", undefined, true);
+        return;
+      }
+      if (id.startsWith("seat:")) {
+        const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
+        if (!m) {
+          toast("Order at the counter first, then sit down to eat.");
+          return;
+        }
+        e.sitAt(id);
+        openMealRef.current(m);
         return;
       }
       if (id.startsWith("door:restaurant:")) {
@@ -4279,6 +4407,75 @@ function CityGame({
           onLeave={() => void leavePitch()}
         />
       )}
+      {knocking && (
+        <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+          <div className="flex items-center gap-3 rounded-[24px] bg-[#10201e]/95 px-4 py-3 text-white shadow-2xl">
+            <span className="grid size-10 animate-pulse place-items-center rounded-full bg-[#c77d2a] text-[18px]">
+              🚪
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[14.5px] font-bold">
+                Knocking at {knocking.name}'s door…
+              </div>
+              <div className="text-[12px] opacity-70">Waiting for them to let you in</div>
+            </div>
+            <button
+              onClick={() => {
+                void homes.current?.answer(knocking.id, "left").catch(() => {});
+                cancelKnock();
+              }}
+              className="rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {atDoor && !call && (
+        <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+          <div className="rounded-[24px] bg-[#10201e]/95 px-4 py-3 text-white shadow-2xl">
+            <div className="text-[14.5px] font-bold">
+              🚪 {atDoor.fromName} is knocking at your door
+            </div>
+            <div className="text-[12px] opacity-70">They want to visit your home.</div>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => answerDoor(atDoor.id, "no")}
+                className="flex-1 rounded-full bg-white/15 py-2 text-[13px] font-bold"
+              >
+                Not now
+              </button>
+              <button
+                onClick={() => answerDoor(atDoor.id, "in")}
+                className="flex-1 rounded-full bg-[#2e7d32] py-2 text-[13px] font-bold"
+              >
+                Let in
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {guests.length > 0 && !atDoor && !panel && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute right-3 top-[220px] z-20 flex flex-col items-end gap-1.5"
+        >
+          {guests.map((g) => (
+            <div
+              key={g.id}
+              className="pointer-events-auto flex items-center gap-2 rounded-full bg-[#10201e]/85 py-1 pl-3 pr-1 text-[12px] text-white shadow"
+            >
+              <span>👤 {g.fromName} is visiting</span>
+              <button
+                onClick={() => answerDoor(g.id, "out")}
+                className="rounded-full bg-[#c0392b] px-2.5 py-1 text-[11.5px] font-bold"
+              >
+                Ask to leave
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {visiting && (
         <div
           data-game-ui
@@ -4353,6 +4550,10 @@ function CityGame({
                 return;
               }
               if (meal) {
+                if (e?.scenePlace() === "restaurant") {
+                  e.guideTo("seat:");
+                  return;
+                }
                 if (e?.scenePlace() === "out") {
                   if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
                 } else openMeal(meal);
@@ -4371,9 +4572,11 @@ function CityGame({
                     : "🛵 Walk to the Ilm Food Delivery bike to collect your food"
                   : `🛵 Your ${delivery.dish.name.toLowerCase()} is on the way…`
               : meal
-                ? inside
-                  ? `${meal.icon} Tap here: wash your hands, then eat`
-                  : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
+                ? engine.current?.scenePlace() === "restaurant"
+                  ? `${meal.icon} Sit at a table to eat · tap for the way`
+                  : inside
+                    ? `${meal.icon} Tap here: wash your hands, then eat`
+                    : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
                 : "😩 I'm hungry · tap to order food"}
           </button>
         </div>
@@ -7163,13 +7366,18 @@ function HomesView({
   homes,
   me,
   myItems,
+  open,
+  onOpen,
   onVisit,
 }: {
   homes: Homes;
   me: string | null;
   myItems: number;
+  open: boolean;
+  onOpen: (on: boolean) => void;
   onVisit: (h: ShownHome) => void;
 }) {
+  const [isOpen, setIsOpen] = useState(open);
   const [list, setList] = useState<ShownHome[] | null>(null);
   useEffect(() => homes.top(setList), [homes]);
   const mine = list?.find((h) => h.uid === me);
@@ -7187,6 +7395,25 @@ function HomesView({
           ? "Your home isn't on show yet. Buy furniture from ☰ Menu → Furnish your home."
           : `Your home: ❤️ ${mine?.likes ?? 0} likes this week · ${myItems} items`}
       </div>
+      <label className="flex items-center gap-3 rounded-xl bg-white px-3 py-2 text-[13px] shadow-sm">
+        <input
+          type="checkbox"
+          checked={isOpen}
+          onChange={(e) => {
+            setIsOpen(e.target.checked);
+            onOpen(e.target.checked);
+          }}
+          className="size-5 accent-[#1f6f63]"
+        />
+        <span>
+          <b>Open house</b>
+          <span className="block text-[11.5px] opacity-65">
+            {isOpen
+              ? "Anyone can walk in. You can still ask a guest to leave."
+              : "Visitors knock and wait for you to let them in."}
+          </span>
+        </span>
+      </label>
       {!list && <p className="text-[13px] opacity-70">Loading homes…</p>}
       {list && others.length === 0 && (
         <p className="text-[13px] opacity-70">No other homes on show yet.</p>
@@ -7209,7 +7436,7 @@ function HomesView({
               onClick={() => onVisit(h)}
               className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-white"
             >
-              Visit
+              {h.open ? "Visit" : "Knock"}
             </button>
           </div>
         ))}
@@ -7545,7 +7772,16 @@ function PhoneFrame({
             className={`flex items-center justify-between px-6 pb-1 pt-2.5 text-[12px] font-bold ${title ? "text-[#10201e]" : "text-white"}`}
           >
             <span>{time}</span>
-            <span className="tracking-wide">IlmNet ▂▄▆ 🔋</span>
+            <span className="flex items-center gap-2">
+              <span className="tracking-wide">IlmNet ▂▄▆ 🔋</span>
+              <button
+                onClick={onClose}
+                aria-label="Close phone"
+                className={`grid size-6 place-items-center rounded-full text-[14px] leading-none ${title ? "bg-[#10201e]/10" : "bg-white/20"}`}
+              >
+                ✕
+              </button>
+            </span>
           </div>
           {title && (
             <div className="flex items-center gap-2 border-b border-[#10201e]/10 px-4 pb-2 pt-1">
@@ -9715,6 +9951,7 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
 }
 
 function PhoneView({
+  myNumber,
   onWallet,
   onRooms,
   onHomes,
@@ -9725,6 +9962,7 @@ function PhoneView({
   onTravel,
   onPlaces,
 }: {
+  myNumber?: string;
   onWallet: () => void;
   onRooms: () => void;
   onHomes: () => void;
@@ -9761,6 +9999,11 @@ function PhoneView({
         <div className="mt-1 text-[13px] opacity-80">
           {now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
         </div>
+        {myNumber && (
+          <div className="mx-auto mt-2 w-fit rounded-full bg-white/15 px-3 py-1 text-[12px] font-semibold tracking-wide">
+            📞 My number: {myNumber}
+          </div>
+        )}
       </div>
       <div className="mt-10 grid grid-cols-4 gap-x-2 gap-y-5">
         {icon("#2f8f3a", "🛵", "IlmDash", onFood)}
