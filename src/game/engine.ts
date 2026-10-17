@@ -964,8 +964,9 @@ export class IlmCityEngine {
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
-    this.buildCourt(D);
     if (play) this.buildPlay(D, play);
+    // the tennis court gets its own lot, clear of the pitch and the sisters' corner
+    this.buildCourt(D);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
@@ -2737,7 +2738,12 @@ export class IlmCityEngine {
         g.add(mesh);
         this.dg.add(g);
         this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
-        this.reserved.push({ x0: x - W / 2, x1: x + W / 2, z0: z - Dp / 2, z1: z + Dp / 2 });
+        this.reserved.push({
+          x0: this.ox + x - W / 2,
+          x1: this.ox + x + W / 2,
+          z0: this.oz + z - Dp / 2,
+          z1: this.oz + z + Dp / 2,
+        });
         const fz = z + (north ? Dp / 2 + 1.4 : -Dp / 2 - 1.4);
         this.zones.push({
           id: "door:restaurant:" + D.id,
@@ -2754,20 +2760,56 @@ export class IlmCityEngine {
   /** A free lot beside the market street, for a building W wide and Dp deep. */
   private findLot(D: District, W: number, Dp: number) {
     const m = this.marketSpot.get(D.id);
-    const sz = m?.sz ?? 0;
     const x0 = m?.x ?? 0;
     const xs: number[] = [];
     for (let k = 3; k < 34; k++) xs.push(k * 6, -k * 6);
-    for (const north of [m?.north ?? true, !(m?.north ?? true)])
-      for (const off of [Dp / 2 + 6.4, Dp / 2 + 7.4, Dp / 2 + 9])
-        for (const dx of xs) {
-          const x = x0 + dx,
-            z = sz + (north ? -off : off);
-          if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - W / 2 - 6) continue;
+    // the market street first, then any other street with room
+    const streets = [m?.sz ?? 0, ...D.streets.map((s) => s.z).filter((z) => z !== (m?.sz ?? 0))];
+    for (const sz of streets)
+      for (const north of [m?.north ?? true, !(m?.north ?? true)])
+        for (const off of [Dp / 2 + 6.4, Dp / 2 + 7.4, Dp / 2 + 9])
+          for (const dx of xs) {
+            const x = x0 + dx,
+              z = sz + (north ? -off : off);
+            if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - W / 2 - 6) continue;
+            if (Math.abs(z) > halfOf(D).z - Dp / 2 - 4) continue;
+            if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
+              continue;
+            this.reserved.push({
+              x0: this.ox + x - W / 2,
+              x1: this.ox + x + W / 2,
+              z0: this.oz + z - Dp / 2,
+              z1: this.oz + z + Dp / 2,
+            });
+            this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
+            const fz = z + (north ? Dp / 2 + 1.6 : -Dp / 2 - 1.6);
+            return { x, z, north, fz };
+          }
+    // no room along a street: any open ground in the area, facing the nearest street
+    const H = halfOf(D);
+    for (let r = 0; r < Math.max(H.x, H.z); r += 3)
+      for (let x = -H.x + W / 2 + 6; x <= H.x - W / 2 - 6; x += 3)
+        for (let z = -H.z + Dp / 2 + 6; z <= H.z - Dp / 2 - 6; z += 3) {
+          if (
+            Math.max(Math.abs(x - x0), Math.abs(z)) > r ||
+            Math.max(Math.abs(x - x0), Math.abs(z)) <= r - 3
+          )
+            continue;
+          // keep off the roads, the pavements and the parking bays
+          if (Math.abs(x) < W / 2 + 8) continue;
+          if (D.streets.some((st) => Math.abs(z - st.z) < Dp / 2 + 7)) continue;
           if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
             continue;
-          this.reserved.push({ x0: x - W / 2, x1: x + W / 2, z0: z - Dp / 2, z1: z + Dp / 2 });
+          this.reserved.push({
+            x0: this.ox + x - W / 2,
+            x1: this.ox + x + W / 2,
+            z0: this.oz + z - Dp / 2,
+            z1: this.oz + z + Dp / 2,
+          });
           this.addCollider("out", x - W / 2, x + W / 2, z - Dp / 2, z + Dp / 2);
+          const sz =
+            D.streets.map((s) => s.z).sort((a, b) => Math.abs(a - z) - Math.abs(b - z))[0] ?? 0;
+          const north = z < sz;
           const fz = z + (north ? Dp / 2 + 1.6 : -Dp / 2 - 1.6);
           return { x, z, north, fz };
         }
