@@ -4382,6 +4382,7 @@ export class IlmCityEngine {
     const light = new THREE.PointLight(0xffe2b0, 40, 30, 1.6);
     light.position.set(0, 4.5, 0);
     g.add(light);
+    g.userData.indoors = true;
     this.scene.add(g);
     this.addCollider(kind, o.x - W / 2 - 5, o.x - W / 2 + 0.6, o.z - D / 2 - 5, o.z + D / 2 + 5);
     this.addCollider(kind, o.x + W / 2 - 0.6, o.x + W / 2 + 5, o.z - D / 2 - 5, o.z + D / 2 + 5);
@@ -6341,7 +6342,36 @@ export class IlmCityEngine {
     col.needsUpdate = true;
   }
 
+  /** Indoors, the city outside is hidden: no flicker where the floor meets the ground,
+      and much less to draw. Whatever was hidden for another reason stays hidden. */
+  private hiddenOutside = new Map<THREE.Object3D, boolean>();
+  private showOutside(out: boolean) {
+    if (out) {
+      for (const [o, v] of this.hiddenOutside) o.visible = v;
+      this.hiddenOutside.clear();
+      return;
+    }
+    if (this.hiddenOutside.size) return;
+    const keep = new Set<THREE.Object3D>([
+      this.player,
+      this.marker,
+      this.hemi,
+      this.sun,
+      this.sun.target,
+      this.mallGroup,
+    ]);
+    if (this.guide) {
+      keep.add(this.guide.arrow);
+      keep.add(this.guide.arrow.userData.pin as THREE.Object3D);
+    }
+    for (const o of this.scene.children) {
+      if (keep.has(o) || o.userData.indoors || (o as THREE.Light).isLight) continue;
+      this.hiddenOutside.set(o, o.visible);
+      o.visible = false;
+    }
+  }
   private applyLight() {
+    this.showOutside(this.where === "out");
     const c = this.clock;
     if (!c) return;
     if (this.sky) this.sky.visible = this.where === "out";

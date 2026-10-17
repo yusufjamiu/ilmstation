@@ -198,9 +198,28 @@ export function connectCallsLocal(uid: string): CallNet {
 }
 
 /* ---------------- a voice call ---------------- */
-const ICE: RTCConfiguration = {
-  iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
+const STUN: RTCIceServer = {
+  urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
 };
+/** STUN finds a direct way between phones; the TURN relay (from our server) carries the
+    call when there is none, e.g. between two different mobile networks. */
+async function iceConfig(): Promise<RTCConfiguration> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 3500);
+    const r = await fetch("/api/turn", { signal: ctl.signal });
+    clearTimeout(t);
+    const j = (await r.json()) as { iceServers?: RTCIceServer | RTCIceServer[] };
+    const relays = j.iceServers
+      ? Array.isArray(j.iceServers)
+        ? j.iceServers
+        : [j.iceServers]
+      : [];
+    return { iceServers: [STUN, ...relays] };
+  } catch {
+    return { iceServers: [STUN] };
+  }
+}
 
 export type CallUi = {
   id: string;
@@ -242,7 +261,7 @@ export class VoiceCall {
     const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     const c = new VoiceCall(net, "", to.name, true, onUi);
     c.mic = mic;
-    c.peer("from", "to");
+    c.peer("from", "to", await iceConfig());
     const offer = await c.pc!.createOffer();
     await c.pc!.setLocalDescription(offer);
     // the call appears on their phone together with everything needed to answer it
@@ -283,7 +302,7 @@ export class VoiceCall {
     const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     const c = new VoiceCall(net, d.id, d.fromName, false, onUi);
     c.mic = mic;
-    c.peer("to", "from");
+    c.peer("to", "from", await iceConfig());
     c.ready(d.id);
     c.set({ state: "connecting" });
     await c.remote(d.offer!);
@@ -326,8 +345,8 @@ export class VoiceCall {
     for (const c of this.early) await pc.addIceCandidate(c).catch(() => {});
     this.early = [];
   }
-  private peer(mine: "from" | "to", theirs: "from" | "to") {
-    const pc = new RTCPeerConnection(ICE);
+  private peer(mine: "from" | "to", theirs: "from" | "to", ice: RTCConfiguration) {
+    const pc = new RTCPeerConnection(ice);
     this.pc = pc;
     this.mine = mine;
     this.theirs = theirs;
