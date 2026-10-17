@@ -3,6 +3,8 @@ import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import type { MatchState, Slot } from "./soccer";
 import type { RopeState } from "./rope";
+import type { TennisState } from "./tennis";
+import { connectCourt, connectCourtLocal, type CourtNet } from "./courtnet";
 import { connectRope, connectRopeLocal } from "./ropenet";
 import { VEHICLE_INFO } from "./vehicles";
 import { connectHomes, connectHomesLocal, type Homes, type Knock, type ShownHome } from "./homes";
@@ -869,6 +871,106 @@ function CityGame({
   void onlineReady;
   /* the match on the pitch */
   const [match, setMatch] = useState<MatchState | null>(null);
+  /* ---------- tennis ---------- */
+  const [tennis, setTennis] = useState<TennisState | null>(null);
+  const court = useRef<{ net: CourtNet; off: () => void; iv: number } | null>(null);
+  const tennisDone = useRef(false);
+  const leaveTennis = useCallback(() => {
+    const c = court.current;
+    if (c) {
+      clearInterval(c.iv);
+      c.off();
+      void c.net.leave();
+      c.net.close();
+      court.current = null;
+    }
+    engine.current?.endTennis();
+    engine.current?.hideRemotes([]);
+    setTennis(null);
+  }, []);
+  const onTennis = useCallback(
+    (t: TennisState) => {
+      setTennis(t);
+      if (t.phase === "over" && !tennisDone.current) {
+        tennisDone.current = true;
+        const pts = t.won ? 5 : 2;
+        update((x) => ({ ...x, coins: x.coins + pts }));
+        need({ energy: -8, social: 12, hunger: -5 });
+        toast(`${t.won ? "You won!" : "Good game!"} +${pts} points`, "good");
+      } else if (t.phase !== "over") tennisDone.current = false;
+    },
+    [update, need, toast],
+  );
+  const playTennis = useCallback(
+    async (zoneId: string, online: boolean) => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      tennisDone.current = false;
+      if (!online) {
+        if (!e.startTennis(zoneId, onTennis)) toast("Walk to the tennis court first.");
+        return;
+      }
+      const me = onlineRef.current?.uid;
+      if (!me) {
+        toast("Log in to IlmStation to play tennis with other players.", "warn");
+        return;
+      }
+      let net: CourtNet;
+      try {
+        const local =
+          import.meta.env.DEV &&
+          new URLSearchParams(window.location.search).get("online") === "local";
+        net = local ? connectCourtLocal(zoneId, me) : await connectCourt(zoneId, me);
+      } catch {
+        toast("Online tennis isn't switched on yet. Play the coach for now.", "warn");
+        return;
+      }
+      const name = saveRef.current.profile?.name ?? "Player";
+      await net.join(name);
+      toast("Waiting for another player on this court… (it starts when they join)");
+      let started: "host" | "view" | null = null;
+      let other = "";
+      const off = net.watch((r) => {
+        const ids = Object.entries(r.players)
+          .sort((a, b) => a[1].at - b[1].at)
+          .map(([u]) => u);
+        const mine = ids.indexOf(me);
+        if (mine > 1) {
+          toast("This court is busy. Try another court or play the coach.", "warn");
+          leaveTennis();
+          return;
+        }
+        if (!started && ids.length >= 2) {
+          started = mine === 0 ? "host" : "view";
+          other = ids[1 - mine];
+          const names: [string, string] = [r.players[ids[0]].name, r.players[ids[1]].name];
+          e.hideRemotes([other]);
+          e.startTennis(zoneId, onTennis, {
+            mode: started,
+            mySide: mine === 0 ? 0 : 1,
+            names,
+            send: started === "view" ? (i) => net.sendInput(i) : undefined,
+          });
+        }
+        if (started === "view" && r.state) e.tennisApply(r.state);
+        if (started === "host" && r.input[other]) e.tennisRemote(r.input[other]);
+        if (started && !r.players[other]) {
+          toast("The other player left the court.");
+          leaveTennis();
+        }
+      });
+      const iv = window.setInterval(() => {
+        if (started === "host") {
+          const s = e.tennisSnapshot();
+          if (s) net.sendState(s);
+        }
+      }, 100);
+      court.current = { net, off, iv };
+    },
+    [onTennis, toast, leaveTennis],
+  );
+
   /* ---------- skipping rope ---------- */
   const [rope, setRope] = useState<RopeState | null>(null);
   const ropeOut = useRef(false);
@@ -2994,6 +3096,38 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("tennis:")) {
+        setPanel({
+          kind: "info",
+          title: "🎾 Tennis court",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13.5px] opacity-80">
+                Brothers and sisters are all welcome. First to 7 points, win by 2.
+              </p>
+              <button
+                onClick={() => void playTennis(id, false)}
+                className="w-full rounded-xl bg-[#2f6fa8] px-4 py-3 text-left font-bold text-white"
+              >
+                🎾 Play the coach
+                <span className="block text-[12px] font-normal opacity-85">
+                  Move with the stick, tap Hit when the ball reaches you
+                </span>
+              </button>
+              <button
+                onClick={() => void playTennis(id, true)}
+                className="w-full rounded-xl border border-[#2f6fa8]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                👥 Play another player
+                <span className="block text-[12px] font-normal opacity-70">
+                  One against one with a real player on this court
+                </span>
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       if (id.startsWith("sisters:")) {
         if (!saveRef.current.profile?.female) {
           toast(
@@ -3725,6 +3859,7 @@ function CityGame({
     },
     [
       playRope,
+      playTennis,
       endVisit,
       greeted,
       startWork,
@@ -4507,6 +4642,9 @@ function CityGame({
           onMute={(m) => callObj.current?.mute(m)}
           onHangUp={() => callObj.current?.hangUp()}
         />
+      )}
+      {tennis && (
+        <TennisHud t={tennis} onHit={() => engine.current?.tennisHit()} onLeave={leaveTennis} />
       )}
       {rope && (
         <RopeHud
@@ -7132,6 +7270,13 @@ function placesIn(id: string): Place[] {
       sub: "Buy a car",
       prefix: `dealer:${D.id}`,
     });
+  if (["lekki", "ikeja", "badore", "akoka", "ojo", "firstgate"].includes(D.id))
+    out.push({
+      icon: "🎾",
+      name: `${D.name} Tennis Court`,
+      sub: "Brothers and sisters welcome",
+      prefix: `tennis:${D.id}`,
+    });
   out.push({
     icon: "🪢",
     name: "Sisters' Corner",
@@ -9472,6 +9617,78 @@ function MssnView({
 }
 
 const JERSEY_PRICE = 25;
+
+/* ---------------- tennis ---------------- */
+function TennisHud({
+  t,
+  onHit,
+  onLeave,
+}: {
+  t: TennisState;
+  onHit: () => void;
+  onLeave: () => void;
+}) {
+  const hitRef = useRef(onHit);
+  hitRef.current = onHit;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        hitRef.current();
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const me = t.mySide;
+  return (
+    <>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#14324d]/92 px-4 py-2 text-white shadow-xl">
+          <span className="text-[12px] font-bold text-[#9fd0ff]">
+            {me === 0 ? "You" : t.names[0]}
+          </span>
+          <span className="font-serif text-3xl tabular-nums">
+            {t.score[0]} – {t.score[1]}
+          </span>
+          <span className="text-[12px] font-bold text-[#ffd59f]">
+            {me === 1 ? "You" : t.names[1]}
+          </span>
+          <button onClick={onLeave} className="rounded-lg bg-white/10 px-2 py-0.5 text-[12px]">
+            {t.phase === "over" ? "Done" : "Leave"}
+          </button>
+        </div>
+      </div>
+      {t.msg && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 top-[128px] z-30 flex justify-center px-3"
+        >
+          <div className="rounded-xl bg-[#fdf8ec]/95 px-4 py-2 text-center text-[14px] font-bold shadow-lg">
+            {t.msg}
+          </div>
+        </div>
+      )}
+      {t.phase !== "over" && (
+        <div
+          data-game-ui
+          className="absolute bottom-[max(24px,env(safe-area-inset-bottom))] right-4 z-30"
+        >
+          <button
+            onClick={onHit}
+            className={`grid size-24 place-items-center rounded-full text-[18px] font-extrabold text-white shadow-xl active:scale-95 ${t.canHit ? "bg-[#2f6fa8]" : "bg-[#2f6fa8]/45"}`}
+          >
+            {t.myServe ? "Serve" : "Hit"}
+            <span className="-mt-4 text-[10px] font-semibold opacity-70">Space</span>
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
 
 /* ---------------- skipping rope ---------------- */
 function RopeHud({

@@ -37,6 +37,7 @@ import {
 } from "./buildings";
 import { Traffic, type Vehicle } from "./traffic";
 import { RopeRig, type RopeMode, type RopeState } from "./rope";
+import { Tennis, type Court, type TennisInput, type TennisSnap, type TennisState } from "./tennis";
 import { VEHICLE_INFO, vehicleMesh, type VehicleKind } from "./vehicles";
 import {
   forgetHuman,
@@ -960,6 +961,8 @@ export class IlmCityEngine {
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
+    if (["lekki", "ikeja", "badore", "akoka", "ojo", "firstgate"].includes(D.id))
+      this.buildCourt(D);
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
@@ -2141,6 +2144,95 @@ export class IlmCityEngine {
     this.hiddenRemotes = new Set(uids);
     for (const [uid, r] of this.remotes) r.g.visible = !this.hiddenRemotes.has(uid);
   }
+  /* ---------------- tennis ---------------- */
+  private tennis: Tennis | null = null;
+  private tennisCam = new THREE.Vector3();
+  startTennis(
+    zoneId: string,
+    onState: (s: TennisState) => void,
+    online?: {
+      mode: "host" | "view";
+      mySide: 0 | 1;
+      names: [string, string];
+      send?: (i: TennisInput) => void;
+    },
+  ) {
+    const c = this.courts.get(zoneId);
+    if (!c || this.where !== "out") return false;
+    this.endTennis();
+    if (this.driving) this.exitCar();
+    this.tapTarget = null;
+    this.marker.visible = false;
+    const names = online?.names ?? ["You", "Coach Kareem"];
+    const otherName = names[online ? 1 - online.mySide : 1];
+    const other = person(online ? 0x5a3f6a : 0xf4f1ea, {
+      cap: 0xffffff,
+      trousers: 0xf4f1ea,
+      seed: 33,
+    });
+    const tag = label(otherName, { size: 0.6, bg: "rgba(47,111,168,0.92)" });
+    tag.position.y = 2.6;
+    other.add(tag);
+    this.tennis = new Tennis(this.scene, c, this.player, other, animatePerson, onState, {
+      mode: online?.mode ?? "solo",
+      mySide: online?.mySide ?? 0,
+      names,
+      send: online?.send,
+    });
+    const w = this.tennis.myWorld();
+    this.tennisCam.set(w.x, 0, w.z);
+    this.camYaw = this.tennis.camYaw();
+    this.snapCamera();
+    return true;
+  }
+  tennisHit() {
+    if (!this.tennis) return;
+    const v = this.moveVec();
+    this.tennis.hit(THREE.MathUtils.clamp(v.x, -1, 1) * (this.tennisSide() === 0 ? -1 : 1));
+  }
+  private tennisSide() {
+    return this.tennis?.state.mySide ?? 0;
+  }
+  tennisRemote(i: TennisInput) {
+    this.tennis?.setRemote(i);
+  }
+  tennisSnapshot() {
+    return this.tennis?.snapshot() ?? null;
+  }
+  tennisApply(s: TennisSnap) {
+    this.tennis?.applySnapshot(s);
+  }
+  inTennis() {
+    return !!this.tennis;
+  }
+  endTennis() {
+    if (!this.tennis) return;
+    this.tennis.dispose();
+    this.tennis = null;
+    this.snapCamera();
+  }
+  private stepTennis(v: THREE.Vector2, dt: number) {
+    const t = this.tennis!;
+    let move: { x: number; z: number } | null = null;
+    if (v.lengthSq() > 0.01) {
+      const fx = -Math.sin(this.camYaw),
+        fz = -Math.cos(this.camYaw);
+      const rx = Math.cos(this.camYaw),
+        rz = -Math.sin(this.camYaw);
+      move = { x: rx * v.x + fx * v.y, z: rz * v.x + fz * v.y };
+    }
+    t.step(dt, move);
+    const me = t.myWorld(),
+      b = t.ballWorld();
+    const tx = me.x + (b.x - me.x) * 0.45,
+      tz = me.z + (b.z - me.z) * 0.45;
+    const k = 1 - Math.exp(-dt * 4);
+    this.tennisCam.x += (tx - this.tennisCam.x) * k;
+    this.tennisCam.z += (tz - this.tennisCam.z) * k;
+    if (performance.now() - this.lastDrag > 2500)
+      this.camYaw = lerpAngle(this.camYaw, t.camYaw(), 1 - Math.exp(-dt * 2));
+  }
+
   /* ---------------- skipping rope ---------------- */
   private ropes = new Map<string, RopeRig>();
   private rope: RopeRig | null = null;
@@ -2805,6 +2897,99 @@ export class IlmCityEngine {
     }
   }
   private mallGroup = new THREE.Group();
+
+  /** A fenced tennis court beside the market street. */
+  private courts = new Map<string, Court>();
+  private buildCourt(D: District) {
+    const W = 15,
+      Dp = 30;
+    // the court runs along the street (x), so its long side faces the road
+    const lot = this.findLot(D, Dp, W);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(Dp, W), mat(0x3f7f5c));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0.03;
+    ground.receiveShadow = true;
+    g.add(ground);
+    const len = 23.8,
+      wid = 8.2;
+    const { mesh: surf } = canvasPlane(
+      len + 2,
+      wid + 2,
+      (c, CW, CH) => {
+        c.fillStyle = "#2f6fa8";
+        c.fillRect(0, 0, CW, CH);
+        const sx = CW / (len + 2),
+          sy = CH / (wid + 2);
+        c.strokeStyle = "#ffffff";
+        c.lineWidth = Math.max(3, sx * 0.08);
+        c.strokeRect(sx, sy, len * sx, wid * sy);
+        const s1 = sx * (1 + len / 2 - 6.4),
+          s2 = sx * (1 + len / 2 + 6.4);
+        c.beginPath();
+        c.moveTo(s1, sy);
+        c.lineTo(s1, sy * (1 + wid));
+        c.moveTo(s2, sy);
+        c.lineTo(s2, sy * (1 + wid));
+        c.moveTo(s1, CH / 2);
+        c.lineTo(s2, CH / 2);
+        c.stroke();
+      },
+      1024,
+    );
+    surf.rotation.x = -Math.PI / 2;
+    surf.position.y = 0.05;
+    surf.receiveShadow = true;
+    g.add(surf);
+    for (const pz of [-wid / 2 - 0.6, wid / 2 + 0.6])
+      g.add(box(0.1, 1.07, 0.1, 0x3a3f46, 0, 0, pz));
+    const net = new THREE.Mesh(
+      new THREE.PlaneGeometry(wid + 1.2, 0.9),
+      new THREE.MeshBasicMaterial({
+        color: 0x1d1d26,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      }),
+    );
+    net.rotation.y = Math.PI / 2;
+    net.position.set(0, 0.5, 0);
+    g.add(net, box(0.05, 0.06, wid + 1.2, 0xffffff, 0, 0.93, 0));
+    const fence = new THREE.MeshBasicMaterial({
+      color: 0x2a3a2a,
+      transparent: true,
+      opacity: 0.25,
+      side: THREE.DoubleSide,
+    });
+    for (const [fx, fzz, fw, rot] of [
+      [0, -W / 2, Dp, 0],
+      [-Dp / 2, 0, W, Math.PI / 2],
+      [Dp / 2, 0, W, Math.PI / 2],
+    ] as [number, number, number, number][]) {
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(fw, 3), fence);
+      f.position.set(fx, 1.5, north ? fzz : -fzz);
+      f.rotation.y = rot;
+      g.add(f);
+    }
+    const sign = this.signBoard("Tennis Court · all welcome", 7, 0.9, "#2f6fa8", "#ffffff");
+    sign.position.set(0, 3.4, north ? W / 2 - 0.2 : -W / 2 + 0.2);
+    if (!north) sign.rotation.y = Math.PI;
+    g.add(sign);
+    this.dg.add(g);
+    const id = "tennis:" + D.id;
+    this.courts.set(id, { x: x + this.ox, z: z + this.oz, turn: 0, len, wid });
+    this.zones.push({
+      id,
+      label: "Play tennis",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 3,
+      scene: "out",
+    });
+  }
 
   /** Is there a place with this id (or prefix) anywhere in the city? */
   hasZone(prefix: string) {
@@ -4696,6 +4881,7 @@ export class IlmCityEngine {
     if (this.riding) return this.riding.mesh.position;
     if (this.kekeTrip) return this.kekeTrip.mesh.position;
     if (this.match && !this.spectating && this.jersey) return this.matchCam;
+    if (this.tennis) return this.tennisCam;
     return this.driving ? this.car.position : this.player.position;
   }
   private snapCamera() {
@@ -5314,6 +5500,8 @@ export class IlmCityEngine {
     const v = this.moveVec();
     if (this.match && !this.spectating) {
       this.stepMatch(v, dt);
+    } else if (this.tennis) {
+      this.stepTennis(v, dt);
     } else if (this.rope) {
       // in the rope game you stay in your place
     } else if (this.cine) this.stepCinematic(dt);
@@ -5443,7 +5631,14 @@ export class IlmCityEngine {
     const pos = this.driving ? this.car.position : this.player.position;
     let best: Zone | null = null,
       bd = Infinity;
-    if (this.cine || this.riding || this.kekeTrip || this.rope || (this.match && !this.spectating))
+    if (
+      this.cine ||
+      this.riding ||
+      this.kekeTrip ||
+      this.rope ||
+      this.tennis ||
+      (this.match && !this.spectating)
+    )
       best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
@@ -5467,6 +5662,7 @@ export class IlmCityEngine {
       !this.riding &&
       !(this.match && !this.spectating) &&
       !this.rope &&
+      !this.tennis &&
       this.where === "out"
     )
       this.walkers.forEach((w, i) => {

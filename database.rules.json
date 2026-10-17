@@ -43,6 +43,24 @@
           ".write": "auth != null && root.child('ropes').child($rope).child('players').child(auth.uid).exists()"
         }
       }
+    },
+    "courts": {
+      "$court": {
+        ".read": "auth != null",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
+        "input": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
+        "state": {
+          ".write": "auth != null && root.child('courts').child($court).child('players').child(auth.uid).exists()"
+        }
+      }
     }
   }
 }
