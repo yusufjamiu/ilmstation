@@ -961,8 +961,7 @@ export class IlmCityEngine {
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
-    if (["lekki", "ikeja", "badore", "akoka", "ojo", "firstgate"].includes(D.id))
-      this.buildCourt(D);
+    this.buildCourt(D);
     if (play) this.buildPlay(D, play);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));

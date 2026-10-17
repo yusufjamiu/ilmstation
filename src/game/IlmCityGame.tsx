@@ -7270,13 +7270,12 @@ function placesIn(id: string): Place[] {
       sub: "Buy a car",
       prefix: `dealer:${D.id}`,
     });
-  if (["lekki", "ikeja", "badore", "akoka", "ojo", "firstgate"].includes(D.id))
-    out.push({
-      icon: "🎾",
-      name: `${D.name} Tennis Court`,
-      sub: "Brothers and sisters welcome",
-      prefix: `tennis:${D.id}`,
-    });
+  out.push({
+    icon: "🎾",
+    name: `${D.name} Tennis Court`,
+    sub: "Brothers and sisters welcome",
+    prefix: `tennis:${D.id}`,
+  });
   out.push({
     icon: "🪢",
     name: "Sisters' Corner",
