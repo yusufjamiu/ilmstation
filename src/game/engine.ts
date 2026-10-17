@@ -56,7 +56,7 @@ import {
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
 
-export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant" | "mall";
+export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -488,6 +488,7 @@ export class IlmCityEngine {
     madrasah: [],
     restaurant: [],
     mall: [],
+    upstairs: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -509,6 +510,7 @@ export class IlmCityEngine {
     madrasah: new THREE.Vector3(1200, 0, 0),
     restaurant: new THREE.Vector3(1300, 0, 0),
     mall: new THREE.Vector3(1420, 0, 0),
+    upstairs: new THREE.Vector3(1100, 0, 60),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -629,6 +631,7 @@ export class IlmCityEngine {
 
   enterInterior(kind: InteriorKind, name = "") {
     this.interiorName = name;
+    if (kind === "home") this.setDuplex(false);
     this.outPos.copy(this.player.position);
     this.where = kind;
     const o = this.interiorOrigin[kind];
@@ -3246,6 +3249,7 @@ export class IlmCityEngine {
     if (z) this.player.position.set(z.x, 0, z.z);
     if (p) this.district = districtById(p.district);
     this.enterInterior("home", name);
+    this.setDuplex((p?.floors ?? 1) >= 2);
   }
   /** Begin the day inside your flat; walking out puts you at the estate gate. */
   startAtHome(area: string, name: string) {
@@ -4356,7 +4360,7 @@ export class IlmCityEngine {
   }
 
   /* ---------------- interiors ---------------- */
-  private room(kind: InteriorKind, W: number, D: number, wall: number, floor: number) {
+  private room(kind: InteriorKind, W: number, D: number, wall: number, floor: number, door = true) {
     const o = this.interiorOrigin[kind],
       g = new THREE.Group();
     g.position.copy(o);
@@ -4371,8 +4375,10 @@ export class IlmCityEngine {
     g.add(box(W, 5, 0.4, wall, 0, 0, -D / 2));
     g.add(box(0.4, 5, D, wall, -W / 2, 0, 0));
     g.add(box(0.4, 5, D, wall, W / 2, 0, 0));
-    g.add(box(W / 2 - 1.5, 0.8, 0.4, wall, -W / 4 - 0.75, 0, D / 2));
-    g.add(box(W / 2 - 1.5, 0.8, 0.4, wall, W / 4 + 0.75, 0, D / 2));
+    if (door) {
+      g.add(box(W / 2 - 1.5, 0.8, 0.4, wall, -W / 4 - 0.75, 0, D / 2));
+      g.add(box(W / 2 - 1.5, 0.8, 0.4, wall, W / 4 + 0.75, 0, D / 2));
+    } else g.add(box(W, 0.8, 0.4, wall, 0, 0, D / 2));
     const light = new THREE.PointLight(0xffe2b0, 40, 30, 1.6);
     light.position.set(0, 4.5, 0);
     g.add(light);
@@ -4380,20 +4386,49 @@ export class IlmCityEngine {
     this.addCollider(kind, o.x - W / 2 - 5, o.x - W / 2 + 0.6, o.z - D / 2 - 5, o.z + D / 2 + 5);
     this.addCollider(kind, o.x + W / 2 - 0.6, o.x + W / 2 + 5, o.z - D / 2 - 5, o.z + D / 2 + 5);
     this.addCollider(kind, o.x - W / 2 - 5, o.x + W / 2 + 5, o.z - D / 2 - 5, o.z - D / 2 + 0.6);
-    this.addCollider(kind, o.x - W / 2 - 5, o.x - 1.4, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
-    this.addCollider(kind, o.x + 1.4, o.x + W / 2 + 5, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
-    this.addCollider(kind, o.x - 2, o.x + 2, o.z + D / 2 + 0.8, o.z + D / 2 + 5);
-    this.zones.push({
-      id: "exit",
-      label: "Go outside",
-      x: o.x,
-      z: o.z + D / 2 - 0.6,
-      r: 1.8,
-      scene: kind,
-    });
+    if (door) {
+      this.addCollider(kind, o.x - W / 2 - 5, o.x - 1.4, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
+      this.addCollider(kind, o.x + 1.4, o.x + W / 2 + 5, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
+      this.addCollider(kind, o.x - 2, o.x + 2, o.z + D / 2 + 0.8, o.z + D / 2 + 5);
+      this.zones.push({
+        id: "exit",
+        label: "Go outside",
+        x: o.x,
+        z: o.z + D / 2 - 0.6,
+        r: 1.8,
+        scene: kind,
+      });
+    } else
+      this.addCollider(kind, o.x - W / 2 - 5, o.x + W / 2 + 5, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
     return { g, o };
   }
   private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zone?: Zone }>();
+  private homeWall: THREE.MeshStandardMaterial | null = null;
+  private homeFloor: THREE.MeshStandardMaterial | null = null;
+  private stairs: THREE.Object3D | null = null;
+  private stairsZone: Zone | null = null;
+  /** Paint your home: wall and floor colours. */
+  setHomePaint(wall: number, floor: number) {
+    this.homeWall?.color.setHex(wall);
+    this.homeFloor?.color.setHex(floor);
+  }
+  /** A duplex has stairs to the family rooms upstairs. */
+  setDuplex(on: boolean) {
+    if (this.stairs) this.stairs.visible = on;
+    if (this.stairsZone) this.stairsZone.off = !on;
+  }
+  /** Climb the stairs (your way out of the house stays the same). */
+  changeFloor(up: boolean) {
+    const kind: InteriorKind = up ? "upstairs" : "home";
+    const o = this.interiorOrigin[kind];
+    this.where = kind;
+    this.player.position.set(o.x + 7.2, 0, o.z + (up ? 4.6 : 4.4));
+    this.player.rotation.y = up ? Math.PI : 0;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+  }
   private homeBase: Box[] | null = null;
   /** Show the furniture you own; everything else stays out of the flat. */
   setHomeItems(owned: string[]) {
@@ -4420,6 +4455,65 @@ export class IlmCityEngine {
   }
 
   private buildInteriors() {
+    // Upstairs in a duplex: the family's rooms
+    {
+      const { g, o } = this.room("upstairs", 20, 14, 0xefe4d0, 0x9a6b45, false);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      // master bed
+      const bed = new THREE.Group();
+      bed.add(B(3.8, 0.6, 4.4, 0x5a3a22, 0, 0, 0), B(3.6, 0.45, 4.2, 0xf4efe4, 0, 0.6, 0));
+      bed.add(B(3.8, 1.6, 0.25, 0x5a3a22, 0, 0, -2.2), B(3.5, 0.15, 2.4, 0x7d2f3a, 0, 1.05, 0.7));
+      bed.position.set(-6, 0, -3.8);
+      this.solid("upstairs", g, bed, 4, 4.6);
+      this.zones.push({
+        id: "sleep",
+        label: "Sleep / rest",
+        x: o.x - 6,
+        z: o.z - 0.8,
+        r: 2,
+        scene: "upstairs",
+      });
+      // children's room corner: two small beds
+      for (const bx of [3.6, 6.6]) {
+        const kb = new THREE.Group();
+        kb.add(B(1.6, 0.5, 3, 0x2f6fa8, 0, 0, 0), B(1.5, 0.3, 2.9, 0xfdf8ec, 0, 0.5, 0));
+        kb.position.set(bx, 0, -4.8);
+        this.solid("upstairs", g, kb, 1.7, 3.1);
+      }
+      g.add(B(0.2, 3, 5, 0xe0d4c0, 1.8, 0, -4.4));
+      this.addCollider("upstairs", o.x + 1.7, o.x + 1.9, o.z - 7, o.z - 1.9);
+      // wardrobe and the family sitting area
+      const wd = B(0.8, 3.2, 3, 0xb98d5e, -9.5, 0, 1.6);
+      this.solid("upstairs", g, wd, 0.9, 3.1);
+      const sofa = new THREE.Group();
+      sofa.add(B(3.2, 0.55, 1.1, 0x2a4a6a, 0, 0, 0), B(3.2, 0.85, 0.3, 0x2a4a6a, 0, 0.55, 0.4));
+      sofa.position.set(-2, 0, 3.6);
+      this.solid("upstairs", g, sofa, 3.3, 1.2);
+      const rug = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 3), mat(0xc9a35a));
+      rug.rotation.x = -Math.PI / 2;
+      rug.position.set(-2, 0.02, 1.4);
+      g.add(rug);
+      // the balcony: a glass door and a rail looking out
+      g.add(B(3.4, 3, 0.1, 0x6d8fa8, 4.5, 0.2, 6.75));
+      const sign = label("Balcony", { size: 0.5, bold: false });
+      sign.position.set(4.5, 3.6, 6.4);
+      g.add(sign);
+      // stairs down
+      for (let k = 0; k < 5; k++) g.add(B(2.2, 0.08, 0.45, 0x8a5a3a, 8.6, 0, 6.2 - k * 0.45));
+      g.add(B(0.08, 1, 2.4, 0x3a2a1c, 7.5, 0.2, 5.3));
+      this.zones.push({
+        id: "stairs:down",
+        label: "Go downstairs",
+        x: o.x + 8.6,
+        z: o.z + 5,
+        r: 1.6,
+        scene: "upstairs",
+      });
+      const tag = label("Upstairs · family rooms", { size: 0.6, bold: false });
+      tag.position.set(0, 4.6, -6.6);
+      g.add(tag);
+    }
     // IlmWorld Mall: a wide hall; the shop units are added with the Ikeja area
     {
       const { g, o } = this.room("mall", 34, 28, 0xf6f1e8, 0xd9d4c8);
@@ -4592,6 +4686,12 @@ export class IlmCityEngine {
     // Home: a flat with a bed and a bathroom. Everything else is bought.
     {
       const { g, o } = this.room("home", 20, 14, 0xe9dcc4, 0xb98d5e);
+      // your own paint: the walls and floor get their own materials
+      this.homeFloor = new THREE.MeshStandardMaterial({ color: 0xb98d5e, roughness: 0.85 });
+      this.homeWall = new THREE.MeshStandardMaterial({ color: 0xe9dcc4, roughness: 0.95 });
+      (g.children[0] as THREE.Mesh).material = this.homeFloor;
+      for (const c of g.children.slice(2, 7))
+        if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = this.homeWall;
       const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
         box(w, h, d, c, x, y, z);
       // bed (always there)
@@ -4789,7 +4889,7 @@ export class IlmCityEngine {
         head.rotation.x = Math.PI / 2;
         head.position.y = 1.7;
         fn.add(head);
-        fn.position.set(7.4, 0, 4.6);
+        fn.position.set(5.2, 0, 6.0);
         item("fan", fn, 0.6, 0.6);
       }
       {
@@ -4803,6 +4903,269 @@ export class IlmCityEngine {
         cl.rotation.x = Math.PI / 2;
         cl.position.set(-2, 3.6, -6.85);
         item("clock", cl);
+      }
+      // ---- decorations ----
+      const frame = (
+        text: string,
+        sub: string,
+        w: number,
+        h: number,
+        bg: string,
+        fg: string,
+        arabic = true,
+      ) =>
+        canvasPlane(
+          w,
+          h,
+          (c, CW, CH) => {
+            c.fillStyle = "#6d4a2b";
+            c.fillRect(0, 0, CW, CH);
+            c.fillStyle = bg;
+            c.fillRect(CW * 0.05, CH * 0.07, CW * 0.9, CH * 0.86);
+            c.fillStyle = fg;
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.font = arabic
+              ? `700 ${Math.round(CH * 0.34)}px Amiri, serif`
+              : `800 ${Math.round(CH * 0.3)}px "Work Sans", sans-serif`;
+            c.fillText(text, CW / 2, CH * (sub ? 0.42 : 0.52));
+            if (sub) {
+              c.font = `500 ${Math.round(CH * 0.12)}px "Work Sans", sans-serif`;
+              c.fillText(sub, CW / 2, CH * 0.78);
+            }
+          },
+          512,
+        ).mesh;
+      {
+        const m = frame(
+          "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+          "",
+          3.2,
+          1.1,
+          "#1f3d37",
+          "#e6b84a",
+        );
+        m.position.set(-6.5, 3.3, -6.78);
+        item("calligraphy", m);
+      }
+      {
+        // the Kaaba, over the prayer mat
+        const k = canvasPlane(
+          1.4,
+          1.6,
+          (c, CW, CH) => {
+            c.fillStyle = "#6d4a2b";
+            c.fillRect(0, 0, CW, CH);
+            c.fillStyle = "#cfe3ef";
+            c.fillRect(CW * 0.06, CH * 0.05, CW * 0.88, CH * 0.9);
+            c.fillStyle = "#d9cfb4";
+            c.fillRect(CW * 0.06, CH * 0.62, CW * 0.88, CH * 0.33);
+            c.fillStyle = "#111";
+            c.fillRect(CW * 0.28, CH * 0.3, CW * 0.44, CH * 0.42);
+            c.fillStyle = "#e6b84a";
+            c.fillRect(CW * 0.28, CH * 0.38, CW * 0.44, CH * 0.05);
+          },
+          256,
+        ).mesh;
+        k.rotation.y = Math.PI / 2;
+        k.position.set(-9.78, 2.8, 3.6);
+        item("kaabaframe", k);
+      }
+      {
+        const pl = new THREE.Group();
+        for (const [px, pz, h] of [
+          [-9.2, 6.3, 1.2],
+          [4.3, 6.4, 0.9],
+          [6.2, -2.1, 1.1],
+        ] as [number, number, number][]) {
+          const pot = cyl(0.3, 0.22, 0.5, 0xb8573a, 10);
+          pot.position.set(px, 0.25, pz);
+          const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45 * h, 0), mat(0x3f8a3a));
+          leaves.position.set(px, 0.5 + 0.45 * h, pz);
+          leaves.scale.y = 1.3;
+          pl.add(pot, leaves);
+        }
+        item("plants", pl);
+      }
+      {
+        const lp = new THREE.Group();
+        lp.add(cyl(0.25, 0.3, 0.08, 0x2a2c30, 10));
+        const pole = cyl(0.04, 0.04, 1.8, 0x2a2c30, 6);
+        pole.position.y = 0.9;
+        const shade = cyl(0.25, 0.4, 0.45, 0xf2e3c0, 12);
+        shade.position.y = 1.95;
+        const glow = new THREE.PointLight(0xffd9a0, 6, 6, 2);
+        glow.position.y = 1.8;
+        lp.add(pole, shade, glow);
+        lp.position.set(-4.4, 0, 5.4);
+        item("lamp", lp, 0.6, 0.6);
+      }
+      {
+        const ch = new THREE.Group();
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.05, 6, 20), mat(0xe6b84a));
+        ring.rotation.x = Math.PI / 2;
+        ch.add(ring);
+        for (let k = 0; k < 8; k++) {
+          const bulb = new THREE.Mesh(
+            new THREE.SphereGeometry(0.09, 8, 6),
+            new THREE.MeshBasicMaterial({ color: 0xfff3c4 }),
+          );
+          bulb.position.set(
+            Math.cos((k / 8) * Math.PI * 2) * 0.7,
+            -0.05,
+            Math.sin((k / 8) * Math.PI * 2) * 0.7,
+          );
+          ch.add(bulb);
+        }
+        const chain = cyl(0.02, 0.02, 0.8, 0xe6b84a, 4);
+        chain.position.y = 0.4;
+        ch.add(chain);
+        ch.position.set(0, 4.1, -2.6);
+        item("chandelier", ch);
+      }
+      {
+        const st = new THREE.Group();
+        st.add(B(0.7, 0.6, 0.7, 0x6d4a2b, 0, 0, 0));
+        const vase = cyl(0.12, 0.18, 0.45, 0x2f6fa8, 10);
+        vase.position.y = 0.82;
+        const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), mat(0xd23b6a));
+        fl.position.y = 1.15;
+        st.add(vase, fl);
+        st.position.set(0.6, 0, 5.6);
+        item("sidetables", st, 0.7, 0.7);
+      }
+      {
+        const aq = new THREE.Group();
+        aq.add(B(0.8, 0.8, 1.9, 0x3a2a1c, 0, 0, 0));
+        const glass = new THREE.Mesh(
+          new THREE.BoxGeometry(0.7, 0.75, 1.8),
+          new THREE.MeshStandardMaterial({ color: 0x5ab8d8, transparent: true, opacity: 0.55 }),
+        );
+        glass.position.y = 1.18;
+        aq.add(glass);
+        for (const [fx, fz, c] of [
+          [0, -0.4, 0xf2a03a],
+          [0.1, 0.3, 0xd23b6a],
+        ] as [number, number, number][]) {
+          const fish = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 5), mat(c));
+          fish.rotation.z = Math.PI / 2;
+          fish.position.set(fx, 1.2, fz);
+          aq.add(fish);
+        }
+        aq.position.set(9.4, 0, -1.4);
+        item("aquarium", aq, 0.8, 1.9);
+      }
+      {
+        const ts = new THREE.Group();
+        ts.add(B(1.3, 0.35, 0.8, 0x8a5a3a, 0, 0, 0));
+        const tray = cyl(0.35, 0.35, 0.03, 0xe6b84a, 16);
+        tray.position.y = 0.37;
+        ts.add(tray);
+        for (const [cx, cz] of [
+          [-0.15, 0.1],
+          [0.15, 0.1],
+          [0, -0.12],
+        ]) {
+          const cup = cyl(0.05, 0.04, 0.1, 0xfdf8ec, 8);
+          cup.position.set(cx, 0.43, cz);
+          ts.add(cup);
+        }
+        const pot = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), mat(0xb8bcc2));
+        pot.position.set(0.25, 0.48, -0.15);
+        ts.add(pot);
+        ts.position.set(0, 0, 2.2);
+        item("teaset", ts, 1.3, 0.8);
+      }
+      {
+        const cp = new THREE.Group();
+        for (const [w, d, c, y] of [
+          [8.4, 5.6, 0x2a4a6a, 0.012],
+          [7.8, 5, 0xc9a35a, 0.016],
+          [7.2, 4.4, 0x7d2f3a, 0.02],
+        ] as const) {
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(c));
+          m.rotation.x = -Math.PI / 2;
+          m.position.y = y;
+          cp.add(m);
+        }
+        cp.position.set(0, 0, 2.2);
+        item("persian", cp);
+      }
+      {
+        const sr = new THREE.Group();
+        sr.add(B(1.4, 0.5, 0.4, 0x6d4a2b, 0, 0, 0));
+        for (const [sx, c] of [
+          [-0.4, 0x2a2c30],
+          [0, 0x7d2f3a],
+          [0.4, 0x2a4a6a],
+        ] as [number, number][])
+          sr.add(B(0.25, 0.1, 0.35, c, sx, 0.5, 0));
+        sr.position.set(-3.4, 0, 6.5);
+        item("shoerack", sr, 1.4, 0.4);
+      }
+      {
+        const bk = new THREE.Group();
+        bk.add(B(0.4, 0.9, 0.4, 0x3a2a1c, 0, 0, 0));
+        const burner = cyl(0.12, 0.16, 0.25, 0xe6b84a, 8);
+        burner.position.y = 1.02;
+        bk.add(burner);
+        const smoke = new THREE.Mesh(
+          new THREE.SphereGeometry(0.15, 8, 6),
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }),
+        );
+        smoke.position.y = 1.35;
+        smoke.scale.y = 1.8;
+        bk.add(smoke);
+        bk.position.set(-8.9, 0, -1.5);
+        item("bakhoor", bk, 0.4, 0.4);
+      }
+      {
+        const pw = new THREE.Group();
+        const cols = ["#7d2f3a", "#1f6f63", "#2a4a6a", "#c77d2a"];
+        cols.forEach((col, k) => {
+          const f = canvasPlane(
+            0.7,
+            0.55,
+            (c, CW, CH) => {
+              c.fillStyle = "#3a2a1c";
+              c.fillRect(0, 0, CW, CH);
+              c.fillStyle = col;
+              c.fillRect(CW * 0.08, CH * 0.1, CW * 0.84, CH * 0.8);
+              c.fillStyle = "rgba(255,255,255,0.75)";
+              c.beginPath();
+              c.arc(CW * 0.5, CH * 0.45, CH * 0.18, 0, Math.PI * 2);
+              c.fill();
+              c.fillRect(CW * 0.3, CH * 0.62, CW * 0.4, CH * 0.22);
+            },
+            128,
+          ).mesh;
+          f.rotation.y = -Math.PI / 2;
+          f.position.set(9.78, 2.6 + (k % 2) * 0.75, 3.4 + Math.floor(k / 2) * 0.95);
+          pw.add(f);
+        });
+        item("photowall", pw);
+      }
+      // stairs up (only in a duplex)
+      {
+        const stairs = new THREE.Group();
+        for (let k = 0; k < 7; k++)
+          stairs.add(B(2.2, 0.35 * (k + 1), 0.45, 0x8a5a3a, 0, 0, -k * 0.45));
+        stairs.add(B(0.08, 1, 3.2, 0x3a2a1c, -1.1, 2.1, -1.35));
+        stairs.position.set(8.6, 0, 6.4);
+        stairs.visible = false;
+        g.add(stairs);
+        this.stairs = stairs;
+        const z: Zone = {
+          id: "stairs:up",
+          label: "Go upstairs",
+          x: o.x + 8.6,
+          z: o.z + 5.2,
+          r: 1.6,
+          scene: "home",
+          off: true,
+        };
+        this.zones.push(z);
+        this.stairsZone = z;
       }
     }
     // Madrasah

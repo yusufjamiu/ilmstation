@@ -14,6 +14,8 @@ export type ShownHome = {
   at: number;
   /** open house: anyone may walk in without knocking */
   open?: boolean;
+  /** wall and floor colours */
+  paint?: { wall: number; floor: number };
 };
 /** Someone at your door. */
 export type Knock = {

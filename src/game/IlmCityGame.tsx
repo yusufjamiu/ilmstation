@@ -68,6 +68,9 @@ import {
   HOUSE_PRICE,
   ROOM_RENT_WEEK,
   HOME_ITEMS,
+  PAINT_PRICE,
+  WALL_COLOURS,
+  FLOOR_COLOURS,
   JOBS,
   STREAK_REWARDS,
   STREAK_TASKS,
@@ -135,6 +138,8 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** your wall and floor colours */
+  paint?: { wall: number; floor: number };
   /** open house: other players may walk in without knocking */
   openHouse?: boolean;
   /** your car was towed to a police station */
@@ -1768,7 +1773,11 @@ function CityGame({
               onEnter={() => {
                 setPanel(null);
                 e.enterInterior("home", `No. ${p.number}, ${p.street}`);
+                // a house of two floors or more is a duplex: stairs to the family rooms
+                e.setDuplex((p.floors ?? 1) >= 2);
                 setInside(true);
+                if ((p.floors ?? 1) >= 2)
+                  toast("Your duplex: take the stairs up to the family rooms.", "good");
               }}
               onRooms={(rooms, earned) => {
                 const own2 = saveRef.current.plots?.[pid];
@@ -2223,6 +2232,7 @@ function CityGame({
         place: myPlace(),
         items: s.items ?? [],
         open: !!s.openHouse,
+        paint: s.paint,
       })
       .catch(() => {});
   }, [uid]);
@@ -2307,6 +2317,8 @@ function CityGame({
       if (e.scenePlace() !== "out") e.exitInterior();
       e.enterInterior("home", `${h.name}'s home`);
       e.setHomeItems(h.items);
+      e.setDuplex(false);
+      if (h.paint) e.setHomePaint(h.paint.wall, h.paint.floor);
       setInside(true);
       tuneRef.current();
       sayDhikr("enterHome");
@@ -2320,6 +2332,8 @@ function CityGame({
           off();
           const en = engine.current;
           en?.setHomeItems(saveRef.current.items ?? []);
+          const pt = saveRef.current.paint;
+          en?.setHomePaint(pt?.wall ?? 0xe9dcc4, pt?.floor ?? 0xb98d5e);
           setVisiting(null);
           if (en?.scenePlace() === "home") {
             en.exitInterior();
@@ -2334,6 +2348,8 @@ function CityGame({
   enterHomeRef.current = (h) => void enterHome(h);
   const endVisit = useCallback(() => {
     if (!visitingRef.current) return;
+    const pt = saveRef.current.paint;
+    engine.current?.setHomePaint(pt?.wall ?? 0xe9dcc4, pt?.floor ?? 0xb98d5e);
     if (visitKnock.current) void homes.current?.answer(visitKnock.current, "left").catch(() => {});
     visitKnock.current = null;
     engine.current?.setHomeItems(saveRef.current.items ?? []);
@@ -2760,6 +2776,7 @@ function CityGame({
         return;
       }
       const allowed =
+        id.startsWith("stairs:") ||
         id.startsWith("seat:") ||
         id === "exit" ||
         id === "eat" ||
@@ -3581,6 +3598,10 @@ function CityGame({
         sayDhikr("market", undefined, true);
         return;
       }
+      if (id === "stairs:up" || id === "stairs:down") {
+        e.changeFloor(id === "stairs:up");
+        return;
+      }
       if (id.startsWith("seat:")) {
         const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
         if (!m) {
@@ -3922,6 +3943,8 @@ function CityGame({
     e.setClock(clockRef.current);
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
+    if (saveRef.current.paint)
+      e.setHomePaint(saveRef.current.paint.wall, saveRef.current.paint.floor);
     {
       // graphics: the player's choice, or a guess from the phone (checked again as it runs)
       const q = readQuality();
@@ -4225,6 +4248,15 @@ function CityGame({
           <HomeShopView
             owned={saveRef.current.items ?? []}
             points={saveRef.current.coins}
+            paint={saveRef.current.paint}
+            onPaint={(wall, floor) => {
+              if (saveRef.current.coins < PAINT_PRICE) return;
+              update((x) => ({ ...x, coins: x.coins - PAINT_PRICE, paint: { wall, floor } }));
+              engine.current?.setHomePaint(wall, floor);
+              setTimeout(() => publishHome(), 0);
+              setPanel(null);
+              toast(`Your home is freshly painted! −${PAINT_PRICE} points`, "good");
+            }}
             onBuy={(ids, pts) => {
               if (saveRef.current.coins < pts) return;
               const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
@@ -8703,22 +8735,98 @@ function MyDayView({
 function HomeShopView({
   owned,
   points,
+  paint,
+  onPaint,
   onBuy,
   onNaira,
 }: {
   owned: string[];
   points: number;
+  paint?: { wall: number; floor: number };
+  onPaint: (wall: number, floor: number) => void;
   onBuy: (ids: string[], pts: number) => void;
   onNaira: (ids: string[], naira: number) => void;
 }) {
   const left = HOME_ITEMS.filter((i) => !owned.includes(i.id));
   const [pick, setPick] = useState<string[]>([]);
+  const [tab, setTab] = useState<"items" | "paint">("items");
+  const [wall, setWall] = useState(paint?.wall ?? WALL_COLOURS[0]);
+  const [floor, setFloor] = useState(paint?.floor ?? FLOOR_COLOURS[0]);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  const tabs = (
+    <div className="flex gap-1.5">
+      {(
+        [
+          ["items", "🛋️ Furniture & decor"],
+          ["paint", "🎨 Paint"],
+        ] as const
+      ).map(([k, l]) => (
+        <button
+          key={k}
+          onClick={() => setTab(k)}
+          className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold ${tab === k ? "bg-[#1f6f63] text-white" : "bg-white"}`}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === "paint")
+    return (
+      <div className="space-y-3">
+        {tabs}
+        <div
+          className="grid h-24 place-items-end rounded-xl p-2"
+          style={{ background: `linear-gradient(${hex(wall)} 62%, ${hex(floor)} 62%)` }}
+        >
+          <span className="rounded bg-white/80 px-2 py-0.5 text-[11px] font-bold">Preview</span>
+        </div>
+        <div className="text-[13px] font-bold">Walls</div>
+        <div className="flex flex-wrap gap-2">
+          {WALL_COLOURS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setWall(c)}
+              aria-label="Wall colour"
+              className={`size-9 rounded-full border-2 ${wall === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/15"}`}
+              style={{ background: hex(c) }}
+            />
+          ))}
+        </div>
+        <div className="text-[13px] font-bold">Floor</div>
+        <div className="flex flex-wrap gap-2">
+          {FLOOR_COLOURS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setFloor(c)}
+              aria-label="Floor colour"
+              className={`size-9 rounded-full border-2 ${floor === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/15"}`}
+              style={{ background: hex(c) }}
+            />
+          ))}
+        </div>
+        <button
+          disabled={points < PAINT_PRICE}
+          onClick={() => onPaint(wall, floor)}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
+        >
+          🎨 Paint my home · {PAINT_PRICE} points
+        </button>
+      </div>
+    );
   const chosen = left.filter((i) => pick.includes(i.id));
   const pts = chosen.reduce((a, i) => a + itemPoints(i), 0);
   const naira = chosen.reduce((a, i) => a + i.naira, 0);
-  if (!left.length) return <p>Masha Allah, your home is fully furnished!</p>;
+  if (!left.length)
+    return (
+      <div className="space-y-3">
+        {tabs}
+        <p>Masha Allah, your home is fully furnished!</p>
+      </div>
+    );
   return (
     <div className="space-y-2">
+      {tabs}
       <p className="text-[13px] opacity-75">
         Your flat has a bed and a bathroom. Pick what to add. You have {points} points.
       </p>
