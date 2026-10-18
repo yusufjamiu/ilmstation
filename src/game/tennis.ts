@@ -35,6 +35,12 @@ export type TennisSnap = {
   bn?: number;
 };
 type Animate = (g: THREE.Object3D, phase: number, amount: number, speed?: number) => void;
+/** Bats in the players' hands: hold one, swing it, and keep the arm in place each frame. */
+export type Bats = {
+  hold: (g: THREE.Object3D) => void;
+  swing: (g: THREE.Object3D) => void;
+  pose: (g: THREE.Object3D, dt: number) => void;
+};
 
 const WIN = 11;
 /** the table top, and the net above it */
@@ -78,6 +84,7 @@ export class Tennis {
   private sentAt = 0;
   private target: TennisSnap | null = null;
   private lastKey = "";
+  private bats?: Bats;
 
   constructor(
     private scene: THREE.Scene,
@@ -91,8 +98,10 @@ export class Tennis {
       mySide?: 0 | 1;
       names?: [string, string];
       send?: (i: TennisInput) => void;
+      bats?: Bats;
     } = {},
   ) {
+    this.bats = opts.bats;
     this.mode = opts.mode ?? "solo";
     this.mine = opts.mySide ?? 0;
     this.send = opts.send;
@@ -123,6 +132,7 @@ export class Tennis {
     );
     this.shadow.rotation.x = -Math.PI / 2;
     this.group.add(this.ballMesh, this.shadow);
+    for (const p of this.ps) this.bats?.hold(p.g);
     scene.add(this.group);
     const names = opts.names ?? ["You", "Coach Kareem"];
     this.state = {
@@ -193,6 +203,7 @@ export class Tennis {
 
   /* ---------- your button ---------- */
   hit(aim: number) {
+    this.bats?.swing(this.ps[this.mine].g);
     if (this.mode === "view") {
       this.acts.hit++;
       this.acts.aim = aim;
@@ -244,6 +255,7 @@ export class Tennis {
     this.last = side;
     this.bounces = 0;
     this.ps[side].cd = 0.3;
+    if (side !== this.mine) this.bats?.swing(this.ps[side].g);
   }
 
   /* ---------- every frame ---------- */
@@ -414,6 +426,8 @@ export class Tennis {
     s.server = n.server;
     s.phase = n.phase;
     s.msg = n.msg;
+    if (n.last !== this.last && n.last === 1 - this.mine)
+      this.bats?.swing(this.ps[n.last as 0 | 1].g);
     this.last = n.last;
     this.bounces = n.bn ?? 0;
     if (n.phase === "over") s.won = n.score[this.mine] > n.score[1 - this.mine];
@@ -460,6 +474,7 @@ export class Tennis {
       p.t += 0.016;
       const sp = Math.hypot(p.va, p.vb);
       this.animate(p.g, p.t * 9, Math.min(1, sp / 3), sp > 4 ? 5 : 2.2);
+      this.bats?.pose(p.g, 0.016);
     }
     const w = this.world(this.ball.a, this.ball.b);
     this.ballMesh.position.set(w.x, this.ball.y, w.z);

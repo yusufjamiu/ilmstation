@@ -51,6 +51,8 @@ import {
   sitHuman,
   tickHumans,
   type Outfit,
+  rigBat,
+  rigSwing,
 } from "./humans";
 
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
@@ -123,6 +125,7 @@ function mat(color: number, extra: Partial<THREE.MeshStandardMaterialParameters>
   }
   return m;
 }
+type SignKind = "tolet" | "land" | "ownland" | "sold" | "building" | "mine" | "taken";
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0, cast = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
   m.position.set(x, y + h / 2, z);
@@ -366,6 +369,25 @@ function person(
   g.add(shadow);
   g.userData.limbs = { armL, armR, legL, legR, body } satisfies Limbs;
   g.scale.setScalar(1.15);
+  return g;
+}
+
+/** A table tennis bat: a round rubber face on a wooden handle, held at the handle. */
+function batMesh(face: number) {
+  const g = new THREE.Group();
+  const handle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.028, 0.1, 0.022),
+    new THREE.MeshStandardMaterial({ color: 0xc89a5a, roughness: 0.7 }),
+  );
+  handle.position.set(0, 0.02, 0.03);
+  const blade = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.075, 0.075, 0.014, 20),
+    new THREE.MeshStandardMaterial({ color: face, roughness: 0.6 }),
+  );
+  blade.rotation.x = Math.PI / 2;
+  blade.position.set(0, 0.12, 0.05);
+  blade.castShadow = true;
+  g.add(handle, blade);
   return g;
 }
 
@@ -2181,6 +2203,32 @@ export class IlmCityEngine {
       mySide: online?.mySide ?? 0,
       names,
       send: online?.send,
+      bats: {
+        hold: (g) => {
+          const bat = batMesh(0xc62828);
+          bat.scale.setScalar(1.3);
+          if (rigBat(g, bat)) return;
+          // the simple figure: the bat goes in the right hand
+          const l = g.userData.limbs as Limbs | undefined;
+          if (!l) return;
+          bat.position.set(0, -0.7, 0.06);
+          l.armR.add(bat);
+          g.userData.bat = { mesh: bat, t: 1 };
+        },
+        swing: (g) => {
+          rigSwing(g);
+          if (g.userData.bat) g.userData.bat.t = 0;
+        },
+        pose: (g, dt) => {
+          const b = g.userData.bat as { t: number } | undefined;
+          const l = g.userData.limbs as Limbs | undefined;
+          if (!b || !l) return;
+          b.t = Math.min(1, b.t + dt / 0.32);
+          const k = b.t < 1 ? Math.sin(b.t * Math.PI) : 0;
+          l.armR.rotation.x = -1.1 - 0.4 * k;
+          l.armR.rotation.y = 0.3 - 1.2 * k;
+        },
+      },
     });
     const w = this.tennis.myWorld();
     this.tennisCam.set(w.x, 0, w.z);
@@ -2210,6 +2258,14 @@ export class IlmCityEngine {
   }
   endTennis() {
     if (!this.tennis) return;
+    rigBat(this.player, null);
+    const pb = this.player.userData.bat as { mesh: THREE.Object3D } | undefined;
+    if (pb) {
+      pb.mesh.removeFromParent();
+      delete this.player.userData.bat;
+      const l = this.player.userData.limbs as Limbs | undefined;
+      if (l) l.armR.rotation.y = 0;
+    }
     this.tennis.dispose();
     this.tennis = null;
     this.snapCamera();
@@ -5476,7 +5532,7 @@ export class IlmCityEngine {
 
   /* ---------------- houses for rent and land for sale ---------------- */
   private plotFx = new Map<string, { sign?: THREE.Object3D; build?: THREE.Group; zone: Zone }>();
-  private signMat(kind: "tolet" | "land" | "sold" | "building" | "mine") {
+  private signMat(kind: SignKind) {
     const key = "sign-" + kind;
     let m = this.signCache.get(key);
     if (m) return m;
@@ -5487,9 +5543,11 @@ export class IlmCityEngine {
     const [bg, fg, big, small] = {
       tolet: ["#c62828", "#fff", "TO LET", "Tap to view"],
       land: ["#fdfbf5", "#c62828", "LAND FOR SALE", "Tap to buy"],
-      sold: ["#1f6f63", "#fff", "SOLD", "Your land"],
+      ownland: ["#1f6f63", "#fff", "SOLD", "Your land"],
       building: ["#f2c230", "#2a1c05", "UNDER", "CONSTRUCTION"],
       mine: ["#1f6f63", "#fff", "YOURS", "Tap to manage"],
+      taken: ["#5a5f66", "#fff", "OCCUPIED", "Not available"],
+      sold: ["#7d2f3a", "#fff", "SOLD", "Not for sale"],
     }[kind];
     c.fillStyle = bg;
     c.fillRect(0, 0, 256, 160);
@@ -5512,13 +5570,7 @@ export class IlmCityEngine {
   private signCache = new Map<string, THREE.Material>();
 
   /** A signboard on two posts, standing just inside the plot's front. */
-  private signboard(
-    kind: "tolet" | "land" | "sold" | "building" | "mine",
-    x: number,
-    z: number,
-    turn: number,
-    high = false,
-  ) {
+  private signboard(kind: SignKind, x: number, z: number, turn: number, high = false) {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     g.rotation.y = turn;
@@ -5538,7 +5590,11 @@ export class IlmCityEngine {
   /** Show a plot as it now is: for rent, rented by you, land, building, or built. */
   setPlot(
     id: string,
-    state: { kind: "tolet" | "rented" | "land" | "owned" | "building" | "built"; floors?: number },
+    state: {
+      kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken";
+      floors?: number;
+      by?: string;
+    },
   ) {
     const p = this.plots.find((q) => q.id === id);
     const fx = this.plotFx.get(id);
@@ -5550,7 +5606,7 @@ export class IlmCityEngine {
       fx.sign.removeFromParent();
       fx.sign = undefined;
     }
-    const putSign = (k: "tolet" | "land" | "sold" | "building" | "mine", onWall = false) => {
+    const putSign = (k: SignKind, onWall = false) => {
       fx.sign = this.signboard(
         k,
         p.x + (onWall ? -6 : 0),
@@ -5567,12 +5623,15 @@ export class IlmCityEngine {
       owned: "Your land",
       building: "Your building site",
       built: `Your property · No. ${p.number}`,
+      taken: `No. ${p.number} · ${state.by ?? "a player"}'s ${p.kind === "land" ? "land" : "house"}`,
     };
     fx.zone.label = labels[state.kind];
     if (state.kind === "tolet") putSign("tolet", true);
     else if (state.kind === "rented") putSign("mine", true);
     else if (state.kind === "land") putSign("land");
-    else if (state.kind === "owned") putSign("sold");
+    else if (state.kind === "owned") putSign("ownland");
+    else if (state.kind === "taken")
+      putSign(p.kind === "land" ? "sold" : "taken", p.kind !== "land");
     else if (state.kind === "building") putSign("building");
     else if (state.kind === "built") putSign("mine", true);
     // the house on a land plot

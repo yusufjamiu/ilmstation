@@ -32,6 +32,8 @@ type Rig = {
   speed: number;
   posed: boolean;
   once: THREE.AnimationAction | null;
+  /** a table tennis bat in the right hand, and how far through a swing (1 = still) */
+  bat?: { mesh: THREE.Object3D; t: number } | null;
 };
 
 let base: { scene: THREE.Group; clips: THREE.AnimationClip[] } | null = null;
@@ -839,7 +841,50 @@ export function tickHumans(dt: number, camera: THREE.Camera, radius = 70) {
     r.act.run.timeScale = THREE.MathUtils.clamp(r.speed / (3.6 * s), 0.7, 1.5);
     if (r.once && !r.once.isRunning()) r.once = null;
     r.mixer.update(dt);
+    if (r.bat) poseBat(r, dt);
   }
+}
+
+/** Hold a bat (or put it down with null). It follows the right hand. */
+export function rigBat(o: THREE.Object3D, mesh: THREE.Object3D | null) {
+  const r = rigOf(o);
+  if (!r) return false;
+  r.bat?.mesh.removeFromParent();
+  r.bat = null;
+  if (mesh && r.bones.RightHand) {
+    o.add(mesh);
+    r.bat = { mesh, t: 1 };
+  }
+  return true;
+}
+/** Swing the bat once. */
+export function rigSwing(o: THREE.Object3D) {
+  const r = rigOf(o);
+  if (r?.bat) r.bat.t = 0;
+}
+const bq = new THREE.Quaternion(),
+  bx = new THREE.Vector3(),
+  by = new THREE.Vector3(0, 1, 0),
+  hp = new THREE.Vector3();
+/** Arm up and forward, ready to play; during a swing it sweeps across the body. */
+function poseBat(r: Rig, dt: number) {
+  const bat = r.bat!;
+  bat.t = Math.min(1, bat.t + dt / 0.32);
+  const k = bat.t < 1 ? Math.sin(bat.t * Math.PI) : 0;
+  const b = r.bones;
+  r.root.updateWorldMatrix(true, false);
+  r.root.getWorldQuaternion(bq);
+  bx.set(1, 0, 0).applyQuaternion(bq);
+  turn(b.RightArm, bx, -0.75 - 0.35 * k);
+  turn(b.RightArm, by, 0.35 - 1.3 * k);
+  turn(b.RightForeArm, bx, -0.8 + 0.3 * k);
+  // the bat sits in the hand, its face turned with the swing
+  const o = bat.mesh.parent!;
+  b.RightHand.updateWorldMatrix(true, false);
+  b.RightHand.getWorldPosition(hp);
+  o.worldToLocal(hp);
+  bat.mesh.position.copy(hp);
+  bat.mesh.rotation.set(0, 0.6 - 1.6 * k, 0);
 }
 
 export function forgetHuman(o: THREE.Object3D) {
