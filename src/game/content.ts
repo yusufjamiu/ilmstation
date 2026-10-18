@@ -28,7 +28,79 @@ const MSSN_ST =
   "The Muslim students' road on campus: the central mosque, the MSSN secretariat, the sports field and the meeting point where brothers and sisters gist, plan programmes and remind one another.";
 
 export type Street = { id: string; name: string; bio: string };
+const ILORIN_ST =
+  "A street in Ilorin, Kwara State: the city of scholars, known for its Islamic learning.";
 export const STREETS: Record<string, Street> = {
+  emirsroad: {
+    id: "emirsroad",
+    name: "Emir's Road",
+    bio: "The road to the palace of the Emir of Ilorin and the Ilorin Central Mosque, in the old heart of the city.",
+  },
+  ojaoba: {
+    id: "ojaoba",
+    name: "Oja-Oba Road",
+    bio: "Beside Oja-Oba, the old king's market of Ilorin, near the Emir's palace.",
+  },
+  okelele: { id: "okelele", name: "Okelele Road", bio: ILORIN_ST },
+  unilorinroad: {
+    id: "unilorinroad",
+    name: "University Road (Unilorin)",
+    bio: "The main road through the University of Ilorin, past the faculties.",
+  },
+  mssnunilorin: { id: "mssnunilorin", name: "MSSN Avenue (Unilorin)", bio: MSSN_ST },
+  tankeroad: {
+    id: "tankeroad",
+    name: "Tanke Road",
+    bio: "Student lodges, eateries and cyber cafés outside the University of Ilorin.",
+  },
+  faterd: { id: "faterd", name: "Fate Road", bio: ILORIN_ST },
+  gra: {
+    id: "gra",
+    name: "GRA Road",
+    bio: "Big houses behind high walls in the Government Reserved Area.",
+  },
+  airportrd: {
+    id: "airportrd",
+    name: "Airport Road",
+    bio: "The road out to Ilorin International Airport.",
+  },
+  adewoleroad: { id: "adewoleroad", name: "Adewole Road", bio: ILORIN_ST },
+  hikmahroad: {
+    id: "hikmahroad",
+    name: "Al-Hikmah Road",
+    bio: "The road to Al-Hikmah University, Adewole.",
+  },
+  asadamroad: { id: "asadamroad", name: "Asa Dam Road", bio: ILORIN_ST },
+  taiworoad: {
+    id: "taiworoad",
+    name: "Ibrahim Taiwo Road",
+    bio: "Ilorin's busy business road: banks, shops and offices near the Post Office.",
+  },
+  ahmadubello: { id: "ahmadubello", name: "Ahmadu Bello Way", bio: ILORIN_ST },
+  sulugambari: { id: "sulugambari", name: "Sulu Gambari Road", bio: ILORIN_ST },
+  gaaakanbi: { id: "gaaakanbi", name: "Gaa-Akanbi Road", bio: ILORIN_ST },
+  sangoroad: { id: "sangoroad", name: "Sango Road", bio: ILORIN_ST },
+  mmiaroad: {
+    id: "mmiaroad",
+    name: "Airport Road, Ikeja",
+    bio: "The road to Murtala Muhammed International Airport.",
+  },
+  mmiacargo: {
+    id: "mmiacargo",
+    name: "Cargo Road",
+    bio: "Behind the airport: shops, eateries and offices for travellers.",
+  },
+  ilorinairportroad: {
+    id: "ilorinairportroad",
+    name: "Airport Road, Ilorin",
+    bio: "The road to Ilorin International Airport.",
+  },
+  ilorincargo: { id: "ilorincargo", name: "Airport Cargo Road", bio: ILORIN_ST },
+  offaroad: {
+    id: "offaroad",
+    name: "Offa Garage Road",
+    bio: "Where the motor parks and mechanics are, and kekes wait for passengers.",
+  },
   ridwanjamiu: { id: "ridwanjamiu", name: "Imam Ridwan Jamiu Street", bio: COMING_SOON },
   alilory: {
     id: "alilory",
@@ -125,7 +197,9 @@ export type LandmarkKind =
   /** a sports field */
   | "field"
   /** a covered meeting point with mats where students sit and gist */
-  | "hangout";
+  | "hangout"
+  /** the city's airport: fly to another city */
+  | "airport";
 export type Landmark = {
   id: string;
   kind: LandmarkKind;
@@ -196,12 +270,17 @@ function universityArea(o: {
   homes: string;
   faculties: string[];
   about: string;
+  state?: string;
+  city?: string;
+  region?: string;
 }): District {
   const fx = [-100, -56, 42, 86];
   return {
     id: o.id,
     name: o.name,
-    state: "Lagos",
+    state: o.state ?? "Lagos",
+    city: o.city,
+    region: o.region,
     origin: o.origin,
     highway: o.highway,
     busStop: o.busStop,
@@ -1026,7 +1105,348 @@ export const DISTRICTS: District[] = [
     about:
       "Where LASU Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
+  /* ---------------- Lagos airport, up the road from Ikeja ---------------- */
+  {
+    id: "lagosairport",
+    tier: 1,
+    name: "Lagos Airport",
+    state: "Lagos",
+    origin: { x: 130, z: -725 },
+    half: { x: 112, z: 90 },
+    highway: "Airport Road, Ikeja",
+    parent: "ikeja",
+    busStop: "Lagos Airport",
+    toLet: 0,
+    land: 0,
+    shops: 0.7,
+    streets: [
+      { id: "mmiaroad", z: 0, decor: true },
+      { id: "mmiacargo", z: 55 },
+    ],
+    landmarks: [
+      {
+        id: "lagos",
+        kind: "airport",
+        name: "Murtala Muhammed International Airport",
+        street: "mmiaroad",
+        x: -52,
+        width: 72,
+        depth: 40,
+        floors: 2,
+        brand: { color: 0x2f4a7a, accent: 0xffffff },
+        about:
+          "Flights from Lagos to Ilorin and, soon, other cities. Fly in minutes instead of hours on the road.",
+      },
+      {
+        id: "mmia-mosque",
+        kind: "masjid",
+        name: "Airport Mosque, Ikeja",
+        street: "mmiaroad",
+        x: 60,
+      },
+    ],
+  },
+
+  /* ---------------- Ilorin, Kwara State: its own map, east of Lagos ---------------- */
+  {
+    id: "ilorincentral",
+    city: "ilorin",
+    tier: 2,
+    name: "Ilorin Central",
+    state: "Kwara",
+    region: "Ilorin",
+    origin: { x: 3870, z: -780 },
+    highway: "Unity Road",
+    busStop: "Oja-Oba",
+    shops: 0.3,
+    toLet: 0.45,
+    streets: [
+      { id: "emirsroad", z: 0, decor: true },
+      { id: "ojaoba", z: -66 },
+      { id: "okelele", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "ilorin-central-mosque",
+        kind: "masjid",
+        name: "Ilorin Central Mosque",
+        street: "emirsroad",
+        x: -40,
+      },
+      {
+        id: "emirs-palace",
+        kind: "mansion",
+        name: "Palace of the Emir of Ilorin",
+        street: "emirsroad",
+        x: 50,
+        width: 48,
+        depth: 34,
+        floors: 2,
+      },
+      { id: "oja-oba", kind: "souq", name: "Oja-Oba Market", street: "ojaoba", x: 40 },
+      {
+        id: "ilorin-madrasah",
+        kind: "school",
+        name: "Ilorin Arabic and Islamic School",
+        street: "okelele",
+        x: -40,
+      },
+    ],
+  },
+  {
+    id: "taiwo",
+    city: "ilorin",
+    tier: 2,
+    name: "Taiwo Road",
+    state: "Kwara",
+    region: "Ilorin",
+    origin: { x: 3870, z: -470 },
+    highway: "Post Office Road",
+    busStop: "Post Office",
+    shops: 0.4,
+    toLet: 0.4,
+    streets: [
+      { id: "taiworoad", z: 0, decor: true },
+      { id: "ahmadubello", z: -66 },
+      { id: "sulugambari", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "taiwo-mosque",
+        kind: "masjid",
+        name: "Taiwo Road Juma'at Mosque",
+        street: "taiworoad",
+        x: -40,
+      },
+      {
+        id: "ilorin-post-office",
+        kind: "office",
+        name: "Post Office, Ilorin",
+        street: "taiworoad",
+        x: 50,
+        width: 34,
+        depth: 26,
+        floors: 2,
+        brand: { color: 0x1d6b3a, accent: 0xfdf8ec },
+        about: "The Post Office roundabout is the heart of Ilorin's business district.",
+      },
+      {
+        id: "taiwo-quran",
+        kind: "office",
+        name: "Taiwo Road Qur'an Centre",
+        street: "ahmadubello",
+        x: 46,
+        width: 30,
+        depth: 24,
+        floors: 2,
+        brand: { color: 0x1f6f63, accent: 0xe6b84a },
+        classes: ["Beginners", "Juz 'Amma", "Juz 1–10", "Juz 11–20", "Juz 21–30"],
+        subjects: ["quran", "arabic", "tawheed"],
+        about: "Qur'an memorisation and Arabic, morning and evening classes.",
+      },
+    ],
+  },
+  {
+    id: "gaa",
+    city: "ilorin",
+    tier: 4,
+    name: "Gaa-Akanbi",
+    state: "Kwara",
+    region: "Ilorin",
+    origin: { x: 3870, z: -170 },
+    highway: "Offa Road",
+    busStop: "Gaa-Akanbi",
+    shops: 0.35,
+    land: 0.2,
+    toLet: 0.55,
+    streets: [
+      { id: "gaaakanbi", z: 0 },
+      { id: "sangoroad", z: -66 },
+      { id: "offaroad", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "gaa-mosque",
+        kind: "masjid",
+        name: "Gaa-Akanbi Central Mosque",
+        street: "gaaakanbi",
+        x: -40,
+      },
+      { id: "sango-market", kind: "souq", name: "Sango Market", street: "sangoroad", x: 40 },
+      {
+        id: "gaa-madrasah",
+        kind: "school",
+        name: "Gaa-Akanbi Madrasah",
+        street: "offaroad",
+        x: -40,
+      },
+    ],
+  },
+  universityArea({
+    id: "tanke",
+    name: "Tanke",
+    uni: "the University of Ilorin (Unilorin)",
+    short: "Unilorin",
+    origin: { x: 4540, z: -790 },
+    highway: "Tanke Road",
+    busStop: "Unilorin Gate",
+    road: "unilorinroad",
+    avenue: "mssnunilorin",
+    homes: "tankeroad",
+    state: "Kwara",
+    city: "ilorin",
+    region: "Ilorin",
+    faculties: [
+      "Faculty of Arts",
+      "Faculty of Science",
+      "Faculty of Engineering",
+      "Faculty of Education",
+    ],
+    about:
+      "Where Unilorin Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
+  {
+    id: "fate",
+    city: "ilorin",
+    tier: 1,
+    name: "Fate / GRA",
+    state: "Kwara",
+    region: "Ilorin",
+    origin: { x: 4530, z: -470 },
+    highway: "Fate Road",
+    busStop: "Fate",
+    shops: 0.2,
+    toLet: 0.35,
+    streets: [
+      { id: "faterd", z: 0, decor: true },
+      { id: "gra", z: -66, decor: true },
+      { id: "asadamroad", z: 66 },
+    ],
+    landmarks: [
+      { id: "fate-mosque", kind: "masjid", name: "Fate Juma'at Mosque", street: "faterd", x: -40 },
+      {
+        id: "kwara-mall",
+        kind: "office",
+        name: "Kwara Mall",
+        street: "faterd",
+        x: 50,
+        width: 40,
+        depth: 30,
+        floors: 2,
+        brand: { color: 0xb8573a, accent: 0xfdf8ec },
+        about: "Shopping, food and a cinema hall on Fate Road.",
+      },
+      {
+        id: "metropolitan-square",
+        kind: "hangout",
+        name: "Metropolitan Square",
+        street: "asadamroad",
+        x: -46,
+        side: "s",
+        width: 30,
+        depth: 18,
+        about: "Ilorin's big open square for events, Eid gatherings and outings.",
+      },
+    ],
+  },
+  {
+    id: "adewole",
+    city: "ilorin",
+    tier: 3,
+    name: "Adewole",
+    state: "Kwara",
+    region: "Ilorin",
+    origin: { x: 4530, z: -170 },
+    highway: "Murtala Mohammed Way",
+    busStop: "Adewole",
+    shops: 0.25,
+    land: 0.18,
+    toLet: 0.5,
+    streets: [
+      { id: "adewoleroad", z: 0 },
+      { id: "hikmahroad", z: -66 },
+      { id: "airportrd", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "adewole-mosque",
+        kind: "masjid",
+        name: "Adewole Central Mosque",
+        street: "adewoleroad",
+        x: -40,
+      },
+      {
+        id: "al-hikmah",
+        kind: "campus",
+        name: "Al-Hikmah University",
+        street: "hikmahroad",
+        x: 40,
+        width: 58,
+        depth: 30,
+        floors: 2,
+        classes: ["100 Level", "200 Level", "300 Level", "400 Level"],
+        about:
+          "Al-Hikmah University, Adewole: a university with Islamic values, for brothers and sisters.",
+      },
+    ],
+  },
+  {
+    id: "ilorinairport",
+    city: "ilorin",
+    tier: 1,
+    name: "Ilorin Airport",
+    state: "Kwara",
+    region: "Ilorin",
+    origin: { x: 4815, z: -470 },
+    half: { x: 112, z: 90 },
+    highway: "Airport Road, Ilorin",
+    parent: "fate",
+    link: "east",
+    busStop: "Ilorin Airport",
+    toLet: 0,
+    land: 0,
+    shops: 0.7,
+    streets: [
+      { id: "ilorinairportroad", z: 0, decor: true },
+      { id: "ilorincargo", z: 55 },
+    ],
+    landmarks: [
+      {
+        id: "ilorin",
+        kind: "airport",
+        name: "Ilorin International Airport",
+        street: "ilorinairportroad",
+        x: -52,
+        width: 72,
+        depth: 40,
+        floors: 2,
+        brand: { color: 0x1d6b3a, accent: 0xffffff },
+        about: "Flights from Ilorin to Lagos. Fly in minutes instead of hours on the road.",
+      },
+      {
+        id: "ilorin-airport-mosque",
+        kind: "masjid",
+        name: "Airport Mosque, Ilorin",
+        street: "ilorinairportroad",
+        x: 60,
+      },
+    ],
+  },
 ];
+/** Where each city's junction is on the map; its areas sit around it. */
+export const CITY_CENTER: Record<string, { x: number; z: number }> = {
+  lagos: { x: 0, z: 0 },
+  ilorin: { x: 4200, z: -480 },
+};
+export const cityOf = (d: District) => d.city ?? "lagos";
+export const centerOf = (d: District) => CITY_CENTER[cityOf(d)] ?? CITY_CENTER.lagos;
+/** Junction names, one per city. */
+export const JUNCTION_NAME: Record<string, string> = {
+  lagos: "City Junction",
+  ilorin: "Post Office Roundabout",
+};
+/** Travel between cities, in game units (₦10 each). */
+export const INTERCITY = { bus: 300, fly: 1500, business: 4000 };
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */
@@ -1058,8 +1478,8 @@ export const WORLD_CITIES: WorldCity[] = [
     name: "Ilorin",
     state: "Kwara",
     country: "Nigeria",
-    live: false,
-    blurb: "The city of scholars: Markaz, Agbaji, Unilorin and the Emir's palace.",
+    live: true,
+    blurb: "The city of scholars: the Central Mosque, Oja-Oba, Unilorin and the Emir's palace.",
   },
   {
     id: "abuja",
@@ -1086,7 +1506,6 @@ export const WORLD_CITIES: WorldCity[] = [
     blurb: "Our first city outside Nigeria: Nima, Madina and the coast.",
   },
 ];
-export const cityOf = (d: District) => d.city ?? "lagos";
 
 export const regionOf = (d: District) => rootOf(d).region ?? rootOf(d).name;
 export const fullName = (d: District) =>

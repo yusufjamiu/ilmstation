@@ -5,6 +5,10 @@ import {
   STREETS,
   AD_EMAIL,
   DISTRICTS,
+  CITY_CENTER,
+  JUNCTION_NAME,
+  centerOf,
+  cityOf,
   districtById,
   halfOf,
   fullName,
@@ -372,6 +376,37 @@ function person(
   return g;
 }
 
+/** A passenger plane, nose along +z: body, wings, tail and engines. */
+export function planeMesh(stripe: number) {
+  const g = new THREE.Group();
+  const white = 0xf4f6f8;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 22, 16), mat(white));
+  body.rotation.x = Math.PI / 2;
+  body.position.y = 2.6;
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 10), mat(white));
+  nose.scale.set(1, 1, 1.6);
+  nose.position.set(0, 2.6, 11);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(1.5, 4, 16), mat(white));
+  tail.rotation.x = -Math.PI / 2;
+  tail.position.set(0, 2.6, -13);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.52, 1.52, 18, 16, 1, true), mat(stripe));
+  band.rotation.x = Math.PI / 2;
+  band.scale.set(1, 1, 0.2);
+  band.position.set(0, 2.2, 0);
+  const wing = box(20, 0.25, 4, white, 0, 2, 1);
+  const fin = box(0.3, 4, 3, stripe, 0, 3.6, -12);
+  const tailWing = box(7, 0.2, 2, white, 0, 3.4, -12);
+  const engines = [-5, 5].map((x) => {
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 3, 12), mat(0x9aa0a6));
+    e.rotation.x = Math.PI / 2;
+    e.position.set(x, 1.4, 2);
+    return e;
+  });
+  for (const m of [body, nose, tail, band, ...engines]) m.castShadow = true;
+  g.add(body, nose, tail, band, wing, fin, tailWing, ...engines);
+  return g;
+}
+
 /** A table tennis bat: a round rubber face on a wooden handle, held at the handle. */
 function batMesh(face: number) {
   const g = new THREE.Group();
@@ -729,7 +764,7 @@ export class IlmCityEngine {
     this.dg.position.set(D.origin.x, 0, D.origin.z);
     this.scene.add(this.dg);
     this.areaGroups.push({ g: this.dg, x: D.origin.x, z: D.origin.z });
-    const side = D.origin.x > 0 ? -1 : 1; // the end of the main street facing the City Junction
+    const side = D.origin.x > centerOf(D).x ? -1 : 1; // the end of the main street facing the junction
     this.reserved.push(
       { x0: this.ox - 84, x1: this.ox - 60, z0: this.oz + 8, z1: this.oz + 22 },
       { x0: this.ox - 22, x1: this.ox - 10, z0: this.oz + 7, z1: this.oz + 13 },
@@ -1213,40 +1248,65 @@ export class IlmCityEngine {
     this.colliders.out.push({ x0: -1100, x1: -800, z0: -1900, z1: 900 });
     this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1900, z1: 900 });
     // the north edge: Ikorodu reaches further north than the rest of the city
-    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1900, z1: -680 });
+    // (the Lagos airport road goes north from Ikeja, past the edge)
+    this.colliders.out.push({ x0: -1100, x1: 10, z0: -1900, z1: -680 });
+    this.colliders.out.push({ x0: 10, x1: 250, z0: -1900, z1: -822 });
+    this.colliders.out.push({ x0: 250, x1: 420, z0: -1900, z1: -680 });
+    // Ilorin: its own ground, with edges all round
+    {
+      const il = DISTRICTS.filter((d) => cityOf(d) === "ilorin");
+      const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)) - 70,
+        x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)) + 70,
+        z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)) - 70,
+        z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z)) + 70;
+      const g2 = new THREE.Mesh(groundGeo(x1 - x0, z1 - z0, 10), MAT.grass());
+      g2.position.set((x0 + x1) / 2, -0.01, (z0 + z1) / 2);
+      g2.receiveShadow = true;
+      S.add(g2);
+      this.colliders.out.push(
+        { x0: x0 - 300, x1: x0, z0: z0 - 300, z1: z1 + 300 },
+        { x0: x1, x1: x1 + 300, z0: z0 - 300, z1: z1 + 300 },
+        { x0, x1, z0: z0 - 300, z1: z0 },
+        { x0, x1, z0: z1, z1: z1 + 300 },
+      );
+    }
     this.colliders.out.push({ x0: 420, x1: 1200, z0: -1900, z1: -1612 });
 
     DISTRICTS.forEach((d) => this.buildDistrict(d.id));
 
-    // City Junction roundabout
-    const ring = new THREE.Mesh(new THREE.RingGeometry(16, 30, 48), mat(PALETTE.road));
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.04;
-    ring.receiveShadow = true;
-    S.add(ring);
-    const island = new THREE.Mesh(new THREE.CircleGeometry(16, 40), mat(0x7f9e52));
-    island.rotation.x = -Math.PI / 2;
-    island.position.y = 0.05;
-    S.add(island);
-    const monument = new THREE.Group();
-    monument.add(box(3, 1, 3, 0xd9d1bd));
-    const pillar = cyl(0.8, 1.1, 9, 0xece6d6, 8);
-    pillar.position.y = 5.5;
-    monument.add(pillar);
-    const top = crescent();
-    top.scale.setScalar(2);
-    top.position.set(-0.4, 11.4, 0);
-    monument.add(top);
-    S.add(monument);
-    this.colliders.out.push({ x0: -3, x1: 3, z0: -3, z1: 3 });
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      S.add(palm(Math.cos(a) * 11, Math.sin(a) * 11, 0.9));
+    // a roundabout at the heart of each city
+    for (const [cid, c] of Object.entries(CITY_CENTER)) {
+      const J = new THREE.Group();
+      J.position.set(c.x, 0, c.z);
+      S.add(J);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(16, 30, 48), mat(PALETTE.road));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04;
+      ring.receiveShadow = true;
+      J.add(ring);
+      const island = new THREE.Mesh(new THREE.CircleGeometry(16, 40), mat(0x7f9e52));
+      island.rotation.x = -Math.PI / 2;
+      island.position.y = 0.05;
+      J.add(island);
+      const monument = new THREE.Group();
+      monument.add(box(3, 1, 3, 0xd9d1bd));
+      const pillar = cyl(0.8, 1.1, 9, 0xece6d6, 8);
+      pillar.position.y = 5.5;
+      monument.add(pillar);
+      const top = crescent();
+      top.scale.setScalar(2);
+      top.position.set(-0.4, 11.4, 0);
+      monument.add(top);
+      J.add(monument);
+      this.colliders.out.push({ x0: c.x - 3, x1: c.x + 3, z0: c.z - 3, z1: c.z + 3 });
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        J.add(palm(Math.cos(a) * 11, Math.sin(a) * 11, 0.9));
+      }
+      const jl = label(JUNCTION_NAME[cid], { bg: "rgba(31,111,99,0.9)", size: 1.6 });
+      jl.position.set(0, 14, 0);
+      J.add(jl);
     }
-    const jl = label("City Junction", { bg: "rgba(31,111,99,0.9)", size: 1.6 });
-    jl.position.set(0, 14, 0);
-    S.add(jl);
-
     // roads joining linked areas (Ikorodu Road, Isheri–Igando Road, Ajah–Badore Road)
     for (const d of DISTRICTS) {
       if (!d.parent) continue;
@@ -1296,9 +1356,12 @@ export class IlmCityEngine {
     }
     // expressways from the junction to the end of each main street
     DISTRICTS.filter((d) => !d.parent).forEach((d) => {
+      const c = centerOf(d);
       const [ax, az] = this.roadEnd(d);
-      const len0 = Math.hypot(ax, az);
-      this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
+      const dx = ax - c.x,
+        dz = az - c.z;
+      const len0 = Math.hypot(dx, dz);
+      this.expressway(c.x + (dx / len0) * 24, c.z + (dz / len0) * 24, ax, az, d.highway);
     });
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
@@ -1329,9 +1392,17 @@ export class IlmCityEngine {
             d.origin.z,
           ];
       } else {
-        const [ax, az] = this.roadEnd(d);
+        const c = centerOf(d);
+        const [ex, ez] = this.roadEnd(d);
+        const ax = ex - c.x,
+          az = ez - c.z;
         const L = Math.hypot(ax, az);
-        [x0, z0, x1, z1] = [(ax / L) * 40, (az / L) * 40, ax - (ax / L) * 30, az - (az / L) * 30];
+        [x0, z0, x1, z1] = [
+          c.x + (ax / L) * 40,
+          c.z + (az / L) * 40,
+          ex - (ax / L) * 30,
+          ez - (az / L) * 30,
+        ];
       }
       const dx = x1 - x0,
         dz = z1 - z0,
@@ -1364,7 +1435,8 @@ export class IlmCityEngine {
           segs.push([d.origin.x, p.origin.z - halfOf(p).z, d.origin.x, d.origin.z + halfOf(d).z]);
       } else {
         const [ax, az] = this.roadEnd(d);
-        segs.push([0, 0, ax, az]);
+        const c = centerOf(d);
+        segs.push([c.x, c.z, ax, az]);
       }
     }
     return segs;
@@ -1584,7 +1656,7 @@ export class IlmCityEngine {
 
   /** Where an area's main street meets its expressway. */
   private roadEnd(d: District): [number, number] {
-    const side = d.origin.x > 0 ? -1 : 1;
+    const side = d.origin.x > centerOf(d).x ? -1 : 1;
     return [d.origin.x + side * (halfOf(d).x - 6), d.origin.z];
   }
 
@@ -1651,11 +1723,18 @@ export class IlmCityEngine {
           return d.highway;
         continue;
       }
-      const [ax, az] = this.roadEnd(d);
-      const t = Math.max(0, Math.min(1, (x * ax + z * az) / (ax * ax + az * az)));
-      if (Math.hypot(x - ax * t, z - az * t) < 11) return d.highway;
+      const c = centerOf(d);
+      const [ex, ez] = this.roadEnd(d);
+      const ax = ex - c.x,
+        az = ez - c.z,
+        px = x - c.x,
+        pz = z - c.z;
+      const t = Math.max(0, Math.min(1, (px * ax + pz * az) / (ax * ax + az * az)));
+      if (Math.hypot(px - ax * t, pz - az * t) < 11) return d.highway;
     }
-    return Math.hypot(x, z) < 34 ? "City Junction" : null;
+    for (const [id, c] of Object.entries(CITY_CENTER))
+      if (Math.hypot(x - c.x, z - c.z) < 34) return JUNCTION_NAME[id];
+    return null;
   }
 
   private reserved: Box[] = [];
@@ -1725,6 +1804,18 @@ export class IlmCityEngine {
                       accent: l.brand?.accent ?? 0xffffff,
                     });
       if (seats.length) this.seatStudents(seats, D);
+      if (l.kind === "airport") {
+        // a plane parked on the apron behind the terminal
+        const plane = planeMesh(l.brand?.color ?? 0x2f4a7a);
+        const pz = south ? cz + d / 2 + 16 : cz - d / 2 - 16;
+        plane.position.set(l.x, 0, pz);
+        plane.rotation.y = Math.PI / 2;
+        this.dg.add(plane);
+        this.addCollider("out", l.x - 11, l.x + 11, pz - 10, pz + 10);
+        const t = label("✈️ " + l.name, { size: 1.2, bg: "rgba(31,74,122,0.92)" });
+        t.position.set(l.x, (l.floors ?? 2) * 4 + 4, cz);
+        this.dg.add(t);
+      }
       if (l.kind === "field" || l.kind === "hangout")
         this.reserved.push({
           x0: this.ox + l.x - w / 2,
@@ -1748,9 +1839,11 @@ export class IlmCityEngine {
               ? "Enter " + l.name.split(" · ")[0]
               : l.kind === "field"
                 ? "Play football"
-                : l.kind === "hangout"
-                  ? "Sit and gist"
-                  : "Visit " + l.name;
+                : l.kind === "airport"
+                  ? "✈️ Fly to another city"
+                  : l.kind === "hangout"
+                    ? "Sit and gist"
+                    : "Visit " + l.name;
         this.zones.push({
           id,
           label: text,
@@ -3436,6 +3529,20 @@ export class IlmCityEngine {
 
   /** Fast travel by bus or car: the trip plays on the Lagos map, then the vehicle drives in
       under the area's welcome gate and along the main street. */
+  /** Arrive straight at a place (off a plane): outside, standing at its zone. */
+  arriveAt(zoneId: string) {
+    const z = this.zones.find((q) => q.id === zoneId);
+    if (!z) return false;
+    const D = this.areaAt(z.x, z.z);
+    if (D) this.district = D;
+    if (this.where !== "out") this.exitInterior();
+    this.driving = false;
+    this.player.visible = true;
+    this.player.position.set(z.x, 0, z.z + 3);
+    this.tapTarget = null;
+    this.snapCamera();
+    return true;
+  }
   travel(id: string, byCar: boolean) {
     const D = districtById(id);
     this.where = "out";
@@ -3444,7 +3551,7 @@ export class IlmCityEngine {
     this.player.visible = false;
     this.tapTarget = null;
     this.marker.visible = false;
-    const side = D.origin.x > 0 ? -1 : 1;
+    const side = D.origin.x > centerOf(D).x ? -1 : 1;
     const W = (x: number, z: number) => new THREE.Vector3(D.origin.x + x, 0, D.origin.z + z);
     let vehicle: THREE.Group;
     let path: THREE.Vector3[];
@@ -3953,12 +4060,13 @@ export class IlmCityEngine {
       z: number;
       h: number;
       moving: boolean;
+      badge?: string;
     }[],
   ) {
     const seen = new Set<string>();
     for (const p of list) {
       seen.add(p.uid);
-      const key = JSON.stringify(p.look);
+      const key = JSON.stringify(p.look) + (p.badge ?? "");
       let r = this.remotes.get(p.uid);
       if (r && r.look !== key) {
         r.g.removeFromParent();
@@ -3976,7 +4084,14 @@ export class IlmCityEngine {
               outfit: "thobe",
               beard: true,
             });
-        const tag = label("● " + p.name, { size: 0.75, bg: "rgba(230,184,74,0.95)" });
+        // a gold tag for the blessed, a green heart for generous givers
+        const blessed = p.badge?.includes("✨"),
+          generous = p.badge?.includes("💚");
+        const tag = label(`${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}`, {
+          size: 0.75,
+          bg: blessed ? "rgba(201,162,39,0.98)" : generous ? "rgba(29,107,58,0.95)" : "rgba(230,184,74,0.95)",
+          fg: generous && !blessed ? "#ffffff" : undefined,
+        });
         tag.position.y = 2.65;
         g.add(tag);
         g.position.set(p.x, 0, p.z);

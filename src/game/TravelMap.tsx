@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { districtById } from "./content";
+import { cityOf, districtById } from "./content";
 
 /* A drawn map of Lagos. When a player travels, their bus or car drives along the
    roads from one area to the other, then the new area loads. Positions are real
@@ -22,6 +22,15 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   akoka: { name: "Akoka (UNILAG)", lat: 6.517, lng: 3.39 },
   ojo: { name: "Ojo (LASU)", lat: 6.47, lng: 3.2 },
   firstgate: { name: "First Gate (LASUSTECH)", lat: 6.64, lng: 3.529 },
+  lagosairport: { name: "Lagos Airport", lat: 6.585, lng: 3.33 },
+  ilorincentral: { name: "Ilorin Central", lat: 8.497, lng: 4.55 },
+  taiwo: { name: "Taiwo Road", lat: 8.487, lng: 4.538 },
+  gaa: { name: "Gaa-Akanbi", lat: 8.455, lng: 4.565 },
+  tanke: { name: "Tanke (Unilorin)", lat: 8.478, lng: 4.612 },
+  fate: { name: "Fate / GRA", lat: 8.47, lng: 4.58 },
+  adewole: { name: "Adewole", lat: 8.51, lng: 4.52 },
+  ilorinairport: { name: "Ilorin Airport", lat: 8.44, lng: 4.494 },
+  postoffice: { name: "Post Office", lat: 8.481, lng: 4.553, hub: true },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -48,13 +57,43 @@ const ROADS: [string, string][] = [
   ["egbeda", "powerline"],
   ["ikorodu", "okeeletu"],
   ["ketu", "ikeja"],
+  ["ikeja", "lagosairport"],
+  ["postoffice", "ilorincentral"],
+  ["postoffice", "taiwo"],
+  ["postoffice", "gaa"],
+  ["postoffice", "tanke"],
+  ["postoffice", "fate"],
+  ["postoffice", "adewole"],
+  ["fate", "ilorinairport"],
 ];
+/** Which city a place on the map is in (hubs included). */
+const cityAt = (id: string) => (PLACES[id].lat > 7.5 ? "ilorin" : "lagos");
 
 const W = 400,
   H = 380;
-const X = (lng: number) => ((lng - 3.17) / (3.575 - 3.17)) * (W - 40) + 20;
-const Y = (lat: number) => ((6.68 - lat) / (6.68 - 6.39)) * (H - 40) + 20;
-const pt = (id: string) => ({ x: X(PLACES[id].lng), y: Y(PLACES[id].lat) });
+/** How to turn latitude and longitude into the picture: Lagos has its own fixed frame (the
+    coast and lagoon are drawn for it); other trips fit their places on the page. */
+type Frame = { lng0: number; lng1: number; lat0: number; lat1: number };
+const LAGOS: Frame = { lng0: 3.17, lng1: 3.575, lat0: 6.39, lat1: 6.68 };
+function frameFor(ids: string[]): Frame {
+  const ps = ids.map((i) => PLACES[i]);
+  const lng0 = Math.min(...ps.map((p) => p.lng)),
+    lng1 = Math.max(...ps.map((p) => p.lng)),
+    lat0 = Math.min(...ps.map((p) => p.lat)),
+    lat1 = Math.max(...ps.map((p) => p.lat));
+  const pl = Math.max(0.02, (lng1 - lng0) * 0.15),
+    pa = Math.max(0.02, (lat1 - lat0) * 0.15);
+  return { lng0: lng0 - pl, lng1: lng1 + pl, lat0: lat0 - pa, lat1: lat1 + pa };
+}
+const projector = (f: Frame) => (id: string) => ({
+  x: ((PLACES[id].lng - f.lng0) / (f.lng1 - f.lng0)) * (W - 40) + 20,
+  y: ((f.lat1 - PLACES[id].lat) / (f.lat1 - f.lat0)) * (H - 40) + 20,
+});
+/** Lagos to Ilorin: by road up the expressway, or by air. */
+const CITY_POINT: Record<string, P & { name: string }> = {
+  lagos: { name: "Lagos", lat: 6.52, lng: 3.37 },
+  ilorin: { name: "Ilorin", lat: 8.49, lng: 4.55 },
+};
 
 function km(a: P, b: P) {
   const R = 6371,
@@ -95,16 +134,43 @@ export function TravelMap({
   from,
   to,
   byCar,
+  plane,
   onDone,
 }: {
   from: string;
   to: string;
   byCar: boolean;
+  plane?: boolean;
   onDone: () => void;
 }) {
   const path = useRef<SVGPathElement>(null);
+  const cityA = cityOf(districtById(from)),
+    cityB = cityOf(districtById(to));
+  const intercity = cityA !== cityB;
+  const lagos = !intercity && cityA === "lagos";
+  const pt = useMemo(() => {
+    if (lagos) return projector(LAGOS);
+    if (intercity) {
+      // the two cities are far apart: draw each city as a point
+      const both = [CITY_POINT[cityA], CITY_POINT[cityB]];
+      const fr: Frame = {
+        lng0: Math.min(...both.map((b) => b.lng)) - 0.5,
+        lng1: Math.max(...both.map((b) => b.lng)) + 0.5,
+        lat0: Math.min(...both.map((b) => b.lat)) - 0.4,
+        lat1: Math.max(...both.map((b) => b.lat)) + 0.4,
+      };
+      return (id: string) => {
+        const c = CITY_POINT[cityAt(id)];
+        return {
+          x: ((c.lng - fr.lng0) / (fr.lng1 - fr.lng0)) * (W - 40) + 20,
+          y: ((fr.lat1 - c.lat) / (fr.lat1 - fr.lat0)) * (H - 40) + 20,
+        };
+      };
+    }
+    return projector(frameFor(Object.keys(PLACES).filter((id) => cityAt(id) === cityA)));
+  }, [lagos, intercity, from, to, cityA, cityB]);
   const [pos, setPos] = useState({ x: pt(from).x, y: pt(from).y, a: 0, p: 0 });
-  const stops = useMemo(() => route(from, to), [from, to]);
+  const stops = useMemo(() => (intercity ? [from, to] : route(from, to)), [from, to, intercity]);
   const d = useMemo(
     () => stops.map((s, i) => `${i ? "L" : "M"}${pt(s).x} ${pt(s).y}`).join(""),
     [stops],
@@ -112,8 +178,8 @@ export function TravelMap({
   const dist = useMemo(() => {
     let t = 0;
     for (let i = 1; i < stops.length; i++) t += km(PLACES[stops[i - 1]], PLACES[stops[i]]);
-    return Math.round(t);
-  }, [stops]);
+    return Math.round(plane ? t / 1.3 : t);
+  }, [stops, plane]);
   const done = useRef(onDone);
   done.current = onDone;
 
@@ -121,7 +187,7 @@ export function TravelMap({
     const el = path.current;
     if (!el) return;
     const len = el.getTotalLength();
-    const ms = Math.min(6500, 2600 + dist * 120);
+    const ms = intercity ? (plane ? 6000 : 9000) : Math.min(6500, 2600 + dist * 120);
     const t0 = performance.now();
     let raf = 0;
     const tick = (now: number) => {
@@ -135,11 +201,15 @@ export function TravelMap({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [d, dist]);
+  }, [d, dist, intercity, plane]);
 
   const fromName = districtById(from).name,
     toName = districtById(to).name;
   const vehicle = byCar ? "#1f6f63" : "#f2c230";
+  const shown = Object.keys(PLACES).filter((id) =>
+    intercity ? id === from || id === to : cityAt(id) === cityA,
+  );
+  const roads = ROADS.filter(([a, b]) => !intercity && shown.includes(a) && shown.includes(b));
 
   return (
     <div
@@ -156,7 +226,17 @@ export function TravelMap({
           </div>
         </div>
         <div className="text-[13px] opacity-80">
-          {byCar ? "Driving your car" : "On the yellow bus"} · Lagos
+          {plane
+            ? "✈️ On the plane"
+            : byCar
+              ? "Driving your car"
+              : intercity
+                ? "On the inter-city bus"
+                : "On the yellow bus"}{" "}
+          ·{" "}
+          {intercity
+            ? `${CITY_POINT[cityA].name} to ${CITY_POINT[cityB].name}`
+            : CITY_POINT[cityA].name}
         </div>
         <svg
           viewBox={`0 0 ${W} ${H}`}
@@ -164,23 +244,34 @@ export function TravelMap({
           role="img"
           aria-label={`Route from ${fromName} to ${toName}`}
         >
-          <rect width={W} height={H} fill="#3f9db5" />
-          <path d={LAND} fill="#a9c47a" />
-          <path d={LAGOON} fill="#3f9db5" />
-          <text
-            x={W - 16}
-            y={H - 18}
-            textAnchor="end"
-            fontSize="12"
-            fill="#e6f4f8"
-            fontStyle="italic"
-          >
-            Atlantic Ocean
-          </text>
-          <text x={330} y={248} textAnchor="middle" fontSize="11" fill="#e6f4f8" fontStyle="italic">
-            Lagos Lagoon
-          </text>
-          {ROADS.map(([a, b]) => (
+          <rect width={W} height={H} fill={lagos ? "#3f9db5" : "#a9c47a"} />
+          {lagos && <path d={LAND} fill="#a9c47a" />}
+          {lagos && <path d={LAGOON} fill="#3f9db5" />}
+          {lagos && (
+            <text
+              x={W - 16}
+              y={H - 18}
+              textAnchor="end"
+              fontSize="12"
+              fill="#e6f4f8"
+              fontStyle="italic"
+            >
+              Atlantic Ocean
+            </text>
+          )}
+          {lagos && (
+            <text
+              x={330}
+              y={248}
+              textAnchor="middle"
+              fontSize="11"
+              fill="#e6f4f8"
+              fontStyle="italic"
+            >
+              Lagos Lagoon
+            </text>
+          )}
+          {roads.map(([a, b]) => (
             <line
               key={a + b}
               x1={pt(a).x}
@@ -192,7 +283,7 @@ export function TravelMap({
               strokeLinecap="round"
             />
           ))}
-          {ROADS.map(([a, b]) => (
+          {roads.map(([a, b]) => (
             <line
               key={"m" + a + b}
               x1={pt(a).x}
@@ -217,7 +308,8 @@ export function TravelMap({
             pathLength={1000}
             opacity="0.9"
           />
-          {Object.entries(PLACES).map(([id, p]) => {
+          {shown.map((id) => {
+            const p = PLACES[id];
             const c = pt(id);
             const end = id === from || id === to;
             if (p.hub)
@@ -256,13 +348,19 @@ export function TravelMap({
                   fontWeight="700"
                   fill="#fdf8ec"
                 >
-                  {p.name}
+                  {intercity ? CITY_POINT[cityAt(id)].name : p.name}
                 </text>
               </g>
             );
           })}
           <g transform={`translate(${pos.x} ${pos.y}) rotate(${pos.a})`}>
+            {plane && (
+              <text x="0" y="6" textAnchor="middle" fontSize="20" transform="rotate(45)">
+                ✈️
+              </text>
+            )}
             <rect
+              visibility={plane ? "hidden" : "visible"}
               x="-11"
               y="-6"
               width="22"
@@ -272,21 +370,33 @@ export function TravelMap({
               stroke="#10201e"
               strokeWidth="1.5"
             />
-            <rect x="2" y="-4.5" width="6" height="9" rx="1.5" fill="#2a3a44" />
+            <rect
+              visibility={plane ? "hidden" : "visible"}
+              x="2"
+              y="-4.5"
+              width="6"
+              height="9"
+              rx="1.5"
+              fill="#2a3a44"
+            />
           </g>
         </svg>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#fdf8ec]/15">
           <div className="h-full rounded-full bg-[#f2c230]" style={{ width: `${pos.p * 100}%` }} />
         </div>
         <p className="mt-2 text-center text-[12px] opacity-70">
-          {pos.p < 1
-            ? `Via ${
-                stops
-                  .slice(1, -1)
-                  .map((s) => PLACES[s].name)
-                  .join(", ") || "the main road"
-              }`
-            : `Arriving in ${toName}…`}
+          {pos.p < 1 && intercity
+            ? plane
+              ? "Flying over Ogun and Oyo… about an hour in the air"
+              : "Along the Lagos–Ibadan Expressway and up to Ilorin"
+            : pos.p < 1
+              ? `Via ${
+                  stops
+                    .slice(1, -1)
+                    .map((s) => PLACES[s].name)
+                    .join(", ") || "the main road"
+                }`
+              : `Arriving in ${toName}…`}
         </p>
       </div>
     </div>

@@ -25,6 +25,14 @@ export const CITIES: Record<string, City> = {
     tz: "Africa/Lagos",
     method: METHODS.MWL,
   },
+  ilorin: {
+    id: "ilorin",
+    name: "Ilorin",
+    lat: 8.4966,
+    lng: 4.5421,
+    tz: "Africa/Lagos",
+    method: METHODS.MWL,
+  },
   riyadh: {
     id: "riyadh",
     name: "Riyadh",

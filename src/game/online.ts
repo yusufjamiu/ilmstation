@@ -15,6 +15,8 @@ export type Presence = {
   moving: boolean;
   area: string;
   t: number;
+  /** ✨ blessed with wealth, 💚 a generous giver */
+  badge?: string;
 };
 export type ChatMsg = { id: string; from: string; text: string; at: number };
 export type ChatInfo = {
