@@ -4089,7 +4089,11 @@ export class IlmCityEngine {
           generous = p.badge?.includes("💚");
         const tag = label(`${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}`, {
           size: 0.75,
-          bg: blessed ? "rgba(201,162,39,0.98)" : generous ? "rgba(29,107,58,0.95)" : "rgba(230,184,74,0.95)",
+          bg: blessed
+            ? "rgba(201,162,39,0.98)"
+            : generous
+              ? "rgba(29,107,58,0.95)"
+              : "rgba(230,184,74,0.95)",
           fg: generous && !blessed ? "#ffffff" : undefined,
         });
         tag.position.y = 2.65;
