@@ -205,7 +205,15 @@ type Save = {
   /** sadaqah given at the masjid, in all (game units) */
   sadaqah?: number;
 };
-type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
+type Look = {
+  name: string;
+  female: boolean;
+  skin: number;
+  robe: number;
+  accent: number;
+  /** premium clothes: an agbada for brothers, a lace abaya for sisters */
+  style?: "agbada" | "lace";
+};
 
 /* ---------- money ----------
    Everything is priced in IlmWorld naira (₦). The save keeps whole units of ₦10. */
@@ -10096,16 +10104,23 @@ function WardrobeView({
     name: string;
     price: number;
   } | null>(null);
-  const has = (k: string, c: number, which: "robe" | "accent") =>
-    have.includes(k) || cur[which] === c;
-  const row = (label: string, which: "robe" | "accent", list: number[], price = CLOTHES_PRICE) => (
+  const wearing = (c: number, which: "robe" | "accent", style?: Look["style"]) =>
+    cur[which] === c && (which === "accent" || cur.style === style);
+  const row = (
+    label: string,
+    which: "robe" | "accent",
+    list: number[],
+    price = CLOTHES_PRICE,
+    style?: Look["style"],
+  ) => (
     <div>
       <div className="mb-1 text-[12.5px] font-bold">{label}</div>
       <div className="flex flex-wrap gap-2">
         {list.map((c) => {
-          const key = `${which}:${hex(c)}`;
-          const mine = has(key, c, which);
-          const on = cur[which] === c;
+          const key = `${style ?? which}:${hex(c)}`;
+          const on = wearing(c, which, style);
+          const mine = have.includes(key) || on;
+          const p: Partial<Look> = which === "robe" ? { robe: c, style } : { accent: c };
           return (
             <button
               key={c}
@@ -10113,9 +10128,9 @@ function WardrobeView({
               onClick={() => {
                 if (mine) {
                   setPick(null);
-                  setCur({ ...cur, [which]: c });
-                  onWear({ [which]: c });
-                } else setPick({ key, p: { [which]: c }, name: label.toLowerCase(), price });
+                  setCur({ ...cur, ...p });
+                  onWear(p);
+                } else setPick({ key, p, name: label.toLowerCase(), price });
               }}
               className={`relative size-10 rounded-full border-2 ${on ? "border-[#e6b84a] ring-2 ring-[#e6b84a]/50" : pick?.key === key ? "border-[#1f6f63] ring-2 ring-[#1f6f63]/40" : "border-black/10"}`}
               style={{ background: hex(c) }}
@@ -10144,13 +10159,17 @@ function WardrobeView({
           ✨ Premium · {N(PREMIUM_PRICE)} each
         </div>
         <div className="mb-2 text-[11.5px] opacity-75">
-          Embroidered and lace, for those Allah has blessed. Be grateful, not proud.
+          {cur.female
+            ? "A lace abaya with bell sleeves, a long khimar and gold trim."
+            : "A flowing agbada over the kaftan, with gold embroidery and a tall fila."}{" "}
+          For those Allah has blessed. Be grateful, not proud.
         </div>
         {row(
-          cur.female ? "Premium abaya" : "Premium agbada",
+          cur.female ? "Lace abaya" : "Agbada",
           "robe",
           cur.female ? PREMIUM_ABAYAS : PREMIUM_THOBES,
           PREMIUM_PRICE,
+          cur.female ? "lace" : "agbada",
         )}
         <div className="h-2" />
         {row(

@@ -3754,7 +3754,7 @@ export class IlmCityEngine {
     mesh.position.set(0, 6.7, 0.37);
     g.add(mesh);
     // the back of the gate shows where the road goes as you leave
-    const to = D.parent ? fullName(districtById(D.parent)) : "City Junction";
+    const to = D.parent ? fullName(districtById(D.parent)) : JUNCTION_NAME[cityOf(D)];
     const back = canvasPlane(
       17.6,
       2.3,
@@ -3816,10 +3816,27 @@ export class IlmCityEngine {
     this.snapCamera();
   }
   /** Dress your character: brother or sister, skin tone and clothes. */
-  setPlayerLook(o: { female: boolean; skin: number; robe: number; accent: number }) {
+  setPlayerLook(o: {
+    female: boolean;
+    skin: number;
+    robe: number;
+    accent: number;
+    style?: "agbada" | "lace";
+  }) {
     const fresh = o.female
-      ? person(o.robe, { hijab: o.accent, skin: o.skin, seed: 2 })
-      : person(o.robe, { cap: o.accent, skin: o.skin, seed: 1, outfit: "thobe", beard: true });
+      ? person(o.robe, {
+          hijab: o.accent,
+          skin: o.skin,
+          seed: 2,
+          outfit: o.style === "lace" ? "lace" : "abaya",
+        })
+      : person(o.robe, {
+          cap: o.accent,
+          skin: o.skin,
+          seed: 1,
+          outfit: o.style === "agbada" ? "agbada" : "thobe",
+          beard: true,
+        });
     for (const c of [...this.player.children]) {
       this.player.remove(c);
       forgetHuman(c);
@@ -4123,7 +4140,13 @@ export class IlmCityEngine {
     list: {
       uid: string;
       name: string;
-      look: { female: boolean; skin: number; robe: number; accent: number };
+      look: {
+        female: boolean;
+        skin: number;
+        robe: number;
+        accent: number;
+        style?: "agbada" | "lace";
+      };
       x: number;
       z: number;
       h: number;
@@ -4144,12 +4167,17 @@ export class IlmCityEngine {
       }
       if (!r) {
         const g = p.look.female
-          ? person(p.look.robe, { hijab: p.look.accent, skin: p.look.skin, seed: 2 })
+          ? person(p.look.robe, {
+              hijab: p.look.accent,
+              skin: p.look.skin,
+              seed: 2,
+              outfit: p.look.style === "lace" ? "lace" : "abaya",
+            })
           : person(p.look.robe, {
               cap: p.look.accent,
               skin: p.look.skin,
               seed: 1,
-              outfit: "thobe",
+              outfit: p.look.style === "agbada" ? "agbada" : "thobe",
               beard: true,
             });
         // a gold tag for the blessed, a green heart for generous givers
@@ -4535,7 +4563,8 @@ export class IlmCityEngine {
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.font = `800 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-        c.fillText("YOUR ADVERT HERE", W / 2, H * 0.36);
+        const town = cityOf(districtById(b.district.replace(/^road:/, "")));
+        c.fillText(town === "ilorin" ? "ADVERTISE IN ILORIN" : "YOUR ADVERT HERE", W / 2, H * 0.36);
         c.font = `500 ${Math.round(H * 0.085)}px "Work Sans", system-ui, sans-serif`;
         c.fillText("To post your advert, contact", W / 2, H * 0.62);
         c.font = `700 ${Math.round(H * 0.11)}px "Work Sans", system-ui, sans-serif`;

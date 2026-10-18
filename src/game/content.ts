@@ -31,6 +31,13 @@ export type Street = { id: string; name: string; bio: string };
 const ILORIN_ST =
   "A street in Ilorin, Kwara State: the city of scholars, known for its Islamic learning.";
 export const STREETS: Record<string, Street> = {
+  onikijipa: {
+    id: "onikijipa",
+    name: "Mufti Sheikh Sulaiman Farooq Onikijipa Street",
+    bio: COMING_SOON,
+  },
+  alaro: { id: "alaro", name: "Sheikh Prof. AbdulMajeed Alaro Street", bio: COMING_SOON },
+  lafiaji: { id: "lafiaji", name: "Dr. Sanusi Lafiaji Street", bio: COMING_SOON },
   emirsroad: {
     id: "emirsroad",
     name: "Emir's Road",
@@ -277,6 +284,8 @@ function universityArea(o: {
   region?: string;
   /** the name on the gate, e.g. UNIVERSITY OF LAGOS */
   gate?: string;
+  /** more places in the area */
+  extra?: Landmark[];
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
   const fx = [-112, -24, 26, 70];
@@ -365,6 +374,7 @@ function universityArea(o: {
         depth: 18,
         about: o.about,
       },
+      ...(o.extra ?? []),
     ],
   };
 }
@@ -1173,7 +1183,7 @@ export const DISTRICTS: District[] = [
     streets: [
       { id: "emirsroad", z: 0, decor: true },
       { id: "ojaoba", z: -66 },
-      { id: "okelele", z: 66 },
+      { id: "onikijipa", z: 66 },
     ],
     landmarks: [
       {
@@ -1198,8 +1208,18 @@ export const DISTRICTS: District[] = [
         id: "ilorin-madrasah",
         kind: "school",
         name: "Ilorin Arabic and Islamic School",
-        street: "okelele",
+        street: "onikijipa",
         x: -40,
+      },
+      {
+        id: "onikijipa-house",
+        kind: "mansion",
+        name: "House of Mufti Sheikh Sulaiman Farooq Onikijipa",
+        street: "onikijipa",
+        x: 50,
+        width: 44,
+        depth: 30,
+        floors: 2,
       },
     ],
   },
@@ -1272,7 +1292,7 @@ export const DISTRICTS: District[] = [
     streets: [
       { id: "gaaakanbi", z: 0 },
       { id: "sangoroad", z: -66 },
-      { id: "offaroad", z: 66 },
+      { id: "lafiaji", z: 66 },
     ],
     landmarks: [
       {
@@ -1287,8 +1307,18 @@ export const DISTRICTS: District[] = [
         id: "gaa-madrasah",
         kind: "school",
         name: "Gaa-Akanbi Madrasah",
-        street: "offaroad",
+        street: "lafiaji",
         x: -40,
+      },
+      {
+        id: "lafiaji-house",
+        kind: "mansion",
+        name: "House of Dr. Sanusi Lafiaji",
+        street: "lafiaji",
+        x: 50,
+        width: 44,
+        depth: 30,
+        floors: 2,
       },
     ],
   },
@@ -1303,7 +1333,20 @@ export const DISTRICTS: District[] = [
     busStop: "Unilorin Gate",
     road: "unilorinroad",
     avenue: "mssnunilorin",
-    homes: "tankeroad",
+    homes: "alaro",
+    extra: [
+      {
+        id: "alaro-house",
+        kind: "mansion",
+        name: "House of Sheikh Prof. AbdulMajeed Alaro",
+        street: "alaro",
+        x: 50,
+        side: "s",
+        width: 44,
+        depth: 30,
+        floors: 2,
+      },
+    ],
     state: "Kwara",
     city: "ilorin",
     region: "Ilorin",
@@ -1557,6 +1600,35 @@ export const BILLBOARDS: Billboard[] = [
   { id: "ikorodu-junction", name: "Ikorodu Junction", district: "ikorodu" },
   { id: "egbeda-junction", name: "Egbeda Junction", district: "egbeda" },
   { id: "egbeda-market", name: "Egbeda Market Road", district: "egbeda" },
+  // Ilorin: boards for Ilorin businesses
+  {
+    id: "ilorin-postoffice",
+    name: "Post Office Roundabout",
+    district: "taiwo",
+    ad: {
+      brand: "IlmStation",
+      headline: "Ilorin, city of scholars",
+      line: "Learn daily on IlmStation · ilmstation.com",
+      bg: "#1d6b3a",
+      fg: "#fdf8ec",
+      link: "https://ilmstation.com",
+    },
+  },
+  { id: "ilorin-ojaoba", name: "Oja-Oba Market Board", district: "ilorincentral" },
+  {
+    id: "ilorin-unilorin",
+    name: "Unilorin Gate Board",
+    district: "tanke",
+    ad: {
+      brand: "OutingStation",
+      headline: "Halal outings in Ilorin",
+      line: "Events · Experiences · outingstation.com",
+      bg: "#5adaee",
+      fg: "#062a30",
+    },
+  },
+  { id: "ilorin-fate", name: "Fate Road Board", district: "fate" },
+  { id: "ilorin-sango", name: "Sango Market Board", district: "gaa" },
 ];
 
 // two more boards in each area and three along each road into it
