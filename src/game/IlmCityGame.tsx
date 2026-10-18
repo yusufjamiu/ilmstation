@@ -566,8 +566,9 @@ function CityGame({
 
   /** Finish a step of the guided start: +₦100. */
   const advance = useCallback(
-    (step: number) => {
-      if (saveRef.current.guide !== step) return;
+    (which: number | string) => {
+      const step = typeof which === "number" ? which : GUIDE.findIndex((g) => g.id === which) + 1;
+      if (step < 1 || saveRef.current.guide !== step) return;
       saveRef.current = { ...saveRef.current, guide: step + 1 };
       update((x) => ({ ...x, guide: step + 1, coins: x.coins + 10 }));
       toast(
@@ -579,6 +580,19 @@ function CityGame({
     },
     [toast, update],
   );
+  const advanceRef = useRef(advance);
+  advanceRef.current = advance;
+  // skip steps already done (a job taken before the guide reached it, a flat-less home)
+  useEffect(() => {
+    const g = GUIDE[(save.guide ?? 99) - 1];
+    if (!g) return;
+    if (
+      (g.id === "job" && save.job) ||
+      (g.id === "rent" && save.homePlot) ||
+      (g.id === "wudu" && save.wudu)
+    )
+      advance(g.id);
+  }, [save.guide, save.job, save.homePlot, save.wudu, advance]);
   /** Tick off a task in My Day. */
   const doTask = useCallback(
     (id: string) => {
@@ -770,6 +784,8 @@ function CityGame({
   /* ---------- food: order on the phone or eat at the eatery ---------- */
   const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
   const openPhoneRef = useRef<() => void>(() => {});
+  const openWalletRef = useRef<() => void>(() => {});
+  const profileBtn = useRef<HTMLButtonElement | null>(null);
   const eat = useCallback(
     (d: Dish) => {
       setPanel(null);
@@ -901,21 +917,7 @@ function CityGame({
           onCalls={() => openCallsRef.current("calls")}
           onHomes={() => openHomesRef.current()}
           onRooms={() => openRoomsRef.current()}
-          onWallet={() =>
-            setPanel({
-              kind: "info",
-              title: "💰 Wallet",
-              phone: { home: () => openPhoneRef.current() },
-              body: (
-                <WalletView
-                  points={saveRef.current.coins}
-                  txns={saveRef.current.txns ?? []}
-                  online={!!onlineRef.current}
-                  onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
-                />
-              ),
-            })
-          }
+          onWallet={() => openWalletRef.current()}
           onContacts={() => openCallsRef.current("contacts")}
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
@@ -1593,8 +1595,8 @@ function CityGame({
       const d = districtById(to);
       arriveRef.current = () => {
         e.travel(to, byCar);
-        advance(4);
-        advance(3);
+        advance("ride");
+        advance("learn");
         setDriving(false);
         setInside(false);
         update((x) => ({
@@ -1667,7 +1669,7 @@ function CityGame({
 
   const openLecture = useCallback(
     (lec: Lecture, live: boolean) => {
-      advance(3);
+      advance("learn");
       doTask("learn");
       setPanel({
         kind: "info",
@@ -2018,7 +2020,7 @@ function CityGame({
                 needs: { ...(x.needs ?? freshNeeds()), clean: 100 },
               }));
               doTask("wudu");
-              advance(1);
+              advance("wudu");
               setPanel(null);
               if (then) setTimeout(then, 50);
             }}
@@ -2072,7 +2074,7 @@ function CityGame({
             onFinish={() => {
               setPanel(null);
               engine.current?.prayPose(null);
-              advance(3);
+              advance("learn");
               need({ iman: 15 });
               if (fard) {
                 if (Object.keys(saveRef.current.prayed).length + 1 >= 5) doTask("salah");
@@ -2624,6 +2626,22 @@ function CityGame({
   );
   const sendMoneyRef = useRef(sendMoney);
   sendMoneyRef.current = sendMoney;
+  openWalletRef.current = () => {
+    advance("wallet");
+    setPanel({
+      kind: "info",
+      title: "💰 Wallet",
+      phone: { home: () => openPhoneRef.current() },
+      body: (
+        <WalletView
+          points={saveRef.current.coins}
+          txns={saveRef.current.txns ?? []}
+          online={!!onlineRef.current}
+          onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
+        />
+      ),
+    });
+  };
 
   /* ---------- houses are shared: one player per house ---------- */
   const claimsNet = useRef<Claims | null>(null);
@@ -2750,6 +2768,7 @@ function CityGame({
   const openWardrobe = useCallback(() => {
     const look = saveRef.current.profile;
     if (!look) return;
+    advance("clothes");
     setPanel({
       kind: "info",
       title: "👕 Clothes",
@@ -2778,7 +2797,7 @@ function CityGame({
         />
       ),
     });
-  }, [update, toast]);
+  }, [update, toast, advance]);
   const openWardrobeRef = useRef(openWardrobe);
   openWardrobeRef.current = openWardrobe;
   /** Rent due: what the landlord says when you come home. */
@@ -3104,6 +3123,7 @@ function CityGame({
               update((x) => ({ ...x, job: j.id }));
               saveRef.current = { ...saveRef.current, job: j.id };
               setPanel(null);
+              setTimeout(() => advanceRef.current("job"), 0);
               toast(
                 `You are now a ${j.name.toLowerCase()} at ${j.place}. Shift: ${hoursText(j)}. Pay: ${N(j.pay)} a day.`,
                 "good",
@@ -3724,7 +3744,7 @@ function CityGame({
                     tuneRef.current();
                     sayDhikr("ride");
                     update((x) => ({ ...x, coins: x.coins - 3 }));
-                    advance(4);
+                    advance("ride");
                     toast("Off we go! Hold on tight.", "good");
                   } else toast("The keke can't go there from here.");
                 }}
@@ -3781,7 +3801,7 @@ function CityGame({
         if (e.boardBus()) {
           tuneRef.current();
           sayDhikr("ride");
-          advance(4);
+          advance("ride");
           update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
           toast(`Bismillah! You paid ${N(BUS_FARE)}. Tap "Get off" before your stop.`, "good");
         }
@@ -3792,7 +3812,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:masjid:")) {
-        advance(2);
+        advance("masjid");
         const lid = id.slice(12);
         const name = landmarkName(lid);
         e.enterInterior("masjid", name);
@@ -4774,7 +4794,9 @@ function CityGame({
             )}
           </button>
           <button
-            onClick={() =>
+            ref={profileBtn}
+            onClick={() => {
+              advance("profile");
               setPanel({
                 kind: "info",
                 title: "👤 Profile",
@@ -4878,8 +4900,8 @@ function CityGame({
                     ]}
                   />
                 ),
-              })
-            }
+              });
+            }}
             className="pointer-events-auto relative rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
           >
             👤 Profile
@@ -5360,7 +5382,13 @@ function CityGame({
               if (!e?.goToZone(prefix)) toast("Go outside first.");
               else e.guideTo(prefix);
             }}
-            onNext={() => advance(GUIDE.length)}
+            onOpen={(what) => {
+              if (what === "jobs") openJobsRef.current();
+              else if (what === "clothes") openWardrobeRef.current();
+              else if (what === "wallet") openWalletRef.current();
+              else profileBtn.current?.click();
+            }}
+            onNext={() => advance(save.guide ?? 1)}
             onSkip={() => update((x) => ({ ...x, guide: GUIDE.length + 1 }))}
           />
         )}
@@ -5470,7 +5498,7 @@ function CityGame({
             talkingRef.current = null;
           }}
           onQuizPick={(i) => {
-            advance(3);
+            advance("learn");
             doTask("learn");
             if (panel.kind !== "quiz" || panel.picked !== undefined) return;
             const ok = i === panel.q.a;
@@ -7612,53 +7640,91 @@ function Onboarding({
 }
 
 /* ---------------- guided first minutes ---------------- */
-const GUIDE: { title: string; text: string; go?: { prefix: string; label: string } }[] = [
+type GuideStep = {
+  id: string;
+  title: string;
+  text: string;
+  /** a button that shows the way to a place */
+  go?: { prefix: string; label: string };
+  /** a button that opens a screen */
+  open?: { what: "jobs" | "profile" | "wallet" | "clothes"; label: string };
+  /** nothing to do but read: a Next button */
+  next?: boolean;
+};
+/** The first ten minutes: each step is done by doing it (or by Next, for the ones to read). */
+const GUIDE: GuideStep[] = [
   {
+    id: "wudu",
     title: "Make wudu",
     text: "You are home. Walk to the bathroom and make wudu, step by step.",
     go: { prefix: "bath", label: "Show me the bathroom" },
   },
   {
+    id: "masjid",
     title: "Visit the masjid",
-    text: "Go outside and walk to the nearest mosque. Follow the marker on the ground.",
+    text: "Go outside and walk to the nearest mosque. Follow the gold arrow.",
     go: { prefix: "door:masjid:", label: "Show me the way" },
   },
   {
+    id: "learn",
     title: "Pray or learn",
-    text: "Inside, pray, listen to a lecture or take the quiz. It all earns money.",
+    text: "Inside, pray, listen to a lecture or take the quiz. You earn money and Ilm.",
   },
   {
+    id: "profile",
+    title: "Your profile",
+    text: "Tap 👤 Profile at the top: your money, your Ilm and title, your rent and everything you own.",
+    open: { what: "profile", label: "Open my profile" },
+  },
+  {
+    id: "job",
+    title: "Get a job",
+    text: "Choose a job that suits you. Work your shift each day to earn your salary. More Ilm means more pay.",
+    open: { what: "jobs", label: "Choose a job" },
+  },
+  {
+    id: "rent",
+    title: "Pay your rent",
+    text: "Your flat has weekly rent, set by the area. The first week is paid. After that, pay in 👤 Profile → Pay rent, or the landlord stops you at the door.",
+    next: true,
+  },
+  {
+    id: "clothes",
+    title: "Your clothes",
+    text: "Look at the clothes shop: new thobes, abayas, caps and hijabs cost ₦500 each. What you own, you can change into for free.",
+    open: { what: "clothes", label: "Open the clothes shop" },
+  },
+  {
+    id: "wallet",
+    title: "Your wallet",
+    text: "Open 📱 Phone → Wallet: see your naira and send money to a friend with their IlmWorld number.",
+    open: { what: "wallet", label: "Open my wallet" },
+  },
+  {
+    id: "ride",
     title: "Ride a keke or danfo",
-    text: "Stand by the road and a keke will stop for you, or wait at a bus stop for a danfo.",
+    text: "Stand by the road and a keke will stop for you, or take a danfo from a bus stop to another area.",
     go: { prefix: "busstop:", label: "Show me a bus stop" },
   },
   {
-    title: "Your day",
-    text: "Tap 📋 My Day for today's tasks, and watch your needs under the clock: food, energy, iman, friends and clean. Buy furniture with 🛋️ Home.",
-  },
-  {
-    title: "Your phone",
-    text: "Tap 📱 Phone: order food, find where to go with OutingStation, travel, call friends, visit homes, rent a room and check your wallet.",
-  },
-  {
+    id: "play",
     title: "Play with others",
-    text: "Brothers play football at the pitch (buy your kit first). Sisters skip rope at the Sisters' Corner. Real players can join you.",
+    text: "Football at the pitch, skipping rope at the Sisters' Corner, and table tennis for brothers and sisters. Real players can join you.",
     go: { prefix: "field:", label: "Show me the pitch" },
-  },
-  {
-    title: "Earn and grow",
-    text: "Work a job (👤 Profile → Work), rent a market stall, buy a house and rent out its rooms, and furnish your home for the Saturday best-home award.",
+    next: true,
   },
 ];
 
 function Guide({
   step,
   onGo,
+  onOpen,
   onNext,
   onSkip,
 }: {
   step: number;
   onGo: (prefix: string) => void;
+  onOpen: (what: NonNullable<GuideStep["open"]>["what"]) => void;
   onNext: () => void;
   onSkip: () => void;
 }) {
@@ -7688,12 +7754,20 @@ function Guide({
             {g.go.label}
           </button>
         )}
-        {step === GUIDE.length && (
+        {g.open && (
           <button
-            onClick={onNext}
+            onClick={() => onOpen(g.open!.what)}
             className="mt-2 rounded-lg bg-[#e6b84a] px-3 py-1.5 text-[13px] font-bold text-[#2a1c05]"
           >
-            Got it
+            {g.open.label}
+          </button>
+        )}
+        {g.next && (
+          <button
+            onClick={onNext}
+            className="ml-2 mt-2 rounded-lg border border-[#e6b84a] px-3 py-1.5 text-[13px] font-bold text-[#e6b84a]"
+          >
+            {step === GUIDE.length ? "Got it" : "Next"}
           </button>
         )}
       </div>
