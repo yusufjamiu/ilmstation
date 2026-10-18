@@ -857,6 +857,7 @@ export class IlmCityEngine {
 
     // landmarks along their streets, front doors facing the street
     D.landmarks.forEach((l) => this.buildLandmark(l, D));
+    if (D.campus) this.buildCampusWall(D);
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
     if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
 
@@ -2278,6 +2279,7 @@ export class IlmCityEngine {
     const c = this.courts.get(zoneId);
     if (!c || this.where !== "out") return false;
     this.endTennis();
+    this.tennisZone = zoneId;
     if (this.driving) this.exitCar();
     this.tapTarget = null;
     this.marker.visible = false;
@@ -2361,8 +2363,15 @@ export class IlmCityEngine {
     }
     this.tennis.dispose();
     this.tennis = null;
+    // step back out to the front of the table tennis spot, where you came in
+    const z = this.zones.find((q) => q.id === this.tennisZone);
+    if (z) {
+      this.player.position.set(z.x, 0, z.z);
+      this.player.rotation.y = 0;
+    }
     this.snapCamera();
   }
+  private tennisZone = "";
   private stepTennis(v: THREE.Vector2, dt: number) {
     const t = this.tennis!;
     let move: { x: number; z: number } | null = null;
@@ -2984,6 +2993,65 @@ export class IlmCityEngine {
       },
       512,
     ).mesh;
+  }
+  /** A university behind its wall: a fence round the campus and a gate on the cross road
+      with the university's name written big across it. Shops and houses stay outside. */
+  private buildCampusWall(D: District) {
+    const c = D.campus!;
+    const H = halfOf(D);
+    const z = c.z,
+      x0 = -H.x + 1,
+      x1 = H.x - 1,
+      zb = -H.z + 1;
+    const g = new THREE.Group();
+    const wall = (ax: number, az: number, bx: number, bz: number) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      const along = Math.abs(bx - ax) > Math.abs(bz - az);
+      const w = new THREE.Mesh(
+        new THREE.BoxGeometry(along ? len : 0.35, 2.2, along ? 0.35 : len),
+        mat(0xe9e2d0),
+      );
+      w.position.set((ax + bx) / 2, 1.1, (az + bz) / 2);
+      w.castShadow = true;
+      w.receiveShadow = true;
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(along ? len : 0.5, 0.18, along ? 0.5 : len),
+        mat(0x1f6f63),
+      );
+      cap.position.set((ax + bx) / 2, 2.25, (az + bz) / 2);
+      g.add(w, cap);
+      this.addCollider(
+        "out",
+        Math.min(ax, bx) - 0.2,
+        Math.max(ax, bx) + 0.2,
+        Math.min(az, bz) - 0.2,
+        Math.max(az, bz) + 0.2,
+      );
+    };
+    // the front wall, open at the gate on the cross road
+    wall(x0, z, -11.3, z);
+    wall(11.3, z, x1, z);
+    wall(x0, z, x0, zb);
+    wall(x1, z, x1, zb);
+    wall(x0, zb, x1, zb);
+    // the gate: two pillars and a beam with the university's name
+    for (const px of [-10.5, 10.5]) g.add(box(1.6, 8.4, 1.6, 0xd9d1bd, px, 0, z));
+    g.add(box(22.6, 1.6, 1.4, 0x1f6f63, 0, 7, z));
+    const front = this.signBoard(c.gate, 19, 1.3, "#1f6f63", "#ffffff");
+    front.position.set(0, 7.8, z + 0.75);
+    g.add(front);
+    const back = this.signBoard(c.gate, 19, 1.3, "#1f6f63", "#ffffff");
+    back.position.set(0, 7.8, z - 0.75);
+    back.rotation.y = Math.PI;
+    g.add(back);
+    const hint = label("Main Gate · " + c.gate, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
+    hint.position.set(0, 10.4, z);
+    g.add(hint);
+    this.colliders.out.push(
+      { x0: this.ox - 11.3, x1: this.ox - 9.7, z0: this.oz + z - 0.8, z1: this.oz + z + 0.8 },
+      { x0: this.ox + 9.7, x1: this.ox + 11.3, z0: this.oz + z - 0.8, z1: this.oz + z + 0.8 },
+    );
+    this.dg.add(g);
   }
   /** IlmMotors: a glass showroom with cars on display. */
   private buildDealer(D: District) {
@@ -5475,6 +5543,9 @@ export class IlmCityEngine {
   private freeOut(x: number, z: number, r: number) {
     for (const b of this.colliders.out)
       if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
+    // your parked car (and the car you are driving) is in the way too
+    if (this.car.visible && Math.hypot(x - this.car.position.x, z - this.car.position.z) < 2.6 + r)
+      return false;
     return true;
   }
   private free(x: number, z: number, r: number) {

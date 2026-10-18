@@ -252,6 +252,8 @@ export type District = {
   landmarks: Landmark[];
   /** the city this area is in (default Lagos); each city is its own map */
   city?: string;
+  /** a walled university campus behind the main road, entered through a named gate */
+  campus?: { gate: string; z: number };
 };
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
@@ -273,8 +275,11 @@ function universityArea(o: {
   state?: string;
   city?: string;
   region?: string;
+  /** the name on the gate, e.g. UNIVERSITY OF LAGOS */
+  gate?: string;
 }): District {
-  const fx = [-100, -56, 42, 86];
+  // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
+  const fx = [-112, -24, 26, 70];
   return {
     id: o.id,
     name: o.name,
@@ -288,8 +293,9 @@ function universityArea(o: {
     half: { x: 140, z: 140 },
     tier: 2,
     toLet: 0.5,
-    shops: 0.25,
+    shops: 0.3,
     land: 0.12,
+    campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34 },
     streets: [
       { id: o.road, z: 0, decor: true },
       { id: o.avenue, z: -75 },
@@ -300,7 +306,8 @@ function universityArea(o: {
         id: `${o.id}-fac-${i}`,
         kind: "faculty",
         name: `${f} · ${o.short}`,
-        street: o.road,
+        street: o.avenue,
+        side: "s",
         x: fx[i],
         width: 30,
         depth: 28,
@@ -339,7 +346,7 @@ function universityArea(o: {
         kind: "office",
         name: `MSSN ${o.short} Secretariat`,
         street: o.avenue,
-        x: 50,
+        x: 112,
         side: "s",
         width: 28,
         depth: 18,
@@ -1046,6 +1053,7 @@ export const DISTRICTS: District[] = [
   },
   universityArea({
     id: "firstgate",
+    gate: "LASUSTECH, Ikorodu",
     name: "First Gate",
     uni: "Lagos State University of Science and Technology (LASUSTECH), Ikorodu",
     short: "LASUSTECH",
@@ -1067,6 +1075,7 @@ export const DISTRICTS: District[] = [
   }),
   universityArea({
     id: "akoka",
+    gate: "University of Lagos",
     name: "Akoka",
     uni: "the University of Lagos (UNILAG), Akoka",
     short: "UNILAG",
@@ -1087,6 +1096,7 @@ export const DISTRICTS: District[] = [
   }),
   universityArea({
     id: "ojo",
+    gate: "Lagos State University",
     name: "Ojo",
     uni: "Lagos State University (LASU), Ojo",
     short: "LASU",
@@ -1284,6 +1294,7 @@ export const DISTRICTS: District[] = [
   },
   universityArea({
     id: "tanke",
+    gate: "University of Ilorin",
     name: "Tanke",
     uni: "the University of Ilorin (Unilorin)",
     short: "Unilorin",
