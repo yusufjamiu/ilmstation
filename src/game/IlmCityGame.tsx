@@ -781,6 +781,7 @@ function CityGame({
         engine.current?.standUp();
         sayDhikr("afterEating", () => {});
       };
+      if (engine.current?.scenePlace() === "out") engine.current.prayPose("sit");
       sayDhikr("beforeEating", () =>
         setPanel({
           kind: "info",
@@ -858,7 +859,7 @@ function CityGame({
           setDelivery(null);
           update((x) => ({ ...x, meal: d.id }));
           toast(
-            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! Go inside, wash your hands, then eat.`,
+            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! ${engine.current?.districtId() !== (saveRef.current.homeArea ?? "lekki") ? "Sit down here, wash your hands and eat." : "Go inside, wash your hands, then eat."}`,
             "good",
           );
         },
@@ -5139,7 +5140,9 @@ function CityGame({
                   return;
                 }
                 if (e?.scenePlace() === "out") {
-                  if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
+                  // away from home: sit down where you are and eat, like at a park
+                  if (e.districtId() !== (saveRef.current.homeArea ?? "lekki")) openMeal(meal);
+                  else if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
                 } else openMeal(meal);
                 return;
               }
@@ -5160,7 +5163,9 @@ function CityGame({
                   ? `${meal.icon} Sit at a table to eat · tap for the way`
                   : inside
                     ? `${meal.icon} Tap here: wash your hands, then eat`
-                    : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
+                    : engine.current?.districtId() !== (save.homeArea ?? "lekki")
+                      ? `${meal.icon} Sit down here, wash your hands and eat · tap`
+                      : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
                 : "😩 I'm hungry · tap to order food"}
           </button>
         </div>
@@ -9611,7 +9616,9 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   if (s.meal)
     return inside
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
-      : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
+      : area !== home
+        ? { text: "Your food is ready: sit down here, wash your hands and eat" }
+        : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
     return { text: "You're hungry: order food (📱) or eat at a restaurant", prefix: "eatery:" };
   if (n && n.energy < 25)
