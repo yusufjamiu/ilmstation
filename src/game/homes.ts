@@ -12,6 +12,20 @@ export type ShownHome = {
   likes: number;
   likesWeek: string;
   at: number;
+  /** open house: anyone may walk in without knocking */
+  open?: boolean;
+  /** wall and floor colours */
+  paint?: { wall: number; floor: number };
+};
+/** Someone at your door. */
+export type Knock = {
+  id: string;
+  from: string;
+  fromName: string;
+  to: string;
+  /** knocking → let in / not now; a guest who is in can be asked to leave (out) */
+  status: "knocking" | "in" | "no" | "out" | "left";
+  at: number;
 };
 export interface Homes {
   publish(h: Omit<ShownHome, "likes" | "likesWeek" | "at">): Promise<void>;
@@ -19,6 +33,11 @@ export interface Homes {
   get(uid: string): Promise<ShownHome | null>;
   liked(owner: string, me: string): Promise<boolean>;
   like(owner: string, me: string): Promise<boolean>;
+  knock(to: string, me: { uid: string; name: string }): Promise<string>;
+  answer(id: string, status: Knock["status"]): Promise<void>;
+  watchKnock(id: string, cb: (k: Knock | null) => void): () => void;
+  /** knocks at your door and guests inside (the last hour) */
+  watchDoor(owner: string, cb: (k: Knock[]) => void): () => void;
 }
 
 /** The Saturday that ends this week (today, if it is Saturday). */
@@ -34,7 +53,20 @@ const likesNow = (h: ShownHome) => (h.likesWeek === weekKey() ? h.likes : 0);
 export async function connectHomes(): Promise<Homes> {
   const { db } = await import("@/lib/firebase");
   const f = await import("firebase/firestore");
-  const { doc, getDoc, setDoc, collection, query, orderBy, limit, onSnapshot, writeBatch } = f;
+  const {
+    doc,
+    getDoc,
+    setDoc,
+    addDoc,
+    updateDoc,
+    collection,
+    query,
+    where,
+    orderBy,
+    limit,
+    onSnapshot,
+    writeBatch,
+  } = f;
   return {
     async publish(h) {
       const ref = doc(db, "city_homes", h.uid);
@@ -86,6 +118,38 @@ export async function connectHomes(): Promise<Homes> {
       await b.commit();
       return true;
     },
+    async knock(to, me) {
+      const r = await addDoc(collection(db, "city_knocks"), {
+        from: me.uid,
+        fromName: me.name,
+        to,
+        status: "knocking",
+        at: Date.now(),
+      });
+      return r.id;
+    },
+    async answer(id, status) {
+      await updateDoc(doc(db, "city_knocks", id), { status });
+    },
+    watchKnock(id, cb) {
+      return onSnapshot(
+        doc(db, "city_knocks", id),
+        (s) => cb(s.exists() ? ({ ...(s.data() as Knock), id: s.id } as Knock) : null),
+        () => cb(null),
+      );
+    },
+    watchDoor(owner, cb) {
+      return onSnapshot(
+        query(collection(db, "city_knocks"), where("to", "==", owner)),
+        (s) =>
+          cb(
+            s.docs
+              .map((d) => ({ ...(d.data() as Knock), id: d.id }))
+              .filter((k) => Date.now() - k.at < 3600_000),
+          ),
+        () => cb([]),
+      );
+    },
   };
 }
 
@@ -100,6 +164,15 @@ export function connectHomesLocal(): Homes {
     }
   };
   const write = (v: Record<string, ShownHome>) => localStorage.setItem(K, JSON.stringify(v));
+  const readK = (): Record<string, Knock> => {
+    try {
+      return JSON.parse(localStorage.getItem(K + "-knocks") ?? "{}") as Record<string, Knock>;
+    } catch {
+      return {};
+    }
+  };
+  const writeK = (v: Record<string, Knock>) =>
+    localStorage.setItem(K + "-knocks", JSON.stringify(v));
   return {
     async publish(h) {
       const all = read();
@@ -138,6 +211,48 @@ export function connectHomesLocal(): Homes {
       all[owner] = { ...h, likes: h.likesWeek === wk ? h.likes + 1 : 1, likesWeek: wk };
       write(all);
       return true;
+    },
+    async knock(to, me) {
+      const id = "k" + Date.now().toString(36);
+      const all = readK();
+      all[id] = { id, from: me.uid, fromName: me.name, to, status: "knocking", at: Date.now() };
+      writeK(all);
+      return id;
+    },
+    async answer(id, status) {
+      const all = readK();
+      if (all[id]) all[id] = { ...all[id], status };
+      writeK(all);
+    },
+    watchKnock(id, cb) {
+      let last = "";
+      const fn = () => {
+        const k = readK()[id] ?? null;
+        const key = JSON.stringify(k);
+        if (key !== last) {
+          last = key;
+          cb(k);
+        }
+      };
+      fn();
+      const iv = setInterval(fn, 700);
+      return () => clearInterval(iv);
+    },
+    watchDoor(owner, cb) {
+      let last = "";
+      const fn = () => {
+        const list = Object.values(readK()).filter(
+          (k) => k.to === owner && Date.now() - k.at < 3600_000,
+        );
+        const key = JSON.stringify(list);
+        if (key !== last) {
+          last = key;
+          cb(list);
+        }
+      };
+      fn();
+      const iv = setInterval(fn, 700);
+      return () => clearInterval(iv);
     },
   };
 }

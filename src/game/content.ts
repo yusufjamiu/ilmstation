@@ -1516,7 +1516,38 @@ export const HOME_ITEMS: HomeItem[] = [
   },
   { id: "fridge", name: "Fridge", icon: "🧊", naira: 500, does: "Food stays fresh" },
   { id: "sofa", name: "Sofa", icon: "🛋️", naira: 500, does: "Rest and receive guests" },
+  // decorations
+  {
+    id: "calligraphy",
+    name: "Bismillah calligraphy",
+    icon: "🖼️",
+    naira: 150,
+    does: "Over your bed",
+  },
+  { id: "kaabaframe", name: "Kaaba picture", icon: "🕋", naira: 150, does: "Over the prayer mat" },
+  { id: "plants", name: "Potted plants", icon: "🪴", naira: 100, does: "Green corners" },
+  { id: "lamp", name: "Floor lamp", icon: "💡", naira: 100, does: "Warm light by the sofa" },
+  { id: "chandelier", name: "Chandelier", icon: "✨", naira: 400, does: "Over the dining table" },
+  {
+    id: "sidetables",
+    name: "Side table and vase",
+    icon: "🏺",
+    naira: 150,
+    does: "Flowers by the door",
+  },
+  { id: "aquarium", name: "Fish tank", icon: "🐠", naira: 300, does: "Calm and colourful" },
+  { id: "teaset", name: "Tea set", icon: "🫖", naira: 150, does: "Tea for your guests" },
+  { id: "persian", name: "Persian carpet", icon: "🧶", naira: 300, does: "A grand living room" },
+  { id: "shoerack", name: "Shoe rack", icon: "👞", naira: 100, does: "Shoes off at the door" },
+  { id: "bakhoor", name: "Bakhoor burner", icon: "🪔", naira: 100, does: "A sweet-smelling home" },
+  { id: "photowall", name: "Picture wall", icon: "🖼️", naira: 150, does: "Family memories" },
 ];
+/** Paint your home: wall and floor colours (points per change). */
+export const PAINT_PRICE = 30;
+export const WALL_COLOURS = [
+  0xe9dcc4, 0xf4f1ea, 0xd9e8e2, 0xf2e3c0, 0xe6d3e0, 0xd6e2f0, 0xf0d9c8, 0xc9dcc0,
+];
+export const FLOOR_COLOURS = [0xb98d5e, 0x8a5a3a, 0xd9d4c8, 0x6d4a2b, 0xc9b28a, 0x9aa3a8];
 export const itemPoints = (i: HomeItem) => i.naira / 10;
 
 /* ---------------- a Muslim's day ---------------- */
@@ -2097,6 +2128,10 @@ export const POLICE = {
   bailIlm: 15,
   /** minutes in the cell if you don't pay bail */
   cellMinutes: 2,
+  /** road offences: the car is towed to the station until the fine is paid */
+  hitFine: 40,
+  crashFine: 20,
+  towFee: 15,
 };
 
 /* ---------------- university students ---------------- */

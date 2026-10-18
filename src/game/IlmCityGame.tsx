@@ -3,9 +3,11 @@ import { IlmCityEngine, type Context } from "./engine";
 import { TravelMap } from "./TravelMap";
 import type { MatchState, Slot } from "./soccer";
 import type { RopeState } from "./rope";
+import type { TennisState } from "./tennis";
+import { connectCourt, connectCourtLocal, type CourtNet } from "./courtnet";
 import { connectRope, connectRopeLocal } from "./ropenet";
 import { VEHICLE_INFO } from "./vehicles";
-import { connectHomes, connectHomesLocal, type Homes, type ShownHome } from "./homes";
+import { connectHomes, connectHomesLocal, type Homes, type Knock, type ShownHome } from "./homes";
 import { connectRooms, connectRoomsLocal, roomId, type RoomAd, type RoomsNet } from "./rooms";
 import {
   cleanNumber,
@@ -18,6 +20,8 @@ import {
   type CallUi,
   type PhoneEntry,
 } from "./calls";
+import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
+import { connectTransfers, connectTransfersLocal, MAX_TRANSFER, type Transfers } from "./transfers";
 import {
   connectPitch,
   connectPitchLocal,
@@ -66,6 +70,9 @@ import {
   HOUSE_PRICE,
   ROOM_RENT_WEEK,
   HOME_ITEMS,
+  PAINT_PRICE,
+  WALL_COLOURS,
+  FLOOR_COLOURS,
   JOBS,
   STREAK_REWARDS,
   STREAK_TASKS,
@@ -133,6 +140,12 @@ type Save = {
   pos?: { x: number; z: number };
   district?: string;
   car?: { x: number; z: number; heading: number };
+  /** your wall and floor colours */
+  paint?: { wall: number; floor: number };
+  /** open house: other players may walk in without knocking */
+  openHouse?: boolean;
+  /** your car was towed to a police station */
+  impound?: { fee: number; reason: string; area: string; at: number };
   /** you bought a football kit (needed to play matches) */
   jersey?: boolean;
   /** the car you bought at IlmMotors (none: the starter car) */
@@ -181,8 +194,56 @@ type Save = {
   jail?: { item: FoundKind };
   /** your own Qur'an player */
   radio?: { on: boolean; reciter: string; playlist: string; vehicles: boolean };
+  /** money sent and received */
+  txns?: { dir: "in" | "out"; name: string; amount: number; note?: string; at: number }[];
+  /** clothes you own ("robe:#hex", "accent:#hex") */
+  wardrobe?: string[];
+  /** rent for your flat is paid up to this time */
+  lease?: { until: number };
 };
 type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
+
+/* ---------- money ----------
+   Everything is priced in IlmWorld naira (₦). The save keeps whole units of ₦10. */
+const NAIRA_PER_POINT = 10;
+/** Show an amount (in ₦10 units) as naira, e.g. 25 → "₦250". */
+const N = (units: number) => "₦" + Math.round(units * NAIRA_PER_POINT).toLocaleString();
+/** Cashing out: ₦5 in the game is ₦1 in your bank, from ₦10,000. */
+const CASH_RATE = 5;
+const MIN_WITHDRAW = 1000;
+/** New clothes cost ₦500 each. */
+const CLOTHES_PRICE = 50;
+
+/** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
+const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
+const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
+const WEEK = 7 * 86400000;
+/** A home's colours: painted by its owner, or its own starting colours, so no two look alike. */
+function homePaint(uid: string | undefined, p?: { wall: number; floor: number }) {
+  if (p) return p;
+  if (!uid) return { wall: 0xe9dcc4, floor: 0xb98d5e };
+  const h = flatFor(uid).seed;
+  return {
+    wall: WALL_COLOURS[h % WALL_COLOURS.length],
+    floor: FLOOR_COLOURS[(h >>> 8) % FLOOR_COLOURS.length],
+  };
+}
+
+/* ---------- Ilm: what you have learned ----------
+   Ilm grows with salah in jama'ah, lectures, classes, quizzes and adhkar. It gives you a
+   title on your profile and raises the pay from your job, and can pay bail. */
+const ILM_LEVELS: { min: number; brother: string; sister: string; bonus: number }[] = [
+  { min: 0, brother: "Beginner", sister: "Beginner", bonus: 0 },
+  { min: 50, brother: "Talib", sister: "Talibah", bonus: 0.05 },
+  { min: 200, brother: "Student of knowledge", sister: "Student of knowledge", bonus: 0.1 },
+  { min: 600, brother: "Ustadh", sister: "Ustadhah", bonus: 0.2 },
+  { min: 1500, brother: "Sheikh", sister: "Sheikhah", bonus: 0.3 },
+];
+function ilmLevel(ilm: number) {
+  let i = 0;
+  while (i + 1 < ILM_LEVELS.length && ilm >= ILM_LEVELS[i + 1].min) i++;
+  return { ...ILM_LEVELS[i], i, next: ILM_LEVELS[i + 1] ?? null };
+}
 type LifePath = "rich" | "worker" | "trader";
 const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] = [
   {
@@ -201,7 +262,7 @@ const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] =
     id: "rich",
     icon: "🏡",
     name: "Rich family",
-    text: "A big furnished family house on the street and 600 points to start.",
+    text: "A big furnished family house on the street and ₦6,000 to start.",
   },
 ];
 const landmarkName = (lid: string) => {
@@ -429,6 +490,11 @@ function CityGame({
         needs: x.needs ?? freshNeeds(),
       }));
   }, [save.profile, save.homeArea]);
+  // players from before rent started get their first week free
+  useEffect(() => {
+    if (save.profile && !save.homePlot && !save.lease)
+      setSave((x) => ({ ...x, lease: { until: Date.now() + 7 * 86400000 } }));
+  }, [save.profile, save.homePlot, save.lease]);
   const offset = useTestOffset();
   const [clock, setClock] = useState<Clock>(() => clockFor(city, Date.now() + offset));
   const clockRef = useRef(clock);
@@ -498,7 +564,7 @@ function CityGame({
     [],
   );
 
-  /** Finish a step of the guided start: +10 points. */
+  /** Finish a step of the guided start: +₦100. */
   const advance = useCallback(
     (step: number) => {
       if (saveRef.current.guide !== step) return;
@@ -506,8 +572,8 @@ function CityGame({
       update((x) => ({ ...x, guide: step + 1, coins: x.coins + 10 }));
       toast(
         step < GUIDE.length
-          ? `Step ${step} done! +10 points`
-          : "You're ready. Enjoy IlmWorld! +10 points",
+          ? `Step ${step} done! +${N(10)}`
+          : "You're ready. Enjoy IlmWorld! +₦100",
         "good",
       );
     },
@@ -533,7 +599,7 @@ function CityGame({
         setTimeout(
           () =>
             toast(
-              `🔥 ${n}-day streak!${streakBonus ? ` Bonus +${streakBonus} points.` : " Come back tomorrow to keep it going."}`,
+              `🔥 ${n}-day streak!${streakBonus ? ` Bonus +${N(streakBonus)}.` : " Come back tomorrow to keep it going."}`,
               "good",
             ),
           1600,
@@ -549,8 +615,8 @@ function CityGame({
       const task = DAY_TASKS.find((d) => d.id === id);
       toast(
         all
-          ? `Masha Allah! You completed your whole day. +${TASK_POINTS + DAY_BONUS} points`
-          : `✅ ${task?.text ?? "Task"} · +${TASK_POINTS} points`,
+          ? `Masha Allah! You completed your whole day. +${N(TASK_POINTS + DAY_BONUS)}`
+          : `✅ ${task?.text ?? "Task"} · +${N(TASK_POINTS)}`,
         "good",
       );
     },
@@ -616,7 +682,7 @@ function CityGame({
     }));
     need({ iman: 6 });
     toast(
-      `The ${FOUND_ITEMS[k].name} will go back to its owner. JazakAllahu khairan! +${POLICE.handInPoints} points, +${POLICE.handInIlm} Ilm`,
+      `The ${FOUND_ITEMS[k].name} will go back to its owner. JazakAllahu khairan! +${N(POLICE.handInPoints)}, +${POLICE.handInIlm} Ilm`,
       "good",
     );
     return true;
@@ -686,7 +752,7 @@ function CityGame({
             coins: Math.max(0, x.coins - v),
           }));
           toast(
-            `🚓 Police! You were arrested for keeping a ${FOUND_ITEMS[item].name} that wasn't yours. It goes back to its owner (−${v} points).`,
+            `🚓 Police! You were arrested for keeping a ${FOUND_ITEMS[item].name} that wasn't yours. It goes back to its owner (−${N(v)}).`,
             "warn",
           );
           setTimeout(() => openCellRef.current(), 600);
@@ -712,8 +778,10 @@ function CityGame({
         need({ hunger: d.fills });
         doTask("eat");
         update((x) => ({ ...x, meal: undefined }));
+        engine.current?.standUp();
         sayDhikr("afterEating", () => {});
       };
+      if (engine.current?.scenePlace() === "out") engine.current.prayPose("sit");
       sayDhikr("beforeEating", () =>
         setPanel({
           kind: "info",
@@ -750,20 +818,32 @@ function CityGame({
       if (saveRef.current.coins < price) {
         setPanel({
           kind: "info",
-          title: "Not enough points",
+          title: "Not enough money",
           body: <NoPointsView price={price} points={saveRef.current.coins} />,
         });
         return;
       }
       update((x) => ({ ...x, coins: x.coins - price }));
       if (where === "eatery") {
-        toast(`−${price} points. Here's your ${d.name.toLowerCase()}!`, "good");
+        const e = engine.current;
+        if (e?.scenePlace() === "restaurant") {
+          // take your tray to a table, sit down, then eat
+          setPanel(null);
+          update((x) => ({ ...x, meal: d.id }));
+          e.guideTo("seat:");
+          toast(
+            `−${N(price)}. Here's your ${d.name.toLowerCase()}! Follow the arrow to a table and sit down.`,
+            "good",
+          );
+          return;
+        }
+        toast(`−${N(price)}. Here's your ${d.name.toLowerCase()}!`, "good");
         openMeal(d);
         return;
       }
       setPanel(null);
       setDelivery({ dish: d, outside: false });
-      toast(`Ordered! −${price} points. Your Ilm Food Delivery rider is on the way 🛵`, "good");
+      toast(`Ordered! −${N(price)}. Your Ilm Food Delivery rider is on the way 🛵`, "good");
       engine.current?.deliverFood(
         () => {
           setDelivery({ dish: d, outside: true });
@@ -779,7 +859,7 @@ function CityGame({
           setDelivery(null);
           update((x) => ({ ...x, meal: d.id }));
           toast(
-            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! Go inside, wash your hands, then eat.`,
+            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! ${engine.current?.districtId() !== (saveRef.current.homeArea ?? "lekki") ? "Sit down here, wash your hands and eat." : "Go inside, wash your hands, then eat."}`,
             "good",
           );
         },
@@ -817,6 +897,7 @@ function CityGame({
       phone: {},
       body: (
         <PhoneView
+          myNumber={callNet.current ? numberFor(callNet.current.uid) : undefined}
           onCalls={() => openCallsRef.current("calls")}
           onHomes={() => openHomesRef.current()}
           onRooms={() => openRoomsRef.current()}
@@ -825,7 +906,14 @@ function CityGame({
               kind: "info",
               title: "💰 Wallet",
               phone: { home: () => openPhoneRef.current() },
-              body: <WalletView points={saveRef.current.coins} />,
+              body: (
+                <WalletView
+                  points={saveRef.current.coins}
+                  txns={saveRef.current.txns ?? []}
+                  online={!!onlineRef.current}
+                  onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
+                />
+              ),
             })
           }
           onContacts={() => openCallsRef.current("contacts")}
@@ -851,6 +939,106 @@ function CityGame({
   void onlineReady;
   /* the match on the pitch */
   const [match, setMatch] = useState<MatchState | null>(null);
+  /* ---------- tennis ---------- */
+  const [tennis, setTennis] = useState<TennisState | null>(null);
+  const court = useRef<{ net: CourtNet; off: () => void; iv: number } | null>(null);
+  const tennisDone = useRef(false);
+  const leaveTennis = useCallback(() => {
+    const c = court.current;
+    if (c) {
+      clearInterval(c.iv);
+      c.off();
+      void c.net.leave();
+      c.net.close();
+      court.current = null;
+    }
+    engine.current?.endTennis();
+    engine.current?.hideRemotes([]);
+    setTennis(null);
+  }, []);
+  const onTennis = useCallback(
+    (t: TennisState) => {
+      setTennis(t);
+      if (t.phase === "over" && !tennisDone.current) {
+        tennisDone.current = true;
+        const pts = t.won ? 5 : 2;
+        update((x) => ({ ...x, coins: x.coins + pts }));
+        need({ energy: -8, social: 12, hunger: -5 });
+        toast(`${t.won ? "You won!" : "Good game!"} +${N(pts)}`, "good");
+      } else if (t.phase !== "over") tennisDone.current = false;
+    },
+    [update, need, toast],
+  );
+  const playTennis = useCallback(
+    async (zoneId: string, online: boolean) => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      tennisDone.current = false;
+      if (!online) {
+        if (!e.startTennis(zoneId, onTennis)) toast("Walk to the table tennis spot first.");
+        return;
+      }
+      const me = onlineRef.current?.uid;
+      if (!me) {
+        toast("Log in to IlmStation to play table tennis with other players.", "warn");
+        return;
+      }
+      let net: CourtNet;
+      try {
+        const local =
+          import.meta.env.DEV &&
+          new URLSearchParams(window.location.search).get("online") === "local";
+        net = local ? connectCourtLocal(zoneId, me) : await connectCourt(zoneId, me);
+      } catch {
+        toast("Online table tennis isn't switched on yet. Play the coach for now.", "warn");
+        return;
+      }
+      const name = saveRef.current.profile?.name ?? "Player";
+      await net.join(name);
+      toast("Waiting for another player on this court… (it starts when they join)");
+      let started: "host" | "view" | null = null;
+      let other = "";
+      const off = net.watch((r) => {
+        const ids = Object.entries(r.players)
+          .sort((a, b) => a[1].at - b[1].at)
+          .map(([u]) => u);
+        const mine = ids.indexOf(me);
+        if (mine > 1) {
+          toast("This court is busy. Try another court or play the coach.", "warn");
+          leaveTennis();
+          return;
+        }
+        if (!started && ids.length >= 2) {
+          started = mine === 0 ? "host" : "view";
+          other = ids[1 - mine];
+          const names: [string, string] = [r.players[ids[0]].name, r.players[ids[1]].name];
+          e.hideRemotes([other]);
+          e.startTennis(zoneId, onTennis, {
+            mode: started,
+            mySide: mine === 0 ? 0 : 1,
+            names,
+            send: started === "view" ? (i) => net.sendInput(i) : undefined,
+          });
+        }
+        if (started === "view" && r.state) e.tennisApply(r.state);
+        if (started === "host" && r.input[other]) e.tennisRemote(r.input[other]);
+        if (started && !r.players[other]) {
+          toast("The other player left the court.");
+          leaveTennis();
+        }
+      });
+      const iv = window.setInterval(() => {
+        if (started === "host") {
+          const s = e.tennisSnapshot();
+          if (s) net.sendState(s);
+        }
+      }, 100);
+      court.current = { net, off, iv };
+    },
+    [onTennis, toast, leaveTennis],
+  );
+
   /* ---------- skipping rope ---------- */
   const [rope, setRope] = useState<RopeState | null>(null);
   const ropeOut = useRef(false);
@@ -864,7 +1052,7 @@ function CityGame({
         need({ energy: -6, social: 15, hunger: -4 });
         if (pts) {
           update((x) => ({ ...x, coins: x.coins + pts }));
-          toast(`${r.count} skips! +${pts} points. Masha Allah!`, "good");
+          toast(`${r.count} skips! +${N(pts)}. Masha Allah!`, "good");
         }
       } else if (r.phase !== "out") ropeOut.current = false;
     },
@@ -1157,10 +1345,7 @@ function CityGame({
     const t = setTimeout(() => {
       update((x) => ({ ...x, coins: x.coins + pts }));
       need({ energy: -15, social: 18, hunger: -10 });
-      toast(
-        `${match.won ? "Victory!" : match.draw ? "A draw!" : "Good game!"} +${pts} points`,
-        "good",
-      );
+      toast(`${match.won ? "Victory!" : match.draw ? "A draw!" : "Good game!"} +${N(pts)}`, "good");
       const P = pitch.current;
       if (P && P.playing === "play") {
         stopLive();
@@ -1189,16 +1374,16 @@ function CityGame({
                 onClick={() => {
                   if (saveRef.current.coins < JERSEY_PRICE) return;
                   update((x) => ({ ...x, coins: x.coins - JERSEY_PRICE, jersey: true }));
-                  toast(`Football kit bought! −${JERSEY_PRICE} points`, "good");
+                  toast(`Football kit bought! −${N(JERSEY_PRICE)}`, "good");
                   setTimeout(() => openFootballRef.current(zoneId), 0);
                 }}
                 className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
               >
-                👕 Buy football kit · {JERSEY_PRICE} points
+                👕 Buy football kit · {N(JERSEY_PRICE)}
               </button>
               {saveRef.current.coins < JERSEY_PRICE && (
                 <p className="text-[12.5px] opacity-75">
-                  You have {saveRef.current.coins} points. Earn more at the mosque, a lecture or the
+                  You have {N(saveRef.current.coins)}. Earn more at the mosque, a lecture or the
                   quiz.
                 </p>
               )}
@@ -1231,7 +1416,7 @@ function CityGame({
               </span>
             </button>
             <p className="text-[12px] opacity-70">
-              +{FOOTBALL.perGoal} points a goal, +{FOOTBALL.win} for the win.
+              +{N(FOOTBALL.perGoal)} a goal, +{N(FOOTBALL.win)} for the win.
             </p>
           </div>
         ),
@@ -1400,10 +1585,7 @@ function CityGame({
       const e = engine.current;
       if (!e) return;
       if (!byCar && saveRef.current.coins < BUS_FARE) {
-        toast(
-          `The bus fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`,
-          "warn",
-        );
+        toast(`The bus fare is ${N(BUS_FARE)}. Earn money at a mosque lecture or quiz.`, "warn");
         return;
       }
       const here = e.districtId();
@@ -1527,6 +1709,20 @@ function CityGame({
         });
         return;
       }
+      const by = takenRef.current.get(pid);
+      if (by && !saveRef.current.plots?.[pid]) {
+        setPanel({
+          kind: "info",
+          title: p.kind === "land" ? "Sold" : "Occupied",
+          body: (
+            <p>
+              No. {p.number} belongs to <b>{by}</b>. Every house can have only one owner, so look
+              for another one with a red <b>TO LET</b> sign, or rent a room with 📱 Phone → Rooms.
+            </p>
+          ),
+        });
+        return;
+      }
       const lod = saveRef.current.lodging;
       if (lod && lod.plot === pid && lod.until > Date.now() && !saveRef.current.plots?.[pid]) {
         const days = Math.ceil((lod.until - Date.now()) / 86400000);
@@ -1628,8 +1824,13 @@ function CityGame({
                     }
                   : undefined
               }
-              onPay={(pts, next, msg) => {
+              onPay={async (pts, next, msg) => {
                 if (saveRef.current.coins < pts) return;
+                if (!(await claimPlotRef.current(pid, next))) {
+                  toast("Another player has just taken this one. Please choose another.", "warn");
+                  setPanel(null);
+                  return;
+                }
                 update((x) => ({ ...x, coins: x.coins - pts }));
                 setOwn(next);
                 toast(msg, "good");
@@ -1637,7 +1838,7 @@ function CityGame({
               }}
               onPaystack={(amount, what) =>
                 toast(
-                  `Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next. For now, use points.`,
+                  `Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next. For now, pay from your IlmWorld wallet.`,
                 )
               }
               onSet={(next) => {
@@ -1648,7 +1849,11 @@ function CityGame({
               onEnter={() => {
                 setPanel(null);
                 e.enterInterior("home", `No. ${p.number}, ${p.street}`);
+                // a house of two floors or more is a duplex: stairs to the family rooms
+                e.setDuplex((p.floors ?? 1) >= 2);
                 setInside(true);
+                if ((p.floors ?? 1) >= 2)
+                  toast("Your duplex: take the stairs up to the family rooms.", "good");
               }}
               onRooms={(rooms, earned) => {
                 const own2 = saveRef.current.plots?.[pid];
@@ -1656,7 +1861,7 @@ function CityGame({
                 update((x) => ({ ...x, coins: x.coins + earned }));
                 setOwn({ ...own2, rooms });
                 toast(
-                  `A tenant moved in and paid ${earned} points for the week. Alhamdulillah!`,
+                  `A tenant moved in and paid ${N(earned)} for the week. Alhamdulillah!`,
                   "good",
                 );
                 setTimeout(render, 0);
@@ -1669,7 +1874,7 @@ function CityGame({
                 if (due < 1) return;
                 update((x) => ({ ...x, coins: x.coins + due }));
                 setOwn({ ...own2, since: own2.since + (due / per) * 86400000 });
-                toast(`You collected ${due} points of rent. Alhamdulillah!`, "good");
+                toast(`You collected ${N(due)} of rent. Alhamdulillah!`, "good");
                 setTimeout(render, 0);
               }}
             />
@@ -1749,7 +1954,7 @@ function CityGame({
                   ...saveRef.current,
                   shops: { ...saveRef.current.shops, [sid]: next },
                 };
-                toast(`Sales collected: +${due} points. May Allah bless your trade.`, "good");
+                toast(`Sales collected: +${N(due)}. May Allah bless your trade.`, "good");
                 setTimeout(render, 0);
               }}
               onRent={(days, pts) => {
@@ -1878,7 +2083,7 @@ function CityGame({
                   coins: x.coins + 2,
                 }));
                 toast(
-                  `You prayed ${fard.name} in jama'ah. May Allah accept it. +2 points, +5 Ilm`,
+                  `You prayed ${fard.name} in jama'ah. May Allah accept it. +₦20, +5 Ilm`,
                   "good",
                 );
               } else {
@@ -1967,7 +2172,7 @@ function CityGame({
                 return { ...x, coins: x.coins + a.rent, plots };
               });
               toast(
-                `${a.tenantName ?? "A player"} rented Room ${a.i + 1} at ${a.label}. +${a.rent} points rent!`,
+                `${a.tenantName ?? "A player"} rented Room ${a.i + 1} at ${a.label}. +${N(a.rent)} rent!`,
                 "good",
               );
             }
@@ -1997,7 +2202,7 @@ function CityGame({
             onRent={async (r) => {
               if (saveRef.current.coins < r.rent) {
                 toast(
-                  `The rent is ${r.rent} points a week. You have ${saveRef.current.coins}.`,
+                  `The rent is ${N(r.rent)} a week. You have ${N(saveRef.current.coins)}.`,
                   "warn",
                 );
                 return;
@@ -2022,7 +2227,7 @@ function CityGame({
                 },
               }));
               setPanel(null);
-              toast(`You rented a room at ${r.label}. −${r.rent} points. Welcome home!`, "good");
+              toast(`You rented a room at ${r.label}. −${N(r.rent)}. Welcome home!`, "good");
             }}
             onGo={(l) => {
               setPanel(null);
@@ -2039,6 +2244,49 @@ function CityGame({
   const openRoomsRef = useRef(openRooms);
   openRoomsRef.current = openRooms;
 
+  /* ---------- road offences: the police tow your car ---------- */
+  const incidentRef = useRef<(kind: "hit" | "crash" | "blocking", who?: string) => void>(() => {});
+  incidentRef.current = (kind, who) => {
+    const e = engine.current;
+    if (!e || saveRef.current.impound) return;
+    const area = e.impoundCar();
+    setDriving(false);
+    tuneRef.current();
+    const fee =
+      kind === "hit" ? POLICE.hitFine : kind === "crash" ? POLICE.crashFine : POLICE.towFee;
+    const reason =
+      kind === "hit"
+        ? `You knocked down ${who ?? "someone"} with your car`
+        : kind === "crash"
+          ? "You crashed into another vehicle"
+          : "You left your car blocking the road";
+    update((x) => ({
+      ...x,
+      impound: { fee, reason, area, at: Date.now() },
+      car: e.carPos(),
+    }));
+    if (kind === "hit") need({ iman: -5 });
+    setPanel({
+      kind: "info",
+      title: kind === "blocking" ? "🚓 Car towed" : "🚨 Accident",
+      body: (
+        <div className="space-y-3">
+          <p>
+            {reason}
+            {kind === "hit" ? ". Alhamdulillah, they are not badly hurt." : "."}
+          </p>
+          <p className="rounded-xl bg-white p-3 text-[14px]">
+            The police have towed your car to the <b>{districtById(area).name} police station</b>.
+            Pay the fine of <b>{N(fee)}</b> there to get it back.
+          </p>
+          <p className="text-[12.5px] opacity-70">
+            Drive slowly where people walk, and park off the road.
+          </p>
+        </div>
+      ),
+    });
+  };
+
   /* ---------- homes on show: visits and likes ---------- */
   const homes = useRef<Homes | null>(null);
   const [visiting, setVisiting] = useState<(ShownHome & { liked?: boolean }) | null>(null);
@@ -2054,7 +2302,14 @@ function CityGame({
     const s = saveRef.current;
     if (!h || !uid || !s.profile || !(s.items ?? []).length) return;
     void h
-      .publish({ uid, name: s.profile.name, place: myPlace(), items: s.items ?? [] })
+      .publish({
+        uid,
+        name: s.profile.name,
+        place: myPlace(),
+        items: s.items ?? [],
+        open: !!s.openHouse,
+        paint: s.paint,
+      })
       .catch(() => {});
   }, [uid]);
   useEffect(() => {
@@ -2073,30 +2328,129 @@ function CityGame({
       live = false;
     };
   }, [uid, publishHome]);
+  /* knocking: you wait at the door until they let you in */
+  const [knocking, setKnocking] = useState<{ id: string; name: string } | null>(null);
+  const knockOff = useRef<(() => void) | null>(null);
+  const visitKnock = useRef<string | null>(null);
+  const cancelKnock = useCallback(() => {
+    knockOff.current?.();
+    knockOff.current = null;
+    setKnocking(null);
+  }, []);
+  const enterHomeRef = useRef<(h: ShownHome) => void>(() => {});
   const visitHome = useCallback(
     async (h: ShownHome) => {
-      const e = engine.current;
-      if (!e) return;
+      const hs = homes.current;
+      if (!hs || !uid) return;
       if (h.uid === uid) {
         toast("That's your own home!");
         return;
       }
       setPanel(null);
+      if (h.open) {
+        visitKnock.current = null;
+        enterHomeRef.current(h);
+        return;
+      }
+      const id = await hs
+        .knock(h.uid, { uid, name: saveRef.current.profile?.name ?? "Player" })
+        .catch(() => null);
+      if (!id) {
+        toast("Couldn't knock. Try again.", "warn");
+        return;
+      }
+      setKnocking({ id, name: h.name });
+      const timer = setTimeout(() => {
+        cancelKnock();
+        void hs.answer(id, "left").catch(() => {});
+        toast(`No one answered at ${h.name}'s home. Try again later.`);
+      }, 40_000);
+      const off = hs.watchKnock(id, (k) => {
+        if (!k) return;
+        if (k.status === "in") {
+          clearTimeout(timer);
+          cancelKnock();
+          visitKnock.current = id;
+          toast(`${h.name} let you in. Assalamu alaikum!`, "good");
+          enterHomeRef.current(h);
+        } else if (k.status === "no") {
+          clearTimeout(timer);
+          cancelKnock();
+          toast(`${h.name} can't have visitors right now.`);
+        }
+      });
+      knockOff.current = () => {
+        clearTimeout(timer);
+        off();
+      };
+    },
+    [uid, toast, cancelKnock],
+  );
+  const enterHome = useCallback(
+    async (h: ShownHome) => {
+      const e = engine.current;
+      if (!e) return;
       if (e.scenePlace() !== "out") e.exitInterior();
       e.enterInterior("home", `${h.name}'s home`);
       e.setHomeItems(h.items);
+      e.setDuplex(false);
+      {
+        const hp = homePaint(h.uid, h.paint);
+        e.setHomePaint(hp.wall, hp.floor);
+      }
       setInside(true);
       tuneRef.current();
       sayDhikr("enterHome");
       const liked = uid ? await homes.current?.liked(h.uid, uid).catch(() => false) : false;
       setVisiting({ ...h, liked: !!liked });
+      // the owner can ask you to leave
+      const kid = visitKnock.current;
+      if (kid && homes.current) {
+        const off = homes.current.watchKnock(kid, (k) => {
+          if (k?.status !== "out") return;
+          off();
+          const en = engine.current;
+          en?.setHomeItems(saveRef.current.items ?? []);
+          const pt = homePaint(onlineRef.current?.uid, saveRef.current.paint);
+          en?.setHomePaint(pt.wall, pt.floor);
+          setVisiting(null);
+          if (en?.scenePlace() === "home") {
+            en.exitInterior();
+            setInside(false);
+          }
+          toast(`${h.name} asked you to leave. Ma'a salama!`);
+        });
+      }
     },
-    [uid, toast, sayDhikr],
+    [uid, sayDhikr, toast],
   );
+  enterHomeRef.current = (h) => void enterHome(h);
   const endVisit = useCallback(() => {
     if (!visitingRef.current) return;
+    const pt = homePaint(onlineRef.current?.uid, saveRef.current.paint);
+    engine.current?.setHomePaint(pt.wall, pt.floor);
+    if (visitKnock.current) void homes.current?.answer(visitKnock.current, "left").catch(() => {});
+    visitKnock.current = null;
     engine.current?.setHomeItems(saveRef.current.items ?? []);
     setVisiting(null);
+  }, []);
+  /* your door: knocks and guests */
+  const [door, setDoor] = useState<Knock[]>([]);
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    const iv = setInterval(() => {
+      if (off || !homes.current || !uid) return;
+      off = homes.current.watchDoor(uid, setDoor);
+    }, 1000);
+    return () => {
+      clearInterval(iv);
+      off?.();
+    };
+  }, [uid]);
+  const atDoor = door.find((k) => k.status === "knocking" && Date.now() - k.at < 40_000);
+  const guests = door.filter((k) => k.status === "in");
+  const answerDoor = useCallback((id: string, status: Knock["status"]) => {
+    void homes.current?.answer(id, status).catch(() => {});
   }, []);
   const likeHome = useCallback(async () => {
     const v = visitingRef.current;
@@ -2120,11 +2474,16 @@ function CityGame({
           homes={homes.current}
           me={uid}
           myItems={(saveRef.current.items ?? []).length}
+          open={!!saveRef.current.openHouse}
+          onOpen={(on) => {
+            update((x) => ({ ...x, openHouse: on }));
+            setTimeout(() => publishHome(), 0);
+          }}
           onVisit={(h) => void visitHome(h)}
         />
       ),
     });
-  }, [uid, visitHome]);
+  }, [uid, visitHome, update, publishHome]);
   const openHomesRef = useRef(openHomes);
   openHomesRef.current = openHomes;
 
@@ -2171,6 +2530,289 @@ function CityGame({
       off?.();
     };
   }, [onlineReady]);
+  /* ---------- money between players ---------- */
+  const transfers = useRef<Transfers | null>(null);
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || transfers.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    let live = true;
+    (local ? Promise.resolve(connectTransfersLocal()) : connectTransfers())
+      .then((t) => {
+        if (!live) return;
+        transfers.current = t;
+        off = t.watchIncoming(o.uid, (list) => {
+          for (const x of list)
+            void t.receive(x.id).then((ok) => {
+              if (!ok) return;
+              update((s2) => ({
+                ...s2,
+                coins: s2.coins + x.amount,
+                txns: [
+                  {
+                    dir: "in" as const,
+                    name: x.fromName,
+                    amount: x.amount,
+                    note: x.note,
+                    at: x.at,
+                  },
+                  ...(s2.txns ?? []),
+                ].slice(0, 40),
+              }));
+              toast(
+                `💰 ${x.fromName} sent you ${N(x.amount)}${x.note ? `: "${x.note}"` : ""}`,
+                "good",
+              );
+            });
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [onlineReady]);
+  /** Send money to another player by their IlmWorld number. */
+  const sendMoney = useCallback(
+    async (number: string, units: number, note: string): Promise<string | null> => {
+      const o = onlineRef.current;
+      const t = transfers.current;
+      const net = callNet.current;
+      if (!o || !t || !net) return "Log in to IlmStation to send money.";
+      if (!Number.isFinite(units) || units < 1) return "Enter an amount of at least ₦10.";
+      if (units > MAX_TRANSFER) return `You can send up to ${N(MAX_TRANSFER)} at a time.`;
+      if (units > saveRef.current.coins) return `You only have ${N(saveRef.current.coins)}.`;
+      const clean = cleanNumber(number);
+      if (!clean) return "An IlmWorld number has 7 digits, like IW 482 1937.";
+      const who = await net.lookup(clean).catch(() => null);
+      if (!who) return "No player has that IlmWorld number.";
+      if (who.uid === o.uid) return "That's your own number.";
+      const name = saveRef.current.profile?.name ?? "A player";
+      update((x) => ({ ...x, coins: x.coins - units }));
+      try {
+        await t.send({
+          from: o.uid,
+          fromName: name,
+          to: who.uid,
+          toName: who.name,
+          amount: units,
+          note: note.trim().slice(0, 80) || undefined,
+        });
+      } catch {
+        update((x) => ({ ...x, coins: x.coins + units }));
+        return "It didn't go through. Check your connection and try again.";
+      }
+      update((x) => ({
+        ...x,
+        txns: [
+          {
+            dir: "out" as const,
+            name: who.name,
+            amount: units,
+            note: note.trim() || undefined,
+            at: Date.now(),
+          },
+          ...(x.txns ?? []),
+        ].slice(0, 40),
+      }));
+      toast(`Sent ${N(units)} to ${who.name}.`, "good");
+      return null;
+    },
+    [update, toast],
+  );
+  const sendMoneyRef = useRef(sendMoney);
+  sendMoneyRef.current = sendMoney;
+
+  /* ---------- houses are shared: one player per house ---------- */
+  const claimsNet = useRef<Claims | null>(null);
+  const [claimsReady, setClaimsReady] = useState(0);
+  /** houses in view that other players have (plot → their name) */
+  const takenRef = useRef(new Map<string, string>());
+  const [areaNow, setAreaNow] = useState<string | null>(null);
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const a = engine.current?.districtId();
+      if (a) setAreaNow(a);
+    }, 3000);
+    return () => clearInterval(iv);
+  }, []);
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || claimsNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    (local ? Promise.resolve(connectClaimsLocal()) : connectClaims())
+      .then((net) => {
+        claimsNet.current = net;
+        // put your own houses on record, so nobody else can take them
+        const name = saveRef.current.profile?.name ?? "Player";
+        for (const [pid, own] of Object.entries(saveRef.current.plots ?? {})) {
+          const info = engine.current?.plotInfo(pid);
+          if (!info) continue;
+          const until = own.kind === "rented" ? own.until : Date.now() + 100 * 365 * 86400000;
+          if (until < Date.now()) continue;
+          void net
+            .claim({
+              plot: pid,
+              area: info.district,
+              owner: o.uid,
+              name,
+              kind: own.kind === "rented" ? "rented" : "owned",
+              until,
+            })
+            .catch(() => {});
+        }
+        setClaimsReady((n) => n + 1);
+      })
+      .catch(() => {});
+  }, [onlineReady]);
+  useEffect(() => {
+    const net = claimsNet.current;
+    const o = onlineRef.current;
+    if (!net || !o || !areaNow) return;
+    return net.watchArea(areaNow, (list) => {
+      const e = engine.current;
+      if (!e) return;
+      const now = new Map(list.filter((c) => c.owner !== o.uid).map((c) => [c.plot, c.name]));
+      for (const pid of [...takenRef.current.keys()]) {
+        if (now.has(pid)) continue;
+        const info = e.plotInfo(pid);
+        if (!info || info.district !== areaNow) continue;
+        e.setPlot(
+          pid,
+          plotStateFn(saveRef.current.plots?.[pid]) ?? {
+            kind: info.kind === "land" ? "land" : "tolet",
+          },
+        );
+        takenRef.current.delete(pid);
+      }
+      for (const [pid, name] of now) {
+        if (saveRef.current.plots?.[pid]) continue;
+        e.setPlot(pid, { kind: "taken", by: name });
+        takenRef.current.set(pid, name);
+      }
+    });
+  }, [areaNow, claimsReady]);
+  /** Take a house or land for yourself; false if another player already has it. */
+  const claimPlot = useCallback(async (pid: string, own: PlotOwn) => {
+    const net = claimsNet.current;
+    const o = onlineRef.current;
+    const info = engine.current?.plotInfo(pid);
+    if (!net || !o || !info) return true;
+    return net
+      .claim({
+        plot: pid,
+        area: info.district,
+        owner: o.uid,
+        name: saveRef.current.profile?.name ?? "Player",
+        kind: own.kind === "rented" ? "rented" : "owned",
+        until: own.kind === "rented" ? own.until : Date.now() + 100 * 365 * 86400000,
+      })
+      .catch(() => false);
+  }, []);
+  const claimPlotRef = useRef(claimPlot);
+  claimPlotRef.current = claimPlot;
+
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || visitingRef.current || saveRef.current.paint) return;
+    const pt = homePaint(o.uid);
+    engine.current?.setHomePaint(pt.wall, pt.floor);
+  }, [onlineReady]);
+
+  /* ---------- rent for your flat ---------- */
+  const flatName = useCallback((area: string) => {
+    const o = onlineRef.current;
+    const f = o ? flatFor(o.uid).label + " · " : "";
+    return `Your flat · ${f}${districtById(area).name}`;
+  }, []);
+  const payRent = useCallback(() => {
+    const sv = saveRef.current;
+    const area = sv.homeArea ?? "lekki";
+    const rent = flatRent(area);
+    if (sv.coins < rent) {
+      setPanel({
+        kind: "info",
+        title: "Not enough money for rent",
+        body: <NoPointsView price={rent} points={sv.coins} />,
+      });
+      return false;
+    }
+    const until = Math.max(Date.now(), sv.lease?.until ?? 0) + WEEK;
+    update((x) => ({ ...x, coins: x.coins - rent, lease: { until } }));
+    toast(`Rent paid: −${N(rent)}. Your flat is paid for another week. Alhamdulillah!`, "good");
+    return true;
+  }, [update, toast]);
+  const payRentRef = useRef(payRent);
+  payRentRef.current = payRent;
+  const openWardrobe = useCallback(() => {
+    const look = saveRef.current.profile;
+    if (!look) return;
+    setPanel({
+      kind: "info",
+      title: "👕 Clothes",
+      body: (
+        <WardrobeView
+          look={look}
+          owned={saveRef.current.wardrobe ?? []}
+          coins={saveRef.current.coins}
+          onWear={(p) => {
+            const next = { ...saveRef.current.profile!, ...p };
+            update((x) => ({ ...x, profile: next }));
+            engine.current?.setPlayerLook(next);
+          }}
+          onBuy={(key, p) => {
+            if (saveRef.current.coins < CLOTHES_PRICE) return;
+            const next = { ...saveRef.current.profile!, ...p };
+            update((x) => ({
+              ...x,
+              coins: x.coins - CLOTHES_PRICE,
+              profile: next,
+              wardrobe: [...(x.wardrobe ?? []), key],
+            }));
+            engine.current?.setPlayerLook(next);
+            toast(`New clothes! −${N(CLOTHES_PRICE)}. They look good on you, Masha Allah.`, "good");
+          }}
+        />
+      ),
+    });
+  }, [update, toast]);
+  const openWardrobeRef = useRef(openWardrobe);
+  openWardrobeRef.current = openWardrobe;
+  /** Rent due: what the landlord says when you come home. */
+  const rentDue = useCallback((then?: () => void) => {
+    const area = saveRef.current.homeArea ?? "lekki";
+    const rent = flatRent(area);
+    setPanel({
+      kind: "info",
+      title: "🏠 Rent is due",
+      body: (
+        <div className="space-y-3">
+          <p>
+            Your landlord says: "Assalamu alaikum. The rent for your flat in{" "}
+            {districtById(area).name} is {N(rent)} a week. Please pay before you go in."
+          </p>
+          <p className="text-[13px] opacity-75">You have {N(saveRef.current.coins)}.</p>
+          <button
+            onClick={() => {
+              if (payRentRef.current()) {
+                setPanel(null);
+                then?.();
+              }
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Pay {N(rent)} for one week
+          </button>
+          <p className="text-[12.5px] opacity-70">
+            Short of money? Work a shift (👤 Profile → Work), pray in the masjid or take a quiz.
+          </p>
+        </div>
+      ),
+    });
+  }, []);
   useEffect(() => {
     radio.hushIf("call", !!call && call.state !== "ended");
     if (call?.state !== "ended") return;
@@ -2429,7 +3071,9 @@ function CityGame({
           <WorkView
             job={job}
             onDone={(right, total) => {
-              const pay = Math.round(job.pay * (0.5 + (0.5 * right) / total));
+              const pay = Math.round(
+                job.pay * (0.5 + (0.5 * right) / total) * (1 + ilmLevel(saveRef.current.ilm).bonus),
+              );
               update((x) => ({
                 ...x,
                 coins: x.coins + pay,
@@ -2439,7 +3083,7 @@ function CityGame({
               need({ energy: -15, social: 10 });
               setPanel(null);
               toast(
-                `Salary paid: +${pay} points. Hard work is worship when the intention is right.`,
+                `Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`,
                 "good",
               );
             }}
@@ -2461,7 +3105,7 @@ function CityGame({
               saveRef.current = { ...saveRef.current, job: j.id };
               setPanel(null);
               toast(
-                `You are now a ${j.name.toLowerCase()} at ${j.place}. Shift: ${hoursText(j)}. Pay: ${j.pay} points a day.`,
+                `You are now a ${j.name.toLowerCase()} at ${j.place}. Shift: ${hoursText(j)}. Pay: ${N(j.pay)} a day.`,
                 "good",
               );
             }}
@@ -2469,7 +3113,7 @@ function CityGame({
               setPanel(null);
               if (j.area && engine.current?.districtId() !== j.area) {
                 toast(
-                  `Your work is in ${fullName(districtById(j.area))}. Take a danfo there (☰ Menu → Travel).`,
+                  `Your work is in ${fullName(districtById(j.area))}. Take a danfo there (📱 Phone → Travel).`,
                 );
                 return;
               }
@@ -2496,6 +3140,8 @@ function CityGame({
         return;
       }
       const allowed =
+        id.startsWith("stairs:") ||
+        id.startsWith("seat:") ||
         id === "exit" ||
         id === "eat" ||
         id === "pray" ||
@@ -2556,7 +3202,7 @@ function CityGame({
                   onClick={() => startWork(job)}
                   className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
                 >
-                  💼 Start my shift · {job.pay} pts
+                  💼 Start my shift · {N(job.pay)}
                 </button>
                 <button
                   onClick={() => {
@@ -2720,7 +3366,7 @@ function CityGame({
                 update((x) => ({ ...x, carrying: kind }));
                 setPanel(null);
                 toast(
-                  `Take the ${it.name} to the police station or a Hisbah officer. ☰ Menu → Places shows the way.`,
+                  `Take the ${it.name} to the police station or a Hisbah officer. 📱 Phone → Places shows the way.`,
                 );
               }}
               onKeep={() => {
@@ -2762,6 +3408,40 @@ function CityGame({
       }
       if (id.startsWith("police:")) {
         const sv = saveRef.current;
+        if (sv.impound) {
+          const im = sv.impound;
+          setPanel({
+            kind: "info",
+            title: "🚓 Your car is here",
+            body: (
+              <div className="space-y-3">
+                <p>{im.reason}, so your car was towed here.</p>
+                <button
+                  disabled={sv.coins < im.fee}
+                  onClick={() => {
+                    if (saveRef.current.coins < im.fee) return;
+                    update((x) => ({ ...x, coins: x.coins - im.fee, impound: undefined }));
+                    e.releaseCar();
+                    setPanel(null);
+                    toast(
+                      `Fine paid, −${N(im.fee)}. Your car is in the yard beside the station. Drive carefully!`,
+                      "good",
+                    );
+                  }}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+                >
+                  Pay {N(im.fee)} and collect your car
+                </button>
+                {sv.coins < im.fee && (
+                  <p className="text-[12.5px] opacity-75">
+                    You have {N(sv.coins)}. Earn more at the mosque, a lecture or work.
+                  </p>
+                )}
+              </div>
+            ),
+          });
+          return;
+        }
         if (sv.carrying) {
           handIn();
           return;
@@ -2789,9 +3469,41 @@ function CityGame({
                 owner. You will be rewarded.
               </p>
               <p className="text-[13px] opacity-75">
-                Anyone caught keeping what isn't theirs is arrested. Bail is {POLICE.bailPoints}{" "}
-                points or {POLICE.bailIlm} Ilm, or {POLICE.cellMinutes} minutes in the cell.
+                Anyone caught keeping what isn't theirs is arrested. Bail is {N(POLICE.bailPoints)}{" "}
+                or {POLICE.bailIlm} Ilm, or {POLICE.cellMinutes} minutes in the cell.
               </p>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id.startsWith("tennis:")) {
+        setPanel({
+          kind: "info",
+          title: "🏓 Table tennis",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13.5px] opacity-80">
+                Brothers and sisters are all welcome. First to 11 points, win by 2.
+              </p>
+              <button
+                onClick={() => void playTennis(id, false)}
+                className="w-full rounded-xl bg-[#2f6fa8] px-4 py-3 text-left font-bold text-white"
+              >
+                🏓 Play the coach
+                <span className="block text-[12px] font-normal opacity-85">
+                  Move with the stick, tap Hit after the ball bounces on your side
+                </span>
+              </button>
+              <button
+                onClick={() => void playTennis(id, true)}
+                className="w-full rounded-xl border border-[#2f6fa8]/30 bg-white px-4 py-3 text-left font-bold"
+              >
+                👥 Play another player
+                <span className="block text-[12px] font-normal opacity-70">
+                  One against one with a real player at this table
+                </span>
+              </button>
             </div>
           ),
         });
@@ -2998,13 +3710,13 @@ function CityGame({
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
-                Any place in {fullName(districtById(area))} for 3 points.
+                Any place in {fullName(districtById(area))} for {N(3)}.
               </p>
               <PlacesView
                 area={area}
                 onGo={(prefix) => {
                   if (saveRef.current.coins < 3) {
-                    toast("The keke fare is 3 points. Earn points at a mosque or school.", "warn");
+                    toast("The keke fare is ₦30. Earn money at a mosque or school.", "warn");
                     return;
                   }
                   setPanel(null);
@@ -3063,7 +3775,7 @@ function CityGame({
       }
       if (id === "board") {
         if (s.coins < BUS_FARE) {
-          toast(`The fare is ${BUS_FARE} points. Earn points at a mosque lecture or quiz.`, "warn");
+          toast(`The fare is ${N(BUS_FARE)}. Earn money at a mosque lecture or quiz.`, "warn");
           return;
         }
         if (e.boardBus()) {
@@ -3071,7 +3783,7 @@ function CityGame({
           sayDhikr("ride");
           advance(4);
           update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
-          toast(`Bismillah! You paid ${BUS_FARE} points. Tap "Get off" before your stop.`, "good");
+          toast(`Bismillah! You paid ${N(BUS_FARE)}. Tap "Get off" before your stop.`, "good");
         }
         return;
       }
@@ -3143,9 +3855,16 @@ function CityGame({
           );
           return;
         }
-        e.enterInterior("home", `Your flat · ${districtById(mine).name}`);
-        setInside(true);
-        sayDhikr("enterHome");
+        const go = () => {
+          e.enterInterior("home", flatName(mine));
+          setInside(true);
+          sayDhikr("enterHome");
+        };
+        if (!saveRef.current.homePlot && (saveRef.current.lease?.until ?? 0) < Date.now()) {
+          rentDue(go);
+          return;
+        }
+        go();
         return;
       }
       if (id === "bath") {
@@ -3225,7 +3944,7 @@ function CityGame({
                 if (saveRef.current.coins < price) {
                   setPanel({
                     kind: "info",
-                    title: "Not enough points",
+                    title: "Not enough money",
                     body: <NoPointsView price={price} points={saveRef.current.coins} />,
                   });
                   return;
@@ -3248,6 +3967,20 @@ function CityGame({
         setInside(true);
         tuneRef.current();
         sayDhikr("market", undefined, true);
+        return;
+      }
+      if (id === "stairs:up" || id === "stairs:down") {
+        e.changeFloor(id === "stairs:up");
+        return;
+      }
+      if (id.startsWith("seat:")) {
+        const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
+        if (!m) {
+          toast("Order at the counter first, then sit down to eat.");
+          return;
+        }
+        e.sitAt(id);
+        openMealRef.current(m);
         return;
       }
       if (id.startsWith("door:restaurant:")) {
@@ -3273,6 +4006,10 @@ function CityGame({
         return;
       }
       if (id === "car") {
+        if (saveRef.current.impound) {
+          toast("Your car is at the police station. Pay the fine there to get it back.", "warn");
+          return;
+        }
         e.enterCar();
         setDriving(true);
         tuneRef.current();
@@ -3309,7 +4046,7 @@ function CityGame({
                         onClick={() => go(d.id, false)}
                         className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
                       >
-                        Bus · {BUS_FARE} pts
+                        Bus · {N(BUS_FARE)}
                       </button>
                     )}
                     {carHere && (
@@ -3514,6 +4251,7 @@ function CityGame({
     },
     [
       playRope,
+      playTennis,
       endVisit,
       greeted,
       startWork,
@@ -3577,16 +4315,22 @@ function CityGame({
     if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
     e.setHomeItems(saveRef.current.items ?? []);
     {
+      const pt = homePaint(onlineRef.current?.uid, saveRef.current.paint);
+      e.setHomePaint(pt.wall, pt.floor);
+    }
+    {
       // graphics: the player's choice, or a guess from the phone (checked again as it runs)
       const q = readQuality();
       if (q === "auto") e.setQuality(weakPhone() ? "low" : "high", true);
       else e.setQuality(q);
       e.onSlowPhone = () =>
         toast(
-          "Switched to Smooth graphics so the game runs better. Change it in ☰ Menu → Graphics.",
+          "Switched to Smooth graphics so the game runs better. Change it in 👤 Profile → Graphics.",
         );
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
+    if (saveRef.current.impound) e.setImpounded(true);
+    e.onIncident = (kind, who) => incidentRef.current(kind, who);
     // every visit starts at home: you are only out in the city while you are playing
     {
       const sv = saveRef.current;
@@ -3595,7 +4339,25 @@ function CityGame({
         const nm = districtById(home).name;
         if (sv.homePlot && e.plots.some((q) => q.id === sv.homePlot))
           e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
-        else e.startAtHome(home, `Your flat · ${nm}`);
+        else {
+          e.startAtHome(home, flatName(home));
+          const left = (sv.lease?.until ?? Infinity) - Date.now();
+          if (left < 0)
+            setTimeout(
+              () =>
+                toast(
+                  `🏠 Your rent of ${N(flatRent(home))} is due. Pay it in 👤 Profile, or before you come back in.`,
+                  "warn",
+                ),
+              2500,
+            );
+          else if (left < 86400000)
+            setTimeout(
+              () =>
+                toast(`🏠 Rent of ${N(flatRent(home))} is due tomorrow. 👤 Profile → Pay rent.`),
+              2500,
+            );
+        }
         setInside(true);
       }
     }
@@ -3740,17 +4502,17 @@ function CityGame({
                     if (yes) {
                       engine.current?.talkGesture(hi, "agree");
                       update((x) => ({ ...x, coins: x.coins + gain }));
-                      toast(`+${gain} points from the Hisbah`, "good");
+                      toast(`+${N(gain)} from the Hisbah`, "good");
                       return ask.kind === "prayer"
-                        ? `MashaAllah! May Allah accept it from you. Keep guarding your salah. (+${gain} points)`
-                        : `Barakallahu fik! The Qur'an will come on the Day of Judgement to intercede for its companions. (+${gain} points)`;
+                        ? `MashaAllah! May Allah accept it from you. Keep guarding your salah. (+${N(gain)})`
+                        : `Barakallahu fik! The Qur'an will come on the Day of Judgement to intercede for its companions. (+${N(gain)})`;
                     }
                     engine.current?.talkGesture(hi, "headShake");
                     update((x) => ({ ...x, coins: Math.max(0, x.coins - gain) }));
-                    toast(`−${gain} points. Go and make it up, in shaa Allah.`, "warn");
+                    toast(`−${N(gain)}. Go and make it up, in shaa Allah.`, "warn");
                     return ask.kind === "prayer"
-                      ? `Fear Allah, my ${saveRef.current.profile?.female ? "sister" : "brother"}! Salah is the first deed we will be asked about on the Day of Judgement. ${cp2 ? `${cp2.name} time ends at ${fmtTime(cp2.end)}.` : ""} Go to the masjid now. (−${gain} points)`
-                      : `Fear Allah, my ${saveRef.current.profile?.female ? "sister" : "brother"}. Do not leave the Qur'an behind. Read even one page today, in shaa Allah. (−${gain} points)`;
+                      ? `Fear Allah, my ${saveRef.current.profile?.female ? "sister" : "brother"}! Salah is the first deed we will be asked about on the Day of Judgement. ${cp2 ? `${cp2.name} time ends at ${fmtTime(cp2.end)}.` : ""} Go to the masjid now. (−${N(gain)})`
+                      : `Fear Allah, my ${saveRef.current.profile?.female ? "sister" : "brother"}. Do not leave the Qur'an behind. Read even one page today, in shaa Allah. (−${N(gain)})`;
                   }}
                 />
               ),
@@ -3771,7 +4533,7 @@ function CityGame({
           update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
           e.setPlot(pid, { kind: "built", floors: o.floors });
           toast(
-            `Your ${ECONOMY.build[o.floors].name.toLowerCase()} is ready! Rent it out to earn points.`,
+            `Your ${ECONOMY.build[o.floors].name.toLowerCase()} is ready! Rent it out to earn money.`,
             "good",
           );
         }
@@ -3823,7 +4585,7 @@ function CityGame({
       toast(
         inside
           ? "Go outside first: walk to the door and tap Go outside."
-          : "That place isn't in this area. Use ☰ Menu → Travel.",
+          : "That place isn't in this area. Use 📱 Phone → Travel.",
       );
   };
   const travelNow = () =>
@@ -3877,6 +4639,15 @@ function CityGame({
           <HomeShopView
             owned={saveRef.current.items ?? []}
             points={saveRef.current.coins}
+            paint={saveRef.current.paint}
+            onPaint={(wall, floor) => {
+              if (saveRef.current.coins < PAINT_PRICE) return;
+              update((x) => ({ ...x, coins: x.coins - PAINT_PRICE, paint: { wall, floor } }));
+              engine.current?.setHomePaint(wall, floor);
+              setTimeout(() => publishHome(), 0);
+              setPanel(null);
+              toast(`Your home is freshly painted! −${N(PAINT_PRICE)}`, "good");
+            }}
             onBuy={(ids, pts) => {
               if (saveRef.current.coins < pts) return;
               const items = [...new Set([...(saveRef.current.items ?? []), ...ids])];
@@ -3885,13 +4656,13 @@ function CityGame({
               setTimeout(() => publishHome(), 0);
               setPanel(null);
               toast(
-                `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${pts} points`,
+                `Delivered to your flat! ${ids.length} item${ids.length > 1 ? "s" : ""} −${N(pts)}`,
                 "good",
               );
             }}
             onNaira={(_ids, naira) =>
               toast(
-                `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, use points.`,
+                `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, pay from your IlmWorld wallet.`,
               )
             }
           />
@@ -3979,7 +4750,7 @@ function CityGame({
           <div className="flex gap-1.5">
             <Chip>
               <i className="inline-block size-3 rounded-full bg-[radial-gradient(circle_at_35%_35%,#ffe3a0,#f2b84b_60%,#b07a1c)]" />
-              {save.coins} pts
+              {N(save.coins)}
             </Chip>
             <Chip>
               <i className="inline-block size-2.5 rotate-45 rounded-[2px] bg-[#1f6f63]" />
@@ -4006,16 +4777,40 @@ function CityGame({
             onClick={() =>
               setPanel({
                 kind: "info",
-                title: "Menu",
+                title: "👤 Profile",
                 body: (
-                  <MenuView
+                  <ProfileView
+                    look={saveRef.current.profile}
+                    number={callNet.current ? numberFor(callNet.current.uid) : undefined}
+                    coins={saveRef.current.coins}
+                    ilm={saveRef.current.ilm}
+                    home={
+                      saveRef.current.homePlot
+                        ? `Family house · ${districtById(saveRef.current.homeArea ?? "lekki").name}`
+                        : flatName(saveRef.current.homeArea ?? "lekki").replace("Your flat · ", "")
+                    }
+                    rent={
+                      saveRef.current.homePlot
+                        ? null
+                        : {
+                            area: saveRef.current.homeArea ?? "lekki",
+                            until: saveRef.current.lease?.until ?? 0,
+                            weekly: flatRent(saveRef.current.homeArea ?? "lekki"),
+                          }
+                    }
                     items={[
-                      { icon: "🚌", label: "Travel", run: () => (setPanel(null), travelNow()) },
-                      {
-                        icon: "📍",
-                        label: "Places",
-                        run: () => openPlaces(engine.current?.districtId() ?? "lekki"),
-                      },
+                      { icon: "👕", label: "Clothes", run: () => openWardrobeRef.current() },
+                      ...(saveRef.current.homePlot
+                        ? []
+                        : [
+                            {
+                              icon: "🏠",
+                              label: "Pay rent",
+                              run: () => {
+                                if (payRentRef.current()) setPanel(null);
+                              },
+                            },
+                          ]),
                       { icon: "💼", label: "Work", run: () => openJobsRef.current() },
                       { icon: "🛋️", label: "Home shop", run: openHomeShop },
                       {
@@ -4087,7 +4882,7 @@ function CityGame({
             }
             className="pointer-events-auto relative rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
           >
-            ☰ Menu
+            👤 Profile
             {unread > 0 && (
               <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full bg-[#b8573a] text-[11px] text-white">
                 {unread}
@@ -4194,6 +4989,75 @@ function CityGame({
           onLeave={() => void leavePitch()}
         />
       )}
+      {knocking && (
+        <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+          <div className="flex items-center gap-3 rounded-[24px] bg-[#10201e]/95 px-4 py-3 text-white shadow-2xl">
+            <span className="grid size-10 animate-pulse place-items-center rounded-full bg-[#c77d2a] text-[18px]">
+              🚪
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[14.5px] font-bold">
+                Knocking at {knocking.name}'s door…
+              </div>
+              <div className="text-[12px] opacity-70">Waiting for them to let you in</div>
+            </div>
+            <button
+              onClick={() => {
+                void homes.current?.answer(knocking.id, "left").catch(() => {});
+                cancelKnock();
+              }}
+              className="rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {atDoor && !call && (
+        <div data-game-ui className="absolute inset-x-3 top-3 z-50 mx-auto max-w-sm">
+          <div className="rounded-[24px] bg-[#10201e]/95 px-4 py-3 text-white shadow-2xl">
+            <div className="text-[14.5px] font-bold">
+              🚪 {atDoor.fromName} is knocking at your door
+            </div>
+            <div className="text-[12px] opacity-70">They want to visit your home.</div>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => answerDoor(atDoor.id, "no")}
+                className="flex-1 rounded-full bg-white/15 py-2 text-[13px] font-bold"
+              >
+                Not now
+              </button>
+              <button
+                onClick={() => answerDoor(atDoor.id, "in")}
+                className="flex-1 rounded-full bg-[#2e7d32] py-2 text-[13px] font-bold"
+              >
+                Let in
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {guests.length > 0 && !atDoor && !panel && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute right-3 top-[220px] z-20 flex flex-col items-end gap-1.5"
+        >
+          {guests.map((g) => (
+            <div
+              key={g.id}
+              className="pointer-events-auto flex items-center gap-2 rounded-full bg-[#10201e]/85 py-1 pl-3 pr-1 text-[12px] text-white shadow"
+            >
+              <span>👤 {g.fromName} is visiting</span>
+              <button
+                onClick={() => answerDoor(g.id, "out")}
+                className="rounded-full bg-[#c0392b] px-2.5 py-1 text-[11.5px] font-bold"
+              >
+                Ask to leave
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {visiting && (
         <div
           data-game-ui
@@ -4225,6 +5089,9 @@ function CityGame({
           onMute={(m) => callObj.current?.mute(m)}
           onHangUp={() => callObj.current?.hangUp()}
         />
+      )}
+      {tennis && (
+        <TennisHud t={tennis} onHit={() => engine.current?.tennisHit()} onLeave={leaveTennis} />
       )}
       {rope && (
         <RopeHud
@@ -4268,8 +5135,14 @@ function CityGame({
                 return;
               }
               if (meal) {
+                if (e?.scenePlace() === "restaurant") {
+                  e.guideTo("seat:");
+                  return;
+                }
                 if (e?.scenePlace() === "out") {
-                  if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
+                  // away from home: sit down where you are and eat, like at a park
+                  if (e.districtId() !== (saveRef.current.homeArea ?? "lekki")) openMeal(meal);
+                  else if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
                 } else openMeal(meal);
                 return;
               }
@@ -4286,9 +5159,13 @@ function CityGame({
                     : "🛵 Walk to the Ilm Food Delivery bike to collect your food"
                   : `🛵 Your ${delivery.dish.name.toLowerCase()} is on the way…`
               : meal
-                ? inside
-                  ? `${meal.icon} Tap here: wash your hands, then eat`
-                  : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
+                ? engine.current?.scenePlace() === "restaurant"
+                  ? `${meal.icon} Sit at a table to eat · tap for the way`
+                  : inside
+                    ? `${meal.icon} Tap here: wash your hands, then eat`
+                    : engine.current?.districtId() !== (save.homeArea ?? "lekki")
+                      ? `${meal.icon} Sit down here, wash your hands and eat · tap`
+                      : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
                 : "😩 I'm hungry · tap to order food"}
           </button>
         </div>
@@ -4370,7 +5247,7 @@ function CityGame({
             if (look) e.setPlayerLook(look);
             e.setPreview(!!look);
           }}
-          onDone={(look, area, path, student) => {
+          onDone={async (look, area, path, student) => {
             const e = engine.current;
             if (!e) return;
             e.setPlayerLook(look);
@@ -4381,10 +5258,33 @@ function CityGame({
             let plots = saveRef.current.plots ?? {};
             let shops = saveRef.current.shops ?? {};
             let homePlot: string | undefined;
-            let msg = `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of 100 points to start.`;
+            let msg = `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
+            let lease: Save["lease"];
             if (path === "rich") {
-              // the family house: one of the big houses on the street, furnished
-              const p = e.plots.find((q) => q.district === area && q.kind === "house" && q.toLet);
+              // the family house: a big house on the street that no other player has, furnished
+              const me = onlineRef.current?.uid ?? look.name;
+              const mix = (id: string) => flatFor(me + id).seed;
+              const free = e.plots
+                .filter(
+                  (q) =>
+                    q.district === area &&
+                    q.kind === "house" &&
+                    q.toLet &&
+                    !takenRef.current.has(q.id),
+                )
+                .sort((a, b) => mix(a.id) - mix(b.id));
+              let p: (typeof free)[number] | undefined;
+              for (const q of free) {
+                if (
+                  await claimPlotRef.current(q.id, {
+                    kind: "rented",
+                    until: Date.now() + 3650 * 86400000,
+                  })
+                ) {
+                  p = q;
+                  break;
+                }
+              }
               if (p) {
                 homePlot = p.id;
                 plots = {
@@ -4395,7 +5295,9 @@ function CityGame({
               }
               items = HOME_ITEMS.map((i) => i.id);
               bonus = 600;
-              msg = `Welcome to the family house, ${look.name}! It is fully furnished, and here are 600 points.`;
+              msg = `Welcome to the family house, ${look.name}! It is fully furnished, and here is ₦6,000.`;
+              if (!p)
+                msg = `Welcome, ${look.name}! Every family house here is taken, so you start in a furnished flat with ₦6,000.`;
             } else if (path === "trader") {
               const sid = e.shopIds().find((id) => id.startsWith(area + "-") && !/-m\d+$/.test(id));
               if (sid) {
@@ -4411,10 +5313,14 @@ function CityGame({
               }
               msg = `Welcome, ${look.name}! Your first shop is free for 7 days. Find it with Places → Shops, name it and add products.`;
             } else
-              msg = `Welcome home, ${look.name}! Choose your job from ☰ Menu → Work. Here are 100 points to start.`;
+              msg = `Welcome home, ${look.name}! Choose your job from 👤 Profile → Work. Here is ₦1,000 to start.`;
+            if (!homePlot) {
+              lease = { until: Date.now() + WEEK };
+              msg += ` Your first week's rent (${N(flatRent(area))}) is paid; after that, rent is due every week.`;
+            }
             e.setHomeItems(items);
             if (homePlot) e.startAtPlot(homePlot, `Family house · ${districtById(area).name}`);
-            else e.startAtHome(area, `Your flat · ${districtById(area).name}`);
+            else e.startAtHome(area, flatName(area));
             setInside(true);
             const next = {
               ...saveRef.current,
@@ -4424,6 +5330,7 @@ function CityGame({
               district: area,
               homeArea: area,
               homePlot,
+              lease,
               items,
               needs: freshNeeds(),
               wudu: false,
@@ -4570,7 +5477,7 @@ function CityGame({
             setPanel({ ...panel, picked: i });
             if (ok) {
               update((x) => ({ ...x, coins: x.coins + POINTS.perCorrectAnswer, ilm: x.ilm + 10 }));
-              toast(`Correct! +${POINTS.perCorrectAnswer} points, +10 Ilm`, "good");
+              toast(`Correct! +${N(POINTS.perCorrectAnswer)}, +10 Ilm`, "good");
             } else {
               update((x) => ({ ...x, ilm: x.ilm + 2 }));
               toast("Not quite. You still learned something. +2 Ilm");
@@ -5057,11 +5964,11 @@ function LearnChoice({
         onClick={onQuiz}
         className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-[#fdf8ec]"
       >
-        ❓ Take the quiz · +{POINTS.perCorrectAnswer} points per correct answer
+        ❓ Take the quiz · +{N(POINTS.perCorrectAnswer)} per correct answer
       </button>
       <p className="text-[12px] opacity-70">
-        Lectures pay {POINTS.perLectureMinute} point per minute you listen, up to{" "}
-        {POINTS.lectureDailyCap} a day.
+        Lectures pay {N(POINTS.perLectureMinute)} for each minute you listen, up to{" "}
+        {N(POINTS.lectureDailyCap)} a day.
       </p>
     </div>
   );
@@ -5124,8 +6031,8 @@ function LectureView({
       <p className="tabular-nums">
         Listening {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} ·{" "}
         {capped
-          ? "you have earned today's lecture points. Keep listening for the reward with Allah."
-          : `+${POINTS.perLectureMinute} point each minute (${earned}/${POINTS.lectureDailyCap} today)`}
+          ? "you have earned today's lecture money. Keep listening for the reward with Allah."
+          : `+${N(POINTS.perLectureMinute)} each minute (${N(earned)} of ${N(POINTS.lectureDailyCap)} today)`}
       </p>
       {!lecture.audioUrl && (
         <p className="text-[12px] opacity-70">
@@ -5244,7 +6151,7 @@ function TalkView({
         say(
           "school",
           `Tell me about ${school.name}.`,
-          `It's on ${STREETS[school.street].name}. Go inside and answer the quiz to learn and earn points.`,
+          `It's on ${STREETS[school.street].name}. Go inside and answer the quiz to learn and earn money.`,
         ),
     });
   return (
@@ -5445,7 +6352,7 @@ function PlotView({
             )
           }
         >
-          {extend ? "Extend" : "Rent"} {k === "week" ? "7 days" : "1 month"} · {R[k].points} points
+          {extend ? "Extend" : "Rent"} {k === "week" ? "7 days" : "1 month"} · {N(R[k].points)}
         </button>
       ))}
       <button className={secondary} onClick={() => onPaystack(R.week.naira, "7 days rent")}>
@@ -5489,9 +6396,9 @@ function PlotView({
           )
         }
       >
-        Buy this house · {price.toLocaleString()} points
+        Buy this house · {N(price)}
         <span className="block text-[12px] font-medium opacity-80">
-          Rent out its {beds} rooms for {ROOM_RENT_WEEK} points a week each
+          Rent out its {beds} rooms for {N(ROOM_RENT_WEEK)} a week each
         </span>
       </button>
     );
@@ -5519,7 +6426,7 @@ function PlotView({
           {where}. {floorsName(plot.floors)} with {beds} bedrooms, a kitchen, a parlour and a fenced
           compound.
         </p>
-        <p className="text-[13px] opacity-75">You have {points} points.</p>
+        <p className="text-[13px] opacity-75">You have {N(points)}.</p>
         {rentButtons(false)}
         {buyButton}
       </div>
@@ -5532,9 +6439,9 @@ function PlotView({
       <div className="space-y-2">
         <p>
           {where}. A dry plot of 22 m × 20 m with a C of O. Buy it, build a house, and rent it out
-          to earn points.
+          to earn money.
         </p>
-        <p className="text-[13px] opacity-75">You have {points} points.</p>
+        <p className="text-[13px] opacity-75">You have {N(points)}.</p>
         <button
           disabled={points < ECONOMY.land.points}
           className={primary}
@@ -5542,7 +6449,7 @@ function PlotView({
             onPay(ECONOMY.land.points, { kind: "owned" }, "Alhamdulillah! The land is yours.")
           }
         >
-          Buy the land · {ECONOMY.land.points.toLocaleString()} points
+          Buy the land · {N(ECONOMY.land.points)}
         </button>
         <button className={secondary} onClick={() => onPaystack(ECONOMY.land.naira, "the land")}>
           Pay {naira(ECONOMY.land.naira)} with Paystack
@@ -5568,9 +6475,9 @@ function PlotView({
                 )
               }
             >
-              {b.name} · {b.points.toLocaleString()} points · {b.minutes} min
+              {b.name} · {N(b.points)} · {b.minutes} min
               <span className="block text-[12px] font-medium opacity-80">
-                Tenants pay {b.tenantPerDay} points a day
+                Tenants pay {N(b.tenantPerDay)} a day
               </span>
             </button>
           );
@@ -5595,12 +6502,12 @@ function PlotView({
       <p>
         Your {b.name.toLowerCase()} at {where}.{" "}
         {own.tenant
-          ? `${own.tenant} live here and pay ${b.tenantPerDay} points a day.`
+          ? `${own.tenant} live here and pay ${N(b.tenantPerDay)} a day.`
           : "Nobody lives here yet."}
       </p>
       {own.tenant ? (
         <button disabled={due < 1} className={primary} onClick={onCollect}>
-          Collect rent · {due} points
+          Collect rent · {N(due)}
         </button>
       ) : (
         <button
@@ -5704,7 +6611,7 @@ function RoomsView({
                       onClick={() => rentOut(i)}
                       className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
                     >
-                      Rent out · +{ROOM_RENT_WEEK}
+                      Rent out · +{N(ROOM_RENT_WEEK)}
                     </button>
                     {players && (
                       <button
@@ -5779,8 +6686,8 @@ function ClassView({
           </button>
         ))}
         <p className="text-[12px] opacity-70">
-          +{SCHOOL_POINTS.perCorrect} points per correct answer, up to {SCHOOL_POINTS.dailyCap} a
-          day ({earned} today).
+          +{N(SCHOOL_POINTS.perCorrect)} per correct answer, up to {N(SCHOOL_POINTS.dailyCap)} a day
+          ({earned} today).
         </p>
       </div>
     );
@@ -5959,7 +6866,7 @@ function ShopView({
             onClick={onFood}
             className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
           >
-            🍽️ Buy something to eat · 5 points
+            🍽️ Buy something to eat · ₦50
           </button>
         )}
         <p className="text-[12px] opacity-70">
@@ -5978,7 +6885,7 @@ function ShopView({
         </p>
         {kind === "shop" ? (
           <>
-            <p className="text-[13px] opacity-75">You have {points} points.</p>
+            <p className="text-[13px] opacity-75">You have {N(points)}.</p>
             {(["week", "month"] as const).map((k) => (
               <button
                 key={k}
@@ -5986,7 +6893,7 @@ function ShopView({
                 className={primary}
                 onClick={() => onRent(P.shop[k].days, P.shop[k].points)}
               >
-                Rent {k === "week" ? "7 days" : "1 month"} · {P.shop[k].points} points
+                Rent {k === "week" ? "7 days" : "1 month"} · {N(P.shop[k].points)}
               </button>
             ))}
             <button
@@ -6091,8 +6998,8 @@ function ShopView({
       {own!.name && own!.products.length > 0 && (
         <button disabled={salesDue(own!) < 1} className={primary} onClick={onCollect}>
           {salesDue(own!) >= 1
-            ? `💰 Collect sales · ${salesDue(own!)} points`
-            : `Customers are buying · about ${SHOP_SALES_PER_DAY} points a day`}
+            ? `💰 Collect sales · ${N(salesDue(own!))}`
+            : `Customers are buying · about ${N(SHOP_SALES_PER_DAY)} a day`}
         </button>
       )}
       <button
@@ -6116,7 +7023,7 @@ function ShopView({
           className={secondary}
           onClick={() => onRent(7, SHOP_PRICES.shop.week.points)}
         >
-          Extend 7 days · {SHOP_PRICES.shop.week.points} points
+          Extend 7 days · {N(SHOP_PRICES.shop.week.points)}
         </button>
       ) : (
         <button
@@ -6321,6 +7228,41 @@ const BROTHER_CLOTHES = [0xf4efe4, 0xcdb38a, 0x2f6f8f, 0x3d5a4a, 0x5a3f6a, 0x2a2
 const SISTER_CLOTHES = [0x1d1d26, 0x3d5a4a, 0x5a3f6a, 0x7d2f3a, 0x2a4a6a, 0xcdb38a];
 const CAPS = [0xffffff, 0x2f8f83, 0x1d1d26, 0x7d2f3a, 0xd9b45a];
 const HIJABS = [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0x3d5a4a, 0x1d1d26];
+/** More to buy in the clothes shop (₦500 each). */
+const SHOP_THOBES = [
+  ...BROTHER_CLOTHES,
+  0x1f2f55,
+  0x6a1f2a,
+  0x8fb8d8,
+  0x6b6b3a,
+  0x8a8a8a,
+  0x2f4a9a,
+  0x6a4a2a,
+  0x16161a,
+];
+const SHOP_ABAYAS = [
+  ...SISTER_CLOTHES,
+  0x2a2030,
+  0x14324d,
+  0x6a4a2a,
+  0x8a8a8a,
+  0x1f6f63,
+  0x9a5a6a,
+  0x3a3a46,
+  0x5a2f2f,
+];
+const SHOP_CAPS = [...CAPS, 0xa83232, 0x1d6b3a, 0x2f4a9a, 0xcdb38a, 0x6a4a2a];
+const SHOP_HIJABS = [
+  ...HIJABS,
+  0xd8c8a8,
+  0xb36a8a,
+  0x6a8ab3,
+  0xf4f1ea,
+  0x7d2f3a,
+  0x1f6f63,
+  0x9a7ab3,
+  0xc58b5c,
+];
 const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
 const goToLogin = (to: "/login" | "/signup") => {
   try {
@@ -6582,7 +7524,7 @@ function Onboarding({
             <>
               <h2 className="font-serif text-2xl">Save your progress</h2>
               <p className="mt-2 text-[15px]">
-                Log in with your IlmStation account to keep your points, home and shop on every
+                Log in with your IlmStation account to keep your money, home and shop on every
                 device.
               </p>
               <button
@@ -6683,7 +7625,7 @@ const GUIDE: { title: string; text: string; go?: { prefix: string; label: string
   },
   {
     title: "Pray or learn",
-    text: "Inside, pray, listen to a lecture or take the quiz. It all earns points.",
+    text: "Inside, pray, listen to a lecture or take the quiz. It all earns money.",
   },
   {
     title: "Ride a keke or danfo",
@@ -6705,7 +7647,7 @@ const GUIDE: { title: string; text: string; go?: { prefix: string; label: string
   },
   {
     title: "Earn and grow",
-    text: "Work a job (☰ Menu → Work), rent a market stall, buy a house and rent out its rooms, and furnish your home for the Saturday best-home award.",
+    text: "Work a job (👤 Profile → Work), rent a market stall, buy a house and rent out its rooms, and furnish your home for the Saturday best-home award.",
   },
 ];
 
@@ -6730,7 +7672,7 @@ function Guide({
       <div className="pointer-events-auto w-full max-w-sm rounded-2xl border-2 border-[#e6b84a] bg-[#10201e]/92 p-3 text-[#fdf8ec] shadow-2xl">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#e6b84a]">
-            Step {step} of {GUIDE.length} · +10 points
+            Step {step} of {GUIDE.length} · +₦100
           </div>
           <button onClick={onSkip} className="text-[11px] opacity-60 underline">
             Skip guide
@@ -6845,6 +7787,12 @@ function placesIn(id: string): Place[] {
       prefix: `dealer:${D.id}`,
     });
   out.push({
+    icon: "🏓",
+    name: `${D.name} Table Tennis`,
+    sub: "Brothers and sisters welcome",
+    prefix: `tennis:${D.id}`,
+  });
+  out.push({
     icon: "🪢",
     name: "Sisters' Corner",
     sub: "Skipping rope with the sisters",
@@ -6954,7 +7902,7 @@ function DealerView({
   return (
     <div className="space-y-3">
       <p className="text-[13px] opacity-75">
-        Pick a colour, then a car. You have {points} points. Your old car is traded in.
+        Pick a colour, then a car. You have {N(points)}. Your old car is traded in.
       </p>
       <div className="flex flex-wrap gap-2">
         {PAINT.map((c) => (
@@ -6991,7 +7939,7 @@ function DealerView({
                 onClick={() => onBuy(kind, color, cost)}
                 className="rounded-lg bg-[#f2c230] px-3 py-2 text-[12.5px] font-bold disabled:opacity-50"
               >
-                {owned ? (cost ? `Repaint · ${cost}` : "Yours") : `${price} pts`}
+                {owned ? (cost ? `Repaint · ${N(cost)}` : "Yours") : `${N(price)}`}
               </button>
             </div>
           );
@@ -7039,8 +7987,8 @@ function RoomsMarketView({
         </div>
       )}
       <p className="text-[13px] opacity-75">
-        Rooms in houses owned by other players. Rent is paid for a week at a time. You have {points}{" "}
-        points.
+        Rooms in houses owned by other players. Rent is paid for a week at a time. You have{" "}
+        {N(points)}.
       </p>
       {!list && <p className="text-[13px] opacity-70">Loading rooms…</p>}
       {list && rooms.length === 0 && (
@@ -7064,7 +8012,7 @@ function RoomsMarketView({
               onClick={() => onRent(r)}
               className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold disabled:opacity-40"
             >
-              Rent · {r.rent}/wk
+              Rent · {N(r.rent)}/wk
             </button>
           </div>
         ))}
@@ -7078,13 +8026,18 @@ function HomesView({
   homes,
   me,
   myItems,
+  open,
+  onOpen,
   onVisit,
 }: {
   homes: Homes;
   me: string | null;
   myItems: number;
+  open: boolean;
+  onOpen: (on: boolean) => void;
   onVisit: (h: ShownHome) => void;
 }) {
+  const [isOpen, setIsOpen] = useState(open);
   const [list, setList] = useState<ShownHome[] | null>(null);
   useEffect(() => homes.top(setList), [homes]);
   const mine = list?.find((h) => h.uid === me);
@@ -7099,9 +8052,28 @@ function HomesView({
       </div>
       <div className="rounded-xl bg-white px-3 py-2 text-[13px] shadow-sm">
         {myItems === 0
-          ? "Your home isn't on show yet. Buy furniture from ☰ Menu → Furnish your home."
+          ? "Your home isn't on show yet. Buy furniture from 👤 Profile → Furnish your home."
           : `Your home: ❤️ ${mine?.likes ?? 0} likes this week · ${myItems} items`}
       </div>
+      <label className="flex items-center gap-3 rounded-xl bg-white px-3 py-2 text-[13px] shadow-sm">
+        <input
+          type="checkbox"
+          checked={isOpen}
+          onChange={(e) => {
+            setIsOpen(e.target.checked);
+            onOpen(e.target.checked);
+          }}
+          className="size-5 accent-[#1f6f63]"
+        />
+        <span>
+          <b>Open house</b>
+          <span className="block text-[11.5px] opacity-65">
+            {isOpen
+              ? "Anyone can walk in. You can still ask a guest to leave."
+              : "Visitors knock and wait for you to let them in."}
+          </span>
+        </span>
+      </label>
       {!list && <p className="text-[13px] opacity-70">Loading homes…</p>}
       {list && others.length === 0 && (
         <p className="text-[13px] opacity-70">No other homes on show yet.</p>
@@ -7124,7 +8096,7 @@ function HomesView({
               onClick={() => onVisit(h)}
               className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-white"
             >
-              Visit
+              {h.open ? "Visit" : "Knock"}
             </button>
           </div>
         ))}
@@ -7383,41 +8355,147 @@ function CallScreen({
 }
 
 /* ---------------- wallet ---------------- */
-/** 1,000 points = ₦2,000 when withdrawals open. */
-const NAIRA_PER_POINT = 2;
-const MIN_WITHDRAW = 1000;
-function WalletView({ points }: { points: number }) {
-  const naira = points * NAIRA_PER_POINT;
-  const toGo = Math.max(0, MIN_WITHDRAW - points);
+function WalletView({
+  points,
+  txns,
+  online,
+  onSend,
+}: {
+  points: number;
+  txns: NonNullable<Save["txns"]>;
+  online: boolean;
+  onSend: (number: string, units: number, note: string) => Promise<string | null>;
+}) {
+  const [tab, setTab] = useState<"wallet" | "send">("wallet");
+  const [num, setNum] = useState("");
+  const [amt, setAmt] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [bal, setBal] = useState(points);
+  const [log, setLog] = useState(txns);
+  const toGo = Math.max(0, MIN_WITHDRAW - bal);
+  const tabs = (
+    <div className="flex gap-1 rounded-xl bg-[#10201e]/6 p-1">
+      {(["wallet", "send"] as const).map((t) => (
+        <button
+          key={t}
+          onClick={() => setTab(t)}
+          className={`flex-1 rounded-lg py-1.5 text-[13px] font-bold ${tab === t ? "bg-white shadow-sm" : "opacity-60"}`}
+        >
+          {t === "wallet" ? "💰 Wallet" : "📤 Send money"}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === "send") {
+    const naira = Math.floor(Number(amt.replace(/[^0-9]/g, "")) || 0);
+    const units = Math.floor(naira / NAIRA_PER_POINT);
+    return (
+      <div className="space-y-3">
+        {tabs}
+        <p className="text-[13px] opacity-75">
+          Send IlmWorld naira to another player with their IlmWorld number (Phone → Calls shows
+          yours). You have {N(bal)}.
+        </p>
+        <input
+          value={num}
+          onChange={(e) => setNum(e.target.value)}
+          placeholder="IlmWorld number, e.g. IW 482 1937"
+          className="w-full rounded-xl border border-[#10201e]/15 bg-white px-3 py-2.5 text-[15px]"
+        />
+        <input
+          value={amt}
+          onChange={(e) => setAmt(e.target.value)}
+          inputMode="numeric"
+          placeholder="Amount in ₦ (e.g. 500)"
+          className="w-full rounded-xl border border-[#10201e]/15 bg-white px-3 py-2.5 text-[15px]"
+        />
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={80}
+          placeholder="Note (optional)"
+          className="w-full rounded-xl border border-[#10201e]/15 bg-white px-3 py-2.5 text-[15px]"
+        />
+        {err && <p className="text-[13px] font-bold text-[#b3261e]">{err}</p>}
+        <button
+          disabled={busy || !online || !num.trim() || units < 1}
+          onClick={async () => {
+            setBusy(true);
+            setErr(null);
+            const e = await onSend(num, units, note);
+            setBusy(false);
+            if (e) {
+              setErr(e);
+              return;
+            }
+            setBal((b) => b - units);
+            setLog((l) => [{ dir: "out", name: num, amount: units, note, at: Date.now() }, ...l]);
+            setNum("");
+            setAmt("");
+            setNote("");
+            setTab("wallet");
+          }}
+          className="w-full rounded-xl bg-[#1d6b3a] py-3 font-bold text-white disabled:opacity-50"
+        >
+          {busy ? "Sending…" : units >= 1 ? `Send ${N(units)}` : "Send"}
+        </button>
+        {!online && <p className="text-[12.5px] opacity-75">Log in to IlmStation to send money.</p>}
+      </div>
+    );
+  }
   return (
     <div className="space-y-3">
+      {tabs}
       <div className="rounded-2xl bg-gradient-to-br from-[#1d6b3a] to-[#10201e] p-4 text-white">
-        <div className="text-[12px] opacity-80">Your points</div>
-        <div className="text-[30px] font-black leading-tight">{points.toLocaleString()}</div>
-        <div className="text-[13px] opacity-85">Worth ₦{naira.toLocaleString()}</div>
+        <div className="text-[12px] opacity-80">IlmWorld naira</div>
+        <div className="text-[30px] font-black leading-tight">{N(bal)}</div>
+        <div className="text-[13px] opacity-85">
+          Cash value ₦{Math.floor((bal * NAIRA_PER_POINT) / CASH_RATE).toLocaleString()}
+        </div>
       </div>
+      {log.length > 0 && (
+        <div className="space-y-1 rounded-xl bg-white p-3 text-[13px] shadow-sm">
+          <div className="font-bold">Recent</div>
+          {log.slice(0, 8).map((t, i) => (
+            <div key={i} className="flex justify-between gap-2">
+              <span className="truncate">
+                {t.dir === "in" ? "From" : "To"} {t.name}
+                {t.note ? ` · ${t.note}` : ""}
+              </span>
+              <b className={t.dir === "in" ? "text-[#1d6b3a]" : ""}>
+                {t.dir === "in" ? "+" : "−"}
+                {N(t.amount)}
+              </b>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="h-2 overflow-hidden rounded-full bg-[#10201e]/10">
         <div
           className="h-full rounded-full bg-[#1d6b3a]"
-          style={{ width: `${Math.min(100, (points / MIN_WITHDRAW) * 100)}%` }}
+          style={{ width: `${Math.min(100, (bal / MIN_WITHDRAW) * 100)}%` }}
         />
       </div>
       <p className="text-[12.5px] opacity-75">
         {toGo > 0
-          ? `${toGo.toLocaleString()} more points to reach the ${MIN_WITHDRAW.toLocaleString()}-point minimum.`
-          : "You've reached the minimum to withdraw."}
+          ? `${N(toGo)} more to reach the ${N(MIN_WITHDRAW)} minimum to cash out.`
+          : "You've reached the minimum to cash out."}
       </p>
       <button
         disabled
         className="w-full rounded-xl bg-[#1d6b3a] py-3 font-bold text-white opacity-50"
       >
-        Withdraw to bank · coming soon
+        Cash out to bank · coming soon
       </button>
       <div className="space-y-1 rounded-xl bg-white p-3 text-[12.5px] shadow-sm">
-        <div className="font-bold">How it will work</div>
-        <div>• 1,000 points = ₦2,000, paid to your Nigerian bank account.</div>
-        <div>• Only points you earn (salah on time, lectures, quizzes) can be withdrawn.</div>
-        <div>• Up to 2 withdrawals a week, for players aged 18+ with a verified account.</div>
+        <div className="font-bold">How cashing out will work</div>
+        <div>
+          • {N(CASH_RATE)} in the game = ₦{NAIRA_PER_POINT} in your Nigerian bank account.
+        </div>
+        <div>• Only money you earn (salah on time, lectures, quizzes, work) can be cashed out.</div>
+        <div>• Up to 2 cash-outs a week, for players aged 18+ with a verified account.</div>
         <div>• Every request is checked by the IlmWorld team before payment.</div>
       </div>
     </div>
@@ -7460,7 +8538,16 @@ function PhoneFrame({
             className={`flex items-center justify-between px-6 pb-1 pt-2.5 text-[12px] font-bold ${title ? "text-[#10201e]" : "text-white"}`}
           >
             <span>{time}</span>
-            <span className="tracking-wide">IlmNet ▂▄▆ 🔋</span>
+            <span className="flex items-center gap-2">
+              <span className="tracking-wide">IlmNet ▂▄▆ 🔋</span>
+              <button
+                onClick={onClose}
+                aria-label="Close phone"
+                className={`grid size-6 place-items-center rounded-full text-[14px] leading-none ${title ? "bg-[#10201e]/10" : "bg-white/20"}`}
+              >
+                ✕
+              </button>
+            </span>
           </div>
           {title && (
             <div className="flex items-center gap-2 border-b border-[#10201e]/10 px-4 pb-2 pt-1">
@@ -7654,7 +8741,7 @@ function OutingView({
           <div className="text-[17px] font-black">Where do you want to go?</div>
           <div className="text-[12px] opacity-80">
             Powered by OutingStation · rides{" "}
-            {driving ? "free in your car" : `${BUS_FARE} pts by danfo`} · you have {coins} pts
+            {driving ? "free in your car" : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
           </div>
         </div>
       </div>
@@ -7944,7 +9031,7 @@ function PassView({
         You have used your {ONLINE_LIMITS.freePartners} free conversations. Get a chat pass to talk
         with as many people as you like.
       </p>
-      <p className="text-[13px] opacity-75">You have {points} points.</p>
+      <p className="text-[13px] opacity-75">You have {N(points)}.</p>
       {(["week", "month"] as const).map((k) => (
         <button
           key={k}
@@ -7952,7 +9039,7 @@ function PassView({
           onClick={() => onPoints(P[k].days, P[k].points)}
           className={`${btn} bg-[#1f6f63] text-[#fdf8ec] disabled:opacity-50`}
         >
-          {k === "week" ? "1 week" : "1 month"} · {P[k].points} points
+          {k === "week" ? "1 week" : "1 month"} · {N(P[k].points)}
         </button>
       ))}
       {(["week", "month"] as const).map((k) => (
@@ -7997,7 +9084,7 @@ function FineView({
         onClick={onPayPoints}
         className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
       >
-        Pay with {pts} points
+        Pay with {N(pts)}
       </button>
       <button
         onClick={onNaira}
@@ -8199,8 +9286,8 @@ function MyDayView({
         />
       </div>
       <p className="text-[12px] opacity-70">
-        {doneN} of {DAY_TASKS.length} done · +{TASK_POINTS} points each, +{DAY_BONUS} when you
-        finish them all
+        {doneN} of {DAY_TASKS.length} done · +{N(TASK_POINTS)} each, +{N(DAY_BONUS)} when you finish
+        them all
       </p>
       {DAY_TASKS.map((t) => (
         <div
@@ -8238,24 +9325,100 @@ function MyDayView({
 function HomeShopView({
   owned,
   points,
+  paint,
+  onPaint,
   onBuy,
   onNaira,
 }: {
   owned: string[];
   points: number;
+  paint?: { wall: number; floor: number };
+  onPaint: (wall: number, floor: number) => void;
   onBuy: (ids: string[], pts: number) => void;
   onNaira: (ids: string[], naira: number) => void;
 }) {
   const left = HOME_ITEMS.filter((i) => !owned.includes(i.id));
   const [pick, setPick] = useState<string[]>([]);
+  const [tab, setTab] = useState<"items" | "paint">("items");
+  const [wall, setWall] = useState(paint?.wall ?? WALL_COLOURS[0]);
+  const [floor, setFloor] = useState(paint?.floor ?? FLOOR_COLOURS[0]);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  const tabs = (
+    <div className="flex gap-1.5">
+      {(
+        [
+          ["items", "🛋️ Furniture & decor"],
+          ["paint", "🎨 Paint"],
+        ] as const
+      ).map(([k, l]) => (
+        <button
+          key={k}
+          onClick={() => setTab(k)}
+          className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold ${tab === k ? "bg-[#1f6f63] text-white" : "bg-white"}`}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === "paint")
+    return (
+      <div className="space-y-3">
+        {tabs}
+        <div
+          className="grid h-24 place-items-end rounded-xl p-2"
+          style={{ background: `linear-gradient(${hex(wall)} 62%, ${hex(floor)} 62%)` }}
+        >
+          <span className="rounded bg-white/80 px-2 py-0.5 text-[11px] font-bold">Preview</span>
+        </div>
+        <div className="text-[13px] font-bold">Walls</div>
+        <div className="flex flex-wrap gap-2">
+          {WALL_COLOURS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setWall(c)}
+              aria-label="Wall colour"
+              className={`size-9 rounded-full border-2 ${wall === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/15"}`}
+              style={{ background: hex(c) }}
+            />
+          ))}
+        </div>
+        <div className="text-[13px] font-bold">Floor</div>
+        <div className="flex flex-wrap gap-2">
+          {FLOOR_COLOURS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setFloor(c)}
+              aria-label="Floor colour"
+              className={`size-9 rounded-full border-2 ${floor === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/15"}`}
+              style={{ background: hex(c) }}
+            />
+          ))}
+        </div>
+        <button
+          disabled={points < PAINT_PRICE}
+          onClick={() => onPaint(wall, floor)}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
+        >
+          🎨 Paint my home · {N(PAINT_PRICE)}
+        </button>
+      </div>
+    );
   const chosen = left.filter((i) => pick.includes(i.id));
   const pts = chosen.reduce((a, i) => a + itemPoints(i), 0);
   const naira = chosen.reduce((a, i) => a + i.naira, 0);
-  if (!left.length) return <p>Masha Allah, your home is fully furnished!</p>;
+  if (!left.length)
+    return (
+      <div className="space-y-3">
+        {tabs}
+        <p>Masha Allah, your home is fully furnished!</p>
+      </div>
+    );
   return (
     <div className="space-y-2">
+      {tabs}
       <p className="text-[13px] opacity-75">
-        Your flat has a bed and a bathroom. Pick what to add. You have {points} points.
+        Your flat has a bed and a bathroom. Pick what to add. You have {N(points)}.
       </p>
       <button
         onClick={() => setPick(pick.length === left.length ? [] : left.map((i) => i.id))}
@@ -8276,7 +9439,7 @@ function HomeShopView({
               <div className="text-[13px] font-bold leading-tight">{i.name}</div>
               <div className="text-[11px] opacity-70">{i.does}</div>
               <div className="mt-1 text-[12px] font-bold text-[#1f6f63]">
-                ₦{i.naira} · {itemPoints(i)} pts
+                ₦{i.naira} · {N(itemPoints(i))}
               </div>
             </button>
           );
@@ -8293,7 +9456,7 @@ function HomeShopView({
         className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
       >
         {chosen.length
-          ? `Buy ${chosen.length} item${chosen.length > 1 ? "s" : ""} · ${pts} points`
+          ? `Buy ${chosen.length} item${chosen.length > 1 ? "s" : ""} · ${N(pts)}`
           : "Pick items to buy"}
       </button>
       {chosen.length > 0 && (
@@ -8344,7 +9507,7 @@ function JobsView({
             <div className="flex items-baseline justify-between gap-2">
               <div className="text-[15px] font-bold">{j.name}</div>
               <div className="whitespace-nowrap text-[13px] font-bold text-[#1f6f63]">
-                {j.pay} pts/day
+                {N(j.pay)}/day
               </div>
             </div>
             <div className="text-[12px] opacity-75">
@@ -8445,10 +9608,17 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
           prefix: inside && (s.items ?? []).includes("prayermat") ? "prayermat" : "door:masjid:",
         }
       : { text: `Make wudu for ${cp.name}`, prefix: inside ? "bath" : "door:masjid:" };
+  if (s.impound && !inside)
+    return {
+      text: `Collect your car at the ${districtById(s.impound.area).name} police station`,
+      prefix: "police:",
+    };
   if (s.meal)
     return inside
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
-      : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
+      : area !== home
+        ? { text: "Your food is ready: sit down here, wash your hands and eat" }
+        : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
     return { text: "You're hungry: order food (📱) or eat at a restaurant", prefix: "eatery:" };
   if (n && n.energy < 25)
@@ -8532,6 +9702,179 @@ function GraphicsView({
         "Best for cheaper phones: same look, lighter shadows, a little less view.",
       )}
       {opt("high", "Beautiful", "Shadows and a long view. Needs a stronger phone.")}
+    </div>
+  );
+}
+
+/* ---------------- profile ---------------- */
+function ProfileView({
+  look,
+  number,
+  coins,
+  ilm,
+  home,
+  rent,
+  items,
+}: {
+  look: Look | undefined;
+  number?: string;
+  coins: number;
+  ilm: number;
+  home: string;
+  rent?: { area: string; until: number; weekly: number } | null;
+  items: { icon: string; label: string; badge?: number; run: () => void }[];
+}) {
+  const lv = ilmLevel(ilm);
+  const title = look?.female ? lv.sister : lv.brother;
+  const pct = lv.next ? ((ilm - lv.min) / (lv.next.min - lv.min)) * 100 : 100;
+  const daysLeft = rent ? Math.ceil((rent.until - Date.now()) / 86400000) : 0;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-[#1f6f63] to-[#10201e] p-3.5 text-[#fdf8ec]">
+        <div
+          className="grid size-14 shrink-0 place-items-center rounded-full border-4 text-[22px] font-black"
+          style={{
+            background: look ? hex(look.robe) : "#1f6f63",
+            borderColor: look ? hex(look.accent) : "#e6b84a",
+            color: look && look.robe > 0x888888 ? "#10201e" : "#fdf8ec",
+          }}
+        >
+          {(look?.name ?? "?").slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[18px] font-black">{look?.name ?? "Player"}</div>
+          <div className="text-[12.5px] text-[#e6b84a]">
+            {title} · {look?.female ? "Sister" : "Brother"}
+          </div>
+          <div className="truncate text-[12px] opacity-75">
+            {home}
+            {number ? ` · ${number}` : ""}
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-white p-2.5 shadow-sm">
+          <div className="text-[11px] font-bold uppercase opacity-60">Money</div>
+          <div className="text-[18px] font-black text-[#1d6b3a]">{N(coins)}</div>
+        </div>
+        <div className="rounded-xl bg-white p-2.5 shadow-sm">
+          <div className="text-[11px] font-bold uppercase opacity-60">Ilm</div>
+          <div className="text-[18px] font-black text-[#1f6f63]">{ilm}</div>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#10201e]/10">
+            <div className="h-full bg-[#1f6f63]" style={{ width: `${Math.min(100, pct)}%` }} />
+          </div>
+          <div className="mt-0.5 text-[10.5px] opacity-65">
+            {lv.next
+              ? `${lv.next.min - ilm} more to ${look?.female ? lv.next.sister : lv.next.brother}`
+              : "Highest level"}
+          </div>
+        </div>
+      </div>
+      {rent && (
+        <div
+          className={`rounded-xl p-2.5 text-[12.5px] shadow-sm ${daysLeft <= 1 ? "bg-[#fbe9e4]" : "bg-white"}`}
+        >
+          🏠 Rent: <b>{N(rent.weekly)}</b> a week ·{" "}
+          {daysLeft > 0 ? `paid for ${daysLeft} more day${daysLeft > 1 ? "s" : ""}` : "due now"}
+        </div>
+      )}
+      <details className="rounded-xl bg-white p-2.5 text-[12.5px] shadow-sm">
+        <summary className="cursor-pointer font-bold">What is Ilm for?</summary>
+        <div className="mt-1.5 space-y-1 opacity-85">
+          <div>
+            • Ilm is the knowledge you gain: salah in jama'ah, lectures, classes, quizzes, adhkar.
+          </div>
+          <div>
+            • It gives you a title: Talib, Student of knowledge, Ustadh, then Sheikh (Talibah,
+            Ustadhah, Sheikhah for sisters).
+          </div>
+          <div>• Each title raises your job pay: +5%, +10%, +20%, then +30%.</div>
+          <div>• It can pay your bail if you are ever arrested ({POLICE.bailIlm} Ilm).</div>
+        </div>
+      </details>
+      <MenuView items={items} />
+    </div>
+  );
+}
+
+/** Your clothes: wear what you own, buy new ones for ₦500. */
+function WardrobeView({
+  look,
+  owned,
+  coins,
+  onWear,
+  onBuy,
+}: {
+  look: Look;
+  owned: string[];
+  coins: number;
+  onWear: (p: Partial<Look>) => void;
+  onBuy: (key: string, p: Partial<Look>) => void;
+}) {
+  const [cur, setCur] = useState(look);
+  const [have, setHave] = useState(owned);
+  const [money, setMoney] = useState(coins);
+  const [pick, setPick] = useState<{ key: string; p: Partial<Look>; name: string } | null>(null);
+  const has = (k: string, c: number, which: "robe" | "accent") =>
+    have.includes(k) || cur[which] === c;
+  const row = (label: string, which: "robe" | "accent", list: number[]) => (
+    <div>
+      <div className="mb-1 text-[12.5px] font-bold">{label}</div>
+      <div className="flex flex-wrap gap-2">
+        {list.map((c) => {
+          const key = `${which}:${hex(c)}`;
+          const mine = has(key, c, which);
+          const on = cur[which] === c;
+          return (
+            <button
+              key={c}
+              aria-label={label}
+              onClick={() => {
+                if (mine) {
+                  setPick(null);
+                  setCur({ ...cur, [which]: c });
+                  onWear({ [which]: c });
+                } else setPick({ key, p: { [which]: c }, name: label.toLowerCase() });
+              }}
+              className={`relative size-10 rounded-full border-2 ${on ? "border-[#e6b84a] ring-2 ring-[#e6b84a]/50" : pick?.key === key ? "border-[#1f6f63] ring-2 ring-[#1f6f63]/40" : "border-black/10"}`}
+              style={{ background: hex(c) }}
+            >
+              {!mine && (
+                <span className="absolute -bottom-1 -right-1 rounded-full bg-[#10201e] px-1 text-[8.5px] font-bold text-white">
+                  ₦
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Tap something you own to wear it. New clothes cost {N(CLOTHES_PRICE)} each. You have{" "}
+        {N(money)}.
+      </p>
+      {row(cur.female ? "Abaya" : "Thobe", "robe", cur.female ? SHOP_ABAYAS : SHOP_THOBES)}
+      {row(cur.female ? "Hijab" : "Cap", "accent", cur.female ? SHOP_HIJABS : SHOP_CAPS)}
+      {pick && (
+        <button
+          disabled={money < CLOTHES_PRICE}
+          onClick={() => {
+            onBuy(pick.key, pick.p);
+            setHave([...have, pick.key]);
+            setCur({ ...cur, ...pick.p });
+            setMoney(money - CLOTHES_PRICE);
+            setPick(null);
+          }}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
+        >
+          {money < CLOTHES_PRICE
+            ? `You need ${N(CLOTHES_PRICE)} for this ${pick.name}`
+            : `Buy and wear this ${pick.name} · ${N(CLOTHES_PRICE)}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -8989,7 +10332,7 @@ function CellView({
         onClick={onBailPoints}
         className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
       >
-        Pay bail · {POLICE.bailPoints} points
+        Pay bail · {N(POLICE.bailPoints)}
       </button>
       <button
         disabled={ilm < POLICE.bailIlm}
@@ -9146,6 +10489,78 @@ function MssnView({
 }
 
 const JERSEY_PRICE = 25;
+
+/* ---------------- tennis ---------------- */
+function TennisHud({
+  t,
+  onHit,
+  onLeave,
+}: {
+  t: TennisState;
+  onHit: () => void;
+  onLeave: () => void;
+}) {
+  const hitRef = useRef(onHit);
+  hitRef.current = onHit;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        hitRef.current();
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const me = t.mySide;
+  return (
+    <>
+      <div
+        data-game-ui
+        className="pointer-events-none absolute inset-x-0 top-[70px] z-30 flex justify-center"
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#14324d]/92 px-4 py-2 text-white shadow-xl">
+          <span className="text-[12px] font-bold text-[#9fd0ff]">
+            {me === 0 ? "You" : t.names[0]}
+          </span>
+          <span className="font-serif text-3xl tabular-nums">
+            {t.score[0]} – {t.score[1]}
+          </span>
+          <span className="text-[12px] font-bold text-[#ffd59f]">
+            {me === 1 ? "You" : t.names[1]}
+          </span>
+          <button onClick={onLeave} className="rounded-lg bg-white/10 px-2 py-0.5 text-[12px]">
+            {t.phase === "over" ? "Done" : "Leave"}
+          </button>
+        </div>
+      </div>
+      {t.msg && (
+        <div
+          data-game-ui
+          className="pointer-events-none absolute inset-x-0 top-[128px] z-30 flex justify-center px-3"
+        >
+          <div className="rounded-xl bg-[#fdf8ec]/95 px-4 py-2 text-center text-[14px] font-bold shadow-lg">
+            {t.msg}
+          </div>
+        </div>
+      )}
+      {t.phase !== "over" && (
+        <div
+          data-game-ui
+          className="absolute bottom-[max(24px,env(safe-area-inset-bottom))] right-4 z-30"
+        >
+          <button
+            onClick={onHit}
+            className={`grid size-24 place-items-center rounded-full text-[18px] font-extrabold text-white shadow-xl active:scale-95 ${t.canHit ? "bg-[#2f6fa8]" : "bg-[#2f6fa8]/45"}`}
+          >
+            {t.myServe ? "Serve" : "Hit"}
+            <span className="-mt-4 text-[10px] font-semibold opacity-70">Space</span>
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
 
 /* ---------------- skipping rope ---------------- */
 function RopeHud({
@@ -9556,7 +10971,7 @@ function FoodView({
         {where === "order"
           ? "Delivered to you wherever you are by an IlmDash rider. Cheaper than the eatery."
           : "Fresh and hot, straight away. Ordering on your phone costs less."}{" "}
-        Food {hunger}% · you have {points} points.
+        Food {hunger}% · you have {N(points)}.
       </p>
       {MENU.map((d) => {
         const price = where === "eatery" ? eateryPrice(d) : d.points;
@@ -9574,7 +10989,7 @@ function FoodView({
             <span
               className={`rounded-lg px-2.5 py-1 text-[13px] font-bold ${points >= price ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#10201e]/10 opacity-60"}`}
             >
-              {price} pts
+              {N(price)}
             </span>
           </button>
         );
@@ -9608,23 +11023,24 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
   return (
     <div className="space-y-3">
       <p>
-        This costs {price} points and you have {points}.
+        This costs {N(price)} and you have {N(points)}.
       </p>
       <p className="rounded-xl bg-white p-3 text-[14px]">
-        Earn points by praying on time (+2 for each fard salah), lecture minutes and the mosque
-        quiz, or buy points.
+        Earn money by praying on time (+₦20 for each fard salah), lecture minutes and the mosque
+        quiz, or top up your wallet.
       </p>
       <button
         disabled
         className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05] opacity-60"
       >
-        Buy points · coming soon with Paystack
+        Top up · coming soon with Paystack
       </button>
     </div>
   );
 }
 
 function PhoneView({
+  myNumber,
   onWallet,
   onRooms,
   onHomes,
@@ -9635,6 +11051,7 @@ function PhoneView({
   onTravel,
   onPlaces,
 }: {
+  myNumber?: string;
   onWallet: () => void;
   onRooms: () => void;
   onHomes: () => void;
@@ -9671,6 +11088,11 @@ function PhoneView({
         <div className="mt-1 text-[13px] opacity-80">
           {now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
         </div>
+        {myNumber && (
+          <div className="mx-auto mt-2 w-fit rounded-full bg-white/15 px-3 py-1 text-[12px] font-semibold tracking-wide">
+            📞 My number: {myNumber}
+          </div>
+        )}
       </div>
       <div className="mt-10 grid grid-cols-4 gap-x-2 gap-y-5">
         {icon("#2f8f3a", "🛵", "IlmDash", onFood)}

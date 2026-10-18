@@ -153,3 +153,45 @@
             && request.resource.data.paid == false
             && (resource.data.get('tenant', null) == null || resource.data.get('until', 0) < request.time.toMillis())));
     }
+
+    // ---- knocking on a player's door ----
+    match /city_knocks/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "knocking";
+      // the owner lets in, says not now or asks to leave; the visitor can only leave
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((request.auth.uid == resource.data.to && request.resource.data.status in ['in', 'no', 'out'])
+            || (request.auth.uid == resource.data.from && request.resource.data.status == 'left'));
+    }
+
+    // ---- sending money to another player ----
+    match /city_transfers/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.to != request.auth.uid
+        && request.resource.data.status == "sent"
+        && request.resource.data.amount is int
+        && request.resource.data.amount > 0
+        && request.resource.data.amount <= 5000;
+      // only the person it was sent to can mark it received, once
+      allow update: if signedIn() && request.auth.uid == resource.data.to
+        && resource.data.status == "sent"
+        && request.resource.data.status == "received"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
+    // ---- one player per house: who rents or owns each house and plot of land ----
+    match /city_plots/{plot} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.plot == plot;
+      // keep your own, or take one whose rent has run out
+      allow update: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.plot == plot
+        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
