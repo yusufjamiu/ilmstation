@@ -4810,6 +4810,8 @@ function CityGame({
 
   /* ---------- engine lifecycle ---------- */
   const [peopleReady, setPeopleReady] = useState(false);
+  /** the first picture of the city is on screen: until then only the loading screen shows */
+  const [shown, setShown] = useState(false);
   useEffect(() => {
     let live = true;
     loadHumans().then(() => live && setPeopleReady(true));
@@ -4845,6 +4847,7 @@ function CityGame({
       return;
     }
     engine.current = e;
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => setShown(true), 250)));
     if (import.meta.env.DEV) Object.assign(window, { __ilmcity: e, __districts: DISTRICTS });
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
@@ -5222,13 +5225,17 @@ function CityGame({
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]">
       <div ref={host} className="absolute inset-0" />
-      {!peopleReady && (
-        <div className="absolute inset-0 grid place-items-center text-center text-[#fdf8ec]">
+      {!shown && (
+        <div className="absolute inset-0 z-[100] grid place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
           <div>
             <div className="font-serif text-4xl">
               Ilm<span className="text-[#45b8a8]">World</span>
             </div>
             <p className="mt-2 text-sm opacity-70">{cityGreeting()}</p>
+            <div className="mx-auto mt-5 h-1.5 w-40 overflow-hidden rounded-full bg-white/20">
+              <div className="h-full w-1/3 animate-[ilmload_1.2s_ease-in-out_infinite] rounded-full bg-[#45b8a8]" />
+            </div>
+            <style>{`@keyframes ilmload{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}`}</style>
           </div>
         </div>
       )}
