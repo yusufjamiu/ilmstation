@@ -59,6 +59,8 @@ import {
   BUS_FARE,
   WORLD_CITIES,
   INTERCITY,
+  TRAIN_LOCAL,
+  TRAIN_STATIONS,
   cityOf,
   DISTRICTS,
   QUESTIONS,
@@ -207,7 +209,12 @@ type Save = {
   /** sadaqah given at the masjid, in all (game units) */
   sadaqah?: number;
   /** Umrah: the step you are on, and how many you have completed */
-  umrah?: { stage?: "tawaf" | "maqam" | "zamzam" | "sai" | "halq"; done: number };
+  umrah?: {
+    stage?: "ihram" | "enter" | "tawaf" | "maqam" | "zamzam" | "sai" | "halq";
+    done: number;
+  };
+  /** Hajj practice: where you are in the days of Hajj */
+  hajj?: { stage?: HajjStage; done: number; stoned?: string[] };
 };
 type Look = {
   name: string;
@@ -232,6 +239,8 @@ const CLOTHES_PRICE = 50;
 
 /** What to do next in Umrah. */
 const UMRAH_NEXT: Record<string, string> = {
+  ihram: "put on ihram and make the intention",
+  enter: "enter Al-Masjid Al-Haram with your right foot",
   tawaf: "tawaf, 7 rounds round the Kaaba",
   maqam: "two rak'ahs behind Maqam Ibrahim",
   zamzam: "drink Zamzam",
@@ -239,12 +248,92 @@ const UMRAH_NEXT: Record<string, string> = {
   halq: "shave or shorten your hair at the barber on Ajyad Street",
 };
 const UMRAH_ZONE: Record<string, string> = {
+  ihram: "",
+  enter: "door:masjid:masjid-al-haram",
   tawaf: "kaaba:tawaf",
   maqam: "maqam",
   zamzam: "zamzam",
   sai: "safa:sai",
   halq: "office:haram-barber",
 };
+/** The days of Hajj, in order, for Hajj practice. */
+type HajjStage =
+  | "ihram"
+  | "mina"
+  | "arafat"
+  | "muzdalifah"
+  | "aqabah"
+  | "halq"
+  | "ifadah"
+  | "hajjsai"
+  | "tashriq"
+  | "wada";
+const HAJJ: Record<HajjStage, { day: string; text: string; area: string; zone: string }> = {
+  ihram: {
+    day: "8th Dhul Hijjah",
+    text: "put on ihram and make the intention for Hajj",
+    area: "",
+    zone: "",
+  },
+  mina: {
+    day: "8th Dhul Hijjah · Yawm at-Tarwiyah",
+    text: "go to Mina and stay there for the day and night",
+    area: "mina",
+    zone: "door:masjid:masjid-al-khayf",
+  },
+  arafat: {
+    day: "9th Dhul Hijjah · the Day of Arafah",
+    text: "stand at Arafat and make du'a until sunset",
+    area: "arafat",
+    zone: "arafat:wuquf",
+  },
+  muzdalifah: {
+    day: "The night of the 10th",
+    text: "spend the night at Muzdalifah and pick up pebbles",
+    area: "arafat",
+    zone: "muzdalifah:pebbles",
+  },
+  aqabah: {
+    day: "10th Dhul Hijjah · Eid al-Adha",
+    text: "stone Jamrat al-Aqabah with 7 pebbles",
+    area: "mina",
+    zone: "jamarat:aqabah",
+  },
+  halq: {
+    day: "10th Dhul Hijjah",
+    text: "shave or shorten your hair at the barber by the Haram",
+    area: "haram",
+    zone: "office:haram-barber",
+  },
+  ifadah: {
+    day: "10th Dhul Hijjah",
+    text: "Tawaf al-Ifadah: 7 rounds round the Kaaba",
+    area: "haram",
+    zone: "kaaba:tawaf",
+  },
+  hajjsai: {
+    day: "10th Dhul Hijjah",
+    text: "the sa'i of Hajj, from Safa to Marwah",
+    area: "haram",
+    zone: "safa:sai",
+  },
+  tashriq: {
+    day: "11th–13th Dhul Hijjah · the days of Tashriq",
+    text: "stone all three Jamarat in order: Al-Ula, Al-Wusta, then Al-Aqabah",
+    area: "mina",
+    zone: "jamarat:ula",
+  },
+  wada: {
+    day: "Before you leave Makkah",
+    text: "Tawaf al-Wada', the farewell tawaf",
+    area: "haram",
+    zone: "kaaba:tawaf",
+  },
+};
+const HAJJ_ORDER = Object.keys(HAJJ) as HajjStage[];
+/** Still in ihram during Hajj practice (until the hair is shaved on the 10th). */
+const hajjIhram = (st?: HajjStage) => !!st && HAJJ_ORDER.indexOf(st) < HAJJ_ORDER.indexOf("ifadah");
+
 const countryOf = (d: District) =>
   WORLD_CITIES.find((w) => w.id === cityOf(d))?.country ?? "Nigeria";
 
@@ -692,6 +781,7 @@ function CityGame({
   const talkingRef = useRef<number | null>(null);
   const workSkip = useRef(false);
   const hajjDone = useRef(new Set<string>());
+  const askedIntention = useRef(false);
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
   const lastSent = useRef({ x: 0, z: 0, area: "" });
@@ -718,7 +808,10 @@ function CityGame({
     to: string;
     byCar: boolean;
     plane?: boolean;
+    train?: boolean;
   } | null>(null);
+  const travellingRef = useRef(travelling);
+  travellingRef.current = travelling;
 
   const toast = useCallback((text: string, tone?: "good" | "warn") => {
     const id = Math.random();
@@ -1808,7 +1901,7 @@ function CityGame({
 
   /** Ride to another area (bus fare, or free in your car); optionally walk to a place on arrival. */
   const startTrip = useCallback(
-    (to: string, byCar: boolean, then?: string) => {
+    (to: string, byCar: boolean, then?: string, byTrain = false) => {
       const e = engine.current;
       if (!e) return;
       const here = e.districtId();
@@ -1821,8 +1914,8 @@ function CityGame({
         );
         return;
       }
-      const train = far && countryOf(districtById(to)) === "Saudi Arabia";
-      const fare = far ? (train ? INTERCITY.train : INTERCITY.bus) : BUS_FARE;
+      const train = (far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain;
+      const fare = far ? (train ? INTERCITY.train : INTERCITY.bus) : train ? TRAIN_LOCAL : BUS_FARE;
       if (!byCar && saveRef.current.coins < fare) {
         toast(
           `The ${train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
@@ -1832,8 +1925,10 @@ function CityGame({
       }
       setPanel(null);
       const d = districtById(to);
+      const station = train && !byCar ? d.landmarks.find((l) => l.kind === "station") : undefined;
       arriveRef.current = () => {
-        e.travel(to, byCar);
+        // by train you step off at the station; otherwise the bus or car drives in
+        if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar);
         advance("ride");
         advance("learn");
         setDriving(false);
@@ -1849,7 +1944,7 @@ function CityGame({
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
       };
-      setTravelling({ from: here, to, byCar });
+      setTravelling({ from: here, to, byCar, train: train && !byCar });
     },
     [toast, advance, update],
   );
@@ -2345,6 +2440,379 @@ function CityGame({
   );
   const startPrayerRef = useRef(startPrayer);
   startPrayerRef.current = startPrayer;
+
+  /* ---------- Makkah: guided Umrah, Hajj practice and tawaf ---------- */
+  const female = () => !!saveRef.current.profile?.female;
+  const wearIhram = useCallback((on: boolean) => {
+    const p = saveRef.current.profile;
+    if (p) engine.current?.setPlayerLook({ ...p, ihram: on && !p.female });
+  }, []);
+  /** Walk to a place for the rites, travelling to its area first if needed. */
+  const goRite = useCallback((area: string, zone: string) => {
+    const here = engine.current?.districtId();
+    if (area && here !== area) {
+      const d = districtById(area);
+      setPanel({
+        kind: "info",
+        title: `To ${d.name}`,
+        body: (
+          <div className="space-y-2">
+            <p className="text-[14px]">The next step is in {fullName(d)}.</p>
+            <button
+              onClick={() =>
+                tripRef.current(
+                  area,
+                  false,
+                  zone || undefined,
+                  TRAIN_STATIONS.includes(area) && TRAIN_STATIONS.includes(here ?? ""),
+                )
+              }
+              className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+            >
+              {districtById(here ?? "haram").holy ? "🚌 Take the bus" : "Travel"} to {d.name}
+            </button>
+          </div>
+        ),
+      });
+      return;
+    }
+    if (zone) setTimeout(() => engine.current?.guideTo(zone), 300);
+  }, []);
+  /** Tawaf with a guide: what to do and say at each part of every round. */
+  const guidedTawaf = useCallback(
+    (kind: "umrah" | "voluntary" | "ifadah" | "wada", onDone: () => void) => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      const name =
+        kind === "umrah"
+          ? "Tawaf of Umrah"
+          : kind === "ifadah"
+            ? "Tawaf al-Ifadah"
+            : kind === "wada"
+              ? "Tawaf al-Wada'"
+              : "Voluntary tawaf";
+      const brisk = (kind === "umrah" || kind === "ifadah") && !female();
+      if (kind === "umrah") toast("Stop the Talbiyah now: tawaf begins.", "good");
+      const ok = e.startTawaf(
+        (n) => {
+          if (n === 7) return;
+          toast(`Round ${n} done · Allahu Akbar. Round ${n + 1} of 7`, "good");
+        },
+        () => {
+          setRite(null);
+          need({ iman: 20 });
+          onDone();
+        },
+        (k, round) => {
+          const head = `🕋 ${name} · round ${round} of 7`;
+          const step = (text: string) => setRite({ title: head, text });
+          if (k === 0) {
+            step(
+              `Black Stone line (green light): face the Black Stone, raise your right hand and say "Bismillahi wallahu akbar".${
+                brisk && round <= 3
+                  ? " Brothers: walk briskly with short steps (raml) in rounds 1 to 3, right shoulder uncovered."
+                  : brisk
+                    ? " Walk normally now."
+                    : ""
+              }`,
+            );
+            if (round === 1) sayDhikr("blackStone");
+          } else if (k === 2)
+            step("The Multazam, between the Black Stone and the door. Make any du'a you wish.");
+          else if (k === 6) step("The Iraqi corner. Keep making dhikr and du'a in your own words.");
+          else if (k === 9)
+            step(
+              "Hijr Ismail: the curved wall is part of the Kaaba. Walk outside it, not through it.",
+            );
+          else if (k === 12) step("The Shami corner. Keep the Kaaba on your left.");
+          else if (k === 18)
+            step(
+              "The Yemeni corner: touch it with your right hand if it is easy. Do not kiss it or point to it.",
+            );
+          else if (k === 19) {
+            step(
+              "Between the Yemeni corner and the Black Stone say: Rabbana atina fid-dunya hasanah, wa fil-akhirati hasanah, wa qina 'adhaban-nar.",
+            );
+            if (round === 1) sayDhikr("tawafDua");
+          }
+        },
+      );
+      if (!ok) toast("Go to the Kaaba in Al-Masjid Al-Haram first.");
+    },
+    [toast, need, sayDhikr],
+  );
+  /** Sa'i with a guide: Safa, the green lights and Marwah, seven times. */
+  const guidedSai = useCallback(
+    (onDone: () => void) => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      const ok = e.startSai(
+        (n) => {
+          if (n < 7) toast(`Walk ${n} of 7 done. Allahu Akbar.`, "good");
+        },
+        () => {
+          setRite(null);
+          need({ iman: 20, energy: -10 });
+          onDone();
+        },
+        (ev, leg) => {
+          const head = `⛰️ Sa'i · walk ${Math.min(7, Math.max(1, ev === "safa" || ev === "marwah" ? leg + 1 : leg))} of 7`;
+          if (ev === "safa") {
+            if (leg === 0) {
+              setRite({
+                title: "⛰️ Sa'i begins at Safa",
+                text: "Climb Safa and recite \"Innas-Safa wal-Marwata min sha'a'irillah\", then say \"Abda'u bima bada'allahu bih\" (I begin with what Allah began with). Face the Kaaba, raise your hands, and say the dhikr three times with du'a in between.",
+              });
+              sayDhikr("safa", () => sayDhikr("safaDhikr"));
+            } else
+              setRite({
+                title: head,
+                text: "On Safa: face the Kaaba, raise your hands, say the dhikr of Safa and make du'a. Then walk to Marwah.",
+              });
+          } else if (ev === "marwah")
+            setRite({
+              title: head,
+              text: "On Marwah: face the Kaaba and say the same dhikr as on Safa, with du'a.",
+            });
+          else if (ev === "green") {
+            setRite({
+              title: head,
+              text: `Green lights: ${female() ? "sisters walk at a normal pace" : "brothers hasten here, as Hajar ran for water"}. Say: Rabbighfir warham, innaka antal-a'azzul-akram.`,
+            });
+            if (leg === 1) sayDhikr("greenLights");
+          } else
+            setRite({
+              title: head,
+              text: "Past the green lights: walk normally and keep making du'a.",
+            });
+        },
+      );
+      if (!ok) toast("Sa'i is in the Mas'a of Al-Masjid Al-Haram.");
+    },
+    [toast, need, sayDhikr],
+  );
+  /** The Hajj practice moves on a step. */
+  const hajjNext = useCallback(
+    (to: HajjStage | null, msg: string) => {
+      update((x) => ({
+        ...x,
+        ilm: x.ilm + (to ? 10 : 200),
+        hajj: to
+          ? { ...(x.hajj ?? { done: 0 }), stage: to, stoned: [] }
+          : { done: (x.hajj?.done ?? 0) + 1 },
+      }));
+      toast(msg, "good");
+      if (to && !hajjIhram(to)) wearIhram(false);
+      if (to) {
+        const h = HAJJ[to];
+        setTimeout(() => goRite(h.area, h.zone), 1600);
+      }
+    },
+    [update, toast, wearIhram, goRite],
+  );
+  const beginUmrah = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🤍 Umrah · step 1: ihram",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>Before the miqat (on the plane before Jeddah, or at Masjid Aisha in Makkah):</p>
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>
+              Make ghusl, and{" "}
+              {female()
+                ? "wear your normal modest clothes"
+                : "put on the two white sheets of ihram"}
+              .
+            </li>
+            <li>
+              Make the intention: <b>Labbayk Allahumma 'Umrah</b>.
+            </li>
+            <li>Say the Talbiyah often until you begin tawaf.</li>
+          </ol>
+          <p className="rounded-xl bg-[#fdf3dc] p-3 text-[13px]">
+            In ihram: no perfume, no cutting hair or nails, no arguing.{" "}
+            {female()
+              ? "Sisters do not cover the face with a niqab or wear gloves."
+              : "Brothers do not cover the head or wear sewn clothes."}
+          </p>
+          <button
+            onClick={() => {
+              setPanel(null);
+              update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "enter" } }));
+              wearIhram(true);
+              sayDhikr("niyyahUmrah", () =>
+                sayDhikr("talbiyah", () => {
+                  toast(
+                    "You are in ihram. Now enter Al-Masjid Al-Haram with your right foot.",
+                    "good",
+                  );
+                  goRite("haram", "door:masjid:masjid-al-haram");
+                }),
+              );
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            I am in ihram: Labbayk Allahumma 'Umrah
+          </button>
+        </div>
+      ),
+    });
+  }, [update, wearIhram, sayDhikr, toast, goRite]);
+  const beginHajj = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🕋 Hajj practice",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>Practise the days of Hajj, step by step, in the real places:</p>
+          <ol className="list-decimal space-y-1 pl-5 text-[13px]">
+            <li>
+              <b>8th:</b> ihram in Makkah, then the day and night in Mina
+            </li>
+            <li>
+              <b>9th:</b> standing at Arafat until sunset
+            </li>
+            <li>
+              <b>Night of the 10th:</b> Muzdalifah, and pebbles
+            </li>
+            <li>
+              <b>10th:</b> stone Al-Aqabah, shave, Tawaf al-Ifadah and sa'i
+            </li>
+            <li>
+              <b>11th–13th:</b> stone all three Jamarat in Mina
+            </li>
+            <li>
+              <b>Last:</b> the farewell tawaf
+            </li>
+          </ol>
+          <button
+            onClick={() => {
+              setPanel(null);
+              update((x) => ({
+                ...x,
+                hajj: { done: x.hajj?.done ?? 0, stage: "mina", stoned: [] },
+              }));
+              wearIhram(true);
+              sayDhikr("niyyahHajj", () =>
+                sayDhikr("talbiyah", () => {
+                  toast("8th Dhul Hijjah: you are in ihram. Now go to Mina.", "good");
+                  goRite("mina", "");
+                }),
+              );
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Put on ihram: Labbayk Allahumma Hajjan
+          </button>
+        </div>
+      ),
+    });
+  }, [update, wearIhram, sayDhikr, toast, goRite]);
+  const openIntention = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "Welcome to Makkah al-Mukarramah",
+      body: (
+        <div className="space-y-2">
+          <p className="text-[14px] opacity-80">What is your intention in Makkah?</p>
+          <button
+            onClick={beginUmrah}
+            className="w-full rounded-xl bg-[#1f6f63] p-3 text-left text-[#fdf8ec]"
+          >
+            <div className="font-bold">🤍 Umrah</div>
+            <div className="text-[12.5px] opacity-85">
+              Guided: ihram, tawaf, Maqam, Zamzam, sa'i and shaving, with what to say at each place
+            </div>
+          </button>
+          <button
+            onClick={beginHajj}
+            className="w-full rounded-xl bg-[#9a7a3a] p-3 text-left text-white"
+          >
+            <div className="font-bold">🕋 Hajj practice</div>
+            <div className="text-[12.5px] opacity-90">
+              Mina, Arafat, Muzdalifah, the Jamarat and the tawafs, day by day
+            </div>
+          </button>
+          <button
+            onClick={() => {
+              setPanel(null);
+              toast("Walk in through the King Abdulaziz Gate and tap the Kaaba to begin tawaf.");
+              goRite("haram", "door:masjid:masjid-al-haram");
+            }}
+            className="w-full rounded-xl border border-[#1f6f63]/30 bg-white p-3 text-left"
+          >
+            <div className="font-bold">🔄 Visit and voluntary tawaf</div>
+            <div className="text-[12.5px] opacity-75">
+              No ihram needed. Pray in the Haram and make tawaf
+            </div>
+          </button>
+          <button onClick={() => setPanel(null)} className="w-full py-2 text-[13px] opacity-70">
+            Later
+          </button>
+        </div>
+      ),
+    });
+  }, [beginUmrah, beginHajj, toast, goRite]);
+  const openIntentionRef = useRef(openIntention);
+  openIntentionRef.current = openIntention;
+  // reaching Makkah from another city: ask what the visit is for
+  const lastCity = useRef<string | null>(null);
+  useEffect(() => {
+    // Jeddah counts as its own place: you are asked when you reach Makkah itself
+    const c =
+      save.district === "jeddahairport" ? "jeddah" : cityOf(districtById(save.district ?? "lekki"));
+    const prev = lastCity.current;
+    lastCity.current = c;
+    if (prev && prev !== c && c === "makkah" && !save.umrah?.stage && !save.hajj?.stage) {
+      // ask once nothing else is open on screen
+      let tries = 0;
+      const t = setInterval(() => {
+        if (++tries > 30) return clearInterval(t);
+        if (panelRef.current || travellingRef.current) return;
+        clearInterval(t);
+        openIntentionRef.current();
+      }, 2600);
+      return () => clearInterval(t);
+    }
+    return undefined;
+  }, [save.district, save.umrah?.stage, save.hajj?.stage]);
+  // Hajj practice: arriving in Mina on the 8th
+  useEffect(() => {
+    if (save.district !== "mina" || save.hajj?.stage !== "mina") return;
+    const t = setTimeout(
+      () =>
+        setPanel({
+          kind: "info",
+          title: "⛺ Mina · Yawm at-Tarwiyah",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                Stay in Mina today and tonight, as the Prophet ﷺ did. Pray Dhuhr, Asr, Maghrib, Isha
+                and Fajr here, each on time, shortening the four-rak'ah prayers to two.
+              </p>
+              <p className="text-[13px] opacity-75">Keep saying the Talbiyah. Rest in your tent.</p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  hajjNext(
+                    "arafat",
+                    "Morning of the 9th: after sunrise, set off for Arafat. +10 Ilm",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                Spend the day and night in Mina
+              </button>
+            </div>
+          ),
+        }),
+      2200,
+    );
+    return () => clearTimeout(t);
+  }, [save.district, save.hajj?.stage, hajjNext]);
 
   /* ---------- other real players ---------- */
   const onlineRef = useRef<Online | null>(null);
@@ -3396,6 +3864,8 @@ function CityGame({
   inboxRef.current = inbox;
 
   /* ---------- work ---------- */
+  /** the guide bar during tawaf and sa'i: where you are and what to say */
+  const [rite, setRite] = useState<{ title: string; text: string } | null>(null);
   const [shift, setShift] = useState<{
     name: string;
     done: number;
@@ -3953,70 +4423,75 @@ function CityGame({
       /* ---------- Umrah in Makkah, and the Prophet's Mosque in Madinah ---------- */
       if (id === "kaaba:tawaf") {
         const st = saveRef.current.umrah?.stage;
-        const startTawaf = (umrah: boolean) => {
-          setPanel(null);
-          toast("Bismillah, Allahu Akbar. Round 1 of 7 begins at the Black Stone.", "good");
-          e.startTawaf(
-            (n) => {
-              toast(
-                n < 7
-                  ? `Round ${n} done · Allahu Akbar. Round ${n + 1} of 7`
-                  : "Seventh round done!",
-                "good",
+        const hj = saveRef.current.hajj?.stage;
+        if (hj === "ifadah" || hj === "wada") {
+          guidedTawaf(hj, () => {
+            if (hj === "ifadah")
+              hajjNext(
+                "hajjsai",
+                "Tawaf al-Ifadah complete. Now the sa'i of Hajj, beginning at Safa. +10 Ilm",
               );
-              if (n === 1) sayDhikr("tawafDua", undefined, true);
-            },
-            () => {
-              need({ iman: 20 });
-              update((x) => ({
-                ...x,
-                ilm: x.ilm + 10,
-                umrah: umrah ? { ...(x.umrah ?? { done: 0 }), stage: "maqam" } : x.umrah,
-              }));
-              if (umrah) {
-                toast("Tawaf complete. Now pray two rak'ahs behind Maqam Ibrahim. +10 Ilm", "good");
-                setTimeout(() => engine.current?.guideTo("maqam"), 400);
-              } else toast("Tawaf complete. May Allah accept it from you. +10 Ilm", "good");
-            },
-          );
-        };
+            else {
+              hajjNext(
+                null,
+                "Your farewell tawaf is done and your Hajj practice is complete! Hajjan mabruran wa sa'yan mashkuran. +200 Ilm 🕋",
+              );
+              need({ iman: 100 });
+            }
+          });
+          return;
+        }
         if (st === "tawaf") {
-          startTawaf(true);
+          guidedTawaf("umrah", () => {
+            update((x) => ({
+              ...x,
+              ilm: x.ilm + 10,
+              umrah: { ...(x.umrah ?? { done: 0 }), stage: "maqam" },
+            }));
+            toast(
+              "Tawaf complete. Cover your right shoulder, and go to Maqam Ibrahim. +10 Ilm",
+              "good",
+            );
+            setTimeout(() => engine.current?.guideTo("maqam"), 400);
+          });
           return;
         }
         if (st) {
           toast(`You are in the middle of your Umrah: ${UMRAH_NEXT[st]}`);
           return;
         }
+        if (hj) {
+          toast(`Hajj practice · ${HAJJ[hj].day}: ${HAJJ[hj].text}`);
+          return;
+        }
         setPanel({
           kind: "info",
           title: "🕋 The Kaaba",
           body: (
-            <div className="space-y-3">
-              <p className="text-[14px]">
-                The House of Allah. Umrah is: <b>ihram</b> and the Talbiyah, <b>tawaf</b> (7
-                rounds), two rak'ahs behind <b>Maqam Ibrahim</b>, <b>Zamzam</b>, <b>sa'i</b> between
-                Safa and Marwah (7 times), then <b>shaving or shortening</b> the hair.
-              </p>
+            <div className="space-y-2">
+              <p className="text-[14px]">The House of Allah. What would you like to do?</p>
               <button
-                onClick={() => {
-                  setPanel(null);
-                  update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "tawaf" } }));
-                  const p = saveRef.current.profile;
-                  if (p && !p.female) engine.current?.setPlayerLook({ ...p, ihram: true });
-                  sayDhikr("talbiyah", () =>
-                    toast("You are in ihram. Tap the Kaaba again to begin tawaf.", "good"),
-                  );
-                }}
+                onClick={beginUmrah}
                 className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
               >
-                🤍 Make Umrah: enter ihram
+                🤍 Make Umrah (guided)
               </button>
               <button
-                onClick={() => startTawaf(false)}
+                onClick={beginHajj}
+                className="w-full rounded-xl bg-[#9a7a3a] py-3 font-bold text-white"
+              >
+                🕋 Hajj practice
+              </button>
+              <button
+                onClick={() =>
+                  guidedTawaf("voluntary", () => {
+                    update((x) => ({ ...x, ilm: x.ilm + 10 }));
+                    toast("Tawaf complete. May Allah accept it from you. +10 Ilm", "good");
+                  })
+                }
                 className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
               >
-                Voluntary tawaf (7 rounds)
+                🔄 Voluntary tawaf (7 rounds)
               </button>
             </div>
           ),
@@ -4030,58 +4505,146 @@ function CityGame({
         }
         afterPrayerRef.current = () => {
           update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "zamzam" } }));
-          toast("Now drink Zamzam, by the taps on the west side.", "good");
+          toast("Now drink Zamzam, at the taps on the west side.", "good");
           setTimeout(() => engine.current?.guideTo("zamzam"), 400);
         };
-        startPrayer(true);
+        sayDhikr("maqamAyah", () => startPrayer(true));
         return;
       }
       if (id === "zamzam") {
         need({ hunger: 10, iman: 8 });
         const umrah = saveRef.current.umrah?.stage === "zamzam";
-        if (umrah) update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "sai" } }));
-        toast(
-          umrah
-            ? "Bismillah. Zamzam is for whatever it is drunk for. Now go to Safa for sa'i."
-            : "Bismillah. You drank Zamzam, in three sips. Alhamdulillah.",
-          "good",
-        );
-        if (umrah) setTimeout(() => engine.current?.guideTo("safa:sai"), 400);
+        if (umrah) {
+          sayDhikr("zamzamDrink", () => {
+            update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "sai" } }));
+            toast(
+              "Alhamdulillah. Now go to Safa, at the north end of the Mas'a, for sa'i.",
+              "good",
+            );
+            setTimeout(() => engine.current?.guideTo("safa:sai"), 400);
+          });
+          return;
+        }
+        toast("Bismillah. You drank Zamzam, in three sips. Alhamdulillah.", "good");
         return;
       }
       // the sites of Hajj
       if (id.startsWith("jamarat:")) {
+        const pillar = id.slice(8);
         const which =
-          id === "jamarat:ula"
+          pillar === "ula"
             ? "Al-Jamrah Al-Ula"
-            : id === "jamarat:wusta"
+            : pillar === "wusta"
               ? "Al-Jamrah Al-Wusta"
               : "Al-Jamrah Al-Aqabah";
-        const key = clockRef.current.key + id;
-        const first = !hajjDone.current.has(key);
-        hajjDone.current.add(key);
-        need({ iman: 8, energy: -4 });
-        if (first) update((x) => ({ ...x, ilm: x.ilm + 3 }));
-        toast(
-          `You threw 7 pebbles at ${which}, saying "Allahu Akbar" with each one, as the Prophet ﷺ did.${first ? " +3 Ilm" : ""}`,
-          "good",
-        );
+        const hj = saveRef.current.hajj?.stage;
+        if (hj === "aqabah" && pillar !== "aqabah") {
+          toast("On the 10th, stone only Jamrat al-Aqabah, the big one at the far (Makkah) end.");
+          return;
+        }
+        if (hj === "tashriq") {
+          const done = saveRef.current.hajj?.stoned ?? [];
+          const order = ["ula", "wusta", "aqabah"];
+          const want = order[done.length];
+          if (pillar !== want) {
+            toast(
+              `In order: first Al-Ula, then Al-Wusta, then Al-Aqabah. Next: ${want === "ula" ? "Al-Ula" : want === "wusta" ? "Al-Wusta" : "Al-Aqabah"}.`,
+            );
+            return;
+          }
+        }
+        sayDhikr("jamrah", () => {
+          need({ iman: 8, energy: -4 });
+          if (hj === "aqabah") {
+            hajjNext(
+              "halq",
+              "Jamrat al-Aqabah stoned. Stop the Talbiyah. Next: shave or shorten your hair by the Haram. +10 Ilm",
+            );
+            return;
+          }
+          if (hj === "tashriq") {
+            const done = [...(saveRef.current.hajj?.stoned ?? []), pillar];
+            if (done.length < 3) {
+              update((x) => ({ ...x, hajj: { ...(x.hajj ?? { done: 0 }), stoned: done } }));
+              toast(
+                `${which} done. Step aside, face the qibla, raise your hands and make a long du'a. Then go to ${done.length === 1 ? "Al-Wusta" : "Al-Aqabah"}.`,
+                "good",
+              );
+              setTimeout(
+                () => engine.current?.guideTo(`jamarat:${done.length === 1 ? "wusta" : "aqabah"}`),
+                1500,
+              );
+            } else
+              hajjNext(
+                "wada",
+                "All three Jamarat stoned for the days of Tashriq. Last: the farewell tawaf in Makkah. +10 Ilm",
+              );
+            return;
+          }
+          const key = clockRef.current.key + id;
+          const first = !hajjDone.current.has(key);
+          hajjDone.current.add(key);
+          if (first) update((x) => ({ ...x, ilm: x.ilm + 3 }));
+          toast(
+            `You threw 7 pebbles at ${which}, saying "Allahu Akbar" with each one.${first ? " +3 Ilm" : ""}`,
+            "good",
+          );
+        });
         return;
       }
       if (id === "arafat:wuquf") {
-        const key = clockRef.current.key + id;
-        const first = !hajjDone.current.has(key);
-        hajjDone.current.add(key);
-        need({ iman: 25 });
-        if (first) update((x) => ({ ...x, ilm: x.ilm + 10 }));
-        toast(
-          `The Prophet ﷺ said: "The best du'a is the du'a of the Day of Arafah." La ilaha illallah wahdahu la sharika lah, lahul mulku wa lahul hamd, wa huwa 'ala kulli shay'in qadir.${first ? " +10 Ilm" : ""}`,
-          "good",
-        );
+        sayDhikr("arafahDua", () => {
+          need({ iman: 25 });
+          if (saveRef.current.hajj?.stage === "arafat") {
+            hajjNext(
+              "muzdalifah",
+              "You stood at Arafat until sunset. Now go to Muzdalifah, calmly, saying the Talbiyah. +10 Ilm",
+            );
+            return;
+          }
+          const key = clockRef.current.key + id;
+          if (!hajjDone.current.has(key)) {
+            hajjDone.current.add(key);
+            update((x) => ({ ...x, ilm: x.ilm + 10 }));
+            toast("May Allah accept your du'a. +10 Ilm", "good");
+          }
+        });
         return;
       }
       if (id === "muzdalifah:pebbles") {
         need({ iman: 4 });
+        if (saveRef.current.hajj?.stage === "muzdalifah") {
+          setPanel({
+            kind: "info",
+            title: "🌙 Muzdalifah",
+            body: (
+              <div className="space-y-3 text-[14px]">
+                <p>
+                  Pray Maghrib and Isha together here (Isha shortened to two), then sleep. After
+                  Fajr, stand facing the qibla at Al-Mash'ar Al-Haram making dhikr and du'a until it
+                  is bright.
+                </p>
+                <p>
+                  Pick up small pebbles, a little bigger than a chickpea: 7 for tomorrow, and more
+                  for the days after.
+                </p>
+                <button
+                  onClick={() => {
+                    setPanel(null);
+                    hajjNext(
+                      "aqabah",
+                      "10th Dhul Hijjah, Eid al-Adha! Before sunrise, go back to Mina to stone Jamrat al-Aqabah. +10 Ilm",
+                    );
+                  }}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  I spent the night and picked up pebbles
+                </button>
+              </div>
+            ),
+          });
+          return;
+        }
         toast(
           "You picked up small pebbles, a little bigger than a chickpea, for the Jamarat in Mina.",
           "good",
@@ -4089,40 +4652,47 @@ function CityGame({
         return;
       }
       if (id === "safa:sai") {
-        if (saveRef.current.umrah?.stage !== "sai") {
-          toast("Sa'i is done after the tawaf of Umrah. Begin at the Kaaba.");
+        if (saveRef.current.hajj?.stage === "hajjsai") {
+          guidedSai(() =>
+            hajjNext(
+              "tashriq",
+              "The sa'i of Hajj is done. Go back to Mina for the days of Tashriq. +10 Ilm",
+            ),
+          );
           return;
         }
-        sayDhikr("safa", () => {
-          e.startSai(
-            (n) =>
-              toast(
-                n < 7
-                  ? `${n % 2 ? "Marwah" : "Safa"} · walk ${n} of 7 done. Allahu Akbar.`
-                  : "Seventh walk done, at Marwah!",
-                "good",
-              ),
-            () => {
-              need({ iman: 20, energy: -10 });
-              update((x) => ({
-                ...x,
-                ilm: x.ilm + 10,
-                umrah: { ...(x.umrah ?? { done: 0 }), stage: "halq" },
-              }));
-              toast("Sa'i complete. Last step: the barber on Ajyad Street. +10 Ilm", "good");
-              setTimeout(() => engine.current?.guideTo("office:haram-barber"), 400);
-            },
-          );
+        if (saveRef.current.umrah?.stage !== "sai") {
+          toast("Sa'i is done after the tawaf of Umrah or Hajj. Begin at the Kaaba.");
+          return;
+        }
+        guidedSai(() => {
+          update((x) => ({
+            ...x,
+            ilm: x.ilm + 10,
+            umrah: { ...(x.umrah ?? { done: 0 }), stage: "halq" },
+          }));
+          toast("Sa'i complete at Marwah. Last step: the barber on Ajyad Street. +10 Ilm", "good");
+          setTimeout(() => engine.current?.guideTo("office:haram-barber"), 400);
         });
         return;
       }
       if (id === "office:haram-barber") {
-        if (saveRef.current.umrah?.stage !== "halq") {
-          toast("The barber shaves and shortens hair for pilgrims who have finished Umrah.");
+        const hajjHalq = saveRef.current.hajj?.stage === "halq";
+        if (saveRef.current.umrah?.stage !== "halq" && !hajjHalq) {
+          toast(
+            "The barber shaves and shortens hair for pilgrims who have finished Umrah or stoned on the 10th.",
+          );
           return;
         }
         const finish = (how: string) => {
           setPanel(null);
+          if (hajjHalq) {
+            hajjNext(
+              "ifadah",
+              `${how}. You may now leave ihram (all but marital relations, until Tawaf al-Ifadah). Next: Tawaf al-Ifadah. +10 Ilm`,
+            );
+            return;
+          }
           update((x) => ({
             ...x,
             ilm: x.ilm + 100,
@@ -4300,11 +4870,40 @@ function CityGame({
         openPlot(id.slice(5));
         return;
       }
+      if (id.startsWith("station:")) {
+        const here = e.districtId();
+        setPanel({
+          kind: "info",
+          title: "🚄 Haramain High Speed Railway",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Fast trains between Jeddah Airport, Makkah and Madinah. Choose where to go.
+              </p>
+              {TRAIN_STATIONS.filter((t) => t !== here).map((t) => {
+                const d = districtById(t);
+                const far = cityOf(d) !== cityOf(districtById(here));
+                return (
+                  <button
+                    key={t}
+                    onClick={() => tripRef.current(t, false, undefined, true)}
+                    className="flex w-full items-center justify-between rounded-xl bg-[#9a7a3a] px-3 py-3 text-left font-bold text-white"
+                  >
+                    <span>{fullName(d)}</span>
+                    <span className="text-[13px]">{N(far ? INTERCITY.train : TRAIN_LOCAL)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ),
+        });
+        return;
+      }
       if (id === "keke") {
         const area = e.districtId();
         setPanel({
           kind: "info",
-          title: "Where to? · Keke",
+          title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Keke",
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
@@ -4314,7 +4913,10 @@ function CityGame({
                 area={area}
                 onGo={(prefix) => {
                   if (saveRef.current.coins < 3) {
-                    toast("The keke fare is ₦30. Earn money at a mosque or school.", "warn");
+                    toast(
+                      `The ${districtById(area).holy ? "taxi" : "keke"} fare is ₦30. Earn money at a mosque or school.`,
+                      "warn",
+                    );
                     return;
                   }
                   setPanel(null);
@@ -4324,7 +4926,10 @@ function CityGame({
                     update((x) => ({ ...x, coins: x.coins - 3 }));
                     advance("ride");
                     toast("Off we go! Hold on tight.", "good");
-                  } else toast("The keke can't go there from here.");
+                  } else
+                    toast(
+                      `The ${districtById(area).holy ? "taxi" : "keke"} can't go there from here.`,
+                    );
                 }}
               />
             </div>
@@ -4333,7 +4938,12 @@ function CityGame({
         return;
       }
       if (id === "keke-done") {
-        toast('Keke driver: "We don reach! Safe journey."', "good");
+        toast(
+          districtById(e.districtId()).holy
+            ? 'Taxi driver: "Wasalna, alhamdulillah! Ma\'a salamah."'
+            : 'Keke driver: "We don reach! Safe journey."',
+          "good",
+        );
         return;
       }
       if (id.startsWith("player:")) {
@@ -4368,7 +4978,11 @@ function CityGame({
       }
       if (id.startsWith("busstop:")) {
         e.waitForBus(id.slice(8));
-        toast("Waiting for a danfo… it's coming down the road.");
+        toast(
+          districtById(e.districtId()).holy
+            ? "Waiting for the bus… it's coming down the road."
+            : "Waiting for a danfo… it's coming down the road.",
+        );
         return;
       }
       if (id === "board") {
@@ -4393,10 +5007,37 @@ function CityGame({
         advance("masjid");
         const lid = id.slice(12);
         const name = landmarkName(lid);
-        e.enterInterior("masjid", name);
-        setInside(true);
+        // the two Holy Mosques: you walk into the real courtyard, not a small prayer hall
+        const holyMosque = lid === "masjid-al-haram" || lid === "masjid-an-nabawi";
+        if (holyMosque && e.enterHolyCourt(lid)) {
+          if (lid === "masjid-al-haram") {
+            const st = saveRef.current.umrah?.stage;
+            if (st === "enter" || st === "ihram") {
+              sayDhikr("enterHaram", () =>
+                sayDhikr("seeKaaba", () => {
+                  update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "tawaf" } }));
+                  toast(
+                    `Now tawaf. ${saveRef.current.profile?.female ? "" : "Brothers: uncover your right shoulder (idtiba'). "}Go to the Black Stone line by the green light and tap the Kaaba.`,
+                    "good",
+                  );
+                  setTimeout(() => engine.current?.guideTo("kaaba:tawaf"), 400);
+                }),
+              );
+              return;
+            }
+            if (!st && !saveRef.current.hajj?.stage && !askedIntention.current) {
+              askedIntention.current = true;
+              sayDhikr("enterHaram", () => openIntentionRef.current());
+              return;
+            }
+            sayDhikr("enterHaram");
+          } else sayDhikr("enterMasjid");
+        } else {
+          e.enterInterior("masjid", name);
+          setInside(true);
+          sayDhikr("enterMasjid");
+        }
         tuneRef.current();
-        sayDhikr("enterMasjid");
         const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
         if (ms.open && ms.prayer) {
@@ -4798,6 +5439,17 @@ function CityGame({
                         )}
                       </button>
                     )}
+                    {!inCar &&
+                      !far &&
+                      TRAIN_STATIONS.includes(here) &&
+                      TRAIN_STATIONS.includes(d.id) && (
+                        <button
+                          onClick={() => tripRef.current(d.id, false, undefined, true)}
+                          className="flex-1 rounded-lg bg-[#9a7a3a] px-3 py-2 text-[13px] font-bold text-white"
+                        >
+                          🚄 Train · {N(TRAIN_LOCAL)}
+                        </button>
+                      )}
                     {carHere && (
                       <button
                         onClick={() => go(d.id, true)}
@@ -5065,7 +5717,10 @@ function CityGame({
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
     if (saveRef.current.profile)
-      e.setPlayerLook({ ...saveRef.current.profile, ihram: !!saveRef.current.umrah?.stage });
+      e.setPlayerLook({
+        ...saveRef.current.profile,
+        ihram: !!saveRef.current.umrah?.stage || hajjIhram(saveRef.current.hajj?.stage),
+      });
     e.setHomeItems(saveRef.current.items ?? []);
     {
       const pt = homePaint(onlineRef.current?.uid, saveRef.current.paint);
@@ -5338,6 +5993,7 @@ function CityGame({
       });
       return;
     }
+    if (g.to && engine.current?.districtId() !== g.to) return goRite(g.to, g.prefix ?? "");
     if (g.prefix && !engine.current?.goToZone(g.prefix))
       toast(
         inside
@@ -5990,6 +6646,14 @@ function CityGame({
                   : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
             </span>
           )}
+        {rite && (
+          <div className="pointer-events-auto max-w-[min(92vw,520px)] rounded-xl border-2 border-[#2bd47a] bg-[#0e2a1c]/92 px-3 py-2 text-[#fdf8ec] shadow-lg">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-[#7ee8a8]">
+              {rite.title}
+            </div>
+            <div className="text-[13.5px] font-semibold leading-snug">{rite.text}</div>
+          </div>
+        )}
         {shift && (
           <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
             <div className="leading-tight">
@@ -6010,7 +6674,7 @@ function CityGame({
             </button>
           </div>
         )}
-        {goal && !shift && (
+        {goal && !shift && !rite && (
           <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
             <span className="text-[12.5px] font-semibold leading-tight">🎯 {goal.text}</span>
             {(goal.prefix || goal.act) && (
@@ -6203,7 +6867,10 @@ function CityGame({
               🚌
             </div>
             <div className="min-w-0 leading-tight">
-              <div className="text-[15px] font-bold">On the danfo · {ride.kmh} km/h</div>
+              <div className="text-[15px] font-bold">
+                {districtById(save.district ?? "lekki").holy ? "On the bus" : "On the danfo"} ·{" "}
+                {ride.kmh} km/h
+              </div>
               <div className="truncate text-[12.5px] opacity-80">Next stop: {ride.next}</div>
             </div>
           </div>
@@ -10504,7 +11171,13 @@ function WorkView({ job, onDone }: { job: Job; onDone: (correct: number, total: 
 }
 
 /* ---------------- the next thing to do ---------------- */
-type Goal = { text: string; prefix?: string; act?: "adhkarM" | "adhkarE" | "jobs" | "travel" };
+type Goal = {
+  text: string;
+  prefix?: string;
+  act?: "adhkarM" | "adhkarE" | "jobs" | "travel";
+  /** the area the place is in (travel there first if you are elsewhere) */
+  to?: string;
+};
 function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null {
   const t = s.tasks ?? {};
   const n = s.needs;
@@ -10528,8 +11201,17 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   if (s.umrah?.stage && !inside)
     return {
       text: `Umrah: ${UMRAH_NEXT[s.umrah.stage]}`,
-      prefix: UMRAH_ZONE[s.umrah.stage],
+      prefix: UMRAH_ZONE[s.umrah.stage] || undefined,
+      to: "haram",
     };
+  if (s.hajj?.stage && !inside) {
+    const h = HAJJ[s.hajj.stage];
+    return {
+      text: `Hajj · ${h.day}: ${h.text}`,
+      prefix: h.zone || undefined,
+      to: h.area || undefined,
+    };
+  }
   if (s.meal)
     return inside
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }

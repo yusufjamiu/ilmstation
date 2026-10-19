@@ -158,12 +158,14 @@ export function TravelMap({
   to,
   byCar,
   plane,
+  train,
   onDone,
 }: {
   from: string;
   to: string;
   byCar: boolean;
   plane?: boolean;
+  train?: boolean;
   onDone: () => void;
 }) {
   const path = useRef<SVGPathElement>(null);
@@ -228,7 +230,13 @@ export function TravelMap({
 
   const fromName = districtById(from).name,
     toName = districtById(to).name;
-  const vehicle = byCar ? "#1f6f63" : "#f2c230";
+  const vehicle = byCar
+    ? "#1f6f63"
+    : train
+      ? "#f4f1ea"
+      : cityA === "makkah" || cityA === "madinah"
+        ? "#e9efe9"
+        : "#f2c230";
   const shown = Object.keys(PLACES).filter((id) =>
     intercity ? id === from || id === to : cityAt(id) === cityA,
   );
@@ -253,11 +261,13 @@ export function TravelMap({
             ? "✈️ On the plane"
             : byCar
               ? "Driving your car"
-              : intercity
-                ? cityA === "makkah" || cityA === "madinah"
-                  ? "On the Haramain train"
-                  : "On the inter-city bus"
-                : "On the yellow bus"}{" "}
+              : train || (intercity && (cityA === "makkah" || cityA === "madinah"))
+                ? "🚄 On the Haramain high-speed train"
+                : intercity
+                  ? "On the inter-city bus"
+                  : cityA === "makkah" || cityA === "madinah"
+                    ? "On the city bus"
+                    : "On the yellow bus"}{" "}
           ·{" "}
           {intercity
             ? `${CITY_POINT[cityA].name} to ${CITY_POINT[cityB].name}`

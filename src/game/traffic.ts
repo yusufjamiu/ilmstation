@@ -367,7 +367,9 @@ export class Traffic {
     this.stops.sort((a, b) => a.s - b.s);
 
     const add = (kind: VehicleKind, path: Path, s: number, color?: number) => {
-      const mesh = vehicleMesh(kind, color ?? randomCarColor(rnd));
+      // Makkah and Madinah (far west on the world map) have city buses and taxis
+      const saudi = path.at(0).x < -3000;
+      const mesh = vehicleMesh(kind, color ?? randomCarColor(rnd), saudi);
       scene.add(mesh);
       const vmax = VEHICLE_INFO[kind].top * (0.75 + rnd() * 0.25);
       this.vehicles.push({

@@ -312,7 +312,9 @@ export type LandmarkKind =
   /** Jabal ar-Rahmah, the Mount of Mercy on Arafat */
   | "rahmah"
   /** a clock tower (Madinah) */
-  | "clocktower";
+  | "clocktower"
+  /** a Haramain high-speed railway station, with a train at the platform */
+  | "station";
 export type Landmark = {
   id: string;
   kind: LandmarkKind;
@@ -1637,6 +1639,18 @@ export const DISTRICTS: District[] = [
         brand: { color: 0xf7f7f2, accent: 0x1f6f63 },
         about: "Shave or shorten your hair to complete your Umrah.",
       },
+      {
+        id: "makkah-station",
+        kind: "station",
+        name: "Makkah Station · Haramain Railway",
+        street: "ajyad",
+        x: -130,
+        width: 40,
+        depth: 22,
+        floors: 2,
+        brand: { color: 0xf4f1ea, accent: 0x9a7a3a },
+        about: "The Haramain High Speed Railway: Jeddah, Makkah and Madinah, fast and comfortable.",
+      },
     ],
   },
   {
@@ -1714,6 +1728,18 @@ export const DISTRICTS: District[] = [
         floors: 2,
         brand: { color: 0x1d6b3a, accent: 0xffffff },
         about: "The airport for pilgrims to Makkah. Flights to Lagos, Ilorin and Madinah.",
+      },
+      {
+        id: "jeddah-station",
+        kind: "station",
+        name: "Jeddah Airport Station · Haramain Railway",
+        street: "jeddahcargo",
+        x: 40,
+        width: 40,
+        depth: 22,
+        floors: 2,
+        brand: { color: 0xf4f1ea, accent: 0x9a7a3a },
+        about: "The Haramain High Speed Railway: Jeddah, Makkah and Madinah, fast and comfortable.",
       },
     ],
   },
@@ -1841,6 +1867,18 @@ export const DISTRICTS: District[] = [
           "The Mosque of the Prophet ﷺ in Madinah, with the Green Dome over his resting place and the Rawdah, a garden from the gardens of Paradise.",
       },
       {
+        id: "madinah-station",
+        kind: "station",
+        name: "Madinah Station · Haramain Railway",
+        street: "abudharr",
+        x: 130,
+        width: 40,
+        depth: 22,
+        floors: 2,
+        brand: { color: 0xf4f1ea, accent: 0x9a7a3a },
+        about: "The Haramain High Speed Railway: Jeddah, Makkah and Madinah, fast and comfortable.",
+      },
+      {
         id: "madinah-clock",
         kind: "clocktower",
         name: "Madinah Clock Tower",
@@ -1943,6 +1981,10 @@ export const JUNCTION_NAME: Record<string, string> = {
   madinah: "Madinah Junction",
 };
 /** Travel between cities, in game units (₦10 each). */
+/** The Haramain train between Jeddah Airport and Makkah (same city): ₦8,000. */
+export const TRAIN_LOCAL = 800;
+/** Areas with a Haramain railway station. */
+export const TRAIN_STATIONS = ["jeddahairport", "haram", "nabawi"];
 export const INTERCITY = {
   bus: 300,
   fly: 1500,
@@ -2986,6 +3028,100 @@ export type PlaceDhikr = {
   tip?: string;
 };
 export const PLACE_DHIKR: Record<string, PlaceDhikr> = {
+  niyyahUmrah: {
+    title: "The intention for Umrah",
+    arabic: "لَبَّيْكَ اللَّهُمَّ عُمْرَةً",
+    say: "Labbayk Allahumma 'Umrah.",
+    meaning: "Here I am, O Allah, for Umrah.",
+    source: "Muslim",
+    tip: "Say it once as you enter ihram at the miqat, then keep saying the Talbiyah.",
+  },
+  niyyahHajj: {
+    title: "The intention for Hajj",
+    arabic: "لَبَّيْكَ اللَّهُمَّ حَجًّا",
+    say: "Labbayk Allahumma Hajjan.",
+    meaning: "Here I am, O Allah, for Hajj.",
+    source: "Muslim",
+    tip: "On the 8th of Dhul Hijjah, from where you are staying in Makkah. Then the Talbiyah.",
+  },
+  enterHaram: {
+    title: "Entering Al-Masjid Al-Haram",
+    arabic:
+      "بِسْمِ اللَّهِ وَالصَّلَاةُ وَالسَّلَامُ عَلَى رَسُولِ اللَّهِ، اللَّهُمَّ افْتَحْ لِي أَبْوَابَ رَحْمَتِكَ",
+    say: "Bismillah, was-salatu was-salamu 'ala Rasulillah. Allahumma-ftah li abwaba rahmatik.",
+    meaning:
+      "In the name of Allah, and peace and blessings be upon the Messenger of Allah. O Allah, open for me the doors of Your mercy.",
+    source: "Muslim, Ibn Majah",
+    tip: "Step in with your right foot. Keep your eyes ahead: the Kaaba is about to come into view.",
+  },
+  seeKaaba: {
+    title: "Your first sight of the Kaaba",
+    arabic: "اللَّهُ أَكْبَرُ",
+    say: "Allahu Akbar.",
+    meaning: "Allah is the Greatest.",
+    source: "The practice of the Companions",
+    tip: "Raise your hands and ask Allah for whatever you wish, for yourself, your family and the Ummah.",
+  },
+  blackStone: {
+    title: "At the Black Stone line",
+    arabic: "بِسْمِ اللَّهِ وَاللَّهُ أَكْبَرُ",
+    say: "Bismillahi wallahu akbar.",
+    meaning: "In the name of Allah, and Allah is the Greatest.",
+    source: "Al-Bayhaqi, from Ibn 'Umar",
+    tip: "Face the Black Stone. Touch or kiss it only if it is easy; otherwise raise your right hand towards it and say Allahu Akbar. Do this at the start of every round.",
+  },
+  safaDhikr: {
+    title: "On Safa and on Marwah",
+    arabic:
+      "اللَّهُ أَكْبَرُ، اللَّهُ أَكْبَرُ، اللَّهُ أَكْبَرُ، لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ، لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ، أَنْجَزَ وَعْدَهُ، وَنَصَرَ عَبْدَهُ، وَهَزَمَ الْأَحْزَابَ وَحْدَهُ",
+    say: "Allahu Akbar (3 times). La ilaha illallahu wahdahu la sharika lah, lahul-mulku wa lahul-hamdu wa huwa 'ala kulli shay'in qadir. La ilaha illallahu wahdah, anjaza wa'dah, wa nasara 'abdah, wa hazamal-ahzaba wahdah.",
+    meaning:
+      "Allah is the Greatest. None has the right to be worshipped but Allah alone, without partner. His is the dominion and the praise, and He has power over all things. None but Allah alone: He fulfilled His promise, gave victory to His servant and alone defeated the confederates.",
+    source: "Muslim, from Jabir",
+    tip: "Face the Kaaba and raise your hands. Say it three times, making du'a in between.",
+  },
+  greenLights: {
+    title: "Between the green lights",
+    arabic: "رَبِّ اغْفِرْ وَارْحَمْ، إِنَّكَ أَنْتَ الْأَعَزُّ الْأَكْرَمُ",
+    say: "Rabbighfir warham, innaka antal-a'azzul-akram.",
+    meaning: "My Lord, forgive and have mercy. You are the Most Mighty, the Most Generous.",
+    source: "Reported from Ibn Mas'ud and Ibn 'Umar (Ibn Abi Shaybah)",
+    tip: "Brothers hasten here, as Hajar ran looking for water for Isma'il. Sisters walk normally.",
+  },
+  maqamAyah: {
+    title: "At Maqam Ibrahim",
+    arabic: "وَاتَّخِذُوا مِن مَّقَامِ إِبْرَاهِيمَ مُصَلًّى",
+    say: "Wattakhidhu min maqami Ibrahima musalla.",
+    meaning: "And take the station of Ibrahim as a place of prayer.",
+    source: "Al-Baqarah 2:125, recited by the Prophet ﷺ (Muslim)",
+    tip: "Pray two short rak'ahs behind it if you can: Al-Kafirun in the first and Al-Ikhlas in the second. Anywhere in the Haram is fine if it is crowded.",
+  },
+  zamzamDrink: {
+    title: "Drinking Zamzam",
+    arabic: "بِسْمِ اللَّهِ",
+    say: "Bismillah.",
+    meaning: "In the name of Allah.",
+    source: '"Zamzam water is for whatever it is drunk for." (Ibn Majah)',
+    tip: "Face the Kaaba, drink in three breaths, praise Allah after, and ask Him for what you need.",
+  },
+  arafahDua: {
+    title: "The du'a of the Day of Arafah",
+    arabic:
+      "لَا إِلَٰهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ",
+    say: "La ilaha illallahu wahdahu la sharika lah, lahul-mulku wa lahul-hamdu wa huwa 'ala kulli shay'in qadir.",
+    meaning:
+      "None has the right to be worshipped but Allah alone, without partner. His is the dominion and the praise, and He has power over all things.",
+    source: "\"The best du'a is the du'a of the Day of Arafah.\" (Tirmidhi)",
+    tip: "Face the qibla with raised hands and make du'a until sunset. You do not need to climb the mountain.",
+  },
+  jamrah: {
+    title: "Stoning the Jamrah",
+    arabic: "اللَّهُ أَكْبَرُ",
+    say: "Allahu Akbar (with each of the 7 pebbles).",
+    meaning: "Allah is the Greatest.",
+    source: "Bukhari, Muslim",
+    tip: "Throw seven small pebbles one at a time into the basin. After Al-Ula and Al-Wusta, step aside, face the qibla and make a long du'a. After Al-Aqabah, move on without stopping.",
+  },
   talbiyah: {
     title: "Talbiyah · entering ihram",
     arabic:

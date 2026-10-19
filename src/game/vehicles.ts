@@ -177,12 +177,12 @@ function car(kind: VehicleKind, color: number): Piece[] {
   return out;
 }
 
-function bus(kind: "danfo" | "hisbah"): Piece[] {
+function bus(kind: "danfo" | "hisbah" | "citybus"): Piece[] {
   const L = 5.8,
     W = 2.1,
     r = 0.42;
   const main = kind === "danfo" ? 0xf2c230 : 0xf4f4f0;
-  const stripe = kind === "danfo" ? 0x111111 : 0x1d7a3a;
+  const stripe = kind === "danfo" ? 0x111111 : kind === "citybus" ? 0x0e6b3a : 0x1d7a3a;
   const out: Piece[] = [];
   out.push(bx(L, 1.0, W, main, 0, r, 0));
   out.push(bx(L * 0.98, 0.9, W, GLASS, -0.05, r + 1.0, 0, 1, 1));
@@ -197,7 +197,12 @@ function bus(kind: "danfo" | "hisbah"): Piece[] {
     out.push(bx(0.06, 0.2, 0.3, TAIL, -L / 2, r + 0.6, s * 0.75));
   }
   out.push(bx(0.2, 0.24, W * 1.01, 0x2a2c30, L / 2 - 0.05, r - 0.05, 0));
-  if (kind === "danfo") {
+  if (kind === "citybus") {
+    // the city bus: air-conditioning on the roof and a destination board
+    out.push(bx(2.2, 0.3, 1.5, 0xdcdcd8, -0.6, r + 2.15, 0));
+    out.push(bx(0.06, 0.25, W * 0.7, 0x111111, L / 2 + 0.01, r + 1.72, 0));
+    out.push(bx(0.07, 0.12, W * 0.5, 0xf2a03a, L / 2 + 0.02, r + 1.72, 0));
+  } else if (kind === "danfo") {
     // roof rack with a bag on it
     for (const x of [-1.8, 0, 1.4]) out.push(bx(0.06, 0.12, W * 0.9, BLACK, x, r + 2.15, 0));
     out.push(bx(1.2, 0.35, 1.0, 0x6a3f8a, -0.6, r + 2.27, 0));
@@ -239,16 +244,21 @@ export const randomCarColor = (r: () => number) => CAR_COLORS[Math.floor(r() * C
 
 const cache = new Map<string, THREE.BufferGeometry>();
 /** One mesh per vehicle, facing +x, wheels on the ground. */
-export function vehicleMesh(kind: VehicleKind, color = 0xf4f4f2) {
-  const key = kind + color;
+/** `saudi`: in Makkah and Madinah the danfo is a white city bus and the keke is a taxi. */
+export function vehicleMesh(kind: VehicleKind, color = 0xf4f4f2, saudi = false) {
+  const key = kind + color + (saudi ? "sa" : "");
   let geo = cache.get(key);
   if (!geo) {
     const parts =
-      kind === "danfo" || kind === "hisbah"
-        ? bus(kind)
-        : kind === "keke"
-          ? keke(color)
-          : car(kind, color);
+      saudi && kind === "danfo"
+        ? bus("citybus")
+        : saudi && kind === "keke"
+          ? [...car("sedan", 0xf4f4f2), bx(0.8, 0.22, 0.4, 0xf2c230, -0.27, 1.72, 0)]
+          : kind === "danfo" || kind === "hisbah"
+            ? bus(kind)
+            : kind === "keke"
+              ? keke(color)
+              : car(kind, color);
     geo = mergeGeometries(parts, false)!;
     parts.forEach((p) => p.dispose());
     geo.computeBoundingSphere();

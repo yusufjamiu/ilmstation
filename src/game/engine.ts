@@ -524,9 +524,11 @@ function crescent(color = PALETTE.gold) {
 }
 
 /** A yellow Lagos city bus, nose pointing along +x. */
-function makeBus() {
+/** The bus that drives you between areas: yellow in Nigeria, white and green in Saudi Arabia. */
+function makeBus(saudi = false) {
   const bus = new THREE.Group();
-  bus.add(box(8, 2.6, 2.6, 0xf2c230, 0, 0.5, 0));
+  bus.add(box(8, 2.6, 2.6, saudi ? 0xf4f4f0 : 0xf2c230, 0, 0.5, 0));
+  if (saudi) bus.add(box(8.04, 0.25, 2.66, 0x0e6b3a, 0, 1.15, 0, false));
   bus.add(box(7.4, 0.9, 2.64, 0x2a3a44, 0, 1.6, 0, false));
   bus.add(box(8.04, 0.3, 2.64, 0x1d1f22, 0, 0.6, 0, false));
   bus.add(box(0.1, 1.1, 2.2, 0x2a3a44, 4.02, 1.4, 0, false));
@@ -891,7 +893,7 @@ export class IlmCityEngine {
     if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
 
     // bus park
-    this.buildBusPark(-72, 15);
+    this.buildBusPark(-72, 15, !!D.holy);
 
     // billboards beside the main street
     const spots: [number, number, number][] = [];
@@ -1880,6 +1882,35 @@ export class IlmCityEngine {
                       accent: l.brand?.accent ?? 0xffffff,
                     });
       if (seats.length) this.seatStudents(seats, D);
+      if (l.kind === "station") {
+        // the white high-speed train waiting at the platform behind the station
+        const pz = south ? cz + d / 2 + 6 : cz - d / 2 - 6;
+        const train = new THREE.Group();
+        const body = 0xf4f4f0;
+        for (let c = 0; c < 3; c++) {
+          const x0 = l.x - 32 + c * 21;
+          train.add(box(20, 3.4, 3.2, body, x0, 0.5, pz));
+          train.add(box(20.05, 0.35, 3.25, 0x9a7a3a, x0, 1.6, pz));
+          train.add(box(18, 0.9, 3.25, 0x2a3a44, x0, 2.3, pz));
+        }
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(1.75, 6, 12), mat(body));
+        nose.rotation.z = -Math.PI / 2;
+        nose.scale.set(1, 1, 0.9);
+        nose.position.set(l.x - 32 + 2 * 21 + 13, 2.2, pz);
+        train.add(nose);
+        train.add(box(70, 0.5, 6, 0xb8b2a4, l.x - 11, 0, pz)); // the platform
+        this.dg.add(train);
+        this.addCollider("out", l.x - 46, l.x + 26, pz - 3, pz + 3);
+        this.reserved.push({
+          x0: this.ox + l.x - 48,
+          x1: this.ox + l.x + 28,
+          z0: this.oz + pz - 5,
+          z1: this.oz + pz + 5,
+        });
+        const t = label("🚄 " + l.name, { size: 1.1, bg: "rgba(154,122,58,0.92)" });
+        t.position.set(l.x, (l.floors ?? 2) * 4 + 4, cz);
+        this.dg.add(t);
+      }
       if (l.kind === "airport" && l.id === "makkah") {
         // the Hajj Terminal at Jeddah: a field of white tent roofs on tall pylons
         const tx0 = l.x + w / 2 + 10;
@@ -1966,9 +1997,11 @@ export class IlmCityEngine {
                 ? "Play football"
                 : l.kind === "airport"
                   ? "✈️ Fly to another city"
-                  : l.kind === "hangout"
-                    ? "Sit and gist"
-                    : "Visit " + l.name;
+                  : l.kind === "station"
+                    ? "🚄 Take the Haramain train"
+                    : l.kind === "hangout"
+                      ? "Sit and gist"
+                      : "Visit " + l.name;
         this.zones.push({
           id,
           label: text,
@@ -3292,7 +3325,8 @@ export class IlmCityEngine {
     K.add(box(12, 15, 12, 0x111111));
     const band = box(12.15, 1.2, 12.15, 0xc9a227, 0, 10.4, 0);
     K.add(band);
-    K.add(box(2.4, 3.6, 0.2, 0xc9a227, 2.2, 2.2, 6.05)); // the door
+    // the door, on the face just after the Black Stone (the Multazam is between them)
+    K.add(box(0.2, 3.6, 2.4, 0xc9a227, 6.05, 2.2, 2.4));
     const stone = new THREE.Mesh(
       new THREE.TorusGeometry(0.45, 0.14, 8, 16),
       mat(0xc0c4c8, { metalness: 0.6, roughness: 0.3 }),
@@ -3301,9 +3335,9 @@ export class IlmCityEngine {
     stone.rotation.y = Math.PI / 4;
     K.add(stone);
     const hijr = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.45, 8, 28, Math.PI), mat(0xe9e4d8));
+    // Hijr Ismail: the low curved wall on the far side, part of the Kaaba
     hijr.rotation.x = -Math.PI / 2;
-    hijr.position.set(-6, 0.6, 0);
-    hijr.rotation.z = Math.PI / 2;
+    hijr.position.set(0, 0.6, -6);
     K.add(hijr);
     g.add(K);
     this.addCollider("out", C.x - 6.2, C.x + 6.2, C.z - 6.2, C.z + 6.2);
@@ -3316,9 +3350,48 @@ export class IlmCityEngine {
     const capm = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.9, 12), mat(0xc9a227));
     capm.position.y = 3.2;
     maqam.add(capm);
-    maqam.position.set(0, 0, 14);
+    // in front of the Kaaba's door
+    maqam.position.set(15, 0, 2.4);
     g.add(maqam);
-    this.addCollider("out", C.x - 1, C.x + 1, C.z + 13, C.z + 15);
+    this.addCollider("out", C.x + 14, C.x + 16, C.z + 1.4, C.z + 3.4);
+    // the start of each round: a line from the Black Stone and a green light on the wall
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.35, IN - 9), mat(0x6b4426));
+    line.rotation.x = -Math.PI / 2;
+    line.rotation.z = Math.PI / 4;
+    line.position.set(Math.SQRT1_2 * (IN / 2 + 3), 0.06, Math.SQRT1_2 * (IN / 2 + 3));
+    g.add(line);
+    const lamp = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 0.3),
+      new THREE.MeshBasicMaterial({ color: 0x2bd47a, toneMapped: false }),
+    );
+    lamp.position.set(IN - 0.4, 7, IN - 0.4);
+    lamp.rotation.y = Math.PI / 4;
+    g.add(lamp);
+    const bl = label("Black Stone line · start and end of each round", {
+      size: 0.7,
+      bg: "rgba(31,140,80,0.9)",
+    });
+    bl.position.set(Math.SQRT1_2 * 20, 3, Math.SQRT1_2 * 20);
+    g.add(bl);
+    // worshippers sitting in rings round the Kaaba, waiting for the next salah
+    for (let ring = 0; ring < 2; ring++) {
+      const rr = 27 + ring * 3,
+        n = 18 + ring * 4;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + ring * 0.12;
+        const x = Math.cos(a) * rr,
+          z = Math.sin(a) * rr;
+        if (x > 12 && Math.abs(z) < 8) continue; // keep the way to the Maqam clear
+        const f = (i + ring) % 4 === 3;
+        const pg = f
+          ? person(0x1d1d26, { hijab: 0xf4f4ef, seed: 80 + i })
+          : person([0xf7f7f2, 0xe8e2d4, 0xf4efe4][i % 3], { cap: 0xffffff, seed: 80 + i });
+        pg.position.set(x, 0.1, z);
+        pg.rotation.y = Math.atan2(-x, -z);
+        if (!sitHuman(pg)) sitPerson(pg);
+        g.add(pg);
+      }
+    }
     // Zamzam taps along the west colonnade
     for (let i = 0; i < 5; i++) {
       const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
@@ -3350,7 +3423,7 @@ export class IlmCityEngine {
     const zone = (id: string, label2: string, p: { x: number; z: number }, r = 3.4) =>
       this.zones.push({ id, label: label2, x: p.x, z: p.z, r, scene: "out" });
     zone("kaaba:tawaf", "🕋 Tawaf around the Kaaba", W(0, 9.5), 4);
-    zone("maqam", "Pray behind Maqam Ibrahim", W(0, 18));
+    zone("maqam", "Pray behind Maqam Ibrahim", W(19, 2.4));
     zone("zamzam", "💧 Drink Zamzam", W(-IN + 3.5, 0));
     zone("safa:sai", "Sa'i between Safa and Marwah", W(IN - 6, -IN + 10));
     zone(`door:masjid:${l.id}`, `Enter ${l.name} for salah`, W(0, OUT + 4), 4);
@@ -4252,7 +4325,14 @@ export class IlmCityEngine {
     }
   }
   /** Seven rounds round the Kaaba, starting at the Black Stone, the Kaaba on your left. */
-  startTawaf(onRound: (n: number) => void, onDone: () => void) {
+  /** Seven rounds round the Kaaba, anticlockwise from the Black Stone. `onMark` tells you
+      where you are in each round (24 steps a round): 0 Black Stone, 2 the Multazam by the
+      door, 9 Hijr Ismail, 18 the Yemeni corner, 19 the last stretch back to the Black Stone. */
+  startTawaf(
+    onRound: (n: number) => void,
+    onDone: () => void,
+    onMark?: (k: number, round: number) => void,
+  ) {
     const K = this.holy.kaaba;
     if (!K) return false;
     const r = 9.5,
@@ -4262,22 +4342,74 @@ export class IlmCityEngine {
       const a = -Math.PI / 4 + (i / per) * Math.PI * 2;
       pts.push({ x: K.x + Math.cos(a) * r, z: K.z - Math.sin(a) * r });
     }
+    onMark?.(0, 1);
     return this.walkPath(
       pts,
       6,
       (i) => {
         if (i > 0 && i % per === 0) onRound(i / per);
+        if (i > 0 && i < 7 * per) onMark?.(i % per, Math.floor(i / per) + 1);
       },
       onDone,
     );
   }
-  /** Seven walks between Safa and Marwah, starting at Safa. */
-  startSai(onLeg: (n: number) => void, onDone: () => void) {
+  /** Seven walks between Safa and Marwah, starting at Safa, passing the green lights each way.
+      Events: "safa", "marwah" (arriving), "green" and "greenEnd" (the stretch where men hasten). */
+  startSai(
+    onLeg: (n: number) => void,
+    onDone: () => void,
+    onEvent?: (ev: "safa" | "marwah" | "green" | "greenEnd", leg: number) => void,
+  ) {
     const { safa, marwah } = this.holy;
     if (!safa || !marwah) return false;
+    const mid = (f: number) => ({
+      x: safa.x + (marwah.x - safa.x) * f,
+      z: safa.z + (marwah.z - safa.z) * f,
+    });
+    const g1 = mid(0.35),
+      g2 = mid(0.65);
     const pts = [safa];
-    for (let i = 1; i <= 7; i++) pts.push(i % 2 ? marwah : safa);
-    return this.walkPath(pts, 8, (i) => i > 0 && onLeg(i), onDone);
+    const kinds: ("safa" | "marwah" | "green" | "greenEnd")[] = ["safa"];
+    for (let i = 1; i <= 7; i++) {
+      const toMarwah = i % 2 === 1;
+      pts.push(toMarwah ? g1 : g2, toMarwah ? g2 : g1, toMarwah ? marwah : safa);
+      kinds.push("green", "greenEnd", toMarwah ? "marwah" : "safa");
+    }
+    onEvent?.("safa", 0);
+    return this.walkPath(
+      pts,
+      8,
+      (i) => {
+        if (i === 0) return;
+        const leg = Math.ceil(i / 3);
+        onEvent?.(kinds[i], leg);
+        if (i % 3 === 0) onLeg(leg);
+      },
+      onDone,
+    );
+  }
+  /** Walk in through the gate of Al-Masjid Al-Haram (or An-Nabawi): you stand in the
+      courtyard, facing the Kaaba (or the mosque). True if this is one of them. */
+  enterHolyCourt(lid: string) {
+    const z = this.zones.find((q) => q.id === "door:masjid:" + lid);
+    if (!z) return false;
+    if (this.driving) this.exitCar();
+    if (lid === "masjid-al-haram" && this.holy.kaaba) {
+      const K = this.holy.kaaba;
+      this.standAt(K.x - 6, K.z + 33, z);
+      this.player.rotation.y = Math.atan2(
+        K.x - this.player.position.x,
+        K.z - this.player.position.z,
+      );
+      this.camYaw = Math.atan2(this.player.position.x - K.x, this.player.position.z - K.z);
+    } else {
+      this.standAt(z.x + 6, z.z + 18, z);
+      this.player.rotation.y = Math.PI;
+      this.camYaw = 0;
+    }
+    this.tapTarget = null;
+    this.snapCamera();
+    return true;
   }
 
   /** IlmMotors: a glass showroom with cars on display. */
@@ -5153,7 +5285,7 @@ export class IlmCityEngine {
     });
   }
 
-  private buildBusPark(x: number, z: number) {
+  private buildBusPark(x: number, z: number, saudi = false) {
     const S = this.dg;
     const pad = new THREE.Mesh(new THREE.PlaneGeometry(18, 9), mat(0x6a6e74));
     pad.rotation.x = -Math.PI / 2;
@@ -5169,7 +5301,8 @@ export class IlmCityEngine {
     // a yellow city bus
     const bus = new THREE.Group();
     bus.position.set(x + 3, 0, z);
-    bus.add(box(8, 2.6, 2.6, 0xf2c230, 0, 0.5, 0));
+    bus.add(box(8, 2.6, 2.6, saudi ? 0xf4f4f0 : 0xf2c230, 0, 0.5, 0));
+    if (saudi) bus.add(box(8.04, 0.25, 2.66, 0x0e6b3a, 0, 1.15, 0, false));
     bus.add(box(7.4, 0.9, 2.64, 0x2a3a44, 0, 1.6, 0, false));
     bus.add(box(8.04, 0.3, 2.64, 0x1d1f22, 0, 0.6, 0, false));
     const wheel = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 12);
@@ -5265,7 +5398,7 @@ export class IlmCityEngine {
           ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
           : [W(dside * (Hx + 38), -3), W(dside * 40, -3), W(-4, 9.8), W(-16, 9.8)];
     } else {
-      vehicle = makeBus();
+      vehicle = makeBus(!!D.holy);
       this.scene.add(vehicle);
       path =
         D.parent && D.link !== "east"
@@ -5573,7 +5706,7 @@ export class IlmCityEngine {
     const pts = [L(px, sP + 2)];
     if (sP !== sT) pts.push(L(-2, sP + 2), L(-2, sT + 2));
     pts.push(L(tx, sT + 2));
-    const mesh = vehicleMesh("keke", 0xf2c230);
+    const mesh = vehicleMesh("keke", 0xf2c230, this.district.holy);
     mesh.position.copy(hailed ? hailed.mesh.position : pts[0]);
     this.scene.add(mesh);
     if (hailed) {
@@ -7852,7 +7985,7 @@ export class IlmCityEngine {
       b.addObject(g);
       this.zones.push({
         id: "busstop:" + st.id,
-        label: "Wait for a danfo",
+        label: st.x < -3000 ? "Wait for the bus" : "Wait for a danfo",
         x: st.x,
         z: st.z,
         r: 3.6,
@@ -8128,7 +8261,14 @@ export class IlmCityEngine {
     )
       best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
-      best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
+      best = {
+        id: "board",
+        label: this.district.holy ? "Board the bus" : "Board the danfo",
+        x: 0,
+        z: 0,
+        r: 0,
+        scene: "out",
+      };
     else if (this.driving)
       best = { id: "car-exit", label: "Get out of the car", x: 0, z: 0, r: 0, scene: "out" };
     else
@@ -8173,7 +8313,15 @@ export class IlmCityEngine {
       }
     if (!best || bd > 2) {
       const kk = this.kekeBeside();
-      if (kk) best = { id: "keke", label: "Take a keke", x: 0, z: 0, r: 0, scene: "out" };
+      if (kk)
+        best = {
+          id: "keke",
+          label: this.district.holy ? "Take a taxi" : "Take a keke",
+          x: 0,
+          z: 0,
+          r: 0,
+          scene: "out",
+        };
     }
     if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
