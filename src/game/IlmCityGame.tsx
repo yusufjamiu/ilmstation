@@ -134,6 +134,8 @@ import {
 
 /* ---------- saved progress (moves to Firebase with accounts) ---------- */
 type Save = {
+  /** when this save was last changed (to pick the newest copy between phone and cloud) */
+  savedAt?: number;
   coins: number;
   ilm: number;
   day: string;
@@ -339,6 +341,7 @@ let KEY = GUEST_KEY;
     first time they log in on this phone. */
 function useAccountSave(uid: string | null) {
   KEY = uid ? `${GUEST_KEY}-${uid}` : GUEST_KEY;
+  cloud.uid = uid && !uid.startsWith("local-") ? uid : null;
   if (uid && typeof localStorage !== "undefined") {
     try {
       if (!localStorage.getItem(KEY) && localStorage.getItem(GUEST_KEY))
@@ -361,10 +364,109 @@ function loadSave(): Save {
   return { coins: POINTS.start, ilm: 0, day: "", prayed: {}, asked: [], world: true };
 }
 function writeSave(s: Save) {
+  s.savedAt = Date.now();
   try {
     localStorage.setItem(KEY, JSON.stringify(s));
   } catch {
     /* storage blocked */
+  }
+  cloud.queue(s);
+}
+
+/* Every logged-in player's progress and money is kept in Firestore (city_saves/{uid}), so it
+   follows them to any phone or computer and is not lost if the browser is cleared. The
+   phone keeps a copy too, for speed and for playing offline. `naira` is shown on the
+   document so an admin can read or change a player's balance in the Firebase console. */
+const cloud = {
+  uid: null as string | null,
+  timer: 0 as ReturnType<typeof setTimeout> | 0,
+  pending: null as Save | null,
+  queue(s: Save) {
+    if (!this.uid) return;
+    this.pending = s;
+    if (!this.timer) this.timer = setTimeout(() => void this.flush(), 4000);
+  },
+  async flush() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = 0;
+    const s = this.pending,
+      uid = this.uid;
+    this.pending = null;
+    if (!s || !uid) return;
+    try {
+      const { db } = await import("@/lib/firebase");
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "city_saves", uid), {
+        data: JSON.stringify(s),
+        naira: s.coins * NAIRA_UNIT,
+        savedAt: s.savedAt ?? Date.now(),
+        name: s.profile?.name ?? "",
+      });
+    } catch {
+      /* offline: the next change will try again */
+      this.pending = this.pending ?? s;
+    }
+  },
+};
+const NAIRA_UNIT = 10;
+if (typeof window !== "undefined") {
+  const out = () => void cloud.flush();
+  window.addEventListener("pagehide", out);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") out();
+  });
+}
+/** Before the game starts: bring this account's save down from the cloud if it is newer
+    than the one on this phone (or the phone has none). */
+async function pullCloudSave(uid: string) {
+  cloud.uid = uid;
+  const key = `${GUEST_KEY}-${uid}`;
+  try {
+    const { db } = await import("@/lib/firebase");
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await Promise.race([
+      getDoc(doc(db, "city_saves", uid)),
+      new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+    ]);
+    if (!snap) return;
+    let local: Save | null = null;
+    try {
+      local = JSON.parse(localStorage.getItem(key) ?? "null") as Save | null;
+      if (!local && localStorage.getItem(GUEST_KEY))
+        local = JSON.parse(localStorage.getItem(GUEST_KEY)!) as Save;
+    } catch {
+      local = null;
+    }
+    if (!snap.exists()) {
+      // first time with the cloud: send up what this phone has
+      if (local) {
+        cloud.pending = local;
+        await cloud.flush();
+      }
+      return;
+    }
+    const d = snap.data() as { data?: string; naira?: number; savedAt?: number };
+    let remote: Save | null = null;
+    try {
+      remote = d.data ? (JSON.parse(d.data) as Save) : null;
+    } catch {
+      remote = null;
+    }
+    if (!remote) return;
+    let pick = !local || (remote.savedAt ?? 0) >= (local.savedAt ?? 0) ? remote : local;
+    // an admin changed the balance in the console: apply the difference
+    if (typeof d.naira === "number" && d.naira !== remote.coins * NAIRA_UNIT) {
+      const diff = Math.round(d.naira / NAIRA_UNIT) - remote.coins;
+      pick = { ...pick, coins: Math.max(0, pick.coins + diff) };
+      cloud.pending = { ...pick, savedAt: Date.now() };
+      await cloud.flush();
+    } else if (pick === local) {
+      cloud.pending = local;
+      await cloud.flush();
+    }
+    localStorage.setItem(key, JSON.stringify(pick));
+  } catch {
+    /* offline or not allowed: play with what this phone has */
   }
 }
 
@@ -447,6 +549,8 @@ function useCityAuth(): Who {
         const { doc, getDoc } = await import("firebase/firestore");
         onAuthStateChanged(auth, async (u) => {
           if (!u) return finish(guest);
+          // logged in: wait for the account and its save instead of starting as a guest
+          clearTimeout(t);
           let name = u.displayName ?? "",
             female = false,
             adult = false;
@@ -469,6 +573,7 @@ function useCityAuth(): Who {
           } catch {
             /* profile unavailable */
           }
+          await pullCloudSave(u.uid);
           finish({ uid: u.uid, firstName: name.split(/\s+/)[0] ?? "", female, adult });
         });
       } catch {
