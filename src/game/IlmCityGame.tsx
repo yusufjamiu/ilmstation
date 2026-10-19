@@ -379,6 +379,9 @@ function writeSave(s: Save) {
    document so an admin can read or change a player's balance in the Firebase console. */
 const cloud = {
   uid: null as string | null,
+  /** the game shows a message when saving to the account fails */
+  onError: null as ((msg: string) => void) | null,
+  failed: false,
   timer: 0 as ReturnType<typeof setTimeout> | 0,
   pending: null as Save | null,
   queue(s: Save) {
@@ -402,8 +405,17 @@ const cloud = {
         savedAt: s.savedAt ?? Date.now(),
         name: s.profile?.name ?? "",
       });
+      if (this.failed) this.onError?.("Saved to your account ✓");
+      this.failed = false;
     } catch (err) {
       console.warn("IlmWorld: could not save to city_saves", err);
+      if (!this.failed) {
+        this.failed = true;
+        const code = (err as { code?: string })?.code ?? String(err);
+        this.onError?.(
+          `Could not save to your account (${code}). Your progress is kept on this device.`,
+        );
+      }
       /* offline: the next change will try again */
       this.pending = this.pending ?? s;
     }
@@ -715,6 +727,14 @@ function CityGame({
       Math.min(7500, 2600 + text.length * 45),
     );
   }, []);
+  useEffect(() => {
+    cloud.onError = (m) => toast(m, m.includes("✓") ? "good" : "warn");
+    // the first save after loading tells us at once if the account can be saved to
+    cloud.queue(saveRef.current);
+    return () => {
+      cloud.onError = null;
+    };
+  }, [toast]);
   const update = useCallback(
     (fn: (s: Save) => Save) =>
       setSave((s) => {
