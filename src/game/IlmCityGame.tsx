@@ -691,6 +691,7 @@ function CityGame({
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
   const workSkip = useRef(false);
+  const hajjDone = useRef(new Set<string>());
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
   const lastSent = useRef({ x: 0, z: 0, area: "" });
@@ -4046,6 +4047,45 @@ function CityGame({
           "good",
         );
         if (umrah) setTimeout(() => engine.current?.guideTo("safa:sai"), 400);
+        return;
+      }
+      // the sites of Hajj
+      if (id.startsWith("jamarat:")) {
+        const which =
+          id === "jamarat:ula"
+            ? "Al-Jamrah Al-Ula"
+            : id === "jamarat:wusta"
+              ? "Al-Jamrah Al-Wusta"
+              : "Al-Jamrah Al-Aqabah";
+        const key = clockRef.current.key + id;
+        const first = !hajjDone.current.has(key);
+        hajjDone.current.add(key);
+        need({ iman: 8, energy: -4 });
+        if (first) update((x) => ({ ...x, ilm: x.ilm + 3 }));
+        toast(
+          `You threw 7 pebbles at ${which}, saying "Allahu Akbar" with each one, as the Prophet ﷺ did.${first ? " +3 Ilm" : ""}`,
+          "good",
+        );
+        return;
+      }
+      if (id === "arafat:wuquf") {
+        const key = clockRef.current.key + id;
+        const first = !hajjDone.current.has(key);
+        hajjDone.current.add(key);
+        need({ iman: 25 });
+        if (first) update((x) => ({ ...x, ilm: x.ilm + 10 }));
+        toast(
+          `The Prophet ﷺ said: "The best du'a is the du'a of the Day of Arafah." La ilaha illallah wahdahu la sharika lah, lahul mulku wa lahul hamd, wa huwa 'ala kulli shay'in qadir.${first ? " +10 Ilm" : ""}`,
+          "good",
+        );
+        return;
+      }
+      if (id === "muzdalifah:pebbles") {
+        need({ iman: 4 });
+        toast(
+          "You picked up small pebbles, a little bigger than a chickpea, for the Jamarat in Mina.",
+          "good",
+        );
         return;
       }
       if (id === "safa:sai") {

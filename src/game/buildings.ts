@@ -557,6 +557,8 @@ export type Compound = {
   gate: { x: number; z: number };
   floors: number;
   number: number;
+  /** where the gate sits along the front (the compound's own x) */
+  gx?: number;
 };
 
 const WALLS = [
@@ -625,8 +627,16 @@ export function compound(
     number: number;
     rnd: () => number;
     wall?: number;
+    /** the look of the area's houses (default: the painted cottage) */
+    style?: HouseStyle;
   },
 ): Compound {
+  if (o.style && o.style !== "cottage") {
+    // roll the same dice as the cottage would, so every plot keeps its number and kind,
+    // then build the area's own kind of house on the same plot with the same gate
+    const ref = compound(new Batch(), { ...o, style: undefined });
+    return styledHouse(b, o, ref, o.style);
+  }
   const r = o.rnd;
   const PW = o.width ?? 22,
     PD = o.depth ?? 20;
@@ -940,6 +950,7 @@ export function compound(
     gate: toArea(gx, front + 1),
     floors,
     number: o.number,
+    gx,
   };
 }
 
@@ -1885,5 +1896,875 @@ export function policeStation(
   return {
     colliders,
     spots: [{ key: "police", x: spot.x, z: spot.z, label: o.name, labelY: H + 1.6 }],
+  };
+}
+
+/* ---------------- houses with the look of their place ---------------- */
+
+/** How an area's houses look:
+    - cottage: painted wooden cottages with gardens (the default)
+    - modern: Lekki-style villas, white and charcoal blocks, big glass, slatted gates
+    - local: the Lagos bungalow or storey building, painted block walls, zinc roof,
+      burglar-proof bars, a water tank on a stand and washing on the line
+    - ilorin: earth-toned walls, arched windows and doors, crenellated parapets
+    - saudi: cream stone, high walls, mashrabiya window boxes, flat roofs with teeth
+    - tower: Saudi hotel and apartment towers by the Haram
+    - tents: the white tents of Mina (and Arafat, with neem trees) */
+export type HouseStyle = "cottage" | "modern" | "local" | "ilorin" | "saudi" | "tower" | "tents";
+
+function barsTex() {
+  return tex(
+    "bars",
+    64,
+    64,
+    (c, w, h) => {
+      c.clearRect(0, 0, w, h);
+      c.strokeStyle = "#2a2a2a";
+      c.lineWidth = 3;
+      for (let x = 8; x < w; x += 16) {
+        c.beginPath();
+        c.moveTo(x, 0);
+        c.lineTo(x, h);
+        c.stroke();
+      }
+      c.beginPath();
+      c.moveTo(0, h / 2);
+      c.lineTo(w, h / 2);
+      c.stroke();
+      // the little curls of a Lagos burglar-proof
+      c.lineWidth = 2;
+      for (let x = 16; x < w; x += 16) {
+        c.beginPath();
+        c.arc(x, h / 2 - 8, 6, 0, Math.PI);
+        c.stroke();
+        c.beginPath();
+        c.arc(x, h / 2 + 8, 6, Math.PI, Math.PI * 2);
+        c.stroke();
+      }
+    },
+    false,
+  );
+}
+function latticeTex() {
+  return tex(
+    "lattice",
+    64,
+    64,
+    (c, w, h) => {
+      c.fillStyle = "#6b4426";
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = "#3a2414";
+      for (let y = 4; y < h; y += 8)
+        for (let x = 4 + ((y / 8) % 2) * 4; x < w; x += 8) c.fillRect(x - 2, y - 2, 4, 4);
+      c.strokeStyle = "#8a5a32";
+      c.lineWidth = 2;
+      c.strokeRect(1, 1, w - 2, h - 2);
+    },
+    true,
+  );
+}
+function slatsTex() {
+  return tex(
+    "slats",
+    64,
+    64,
+    (c, w, h) => {
+      c.fillStyle = "#2b2622";
+      c.fillRect(0, 0, w, h);
+      for (let y = 0; y < h; y += 8) {
+        c.fillStyle = y % 16 ? "#7a5536" : "#8a6240";
+        c.fillRect(0, y, w, 6);
+      }
+    },
+    true,
+  );
+}
+/** A window with a round arch on top, drawn on the wall's own colour. */
+function archWinTex(wall: number, frame: number) {
+  return tex(
+    `arch${wall}-${frame}`,
+    96,
+    160,
+    (c, w, h) => {
+      c.fillStyle = css(wall);
+      c.fillRect(0, 0, w, h);
+      const r = w / 2 - 6;
+      const path = () => {
+        c.beginPath();
+        c.moveTo(6, h - 6);
+        c.lineTo(6, r + 6);
+        c.arc(w / 2, r + 6, r, Math.PI, 0);
+        c.lineTo(w - 6, h - 6);
+        c.closePath();
+      };
+      path();
+      c.fillStyle = css(frame);
+      c.fill();
+      c.save();
+      c.translate(w / 2, h / 2);
+      c.scale(0.82, 0.88);
+      c.translate(-w / 2, -h / 2);
+      path();
+      const g = c.createLinearGradient(0, 0, w, h);
+      g.addColorStop(0, "#5f7c8c");
+      g.addColorStop(0.5, "#2d3d48");
+      g.addColorStop(1, "#1e2a32");
+      c.fillStyle = g;
+      c.fill();
+      c.restore();
+      c.fillStyle = css(frame);
+      c.fillRect(w / 2 - 3, r, 6, h - r - 8);
+    },
+    false,
+  );
+}
+/** One floor of a hotel tower: a wide window between stone piers. */
+function facadeTex() {
+  return tex(
+    "facade",
+    128,
+    128,
+    (c, w, h) => {
+      c.fillStyle = "#ffffff";
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = "rgba(0,0,0,0.08)";
+      c.fillRect(0, h - 10, w, 10);
+      const g = c.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, "#6c8796");
+      g.addColorStop(1, "#2f3f4a");
+      c.fillStyle = g;
+      c.fillRect(18, 22, w - 36, h - 44);
+      c.fillStyle = "rgba(255,255,255,0.5)";
+      c.fillRect(w / 2 - 2, 22, 4, h - 44);
+    },
+    true,
+  );
+}
+/** Words painted straight onto a wall. */
+function wallTextTex(text: string, wall: number, ink: string) {
+  return tex(
+    `wt${text}${wall}`,
+    512,
+    64,
+    (c, w, h) => {
+      c.fillStyle = css(wall);
+      c.fillRect(0, 0, w, h);
+      c.fillStyle = ink;
+      c.font = "800 34px system-ui, sans-serif";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText(text, w / 2, h / 2 + 2);
+    },
+    false,
+  );
+}
+export const MAT3 = {
+  bars: () =>
+    M("bars", () =>
+      std({ map: barsTex(), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide }),
+    ),
+  lattice: () => M("lattice", () => std({ map: latticeTex(), roughness: 0.8 })),
+  slats: () => M("slats", () => std({ map: slatsTex(), roughness: 0.7 })),
+  archWin: (wall: number, frame: number) =>
+    M(`aw${wall}-${frame}`, () => std({ map: archWinTex(wall, frame), roughness: 0.5 })),
+  facade: (c: number) => M("fc" + c, () => std({ color: c, map: facadeTex(), roughness: 0.6 })),
+  wallText: (t: string, wall: number, ink: string) =>
+    M(`wt${t}${wall}`, () => std({ map: wallTextTex(t, wall, ink), roughness: 0.9 })),
+  fabric: () =>
+    M("fabric", () => std({ color: 0xf6f4ee, roughness: 0.95, side: THREE.DoubleSide })),
+};
+
+const LOCAL_WALLS = [
+  0xf2e3c6, 0xe8c9a0, 0xd7e3d0, 0xf0d0c0, 0xdcd3f0, 0xf6efd8, 0xbfd7e6, 0xf3d9a4,
+];
+const LOCAL_SKIRT = [0x7a4a3a, 0x3d4a5a, 0x5a3a2a, 0x2f5a4a, 0x8a2f3a];
+const ZINC = [0x9aa3a8, 0x8a5a3a, 0xa0302a, 0x2f5f8a, 0x3d6a3a, 0x7a3a2a];
+const ILORIN_WALLS = [0xe0a868, 0xe8b878, 0xd99a62, 0xf0c890, 0xdcaa78, 0xe6c49a];
+const ILORIN_TRIM = [0x1f6f63, 0xf4efe4, 0x2a4a7a, 0x6b2f2a];
+const SAUDI_WALLS = [0xeee3cc, 0xe6d6b8, 0xf3ece0, 0xdccaa8, 0xe9dcc2, 0xf6f1e6];
+const MODERN_WALLS = [0xf4f4f0, 0xe9e9e6, 0xefeae2];
+const MODERN_ACCENT = [0x3a3d42, 0x2b2f33, 0x5a5f66];
+
+/** A square pyramid roof (the common Nigerian "hip" roof), base at y. */
+function hipRoof(
+  b: Batch,
+  w: number,
+  d: number,
+  h: number,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+) {
+  const g = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1, true);
+  g.rotateY(Math.PI / 4);
+  g.scale(w, h, d);
+  b.add(g, mat, x, y + h / 2, z);
+}
+/** A date palm: a tall ringed trunk, drooping fronds and orange dates. */
+export function datePalmInto(b: Batch, x: number, z: number, s = 1) {
+  const H = 7 * s;
+  b.add(new THREE.CylinderGeometry(0.22 * s, 0.32 * s, H, 7), MAT.plain(0x8a6a44), x, H / 2, z);
+  for (let y = 1; y < H; y += 0.6 * s)
+    b.add(
+      new THREE.CylinderGeometry(0.34 * s, 0.34 * s, 0.12, 7),
+      MAT.plain(0x7a5a36),
+      x,
+      y,
+      z,
+      0,
+      false,
+    );
+  for (let i = 0; i < 12; i++) {
+    const leaf = new THREE.BoxGeometry(0.42 * s, 0.05, 3 * s);
+    leaf.translate(0, 0, 1.4 * s);
+    leaf.rotateX(i % 2 ? 0.75 : 0.35);
+    leaf.rotateY((i / 12) * Math.PI * 2);
+    b.add(leaf, MAT.plain(i % 3 ? 0x5a7d3a : 0x6b8f45), x, H, z);
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    b.add(
+      new THREE.IcosahedronGeometry(0.28 * s, 0),
+      MAT.plain(0xd9822a),
+      x + Math.cos(a) * 0.45 * s,
+      H - 0.5 * s,
+      z + Math.sin(a) * 0.45 * s,
+    );
+  }
+}
+/** A short fan palm, for villa gardens. */
+function fanPalm(b: Batch, x: number, z: number, s = 1) {
+  b.add(
+    new THREE.CylinderGeometry(0.16 * s, 0.24 * s, 3.4 * s, 7),
+    MAT.plain(0x9a8a6a),
+    x,
+    1.7 * s,
+    z,
+  );
+  for (let i = 0; i < 9; i++) {
+    const leaf = new THREE.BoxGeometry(0.7 * s, 0.05, 1.8 * s);
+    leaf.translate(0, 0, 0.9 * s);
+    leaf.rotateX(0.2 + (i % 3) * 0.2);
+    leaf.rotateY((i / 9) * Math.PI * 2);
+    b.add(leaf, MAT.plain(i % 2 ? 0x3f7d3a : 0x4f9a45), x, 3.4 * s, z);
+  }
+}
+/** A neem tree: short trunk, wide dense crown (all over Ilorin and the plain of Arafat). */
+function neemTree(b: Batch, x: number, z: number, s = 1) {
+  b.add(
+    new THREE.CylinderGeometry(0.22 * s, 0.32 * s, 2.4 * s, 7),
+    MAT.plain(0x6a5038),
+    x,
+    1.2 * s,
+    z,
+  );
+  for (const [dx, dy, dz, r] of [
+    [0, 3.2, 0, 1.9],
+    [1.1, 2.8, 0.4, 1.3],
+    [-1.0, 2.9, -0.5, 1.4],
+    [0.2, 3.0, 1.1, 1.2],
+  ])
+    b.add(
+      new THREE.IcosahedronGeometry(r * s, 1),
+      MAT.plain(0x3a6a2e),
+      x + dx * s,
+      dy * s,
+      z + dz * s,
+    );
+}
+
+function styledHouse(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width?: number; depth?: number; number: number },
+  ref: Compound,
+  style: HouseStyle,
+): Compound {
+  const PW = o.width ?? 22,
+    PD = o.depth ?? 20;
+  b.base.makeRotationY(o.turn).setPosition(o.x, 0, o.z);
+  const cos = Math.cos(o.turn),
+    sin = Math.sin(o.turn);
+  const toArea = (lx: number, lz: number) => ({
+    x: o.x + lx * cos + lz * sin,
+    z: o.z - lx * sin + lz * cos,
+  });
+  const colliders: Box[] = [];
+  const solid = (lx0: number, lx1: number, lz0: number, lz1: number) => {
+    const a = toArea(lx0, lz0),
+      c = toArea(lx1, lz1);
+    colliders.push({
+      x0: Math.min(a.x, c.x),
+      x1: Math.max(a.x, c.x),
+      z0: Math.min(a.z, c.z),
+      z1: Math.max(a.z, c.z),
+    });
+  };
+  let seed = (o.number * 104729 + Math.round(o.x * 31 + o.z * 17) + style.length * 7) >>> 0;
+  const r = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(a: T[]) => a[Math.floor(r() * a.length)];
+  const front = PD / 2;
+  const gx = ref.gx ?? PW / 2 - 4.5;
+  const gw = 4.4;
+  const floorsIn = Math.max(1, ref.floors);
+
+  /* the yard and the wall round it */
+  const yardM =
+    style === "modern"
+      ? MAT.paving()
+      : style === "saudi" || style === "tower"
+        ? MAT.plain(0xe2d6bf)
+        : style === "ilorin"
+          ? MAT.plain(0xd2b48c)
+          : style === "tents"
+            ? MAT.plain(0xd9cdb4)
+            : r() < 0.5
+              ? MAT.paving()
+              : MAT.plain(0xc2a47a);
+  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), yardM, 0, 0.035, 0, 0, false);
+  const wallC =
+    style === "modern"
+      ? 0xe6e6e2
+      : style === "local"
+        ? pick([0xe9dcc0, 0xd8c3a5, 0xe6d2b5, 0xcfd8c8, 0xf0e6d0])
+        : style === "ilorin"
+          ? pick(ILORIN_WALLS)
+          : pick(SAUDI_WALLS);
+  const FH =
+    style === "tents"
+      ? 1.1
+      : style === "saudi" || style === "tower"
+        ? 2.8
+        : style === "modern"
+          ? 2.4
+          : style === "ilorin"
+            ? 2.0
+            : 2.1;
+  const T = 0.25;
+  const fenceM = style === "tents" ? MAT.plain(0xf4f4ef) : MAT.plaster(wallC);
+  const cap = MAT.plain(style === "modern" ? 0x3a3d42 : style === "local" ? 0x9a8a72 : 0xcbb894);
+  const seg = (x0: number, x1: number, z: number) => {
+    if (x1 - x0 < 0.05) return;
+    if (style === "tents") {
+      // a low white railing round the camp
+      b.box(x1 - x0, 0.08, 0.08, fenceM, (x0 + x1) / 2, FH, z);
+      for (let x = x0; x <= x1; x += 2) b.box(0.08, FH, 0.08, fenceM, x, 0, z);
+      solid(x0, x1, z - 0.1, z + 0.1);
+      return;
+    }
+    b.box(x1 - x0, FH, T, fenceM, (x0 + x1) / 2, 0, z, 0, 2);
+    b.box(x1 - x0 + 0.06, 0.14, T + 0.12, cap, (x0 + x1) / 2, FH, z);
+    if (style === "modern" && x1 - x0 > 3)
+      b.box(x1 - x0 - 1.2, 0.9, 0.06, MAT3.slats(), (x0 + x1) / 2, FH - 1.3, z + T / 2 + 0.02);
+    if (style === "ilorin" || style === "saudi" || style === "tower")
+      for (let x = x0 + 0.4; x < x1 - 0.2; x += 1.0) b.box(0.4, 0.35, T, fenceM, x, FH + 0.14, z);
+    solid(x0, x1, z - T / 2, z + T / 2);
+  };
+  seg(-PW / 2, gx - gw / 2 - 0.3, front);
+  seg(gx + gw / 2 + 0.3, PW / 2, front);
+  seg(-PW / 2, PW / 2, -PD / 2);
+  for (const sx of [-PW / 2, PW / 2]) {
+    if (style === "tents") {
+      b.box(0.08, 0.08, PD, fenceM, sx, FH, 0);
+      solid(sx - 0.1, sx + 0.1, -PD / 2, PD / 2);
+      continue;
+    }
+    b.add(boxGeo(T, FH, PD, 2), fenceM, sx, FH / 2, 0, 0);
+    b.box(T + 0.12, 0.14, PD, cap, sx, FH, 0);
+    solid(sx - T / 2, sx + T / 2, -PD / 2, PD / 2);
+  }
+  // gate pillars and the gate (one leaf shut, one open)
+  const PH = FH + 0.4;
+  for (const px of [gx - gw / 2 - 0.3, gx + gw / 2 + 0.3]) {
+    if (style === "tents") {
+      b.box(0.3, 2.6, 0.3, MAT.plain(0x1f6f63), px, 0, front);
+      continue;
+    }
+    b.box(0.7, PH, 0.7, fenceM, px, 0, front, 0, 2);
+    if (style === "local") hipRoof(b, 0.9, 0.9, 0.45, cap, px, PH, front);
+    else b.box(0.85, 0.16, 0.85, cap, px, PH, front);
+    solid(px - 0.35, px + 0.35, front - 0.35, front + 0.35);
+  }
+  if (style === "tents") {
+    b.box(gw + 1, 0.6, 0.12, MAT.plain(0x1f6f63), gx, 2.2, front);
+    b.plane(gw * 0.7, 0.45, MAT.plaque("Camp " + o.number), gx, 2.5, front + 0.08);
+  } else {
+    const gateM =
+      style === "modern"
+        ? MAT3.slats()
+        : style === "saudi" || style === "tower"
+          ? MAT.gate(0x5a3a22)
+          : style === "ilorin"
+            ? MAT.gate(pick([0x1f6f63, 0x2a4a7a, 0x1d1d1d]))
+            : MAT.gate(pick(GATES));
+    const GH = FH - 0.1;
+    b.add(boxGeo(gw * 0.5, GH, 0.08), gateM, gx - gw * 0.25, GH / 2 + 0.05, front - 0.05);
+    b.add(boxGeo(gw * 0.25, GH, 0.08), gateM, gx + gw * 0.38, GH / 2 + 0.05, front - 0.05);
+    solid(gx - gw / 2, gx, front - 0.2, front + 0.2);
+    if (style === "ilorin" || style === "saudi" || style === "tower") {
+      // an arch over the gateway
+      b.box(gw + 1.3, 0.6, 0.5, fenceM, gx, PH + 0.1, front);
+      // a rounded crown over the gateway
+      const crown = new THREE.CylinderGeometry(
+        gw / 2 + 0.2,
+        gw / 2 + 0.2,
+        0.45,
+        20,
+        1,
+        false,
+        -Math.PI / 2,
+        Math.PI,
+      );
+      crown.rotateX(-Math.PI / 2);
+      crown.scale(1, 0.45, 1);
+      b.add(crown, fenceM, gx, PH + 0.7, front);
+    }
+    b.plane(0.5, 0.25, MAT.plaque("No. " + o.number), gx + gw / 2 + 0.3, PH - 0.5, front + 0.36);
+  }
+
+  let door = toArea(0, front - 4);
+  const top = { y: 0 };
+
+  if (style === "tents") {
+    // rows of white tents with pointed roofs, and a path down the middle
+    const cols = 3,
+      rows = 2;
+    const tw = (PW - 3) / cols,
+      td = (PD - 5) / rows;
+    for (let i = 0; i < cols; i++)
+      for (let k = 0; k < rows; k++) {
+        const tx = -PW / 2 + 1.5 + tw * (i + 0.5),
+          tz = -PD / 2 + 1 + td * (k + 0.5);
+        if (Math.abs(tx - gx) < 1.6 && k === rows - 1) continue;
+        b.box(tw - 0.6, 2.2, td - 0.8, MAT3.fabric(), tx, 0, tz);
+        hipRoof(b, tw - 0.3, td - 0.5, 1.4, MAT3.fabric(), tx, 2.2, tz);
+        b.box(0.04, 0.04, td - 0.8, MAT.plain(0x2f8f5a), tx - (tw - 0.6) / 2, 2.15, tz);
+        b.plane(1.0, 1.8, MAT.plain(0xd9d2c0), tx, 0.9, tz + (td - 0.8) / 2 + 0.01);
+        solid(tx - (tw - 0.6) / 2, tx + (tw - 0.6) / 2, tz - (td - 0.8) / 2, tz + (td - 0.8) / 2);
+      }
+    // on Arafat, neem trees shade the camps
+    if (r() < 0.6) {
+      const tx = gx > 0 ? -PW / 2 + 1.8 : PW / 2 - 1.8;
+      neemTree(b, tx, front - 1.6, 0.8);
+      solid(tx - 0.3, tx + 0.3, front - 1.9, front - 1.3);
+    }
+    door = toArea(gx, front - 2);
+  } else if (style === "local") {
+    /* the Lagos bungalow (or storey building) */
+    const floors = Math.min(2, floorsIn);
+    const BW = Math.min(PW - 4, 12 + Math.floor(r() * 3)),
+      BD = Math.min(PD - 9, 8 + Math.floor(r() * 2));
+    const bz = -PD / 2 + 1.5 + BD / 2;
+    const FHt = 3.2;
+    const paint = pick(LOCAL_WALLS);
+    const wallM = MAT.plaster(paint);
+    const skirt = MAT.plain(pick(LOCAL_SKIRT));
+    const frame = pick([0x2a2a2a, 0x6b4226, 0xf4efe4, 0x1f6f63]);
+    const winM = MAT.window(frame);
+    b.box(BW + 0.3, 0.5, BD + 0.3, MAT.plain(0x9a958a), 0, 0, bz);
+    for (let f = 0; f < floors; f++) {
+      const y = 0.5 + f * FHt;
+      b.box(BW, FHt, BD, wallM, 0, y, bz);
+      if (f === 0) b.box(BW + 0.06, 0.7, BD + 0.06, skirt, 0, 0.5, bz);
+      b.box(BW + 0.3, 0.2, BD + 0.3, MAT.plain(0xe9e4d6), 0, y + FHt - 0.2, bz);
+      const n = Math.max(2, Math.floor(BW / 3.4));
+      for (let i = 0; i < n; i++) {
+        const wx = -BW / 2 + (BW / n) * (i + 0.5);
+        if (f === 0 && Math.abs(wx) < 1.4) continue;
+        for (const [zz, ry] of [
+          [bz + BD / 2 + 0.02, 0],
+          [bz - BD / 2 - 0.02, Math.PI],
+        ] as [number, number][]) {
+          b.plane(1.4, 1.5, winM, wx, y + 1.55, zz, ry);
+          b.plane(1.5, 1.6, MAT3.bars(), wx, y + 1.55, zz + (ry ? -0.06 : 0.06), ry);
+        }
+      }
+      for (const s of [1, -1]) {
+        b.plane(1.2, 1.4, winM, s * (BW / 2 + 0.02), y + 1.55, bz, (s * Math.PI) / 2);
+        b.plane(1.3, 1.5, MAT3.bars(), s * (BW / 2 + 0.07), y + 1.55, bz, (s * Math.PI) / 2);
+        // a split AC unit under some windows
+        if (r() < 0.4)
+          b.box(
+            0.3,
+            0.55,
+            0.8,
+            MAT.plain(0xe9e9e4, 0.4),
+            s * (BW / 2 + 0.18),
+            y + 0.5,
+            bz - BD / 4,
+          );
+      }
+      if (f === 1) {
+        // the upstairs veranda behind a burglar-proof
+        b.box(BW * 0.6, 0.2, 1.6, MAT.plain(0xe9e4d6), 0, y - 0.1, bz + BD / 2 + 0.8);
+        b.plane(BW * 0.6, 1.1, MAT3.bars(), 0, y + 0.65, bz + BD / 2 + 1.6);
+      }
+    }
+    const dz = bz + BD / 2;
+    // the front veranda: a slab on square pillars over terrazzo
+    b.box(BW * 0.7, 0.25, 2.4, MAT.plain(0xd8d0c0), 0, 0.25, dz + 1.2);
+    for (const px of [-BW * 0.35 + 0.2, BW * 0.35 - 0.2]) {
+      b.box(0.35, 2.9, 0.35, wallM, px, 0.5, dz + 2.2);
+      solid(px - 0.2, px + 0.2, dz + 2, dz + 2.4);
+    }
+    if (floors === 1) b.box(BW * 0.7 + 0.3, 0.25, 2.7, MAT.plain(0xe9e4d6), 0, 3.4, dz + 1.3);
+    b.plane(1.1, 2.2, MAT.door(pick([0x6b4226, 0x3a2a1a, 0x8a5a3a])), 0, 0.5 + 1.1, dz + 0.02);
+    const tp = 0.5 + floors * FHt;
+    top.y = tp;
+    // the zinc roof
+    const zinc = MAT.zinc(pick(ZINC));
+    hipRoof(b, BW + 1.6, BD + 1.6, 2.4, zinc, 0, tp, bz);
+    solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2);
+    // a satellite dish on the roof edge
+    if (r() < 0.5)
+      b.add(
+        new THREE.SphereGeometry(0.45, 12, 6, 0, Math.PI * 2, 0, 0.9),
+        MAT.plain(0xe9e9e4, 0.4),
+        -BW / 2 + 1,
+        tp + 0.6,
+        bz + BD / 2 - 0.5,
+      );
+    // a water tank on a tall steel stand in the yard
+    const tx = (gx > 0 ? -1 : 1) * (PW / 2 - 1.8),
+      tzk = front - 2.4;
+    for (const [sx, sz] of [
+      [-0.7, -0.7],
+      [0.7, -0.7],
+      [-0.7, 0.7],
+      [0.7, 0.7],
+    ])
+      b.box(0.1, 3.4, 0.1, MAT.plain(0x555a5f), tx + sx, 0, tzk + sz);
+    b.box(1.7, 0.12, 1.7, MAT.plain(0x555a5f), tx, 3.4, tzk);
+    b.add(
+      new THREE.CylinderGeometry(0.8, 0.8, 1.6, 16),
+      MAT.plain(pick([0x1a1a1a, 0x2a5fa8, 0x1a1a1a]), 0.5),
+      tx,
+      4.3,
+      tzk,
+    );
+    solid(tx - 0.8, tx + 0.8, tzk - 0.8, tzk + 0.8);
+    // washing on the line
+    if (r() < 0.6) {
+      const lx0 = -PW / 2 + 1.2,
+        lx1 = lx0 + 4.5,
+        lz = -PD / 2 + 1.0;
+      if (bz - BD / 2 - lz > 0.8 || PW - BW > 9) {
+        const lzz = PW - BW > 9 ? front - 4.5 : lz;
+        for (const x of [lx0, lx1]) b.box(0.06, 1.9, 0.06, MAT.plain(0x555a5f), x, 0, lzz);
+        b.box(lx1 - lx0, 0.02, 0.02, MAT.plain(0x333333), (lx0 + lx1) / 2, 1.85, lzz);
+        for (let k = 0; k < 5; k++)
+          b.plane(
+            0.6,
+            0.75,
+            MAT.plain(pick([0xe8445a, 0xf2c230, 0x2a5fa8, 0xffffff, 0x3d8a5a, 0xd66bd0]), 0.9),
+            lx0 + 0.6 + k * 0.85,
+            1.42,
+            lzz,
+            0,
+          );
+      }
+    }
+    // a generator by the wall
+    if (r() < 0.6)
+      b.box(1.1, 0.8, 0.7, MAT.plain(r() < 0.5 ? 0xd9a520 : 0x2f6fb0, 0.6), tx, 0, tzk - 2);
+    // a plantain by the fence
+    {
+      const px = (gx > 0 ? -1 : 1) * (PW / 2 - 1.2),
+        pz = -PD / 2 + 1.4;
+      b.add(new THREE.CylinderGeometry(0.14, 0.2, 2.4, 6), MAT.plain(0x6a8a3a), px, 1.2, pz);
+      for (let k = 0; k < 6; k++) {
+        const leaf = new THREE.BoxGeometry(0.5, 0.04, 2.0);
+        leaf.translate(0, 0, 0.9);
+        leaf.rotateX(-0.3);
+        leaf.rotateY((k / 6) * Math.PI * 2);
+        b.add(leaf, MAT.plain(0x4f8f3a), px, 2.4, pz);
+      }
+    }
+    // the old Lagos warning painted on the fence
+    if (r() < 0.3)
+      b.plane(
+        Math.min(8, PW / 2 - 1),
+        0.6,
+        MAT3.wallText("THIS HOUSE IS NOT FOR SALE", wallC, "#b8222a"),
+        gx > 0 ? -PW / 4 : PW / 4,
+        1.3,
+        front + T / 2 + 0.02,
+      );
+    door = toArea(0, dz + 2.8);
+  } else if (style === "modern") {
+    /* a Lekki villa: white and charcoal blocks, big glass, flat roofs */
+    const BW = Math.min(PW - 4, 13 + Math.floor(r() * 3)),
+      BD = Math.min(PD - 9, 8.5 + Math.floor(r() * 2));
+    const bz = -PD / 2 + 1.4 + BD / 2;
+    const FHt = 3.4;
+    const white = MAT.plaster(pick(MODERN_WALLS));
+    const dark = MAT.plain(pick(MODERN_ACCENT), 0.6);
+    const wood = MAT.siding(0x9a6a3e);
+    const glass = MAT2.glass();
+    // the ground floor
+    b.box(BW, FHt, BD, white, 0, 0.3, bz);
+    b.box(BW + 0.4, 0.3, BD + 0.4, MAT.plain(0xcfcfca), 0, 0, bz);
+    b.plane(BW * 0.55, FHt - 0.6, glass, BW * 0.12, 0.3 + FHt / 2, bz + BD / 2 + 0.02);
+    b.plane(1.2, 2.5, MAT.door(0x3a2a1a), -BW / 2 + 1.6, 0.3 + 1.25, bz + BD / 2 + 0.02);
+    b.box(2.2, FHt, 0.3, wood, -BW / 2 + 1.6 + 2, 0.3, bz + BD / 2);
+    // the upper floor sticks out over the front, in charcoal or white with a wood panel
+    const ux = (r() < 0.5 ? -1 : 1) * 1.2;
+    const UW = BW - 2.5,
+      UD = BD - 0.5;
+    const upM = r() < 0.5 ? dark : white;
+    const y1 = 0.3 + FHt;
+    b.box(UW, FHt, UD, upM, ux, y1, bz + 1.0);
+    b.plane(UW * 0.7, FHt - 0.8, glass, ux, y1 + FHt / 2, bz + 1.0 + UD / 2 + 0.02);
+    b.box(UW + 0.3, 0.25, UD + 0.3, MAT.plain(0xf4f4f0), ux, y1 + FHt, bz + 1.0);
+    // glass balustrade on the roof terrace over the ground floor
+    b.plane(BW, 1.0, MAT.sunroom(), 0, y1 + 0.5, bz + BD / 2 + 0.05);
+    for (let s = -1; s <= 1; s += 2)
+      b.plane(
+        UD,
+        FHt - 0.8,
+        glass,
+        ux + s * (UW / 2 + 0.02),
+        y1 + FHt / 2,
+        bz + 1.0,
+        (s * Math.PI) / 2,
+      );
+    top.y = y1 + FHt;
+    if (floorsIn >= 3) {
+      b.box(UW * 0.5, 2.8, UD * 0.6, white, ux - UW * 0.2, y1 + FHt + 0.25, bz);
+      top.y += 3;
+    }
+    solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2 + 1.0);
+    // a carport on thin posts
+    const cx = gx,
+      cz = front - 4.6;
+    if (Math.abs(cx) > 3 && cz - 2.2 > bz + BD / 2 + 0.6) {
+      b.box(4.2, 0.15, 4.0, dark, cx, 2.6, cz);
+      for (const [px, pz] of [
+        [-2, -1.9],
+        [2, -1.9],
+        [-2, 1.9],
+        [2, 1.9],
+      ])
+        b.box(0.1, 2.6, 0.1, dark, cx + px, 0, cz + pz);
+    }
+    // a strip of lawn, fan palms and sometimes a small pool
+    b.add(groundGeo(PW - 1, 2.2, 2), MAT2.lawn(), 0, 0.05, front - 1.4, 0, false);
+    for (const px of [-PW / 2 + 1.4, PW / 2 - 1.4]) {
+      if (Math.abs(px - gx) < 3) continue;
+      fanPalm(b, px, front - 1.5, 0.9);
+      solid(px - 0.3, px + 0.3, front - 1.8, front - 1.2);
+    }
+    if (PW - BW >= 7 && r() < 0.5) {
+      const s = gx > 0 ? -1 : 1;
+      const px = s * (BW / 2 + (PW - BW) / 4);
+      b.add(groundGeo((PW - BW) / 2 - 1, BD * 0.7, 2), MAT2.water(), px, 0.06, bz, 0, false);
+    }
+    door = toArea(-BW / 2 + 1.6, bz + BD / 2 + 1.2);
+  } else if (style === "ilorin") {
+    /* an Ilorin house: earth-toned walls, arches, a crenellated roof line */
+    const floors = Math.min(2, floorsIn);
+    const BW = Math.min(PW - 4, 12 + Math.floor(r() * 3)),
+      BD = Math.min(PD - 9, 8 + Math.floor(r() * 2));
+    const bz = -PD / 2 + 1.5 + BD / 2;
+    const FHt = 3.3;
+    const wallCc = pick(ILORIN_WALLS);
+    const trim = pick(ILORIN_TRIM);
+    const wallM = MAT.plaster(wallCc);
+    const trimM = MAT.plain(trim);
+    b.box(BW + 0.3, 0.5, BD + 0.3, MAT.plain(0x9a7a5a), 0, 0, bz);
+    for (let f = 0; f < floors; f++) {
+      const y = 0.5 + f * FHt;
+      b.box(BW, FHt, BD, wallM, 0, y, bz);
+      b.box(BW + 0.2, 0.18, BD + 0.2, trimM, 0, y + FHt - 0.18, bz);
+      const n = Math.max(2, Math.floor(BW / 3));
+      for (let i = 0; i < n; i++) {
+        const wx = -BW / 2 + (BW / n) * (i + 0.5);
+        if (f === 0 && Math.abs(wx) < 1.4) continue;
+        b.plane(1.3, 2.1, MAT3.archWin(wallCc, trim), wx, y + 1.5, bz + BD / 2 + 0.02);
+        b.plane(1.3, 2.1, MAT3.archWin(wallCc, trim), wx, y + 1.5, bz - BD / 2 - 0.02, Math.PI);
+      }
+      for (const s of [1, -1])
+        b.plane(
+          1.2,
+          2.0,
+          MAT3.archWin(wallCc, trim),
+          s * (BW / 2 + 0.02),
+          y + 1.5,
+          bz,
+          (s * Math.PI) / 2,
+        );
+    }
+    const dz = bz + BD / 2;
+    // an arched entrance porch
+    b.box(3.4, 3.2, 1.6, wallM, 0, 0.5, dz + 0.8);
+    b.plane(1.6, 2.6, MAT3.archWin(wallCc, 0x3a2a1a), 0, 0.5 + 1.3, dz + 1.62);
+    const tp = 0.5 + floors * FHt;
+    top.y = tp;
+    // a parapet with little teeth along the top
+    for (const [w, d, x, z] of [
+      [BW, 0.25, 0, BD / 2],
+      [BW, 0.25, 0, -BD / 2],
+      [0.25, BD, BW / 2, 0],
+      [0.25, BD, -BW / 2, 0],
+    ] as [number, number, number, number][]) {
+      b.box(w, 0.6, d, wallM, x, tp, bz + z);
+      const along = w > d;
+      const L = along ? w : d;
+      for (let t = -L / 2 + 0.4; t < L / 2; t += 1.1)
+        b.box(
+          along ? 0.45 : w,
+          0.45,
+          along ? d : 0.45,
+          wallM,
+          along ? x + t : x,
+          tp + 0.6,
+          along ? bz + z : bz + t,
+        );
+    }
+    // a small green dome on the roof of some houses
+    if (r() < 0.35) {
+      b.add(new THREE.CylinderGeometry(1.1, 1.1, 0.8, 16), wallM, BW / 2 - 2, tp + 0.4, bz);
+      b.add(
+        new THREE.SphereGeometry(1.1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+        MAT.plain(0x2e8b57, 0.5),
+        BW / 2 - 2,
+        tp + 0.8,
+        bz,
+      );
+    }
+    solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2 + 1.6);
+    // a neem tree and clay water pots
+    const tx = (gx > 0 ? -1 : 1) * (PW / 2 - 2.2);
+    neemTree(b, tx, front - 2.4, 0.9);
+    solid(tx - 0.35, tx + 0.35, front - 2.75, front - 2.05);
+    for (let k = 0; k < 3; k++)
+      b.add(
+        new THREE.SphereGeometry(0.32, 10, 8),
+        MAT.plain(0xa0522d),
+        -tx * 0.5 + k * 0.7,
+        0.3,
+        dz + 2.4,
+      );
+    door = toArea(0, dz + 2.6);
+  } else {
+    /* Saudi: cream stone, mashrabiya, flat roof with teeth (and towers by the Haram) */
+    const tower = style === "tower";
+    const floors = tower ? 5 + Math.floor(r() * 5) : Math.min(4, floorsIn + 1);
+    const BW = Math.min(PW - (tower ? 2.5 : 4), tower ? 18 : 12 + Math.floor(r() * 3)),
+      BD = Math.min(PD - (tower ? 6 : 8), tower ? 13 : 8 + Math.floor(r() * 2));
+    const bz = -PD / 2 + (tower ? 1.2 : 1.4) + BD / 2;
+    const FHt = 3.3;
+    const stone = pick(SAUDI_WALLS);
+    const wallM = tower ? MAT3.facade(stone) : MAT.plaster(stone);
+    const plainM = MAT.plaster(stone);
+    const band = MAT.plain(0xcbb894);
+    b.box(BW + 0.3, 0.4, BD + 0.3, MAT.plain(0xb8a888), 0, 0, bz);
+    const y0 = 0.4;
+    const H = floors * FHt;
+    if (tower) {
+      // the tower: stone floors with a window on every bay, a glass lobby at the bottom
+      const g = boxGeo(BW, H - FHt, BD, FHt);
+      b.add(g, wallM, 0, y0 + FHt + (H - FHt) / 2, bz);
+      b.box(BW, FHt, BD, plainM, 0, y0, bz);
+      b.plane(BW * 0.6, FHt - 0.6, MAT2.glass(), 0, y0 + FHt / 2, bz + BD / 2 + 0.02);
+      for (let f = 2; f < floors; f += 3)
+        b.box(BW + 0.25, 0.25, BD + 0.25, band, 0, y0 + f * FHt, bz);
+      b.box(BW + 0.4, 0.8, BD + 0.4, band, 0, y0 + H, bz);
+      // its name in lights
+      b.plane(
+        BW * 0.7,
+        1.4,
+        MAT.plaque(
+          pick(["Hotel", "Al-Safwa", "Dar Al-Eiman", "Al-Marwa", "Zamzam Suites", "Al-Kiswah"]),
+        ),
+        0,
+        y0 + H - 1.2,
+        bz + BD / 2 + 0.06,
+      );
+    } else {
+      for (let f = 0; f < floors; f++) {
+        const y = y0 + f * FHt;
+        b.box(BW, FHt, BD, wallM, 0, y, bz);
+        if (f > 0) b.box(BW + 0.15, 0.2, BD + 0.15, band, 0, y - 0.1, bz);
+        const n = Math.max(2, Math.floor(BW / 3.2));
+        for (let i = 0; i < n; i++) {
+          const wx = -BW / 2 + (BW / n) * (i + 0.5);
+          if (f === 0 && Math.abs(wx) < 1.4) continue;
+          // a carved wooden mashrabiya box over the middle windows upstairs
+          if (f > 0 && i > 0 && i < n - 1) {
+            b.box(1.6, 2.3, 0.7, MAT3.lattice(), wx, y + 0.45, bz + BD / 2 + 0.35);
+            b.box(1.8, 0.18, 0.85, MAT.plain(0x5a3a22), wx, y + 2.75, bz + BD / 2 + 0.4);
+          } else {
+            b.plane(1.1, 1.5, MAT.window(0x6b4426), wx, y + 1.6, bz + BD / 2 + 0.02);
+            if (r() < 0.5)
+              b.box(0.8, 0.45, 0.35, MAT.plain(0xe9e9e4, 0.4), wx, y + 0.45, bz + BD / 2 + 0.18);
+          }
+          b.plane(1.1, 1.5, MAT.window(0x6b4426), wx, y + 1.6, bz - BD / 2 - 0.02, Math.PI);
+        }
+        for (const s of [1, -1])
+          b.plane(
+            1.0,
+            1.4,
+            MAT.window(0x6b4426),
+            s * (BW / 2 + 0.02),
+            y + 1.6,
+            bz,
+            (s * Math.PI) / 2,
+          );
+      }
+      // the parapet with stepped teeth
+      const tp = y0 + H;
+      for (const [w, d, x, z] of [
+        [BW, 0.25, 0, BD / 2],
+        [BW, 0.25, 0, -BD / 2],
+        [0.25, BD, BW / 2, 0],
+        [0.25, BD, -BW / 2, 0],
+      ] as [number, number, number, number][]) {
+        b.box(w, 0.7, d, plainM, x, tp, bz + z);
+        const along = w > d;
+        const L = along ? w : d;
+        for (let t = -L / 2 + 0.35; t < L / 2; t += 0.9) {
+          const tooth = new THREE.ConeGeometry(0.32, 0.6, 4);
+          tooth.rotateY(Math.PI / 4);
+          b.add(tooth, plainM, along ? x + t : x, tp + 1.0, along ? bz + z : bz + t);
+        }
+      }
+      // white water tanks on the roof
+      b.add(
+        new THREE.CylinderGeometry(0.6, 0.6, 1.2, 12),
+        MAT.plain(0xf4f4ef, 0.5),
+        BW / 2 - 1.4,
+        tp + 0.6,
+        bz - BD / 2 + 1.4,
+      );
+    }
+    const dz = bz + BD / 2;
+    b.plane(1.6, 2.6, MAT.door(0x5a3a22), tower ? BW * 0.35 : 0, y0 + 1.3, dz + 0.03);
+    top.y = y0 + H;
+    solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2);
+    // a date palm in the courtyard
+    const tx = (gx > 0 ? -1 : 1) * (PW / 2 - 1.6);
+    if (Math.abs(tx) - BW / 2 > 1.2 || front - dz > 4) {
+      const tz = Math.abs(tx) - BW / 2 > 1.2 ? bz + 1 : front - 1.8;
+      datePalmInto(b, tx, tz, 0.8);
+      solid(tx - 0.3, tx + 0.3, tz - 0.3, tz + 0.3);
+    }
+    door = toArea(tower ? BW * 0.35 : 0, dz + 1.2);
+  }
+
+  b.base.identity();
+  return {
+    colliders,
+    door,
+    gate: toArea(gx, front + 1),
+    floors: ref.floors,
+    number: o.number,
+    gx,
   };
 }

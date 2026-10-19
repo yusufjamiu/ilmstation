@@ -56,6 +56,36 @@ export const STREETS: Record<string, Street> = {
     name: "Mina Road",
     bio: "The road out to Mina, where pilgrims stay during Hajj.",
   },
+  jamaratroad: {
+    id: "jamaratroad",
+    name: "Jamarat Road",
+    bio: "The road through Mina to the Jamarat, where pilgrims stone the three pillars.",
+  },
+  minatents: {
+    id: "minatents",
+    name: "Tent City Street",
+    bio: "Rows of white tents where pilgrims stay in Mina during the days of Hajj.",
+  },
+  khayf: {
+    id: "khayf",
+    name: "Masjid Al-Khayf Street",
+    bio: "By Masjid Al-Khayf, where many Prophets prayed.",
+  },
+  arafatroad: {
+    id: "arafatroad",
+    name: "Arafat Road",
+    bio: "Across the plain of Arafat to Jabal ar-Rahmah.",
+  },
+  namirah: {
+    id: "namirah",
+    name: "Namirah Street",
+    bio: "By Masjid Namirah, where the khutbah of Arafat is given.",
+  },
+  muzdalifah: {
+    id: "muzdalifah",
+    name: "Muzdalifah Road",
+    bio: "Muzdalifah, where pilgrims spend the night and gather pebbles.",
+  },
   jeddahairportroad: {
     id: "jeddahairportroad",
     name: "Airport Road, Jeddah",
@@ -276,7 +306,13 @@ export type LandmarkKind =
   /** Al-Masjid Al-Haram with the Kaaba, Maqam Ibrahim, Zamzam and Safa and Marwah */
   | "haram"
   /** Al-Masjid An-Nabawi with the Green Dome */
-  | "nabawi";
+  | "nabawi"
+  /** the Jamarat bridge in Mina with its three pillars */
+  | "jamarat"
+  /** Jabal ar-Rahmah, the Mount of Mercy on Arafat */
+  | "rahmah"
+  /** a clock tower (Madinah) */
+  | "clocktower";
 export type Landmark = {
   id: string;
   kind: LandmarkKind;
@@ -1682,6 +1718,98 @@ export const DISTRICTS: District[] = [
     ],
   },
 
+  /* ---------------- Mina and Arafat: the sites of Hajj ---------------- */
+  {
+    id: "mina",
+    city: "makkah",
+    holy: true,
+    tier: 2,
+    name: "Mina",
+    state: "Makkah",
+    region: "Makkah",
+    origin: { x: -4680, z: -730 },
+    half: { x: 140, z: 110 },
+    highway: "King Faisal Road",
+    parent: "aziziyah",
+    busStop: "Mina",
+    toLet: 0,
+    land: 0,
+    shops: 0.12,
+    streets: [
+      { id: "jamaratroad", z: 0, decor: true },
+      { id: "minatents", z: -70 },
+      { id: "khayf", z: 70 },
+    ],
+    landmarks: [
+      {
+        id: "jamarat",
+        kind: "jamarat",
+        name: "The Jamarat",
+        street: "jamaratroad",
+        x: 0,
+        about:
+          "The three pillars of Mina: Al-Jamrah Al-Ula, Al-Wusta and Al-Aqabah. Pilgrims throw seven small pebbles at each, saying Allahu Akbar, following the Sunnah of Ibrahim ﷺ.",
+      },
+      {
+        id: "masjid-al-khayf",
+        kind: "masjid",
+        name: "Masjid Al-Khayf",
+        street: "khayf",
+        x: -40,
+        about: "The mosque of Mina. The Prophet ﷺ said seventy Prophets prayed here.",
+      },
+    ],
+  },
+  {
+    id: "arafat",
+    city: "makkah",
+    holy: true,
+    tier: 3,
+    name: "Arafat",
+    state: "Makkah",
+    region: "Makkah",
+    origin: { x: -4680, z: -990 },
+    half: { x: 150, z: 120 },
+    highway: "Arafat Road",
+    parent: "mina",
+    busStop: "Arafat",
+    toLet: 0,
+    land: 0,
+    shops: 0.1,
+    streets: [
+      { id: "arafatroad", z: 0, decor: true },
+      { id: "muzdalifah", z: -72 },
+      { id: "namirah", z: 72 },
+    ],
+    landmarks: [
+      {
+        id: "jabal-rahmah",
+        kind: "rahmah",
+        name: "Jabal ar-Rahmah",
+        street: "arafatroad",
+        x: 0,
+        about:
+          'The Mount of Mercy on the plain of Arafat. Standing at Arafat on the 9th of Dhul Hijjah is the heart of Hajj: "Hajj is Arafah."',
+      },
+      {
+        id: "masjid-namirah",
+        kind: "masjid",
+        name: "Masjid Namirah",
+        street: "namirah",
+        x: -40,
+        about: "Where the khutbah of Arafat is given and Dhuhr and Asr are prayed together.",
+      },
+      {
+        id: "mashar-al-haram",
+        kind: "masjid",
+        name: "Al-Mash'ar Al-Haram, Muzdalifah",
+        street: "muzdalifah",
+        x: 40,
+        about: "The mosque of Muzdalifah, where pilgrims spend the night and gather pebbles.",
+      },
+    ],
+  },
+
   /* ---------------- Madinah: the Prophet's Mosque ﷺ ---------------- */
   {
     id: "nabawi",
@@ -1711,6 +1839,13 @@ export const DISTRICTS: District[] = [
         x: 0,
         about:
           "The Mosque of the Prophet ﷺ in Madinah, with the Green Dome over his resting place and the Rawdah, a garden from the gardens of Paradise.",
+      },
+      {
+        id: "madinah-clock",
+        kind: "clocktower",
+        name: "Madinah Clock Tower",
+        street: "kingfaisal",
+        x: -130,
       },
     ],
   },
@@ -1742,6 +1877,15 @@ export const DISTRICTS: District[] = [
         x: -40,
         about:
           "The first mosque built in Islam. Praying two rak'ahs here is like the reward of an Umrah.",
+      },
+      {
+        id: "masjid-qiblatayn",
+        kind: "masjid",
+        name: "Masjid Al-Qiblatayn",
+        street: "uhud",
+        x: 40,
+        about:
+          "The Mosque of the Two Qiblahs, where the Prophet ﷺ was commanded in salah to turn from Jerusalem to the Kaaba.",
       },
     ],
   },
@@ -1811,6 +1955,16 @@ export const INTERCITY = {
 };
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
+/** The look of an area's houses, so no two kinds of place look the same. */
+export function houseStyleOf(d: District): import("./buildings").HouseStyle {
+  if (d.id === "mina" || d.id === "arafat") return "tents";
+  if (d.holy) return d.id === "haram" || d.id === "nabawi" ? "tower" : "saudi";
+  if (["lekki", "badore", "ikeja", "fate", "lagosairport", "ilorinairport"].includes(d.id))
+    return "modern";
+  if (cityOf(d) === "ilorin") return "ilorin";
+  if (["egbeda", "agric", "okeeletu"].includes(d.id)) return "cottage";
+  return "local";
+}
 /** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */
 export const rootOf = (d: District): District => (d.parent ? rootOf(districtById(d.parent)) : d);
 /** The town an area belongs to: Agric, First Gate and Igbe Laara are all in Ikorodu. */

@@ -34,6 +34,8 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   haram: { name: "Al-Haram", lat: 21.4225, lng: 39.8262 },
   aziziyah: { name: "Aziziyah", lat: 21.405, lng: 39.87 },
   jeddahairport: { name: "Jeddah Airport", lat: 21.68, lng: 39.15 },
+  mina: { name: "Mina", lat: 21.4133, lng: 39.8933 },
+  arafat: { name: "Arafat", lat: 21.355, lng: 39.984 },
   nabawi: { name: "Al-Masjid An-Nabawi", lat: 24.4672, lng: 39.6112 },
   quba: { name: "Quba", lat: 24.4393, lng: 39.6172 },
   madinahairport: { name: "Madinah Airport", lat: 24.553, lng: 39.705 },
@@ -73,6 +75,8 @@ const ROADS: [string, string][] = [
   ["fate", "ilorinairport"],
   ["haram", "aziziyah"],
   ["aziziyah", "jeddahairport"],
+  ["aziziyah", "mina"],
+  ["mina", "arafat"],
   ["nabawi", "quba"],
   ["quba", "madinahairport"],
 ];
