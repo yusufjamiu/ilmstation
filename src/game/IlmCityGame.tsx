@@ -793,7 +793,7 @@ function CityGame({
   const [ctx, setCtx] = useState<Context>(null);
   const [place, setPlace] = useState(() => {
     const d = districtById(save.district ?? "lekki");
-    return `${d.name} · ${WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}`;
+    return `${d.name}, ${d.state}`;
   });
   const [panel, setPanel] = useState<Panel | null>(null);
   const [bigClock, setBigClock] = useState(false);
@@ -802,6 +802,14 @@ function CityGame({
   const [toasts, setToasts] = useState<{ id: number; text: string; tone?: "good" | "warn" }[]>([]);
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
+  /** the area's name shows for a moment when you come outside or walk into a new area */
+  const [placeShown, setPlaceShown] = useState(false);
+  useEffect(() => {
+    if (inside) return setPlaceShown(false);
+    setPlaceShown(true);
+    const t = setTimeout(() => setPlaceShown(false), 6000);
+    return () => clearTimeout(t);
+  }, [place, inside]);
   const [webgl, setWebgl] = useState(true);
   const [speed, setSpeed] = useState<number | null>(null);
   const [ride, setRide] = useState<{
@@ -1136,6 +1144,7 @@ function CityGame({
   /* ---------- food: order on the phone or eat at the eatery ---------- */
   const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
   const openPhoneRef = useRef<() => void>(() => {});
+  const openHotelRef = useRef<() => void>(() => {});
   const openWalletRef = useRef<() => void>(() => {});
   const profileBtn = useRef<HTMLButtonElement | null>(null);
   const eat = useCallback(
@@ -1275,6 +1284,7 @@ function CityGame({
           onOutings={() => openOutingsRef.current(true)}
           onTravel={() => openOutingsRef.current(true, "travel")}
           onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki", true)}
+          onHotel={() => openHotelRef.current()}
         />
       ),
     });
@@ -5818,12 +5828,18 @@ function CityGame({
           // an area of another city was just built: put its plots, shops and adverts right
           onAreaBuilt: () => areaBuiltRef.current(),
         },
-        {
-          district: saveRef.current.district,
-          car: saveRef.current.car,
-          x: saveRef.current.pos?.x,
-          z: saveRef.current.pos?.z,
-        },
+        // with a profile every visit starts in your house, so build your home area first
+        saveRef.current.profile
+          ? {
+              district: saveRef.current.homeArea ?? saveRef.current.district,
+              car: saveRef.current.car,
+            }
+          : {
+              district: saveRef.current.district,
+              car: saveRef.current.car,
+              x: saveRef.current.pos?.x,
+              z: saveRef.current.pos?.z,
+            },
       );
     } catch (err) {
       console.error("IlmCity could not start", err);
@@ -5850,10 +5866,7 @@ function CityGame({
       const q = readQuality();
       if (q === "auto") e.setQuality(weakPhone() ? "low" : "high", true);
       else e.setQuality(q);
-      e.onSlowPhone = () =>
-        toast(
-          "Switched to Smooth graphics so the game runs better. Change it in 👤 Profile → Graphics.",
-        );
+      e.onSlowPhone = () => {};
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
     if (saveRef.current.impound) e.setImpounded(true);
@@ -6116,6 +6129,7 @@ function CityGame({
   const runGoal = (g: Goal) => {
     if (g.act === "jobs") return openJobs();
     if (g.act === "travel") return travelNow();
+    if (g.act === "rest") return openHotel();
     if (g.act === "adhkarM" || g.act === "adhkarE") {
       const k = g.act === "adhkarM" ? "morning" : "evening";
       setPanel({
@@ -6142,6 +6156,66 @@ function CityGame({
           : "That place isn't in this area. Use 📱 Phone → Travel.",
       );
   };
+  /** Away from your home city: a night in a hotel, or the way home. */
+  const openHotel = () => {
+    const here = engine.current?.districtId() ?? save.district ?? "lekki";
+    const D = districtById(here);
+    const home = save.homeArea ?? "lekki";
+    const price = hotelPrice(here);
+    const atHome = cityOf(D) === cityOf(districtById(home));
+    setPanel({
+      kind: "info",
+      title: "🏨 Rest for the night",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          {atHome ? (
+            <p>You are in your home city: go home to sleep, it's free.</p>
+          ) : (
+            <p>
+              You are in {D.name}, {D.state}, far from home. Book a hotel room here to sleep, or
+              travel back home.
+            </p>
+          )}
+          <div className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
+            <div className="font-bold">
+              {D.holy ? "Pilgrims' hotel" : "Guest house"} · {D.name}
+            </div>
+            <div className="text-[13px] opacity-75">
+              A clean room for one night: sleep, wake fully rested.
+            </div>
+            <button
+              disabled={saveRef.current.coins < price}
+              onClick={() => {
+                if (saveRef.current.coins < price) return;
+                update((x) => ({ ...x, coins: x.coins - price }));
+                saveRef.current = { ...saveRef.current, coins: saveRef.current.coins - price };
+                toast(`Room booked: ${N(price)}.`, "good");
+                onActionRef.current("sleep");
+              }}
+              className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
+            >
+              Book a room · {N(price)}
+            </button>
+            {saveRef.current.coins < price && (
+              <p className="mt-1 text-[12px] text-[#b8573a]">Not enough money for a room.</p>
+            )}
+          </div>
+          {!atHome && (
+            <button
+              onClick={() => {
+                setPanel(null);
+                travelNow();
+              }}
+              className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-2.5 font-bold"
+            >
+              🚌 Travel home to {districtById(home).name}
+            </button>
+          )}
+        </div>
+      ),
+    });
+  };
+  openHotelRef.current = openHotel;
   const travelNow = () =>
     (() => {
       const e = engine.current;
@@ -6745,6 +6819,14 @@ function CityGame({
           </button>
         </div>
       )}
+      <div
+        data-game-ui
+        className={`pointer-events-none absolute inset-x-0 bottom-[22%] z-20 flex justify-center transition-opacity duration-700 ${placeShown ? "opacity-100" : "opacity-0"}`}
+      >
+        <span className="rounded-full bg-[#10201e]/75 px-4 py-1.5 text-[14px] font-semibold tracking-wide text-[#fdf8ec] shadow-lg">
+          {place}
+        </span>
+      </div>
       {dhikr && PLACE_DHIKR[dhikr.id] && (
         <DhikrCard
           d={PLACE_DHIKR[dhikr.id]}
@@ -6764,11 +6846,11 @@ function CityGame({
       )}
       <div
         data-game-ui
-        className="pointer-events-none absolute left-3 top-[118px] flex flex-col items-start gap-1.5"
+        className="pointer-events-none absolute left-3 flex flex-col items-start gap-1.5"
+        style={{
+          top: `calc(max(12px, env(safe-area-inset-top)) + ${bigClock ? 124 : 52}px)`,
+        }}
       >
-        <span className="rounded-full bg-[#10201e]/80 px-3 py-1 text-[12px] font-semibold text-[#fdf8ec]">
-          {place}
-        </span>
         {speed !== null && (
           <span className="rounded-full bg-[#f2c230] px-3 py-1 text-[12px] font-bold tabular-nums text-[#2a1c05]">
             {speed} km/h
@@ -11387,7 +11469,7 @@ function WorkView({ job, onDone }: { job: Job; onDone: (correct: number, total: 
 type Goal = {
   text: string;
   prefix?: string;
-  act?: "adhkarM" | "adhkarE" | "jobs" | "travel";
+  act?: "adhkarM" | "adhkarE" | "jobs" | "travel" | "rest";
   /** the area the place is in (travel there first if you are elsewhere) */
   to?: string;
 };
@@ -11433,8 +11515,12 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
         : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
     return { text: "You're hungry: order food (📱) or eat at a restaurant", prefix: "eatery:" };
+  // away from your home city: sleep in a hotel, or travel home
+  const away = cityOf(districtById(area)) !== cityOf(districtById(home));
   if (n && n.energy < 25)
-    return { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
+    return away
+      ? { text: "You're tired: book a hotel or travel home", act: "rest" }
+      : { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
   const job = JOBS.find((j) => j.id === s.job);
   if (job && s.worked !== c.key && onShift(job, c))
     return { text: `Go to work: ${job.name}`, prefix: job.at };
@@ -11457,11 +11543,18 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
     };
   if ((s.salams ?? 0) < 3) return { text: "Greet 3 people with salam" };
   if (!t.sleep && (c.min >= c.times.isha || c.min < c.times.fajr))
-    return { text: "Sleep early after Isha", prefix: inside ? "sleep" : homeDoor };
+    return away
+      ? { text: "Sleep early after Isha: book a hotel or travel home", act: "rest" }
+      : { text: "Sleep early after Isha", prefix: inside ? "sleep" : homeDoor };
   return {
     text: `Explore another area of ${WORLD_CITIES.find((w) => w.id === cityOf(districtById(area)))?.name ?? "the city"}`,
     act: "travel",
   };
+}
+
+/** A night in a hotel, in ₦10 units: dearer in Makkah and Madinah. */
+function hotelPrice(area: string) {
+  return districtById(area).holy ? 1200 : 600;
 }
 
 /* ---------------- graphics setting ---------------- */
@@ -13124,8 +13217,10 @@ function PhoneView({
   onOutings,
   onTravel,
   onPlaces,
+  onHotel,
 }: {
   myNumber?: string;
+  onHotel: () => void;
   onWallet: () => void;
   onRooms: () => void;
   onHomes: () => void;
@@ -13183,6 +13278,7 @@ function PhoneView({
         {icon("#c77d2a", "🏠", "Homes", onHomes)}
         {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
         {icon("#1d6b3a", "💰", "Wallet", onWallet)}
+        {icon("#7a5a2a", "🏨", "Hotel", onHotel)}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">

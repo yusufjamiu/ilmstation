@@ -8714,10 +8714,7 @@ export class IlmCityEngine {
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
-      place = `${fullName(area)} · ${area.state}`;
-      const lz = pos.z - area.origin.z;
-      const st = area.streets.find((s2) => Math.abs(lz - s2.z) < 7);
-      if (st) place = `${STREETS[st.id]?.name ?? ""}, ${fullName(area)}`;
+      place = `${area.name}, ${area.state}`;
     } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
     if (place !== this.place) {
       this.place = place;
