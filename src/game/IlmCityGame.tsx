@@ -4845,7 +4845,7 @@ function CityGame({
       return;
     }
     engine.current = e;
-    if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
+    if (import.meta.env.DEV) Object.assign(window, { __ilmcity: e, __districts: DISTRICTS });
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
     if (saveRef.current.profile)

@@ -669,7 +669,7 @@ export class IlmCityEngine {
     this.scene.add(this.player);
     if (start?.x !== undefined && start.z !== undefined && this.free(start.x, start.z, 0.6))
       this.player.position.set(start.x, 0, start.z);
-    else this.player.position.copy(this.outPos);
+    else this.standAt(this.outPos.x, this.outPos.z);
     this.marker.rotation.x = -Math.PI / 2;
     this.marker.position.y = 0.05;
     this.marker.visible = false;
@@ -745,7 +745,7 @@ export class IlmCityEngine {
     ).multiplyScalar(2.6);
     const p = this.car.position.clone().add(side);
     if (!this.free(p.x, p.z, 0.6)) p.copy(this.car.position).sub(side);
-    this.player.position.set(p.x, 0, p.z);
+    this.standAt(p.x, p.z, this.car.position);
     this.player.visible = true;
   }
   dispose() {
@@ -4498,10 +4498,38 @@ export class IlmCityEngine {
     if (this.where !== "out") this.exitInterior();
     this.driving = false;
     this.player.visible = true;
-    this.player.position.set(z.x, 0, z.z + 3);
+    this.standAt(z.x, z.z + 3, z);
     this.tapTarget = null;
     this.snapCamera();
     return true;
+  }
+  /** Put the player down at (x, z), or at the nearest open spot if a wall or a building is
+      there: first along the street, then all round. */
+  private standAt(x: number, z: number, from?: { x: number; z: number }) {
+    // a spot is good if you can stand there and, when we know where the road is, walk
+    // straight to it from there (so you never land inside a walled yard)
+    const reach = (px: number, pz: number) => {
+      if (!from) return true;
+      const n = Math.ceil(Math.hypot(px - from.x, pz - from.z) / 0.6);
+      for (let k = 1; k < n; k++) {
+        const f = k / n;
+        if (!this.free(from.x + (px - from.x) * f, from.z + (pz - from.z) * f, 0.4)) return false;
+      }
+      return true;
+    };
+    const ok = (px: number, pz: number) => this.free(px, pz, 0.7) && reach(px, pz);
+    let spot: [number, number] | null = ok(x, z) ? [x, z] : null;
+    for (let d = 1; !spot && d <= 40; d++)
+      for (const s of [-1, 1]) if (!spot && ok(x + s * d, z)) spot = [x + s * d, z];
+    for (let r = 1; !spot && r <= 40; r++)
+      for (let a = 0; !spot && a < 24; a++) {
+        const px = x + Math.cos((a / 24) * Math.PI * 2) * r,
+          pz = z + Math.sin((a / 24) * Math.PI * 2) * r;
+        if (ok(px, pz)) spot = [px, pz];
+      }
+    if (!spot && from) spot = [from.x, from.z];
+    const [px, pz] = spot ?? [x, z];
+    this.player.position.set(px, 0, pz);
   }
   travel(id: string, byCar: boolean) {
     const D = districtById(id);
@@ -4584,10 +4612,10 @@ export class IlmCityEngine {
     if (c.byCar) {
       this.carHeading = Math.PI;
       this.car.rotation.y = Math.PI;
-      this.player.position.set(o.x - 16, 0, o.z + 13);
+      this.standAt(o.x - 16, o.z + 13, this.car.position);
     } else {
       c.vehicle.removeFromParent();
-      this.player.position.set(o.x - 54, 0, o.z + 13.5);
+      this.standAt(o.x - 54, o.z + 13.5, c.vehicle.position);
     }
     this.player.rotation.y = Math.PI;
     this.camYaw = 0;
@@ -4699,7 +4727,7 @@ export class IlmCityEngine {
     const D = districtById(id);
     this.where = "out";
     this.district = D;
-    this.player.position.set(D.origin.x - 9, 0, D.origin.z + 17);
+    this.standAt(D.origin.x - 9, D.origin.z + 17);
     this.player.rotation.y = Math.PI;
     this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
     this.carHeading = Math.PI;
@@ -7132,7 +7160,7 @@ export class IlmCityEngine {
         this.traffic.riding = null;
         this.traffic.fast = false;
         this.player.visible = true;
-        this.player.position.set(stop.x, 0, stop.z);
+        this.standAt(stop.x, stop.z, stop);
         this.player.rotation.y = stop.heading + Math.PI / 2;
         this.ev.onRide?.(null);
         this.ev.onAction("arrived:" + stop.district);
@@ -7505,13 +7533,15 @@ export class IlmCityEngine {
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
+      // if you somehow end up inside a wall, you can always walk out of it
+      const stuck = !this.free(this.player.position.x, this.player.position.z, 0.5);
       if (
-        this.free(nx, this.player.position.z, 0.5) &&
+        (stuck || this.free(nx, this.player.position.z, 0.5)) &&
         !this.bumpsPerson(nx, this.player.position.z)
       )
         this.player.position.x = nx;
       if (
-        this.free(this.player.position.x, nz, 0.5) &&
+        (stuck || this.free(this.player.position.x, nz, 0.5)) &&
         !this.bumpsPerson(this.player.position.x, nz)
       )
         this.player.position.z = nz;
