@@ -2621,10 +2621,27 @@ export class IlmCityEngine {
     const sign = new THREE.Mesh(
       new THREE.PlaneGeometry(kind === "shop" ? 4.6 : 4.4, kind === "shop" ? 0.95 : 1.3),
     );
-    const sd = kind === "shop" ? 3.95 : 2.15;
-    sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 2.75, center.z + uz * sd);
+    // a stall's board stands on top of its canopy, in front of the frill and the lights
+    const sd = kind === "shop" ? 3.95 : 2.6;
+    sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 3.85, center.z + uz * sd);
     sign.rotation.y = ry;
     parent.add(sign);
+    if (kind === "stall") {
+      // the board's frame and the two legs holding it up on the canopy
+      const back = box(4.6, 1.5, 0.08, 0x5a3f22, 0, 0, 0, false);
+      back.position.set(center.x + ux * (sd - 0.06), 3.85, center.z + uz * (sd - 0.06));
+      back.rotation.y = ry;
+      parent.add(back);
+      for (const s of [-1.9, 1.9]) {
+        const leg = box(0.1, 0.35, 0.1, 0x5a3f22, 0, 0, 0, false);
+        leg.position.set(
+          center.x + ux * (sd - 0.1) + uz * s,
+          3.0,
+          center.z + uz * (sd - 0.1) - ux * s,
+        );
+        parent.add(leg);
+      }
+    }
     // a small sign sticking out sideways, so you can read the name walking along the street
     const vx = uz,
       vz = -ux;
