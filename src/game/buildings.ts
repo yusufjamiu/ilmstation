@@ -366,6 +366,11 @@ export const MAT = {
   siding: (c: number) => M("sd" + c, () => std({ color: c, map: sidingTex(), roughness: 0.8 })),
   /** rows of clay roof tiles */
   tiles: (c: number) => M("tl" + c, () => std({ color: c, map: tilesTex(), roughness: 0.7 })),
+  /** a striped market canopy */
+  awning: (c: number) =>
+    M("aw" + c, () => std({ map: awningTex(c), roughness: 0.75, side: THREE.DoubleSide })),
+  /** a glowing light bulb */
+  bulb: () => M("bulb", () => std({ color: 0xfff1c0, emissive: 0xffd27a, emissiveIntensity: 1.2 })),
   /** the glass of a sunroom */
   sunroom: () =>
     M("sun", () =>
@@ -379,6 +384,15 @@ export const MAT = {
       }),
     ),
 };
+/** Stripes of colour and white, one canopy wide. */
+function awningTex(c: number) {
+  return tex("awning" + c, 128, 32, (g, w, h) => {
+    for (let i = 0; i < 8; i++) {
+      g.fillStyle = i % 2 ? "#fbf7ee" : css(c);
+      g.fillRect((i * w) / 8, 0, w / 8 + 1, h);
+    }
+  });
+}
 /** Horizontal painted boards, 2 m per tile. */
 function sidingTex() {
   return tex("siding", 128, 128, (c, w, h) => {
@@ -1414,26 +1428,93 @@ export function shopRow(
 }
 
 /** Open market stalls under tin roofs, in a row facing +z. */
+const AWNINGS = [0x3fa79a, 0xf2c230, 0x6aa84f, 0xe8584a, 0xff8a3d, 0x6b8be8, 0xd66bd0];
+const PRODUCE = [0xe8443a, 0xf2a03a, 0xf2d33a, 0x6aa84f, 0x8a3a8a, 0xf28aa0];
+/** A row of market stalls: striped canopies with scalloped edges, wooden counters, crates of
+    fruit and vegetables, potted plants, and string lights between the stalls. */
 export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn: number }) {
   const { to, colliders, solid } = frame(b, 0, o.z, o.turn);
   const SW = 5,
     SD = 4;
   const units: { center: Placed; front: Placed; lx: number }[] = [];
+  const wood = MAT.plain(0x8a6a3e);
+  let k = Math.abs(Math.round(o.x0 * 3 + o.z * 7));
+  const bulb = MAT.bulb();
   for (let x = o.x0; x + SW <= o.x1; x += SW + 0.6) {
     const cx = x + SW / 2;
+    const col = AWNINGS[k++ % AWNINGS.length];
     for (const [px, pz] of [
       [-SW / 2, -SD / 2],
       [SW / 2, -SD / 2],
       [-SW / 2, SD / 2],
       [SW / 2, SD / 2],
     ])
-      b.box(0.1, 2.8, 0.1, MAT.plain(0x6b5a44), cx + px, 0, pz);
-    const roof = new THREE.BoxGeometry(SW + 0.6, 0.08, SD + 0.8);
-    roof.rotateX(-0.12);
-    b.add(roof, MAT.zinc(0x9aa0a6), cx, 2.95, 0);
-    b.box(SW - 0.4, 0.9, 0.9, MAT.plain(0x8a6a3e), cx, 0, SD / 2 - 0.6);
+      b.box(0.12, 2.8, 0.12, wood, cx + px, 0, pz);
+    // the striped canopy, sloping to the front
+    const roof = boxGeo(SW + 0.6, 0.08, SD + 0.8, SW + 0.6);
+    roof.rotateX(0.12);
+    b.add(roof, MAT.awning(col), cx, 2.95, 0);
+    // a scalloped valance along the front edge
+    for (let sx = -SW / 2 - 0.2; sx < SW / 2 + 0.3; sx += 0.5) {
+      const sc = new THREE.CircleGeometry(0.26, 10, Math.PI, Math.PI);
+      b.add(sc, MAT.plain(col), cx + sx + 0.25, 2.72, SD / 2 + 0.42, 0, false);
+    }
+    // the counter, with produce in crates and baskets
+    b.box(SW - 0.4, 0.9, 0.9, wood, cx, 0, SD / 2 - 0.6);
     b.box(SW - 0.4, 0.06, 1.1, MAT.plain(0xe9dcc0), cx, 0.9, SD / 2 - 0.6);
+    for (let c = 0; c < 3; c++) {
+      const bx = cx - SW / 2 + 0.9 + c * 1.6;
+      b.box(1.2, 0.28, 0.75, MAT.plain(0xb0844a), bx, 0.96, SD / 2 - 0.6);
+      const fruit = MAT.plain(PRODUCE[(k + c) % PRODUCE.length], 0.6);
+      for (let f = 0; f < 6; f++)
+        b.add(
+          new THREE.IcosahedronGeometry(0.12, 1),
+          fruit,
+          bx - 0.4 + (f % 3) * 0.4,
+          1.32 + Math.floor(f / 3) * 0.08,
+          SD / 2 - 0.75 + Math.floor(f / 3) * 0.28,
+        );
+    }
+    // a potted plant by the post
+    b.add(
+      new THREE.CylinderGeometry(0.28, 0.2, 0.45, 10),
+      MAT.plain(0xb0603a),
+      cx + SW / 2 - 0.2,
+      0.22,
+      SD / 2 + 0.5,
+    );
+    b.add(
+      new THREE.IcosahedronGeometry(0.42, 1),
+      MAT.plain(0x4f8f45),
+      cx + SW / 2 - 0.2,
+      0.75,
+      SD / 2 + 0.5,
+    );
     b.add(groundGeo(SW, SD, 2), MAT.plain(0xa89c88), cx, 0.04, 0, 0, false);
+    // string lights from this stall to the next
+    for (let t = 0; t <= 6; t++) {
+      const lx = cx + SW / 2 - 0.2 + (t / 6) * 0.9 + 0.05;
+      const sag = Math.sin((t / 6) * Math.PI) * 0.25;
+      b.add(
+        new THREE.SphereGeometry(0.07, 6, 4),
+        bulb,
+        lx - 0.2,
+        2.75 - sag,
+        SD / 2 + 0.3,
+        0,
+        false,
+      );
+    }
+    for (let t = 0; t < 8; t++)
+      b.add(
+        new THREE.SphereGeometry(0.07, 6, 4),
+        bulb,
+        cx - SW / 2 + 0.3 + (t * (SW - 0.6)) / 7,
+        2.62,
+        SD / 2 + 0.55,
+        0,
+        false,
+      );
     solid(cx - SW / 2, cx + SW / 2, -SD / 2, SD / 2 - 0.1);
     units.push({ center: to(cx, 0), front: to(cx, SD / 2 + 1.6), lx: cx });
   }
