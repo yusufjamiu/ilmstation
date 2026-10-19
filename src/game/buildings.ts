@@ -2226,7 +2226,7 @@ function styledHouse(
             ? MAT.plain(0xd9cdb4)
             : r() < 0.5
               ? MAT.paving()
-              : MAT.plain(0xc2a47a);
+              : MAT.plain(0xb9b2a4); // a cemented yard
   b.add(groundGeo(PW - 0.4, PD - 0.4, 2), yardM, 0, 0.035, 0, 0, false);
   const wallC =
     style === "modern"

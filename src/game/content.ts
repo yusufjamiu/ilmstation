@@ -1964,6 +1964,45 @@ export const DISTRICTS: District[] = [
     ],
   },
 ];
+
+/* More homes: where an area has room beyond its streets, add a residential street lined
+   with houses to let (added after the old streets, so every old house keeps its number). */
+const HOME_STREET_NAMES = [
+  "Barakah Close",
+  "Ihsan Avenue",
+  "Sabr Street",
+  "Taqwa Crescent",
+  "Hikmah Road",
+  "Rahmah Close",
+  "Nur Avenue",
+  "Salam Close",
+  "Huda Street",
+  "Iman Crescent",
+  "Sakinah Close",
+  "Ukhuwwah Avenue",
+];
+{
+  let k = 0;
+  for (const d of DISTRICTS) {
+    if (d.holy || d.campus || d.landmarks.some((l) => l.kind === "airport")) continue;
+    const H = d.half ?? { x: 112, z: 100 };
+    const zs = d.streets.map((st) => st.z);
+    const add = (z: number) => {
+      const name = HOME_STREET_NAMES[k++ % HOME_STREET_NAMES.length];
+      const id = `${d.id}-homes${d.streets.length}`;
+      STREETS[id] = {
+        id,
+        name,
+        bio: "A quiet residential street of family houses, most of them ready to let.",
+      };
+      d.streets.push({ id, z, toLet: 0.85, land: 0.04 });
+    };
+    const n = Math.min(...zs) - 66;
+    if (n - 31.5 >= -H.z + 4) add(n);
+    const sZ = Math.max(...zs) + 66;
+    if (!d.lagoon && sZ + 31.5 <= H.z - 4) add(sZ);
+  }
+}
 /** Where each city's junction is on the map; its areas sit around it. */
 export const CITY_CENTER: Record<string, { x: number; z: number }> = {
   lagos: { x: 0, z: 0 },

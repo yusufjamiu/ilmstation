@@ -355,6 +355,37 @@ const PREMIUM_HIJABS = [0xc9a227, 0xe6d3a0, 0xf2e6f0, 0x5a1f6a];
 /** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
 const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
 const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
+/** A house's rent: by its area and size. The best areas are for players of a higher Ilm
+    level; anyone below it can still rent there by paying half as much again. */
+const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
+const FLOOR_RENT: Record<number, number> = { 1: 1, 2: 1.5, 3: 2 };
+const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
+const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
+function houseRent(area: string, floors: number, ilm: number) {
+  const t = districtById(area).tier ?? 2;
+  const base = r10(150 * (TIER_RENT[t] ?? 1) * (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1));
+  const need = TIER_LEVEL[t] ?? 0;
+  const premium = ilmLevel(ilm).i < need;
+  const week = premium ? r10(base * 1.5) : base;
+  const buy = r10(
+    (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * (TIER_RENT[t] ?? 1),
+  );
+  return { week, month: r10(week * 3.4), base, premium, need: ILM_LEVELS[need], buy };
+}
+/** Building on your land, one stage at a time. */
+const BUILD_STAGES = [
+  { name: "Foundation", share: 0.2, text: "Digging, the concrete footings and the floor slab" },
+  {
+    name: "Walls",
+    share: 0.35,
+    text: "Blocks laid up to the roof, with lintels over doors and windows",
+  },
+  { name: "Roofing", share: 0.25, text: "Roof timbers and the roof sheets" },
+  { name: "Finishing", share: 0.2, text: "Plaster, paint, doors, windows, tiles and wiring" },
+];
+const stageCost = (floors: number, st: number) =>
+  r10(ECONOMY.build[floors].points * BUILD_STAGES[st - 1].share);
+const stageMinutes = (floors: number) => Math.max(1, Math.round(ECONOMY.build[floors].minutes / 2));
 const WEEK = 7 * 86400000;
 /** A home's colours: painted by its owner, or its own starting colours, so no two look alike. */
 function homePaint(uid: string | undefined, p?: { wall: number; floor: number }) {
@@ -582,8 +613,10 @@ function plotStateFn(o?: PlotOwn) {
   if (o.kind === "rented") return o.until > Date.now() ? { kind: "rented" as const } : undefined;
   if (o.kind === "owned") return { kind: "owned" as const };
   if (o.kind === "bought") return { kind: "rented" as const };
-  if (o.kind === "building" && o.done <= Date.now())
+  if (o.kind === "building" && o.done <= Date.now() && (o.stage ?? 4) >= 4)
     return { kind: "built" as const, floors: o.floors };
+  if (o.kind === "building")
+    return { kind: "building" as const, floors: o.floors, stage: o.stage ?? 4 };
   return { kind: o.kind, floors: o.floors };
 }
 
@@ -782,6 +815,7 @@ function CityGame({
   const workSkip = useRef(false);
   const hajjDone = useRef(new Set<string>());
   const askedIntention = useRef(false);
+  const stageTold = useRef(new Set<string>());
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
   const lastSent = useRef({ x: 0, z: 0, area: "" });
@@ -2107,6 +2141,7 @@ function CityGame({
                 : "House to let or buy",
           body: (
             <PlotView
+              rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm)}
               plot={p}
               own={own}
               points={saveRef.current.coins}
@@ -2478,6 +2513,87 @@ function CityGame({
     }
     if (zone) setTimeout(() => engine.current?.guideTo(zone), 300);
   }, []);
+  /** Every house to let in this city, cheapest first, with what your Ilm level opens. */
+  const openToLet = useCallback(() => {
+    const e = engine.current;
+    if (!e) return;
+    const here = e.districtId();
+    const city = cityOf(districtById(here));
+    const ilm = saveRef.current.ilm;
+    const lv = ilmLevel(ilm);
+    const list = e.plots
+      .filter(
+        (q) =>
+          q.kind === "house" &&
+          q.toLet &&
+          cityOf(districtById(q.district)) === city &&
+          !takenRef.current.has(q.id) &&
+          !saveRef.current.plots?.[q.id],
+      )
+      .map((q) => ({ q, r: houseRent(q.district, q.floors ?? 1, ilm) }))
+      .sort(
+        (a, b) =>
+          a.r.week - b.r.week || Number(a.q.district !== here) - Number(b.q.district !== here),
+      );
+    const areas = [...new Set(list.map((x) => x.q.district))];
+    setPanel({
+      kind: "info",
+      title: "🏠 Houses to let",
+      body: (
+        <div className="space-y-3">
+          <p className="text-[13px] opacity-75">
+            You are a <b>{saveRef.current.profile?.female ? lv.sister : lv.brother}</b> ({ilm} Ilm).
+            The best areas open up as your Ilm grows; you can still rent there now by paying half as
+            much again.
+          </p>
+          {areas.map((a) => {
+            const D = districtById(a);
+            const items = list.filter((x) => x.q.district === a).slice(0, 8);
+            return (
+              <div key={a}>
+                <div className="mb-1 text-[13px] font-bold">
+                  {D.name}{" "}
+                  {a === here && <span className="font-normal opacity-60">· you are here</span>}
+                </div>
+                <div className="space-y-1.5">
+                  {items.map(({ q, r }) => (
+                    <button
+                      key={q.id}
+                      onClick={() => {
+                        setPanel(null);
+                        if (a === here) {
+                          if (!engine.current?.guideTo("plot:" + q.id)) openPlot(q.id);
+                          else toast("Follow the gold arrow to the house. Tap its TO LET sign.");
+                        } else goRite(a, "plot:" + q.id);
+                      }}
+                      className="flex w-full items-center justify-between gap-2 rounded-xl bg-white p-2.5 text-left shadow-sm"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13.5px] font-semibold">
+                          {floorsName(q.floors ?? 1)} · No. {q.number}, {q.street}
+                        </span>
+                        <span className="text-[11.5px] opacity-70">
+                          {(q.floors ?? 1) * 2 + 1} bedrooms
+                          {r.premium ? ` · for ${r.need.brother}s, or pay more` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right text-[13px] font-bold text-[#1f6f63]">
+                        {N(r.week)}
+                        <span className="block text-[10.5px] font-normal opacity-70">a week</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {!list.length && <p>No houses free to let in this city right now.</p>}
+        </div>
+      ),
+    });
+  }, [toast, goRite, openPlot]);
+  const openToLetRef = useRef(openToLet);
+  openToLetRef.current = openToLet;
   /** Tawaf with a guide: what to do and say at each part of every round. */
   const guidedTawaf = useCallback(
     (kind: "umrah" | "voluntary" | "ifadah" | "wada", onDone: () => void) => {
@@ -5773,7 +5889,7 @@ function CityGame({
     {
       const st: Record<
         string,
-        { kind: "rented" | "owned" | "building" | "built"; floors?: number }
+        { kind: "rented" | "owned" | "building" | "built"; floors?: number; stage?: number }
       > = {};
       for (const [pid, o] of Object.entries(saveRef.current.plots ?? {})) {
         const k = plotStateFn(o);
@@ -5940,7 +6056,17 @@ function CityGame({
         }
       }
       for (const [pid, o] of Object.entries(saveRef.current.plots ?? {}))
-        if (o.kind === "building" && o.done <= Date.now()) {
+        if (o.kind === "building" && o.done <= Date.now() && (o.stage ?? 4) < 4) {
+          // a stage is finished: tell the owner once, and wait for them to pay for the next
+          const k = `${pid}:${o.stage}`;
+          if (!stageTold.current.has(k)) {
+            stageTold.current.add(k);
+            toast(
+              `🏗️ The ${BUILD_STAGES[(o.stage ?? 1) - 1].name.toLowerCase()} of your house is done. Visit your land to start the ${BUILD_STAGES[o.stage ?? 1].name.toLowerCase()}.`,
+              "good",
+            );
+          }
+        } else if (o.kind === "building" && o.done <= Date.now()) {
           const next: PlotOwn = { kind: "built", floors: o.floors };
           update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
           e.setPlot(pid, { kind: "built", floors: o.floors });
@@ -6232,6 +6358,7 @@ function CityGame({
                             },
                           ]
                         : []),
+                      { icon: "🏠", label: "Houses to let", run: () => openToLetRef.current() },
                       { icon: "👕", label: "Clothes", run: () => openWardrobeRef.current() },
                       ...(saveRef.current.homePlot
                         ? []
@@ -7762,7 +7889,7 @@ type Room = { tenant: string; until: number } | null;
 type PlotOwn =
   | { kind: "rented"; until: number }
   | { kind: "owned" }
-  | { kind: "building"; floors: number; done: number }
+  | { kind: "building"; floors: number; done: number; stage?: number }
   | { kind: "built"; floors: number; tenant?: string; since?: number; rooms?: Room[] }
   | { kind: "bought"; floors: number; rooms?: Room[] };
 const roomsIn = (floors: number) => floors * 2 + 1;
@@ -7781,7 +7908,9 @@ function PlotView({
   onEnter,
   onCollect,
   onRooms,
+  rent,
 }: {
+  rent: ReturnType<typeof houseRent>;
   plot: {
     id: string;
     kind: "house" | "land" | "shops";
@@ -7805,9 +7934,19 @@ function PlotView({
   const primary = `${btn} bg-[#1f6f63] text-[#fdf8ec] disabled:opacity-50`;
   const secondary = `${btn} border border-[#1f6f63]/30 bg-white text-[#10201e]`;
   const now = Date.now();
-  const R = ECONOMY.rent;
+  const R = {
+    week: { days: 7, points: rent.week },
+    month: { days: 30, points: rent.month },
+  };
   const rentButtons = (extend: boolean) => (
     <>
+      {rent.premium && !extend && (
+        <p className="rounded-xl bg-[#fdf3dc] p-3 text-[13px]">
+          Houses in {districtById(plot.district).name} are for players who have reached{" "}
+          <b>{rent.need.brother}</b> ({rent.need.min} Ilm). You can still rent this one by paying
+          half as much again: {N(rent.week)} a week instead of {N(rent.base)}.
+        </p>
+      )}
       {(["week", "month"] as const).map((k) => (
         <button
           key={k}
@@ -7827,11 +7966,8 @@ function PlotView({
           {extend ? "Extend" : "Rent"} {k === "week" ? "7 days" : "1 month"} · {N(R[k].points)}
         </button>
       ))}
-      <button className={secondary} onClick={() => onPaystack(R.week.naira, "7 days rent")}>
-        Pay {naira(R.week.naira)} (7 days) with Paystack
-      </button>
-      <button className={secondary} onClick={() => onPaystack(R.month.naira, "1 month rent")}>
-        Pay {naira(R.month.naira)} (1 month) with Paystack
+      <button className={secondary} onClick={() => onPaystack(R.week.points * 10, "7 days rent")}>
+        Pay {naira(R.week.points * 10)} (7 days) with Paystack
       </button>
     </>
   );
@@ -7855,7 +7991,7 @@ function PlotView({
           />
         </div>
       );
-    const price = HOUSE_PRICE[plot.floors] ?? HOUSE_PRICE[1];
+    const price = rent.buy;
     const buyButton = (
       <button
         disabled={points < price}
@@ -7931,25 +8067,35 @@ function PlotView({
   if (own.kind === "owned")
     return (
       <div className="space-y-2">
-        <p>Your land at {where}. What will you build?</p>
+        <p>
+          Your land at {where}. What will you build? You build in four stages, paying for each as
+          you go: foundation, walls, roof, then finishing.
+        </p>
         {[1, 2, 3].map((f) => {
           const b = ECONOMY.build[f];
+          const c1 = stageCost(f, 1);
           return (
             <button
               key={f}
-              disabled={points < b.points}
+              disabled={points < c1}
               className={primary}
               onClick={() =>
                 onPay(
-                  b.points,
-                  { kind: "building", floors: f, done: Date.now() + b.minutes * 60000 },
-                  `The builders have started your ${b.name.toLowerCase()}. Ready in ${b.minutes} minutes.`,
+                  c1,
+                  {
+                    kind: "building",
+                    floors: f,
+                    stage: 1,
+                    done: Date.now() + stageMinutes(f) * 60000,
+                  },
+                  `Bismillah! The builders are laying the foundation of your ${b.name.toLowerCase()}.`,
                 )
               }
             >
-              {b.name} · {N(b.points)} · {b.minutes} min
+              {b.name} · {N(b.points)} in all
               <span className="block text-[12px] font-medium opacity-80">
-                Tenants pay {N(b.tenantPerDay)} a day
+                Start with the foundation: {N(c1)} · {stageMinutes(f)} min. Tenants will pay{" "}
+                {N(b.tenantPerDay)} a day
               </span>
             </button>
           );
@@ -7957,13 +8103,65 @@ function PlotView({
       </div>
     );
   if (own.kind === "building") {
+    const stage = own.stage ?? 4;
     const m = Math.max(0, Math.ceil((own.done - now) / 60000));
+    const name = ECONOMY.build[own.floors].name.toLowerCase();
+    const steps = (
+      <ol className="space-y-1 rounded-xl bg-white p-3 text-[13px]">
+        {BUILD_STAGES.map((st, i) => {
+          const n = i + 1;
+          const done = n < stage || (n === stage && own.done <= now);
+          return (
+            <li
+              key={st.name}
+              className={done ? "text-[#1f6f63]" : n === stage ? "font-bold" : "opacity-60"}
+            >
+              {done ? "✅" : n === stage ? "🏗️" : "⬜"} {n}. {st.name}
+              <span className="block pl-6 text-[11.5px] font-normal opacity-75">{st.text}</span>
+            </li>
+          );
+        })}
+      </ol>
+    );
+    if (own.done > now)
+      return (
+        <div className="space-y-2">
+          <p>
+            Your {name}: the builders are on stage {stage},{" "}
+            {BUILD_STAGES[stage - 1].name.toLowerCase()}. Ready in about {m} minute
+            {m === 1 ? "" : "s"}, in shaa Allah.
+          </p>
+          {steps}
+        </div>
+      );
+    const next = stage + 1;
+    const cost = stageCost(own.floors, next);
     return (
-      <p>
-        The builders are working on your {ECONOMY.build[own.floors].name.toLowerCase()}. Ready in
-        about {m} minute
-        {m === 1 ? "" : "s"}, in shaa Allah.
-      </p>
+      <div className="space-y-2">
+        <p>
+          Stage {stage} ({BUILD_STAGES[stage - 1].name.toLowerCase()}) of your {name} is done.
+          Alhamdulillah!
+        </p>
+        {steps}
+        <button
+          disabled={points < cost}
+          className={primary}
+          onClick={() =>
+            onPay(
+              cost,
+              {
+                kind: "building",
+                floors: own.floors,
+                stage: next,
+                done: Date.now() + stageMinutes(own.floors) * 60000,
+              },
+              `The builders have started the ${BUILD_STAGES[next - 1].name.toLowerCase()}.`,
+            )
+          }
+        >
+          Next: {BUILD_STAGES[next - 1].name} · {N(cost)} · {stageMinutes(own.floors)} min
+        </button>
+      </div>
     );
   }
   if (own.kind !== "built") return null;

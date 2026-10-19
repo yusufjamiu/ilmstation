@@ -805,6 +805,13 @@ export class IlmCityEngine {
 
     // Lekki's beach and the ocean
     const H = halfOf(D);
+    // the towns of Makkah and Madinah are paved stone, not desert (Mina and Arafat stay open plains)
+    if (D.holy && D.id !== "mina" && D.id !== "arafat") {
+      const pv = new THREE.Mesh(groundGeo(H.x * 2, H.z * 2, 3), MAT.pavement());
+      pv.position.set(0, 0.008, 0);
+      pv.receiveShadow = true;
+      S.add(pv);
+    }
     const southEdge = D.lagoon ? 76 : H.z - 1;
     const north = -(H.z - 4); // the northern end of the cross road
     const XR = H.x - 16; // how far streets run either side of the cross road
@@ -1069,6 +1076,8 @@ export class IlmCityEngine {
     if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
     if (!D.holy) this.buildCourt(D);
+    // quiet residential closes behind the main streets, lined with houses ready to let
+    if (!D.campus) this.buildCloses(D, zs, D.holy ? -8 : north, southEdge, batch);
     const wires = new THREE.Group();
     if (!D.holy) zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
@@ -1818,6 +1827,9 @@ export class IlmCityEngine {
     streetZ: number;
     x: number;
     z: number;
+    /** a smaller plot (the closes): its width and depth */
+    pw?: number;
+    pd?: number;
   })[] = [];
   private ox = 0;
   private oz = 0;
@@ -2017,6 +2029,172 @@ export class IlmCityEngine {
     }
   }
   private curBatch = new Batch();
+
+  /** Narrow tarred closes in the space between the main streets, with compounds on both
+      sides wall to wall, the way Lagos neighbourhoods are packed. Most houses are to let. */
+  private buildCloses(D: District, zs: number[], top: number, bottom: number, batch: Batch) {
+    const H = halfOf(D);
+    let h = 7;
+    for (const ch of D.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = mulberry(h);
+    const NAMES = D.holy
+      ? [
+          "Al-Rahmah",
+          "Al-Noor",
+          "Al-Huda",
+          "As-Salam",
+          "Al-Barakah",
+          "Al-Ihsan",
+          "Al-Falah",
+          "Al-Hijrah",
+        ]
+      : [
+          "Sabr",
+          "Ihsan",
+          "Tawakkul",
+          "Ikhlas",
+          "Huda",
+          "Noor",
+          "Salam",
+          "Ukhuwwah",
+          "Hikmah",
+          "Birr",
+        ];
+    // what the main streets already cover (road plus a row of compounds each side)
+    const cov = zs.map((z) => [z - 32, z + 32]).sort((a, b) => a[0] - b[0]);
+    const bands: [number, number][] = [];
+    let cur = top + 2;
+    for (const [a, b] of cov) {
+      if (a > cur) bands.push([cur, a]);
+      cur = Math.max(cur, b);
+    }
+    if (bottom - 2 > cur) bands.push([cur, bottom - 2]);
+    const lanes: { lz: number; sides: number[]; depth: number }[] = [];
+    for (const [a, b] of bands) {
+      const L = b - a;
+      if (L >= 36)
+        lanes.push({ lz: (a + b) / 2, sides: [-1, 1], depth: Math.min(20, (L - 7) / 2 - 0.5) });
+      else if (L >= 24) lanes.push({ lz: a + 3.5, sides: [1], depth: Math.min(20, L - 8) });
+    }
+    const asphalt = MAT.asphalt();
+    const kerb = MAT.plain(0xe9e4d8);
+    const PW = 18,
+      STEP = 19;
+    let built = 0;
+    lanes.forEach((ln, li) => {
+      const name = `${NAMES[(h + li) % NAMES.length]} ${D.holy ? "Street" : "Close"}`;
+      let num = 2;
+      // which stretches of the lane have houses on them
+      const cells: number[] = [];
+      for (let x = -(H.x - 14); x <= H.x - 14; x += STEP) {
+        if (Math.abs(x) < 16 || built >= 44) continue;
+        if (!this.boxFree(x - STEP / 2, x + STEP / 2, ln.lz - 3, ln.lz + 3)) continue;
+        let here = false;
+        for (const sd of ln.sides) {
+          const d = ln.depth;
+          const cz = ln.lz + sd * (3.2 + d / 2);
+          if (!this.boxFree(x - PW / 2, x + PW / 2, cz - d / 2, cz + d / 2)) continue;
+          const r1 = rnd();
+          const land = r1 < 0.08;
+          const toLet = !land && r1 < 0.85;
+          const id = `${D.id}-c${li}-${num}`;
+          const turn = sd < 0 ? 0 : Math.PI;
+          let c: Compound;
+          if (land) {
+            const earth = new THREE.Mesh(groundGeo(PW - 1, d - 1, 3), MAT.plain(0xc4a06a));
+            earth.position.set(x, 0.03, cz);
+            batch.addObject(earth);
+            const front = cz - sd * (d / 2);
+            c = {
+              colliders: [],
+              door: { x, z: front },
+              gate: { x, z: front - sd * 0.5 },
+              floors: 0,
+              number: num,
+            };
+          } else
+            c = compound(batch, {
+              x,
+              z: cz,
+              turn,
+              width: PW,
+              depth: d,
+              number: num,
+              rnd,
+              style: houseStyleOf(D),
+            });
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + x - PW / 2,
+            x1: this.ox + x + PW / 2,
+            z0: this.oz + cz - d / 2,
+            z1: this.oz + cz + d / 2,
+          });
+          this.plots.push({
+            ...c,
+            id,
+            kind: land ? "land" : "house",
+            toLet,
+            district: D.id,
+            street: name,
+            streetZ: ln.lz,
+            x,
+            z: cz,
+            pw: PW,
+            pd: d,
+          });
+          if (land || toLet) {
+            const zone: Zone = {
+              id: "plot:" + id,
+              label: "",
+              x: this.ox + c.gate.x,
+              z: this.oz + c.gate.z,
+              r: 3.4,
+              scene: "out",
+            };
+            this.zones.push(zone);
+            this.plotFx.set(id, { zone });
+          }
+          num += 1;
+          built++;
+          here = true;
+        }
+        if (here) cells.push(x);
+      }
+      if (!cells.length) return;
+      // the tarred lane under the houses; it runs on to the cross road where it can
+      cells.sort((a, b) => a - b);
+      const runs: [number, number][] = [];
+      for (const x of cells) {
+        const last = runs[runs.length - 1];
+        if (last && x - last[1] <= STEP + 0.1) last[1] = x;
+        else runs.push([x, x]);
+      }
+      for (const run of runs) {
+        let x0 = run[0] - STEP / 2,
+          x1 = run[1] + STEP / 2;
+        if (x0 > 0 && x0 - 6 < STEP + 2 && this.boxFree(6, x0, ln.lz - 3, ln.lz + 3)) x0 = 6;
+        if (x1 < 0 && -6 - x1 < STEP + 2 && this.boxFree(x1, -6, ln.lz - 3, ln.lz + 3)) x1 = -6;
+        const len = x1 - x0,
+          cx = (x0 + x1) / 2;
+        const kb = new THREE.Mesh(groundGeo(len, 7, 2), kerb);
+        kb.position.set(cx, 0.025, ln.lz);
+        batch.addObject(kb);
+        const rd = new THREE.Mesh(groundGeo(len, 6, 4), asphalt);
+        rd.position.set(cx, 0.035, ln.lz);
+        batch.addObject(rd);
+        this.reserved.push({
+          x0: this.ox + x0,
+          x1: this.ox + x1,
+          z0: this.oz + ln.lz - 3.5,
+          z1: this.oz + ln.lz + 3.5,
+        });
+      }
+      const t = label(name, { size: 0.8, bg: "rgba(31,111,99,0.9)" });
+      t.position.set(cells[0] < 0 && cells[cells.length - 1] < 0 ? -16 : 16, 3.2, ln.lz - 4);
+      this.dg.add(t);
+    });
+  }
 
   /** Three plots in a row, free of everything, for the pitch and the sisters' corner. */
   private choosePlayPlots(
@@ -7724,6 +7902,8 @@ export class IlmCityEngine {
       kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken";
       floors?: number;
       by?: string;
+      /** while building: 1 foundation, 2 walls, 3 roof, 4 finishing */
+      stage?: number;
     },
   ) {
     const p = this.plots.find((q) => q.id === id);
@@ -7783,18 +7963,38 @@ export class IlmCityEngine {
           number: p.number,
           rnd: mulberry(p.number * 31 + p.district.length),
           floors: state.floors ?? 1,
+          width: p.pw,
+          depth: p.pd,
           style: houseStyleOf(districtById(p.district)),
         });
         for (const m of b.build()) g.add(m);
         if (state.kind === "building") {
-          // a site in progress: the walls stand, wrapped in bamboo scaffolding
-          g.scale.y = 0.55;
-          const sc = new THREE.Mesh(
-            new THREE.BoxGeometry(16, 7, 12),
-            new THREE.MeshStandardMaterial({ color: 0xb08a4a, wireframe: true }),
-          );
-          sc.position.set(p.x, 3.5 / 0.55, p.z + (turn === 0 ? -3 : 3));
-          g.add(sc);
+          // a site in progress: the foundation, then the walls, the roof and the finishing,
+          // with bamboo scaffolding, a heap of sand and stacks of blocks
+          const stage = state.stage ?? 2;
+          const sy = [0.08, 0.55, 0.85, 1][Math.min(3, Math.max(0, stage - 1))];
+          g.scale.y = sy;
+          const back = turn === 0 ? -3 : 3;
+          if (stage > 1) {
+            const sc = new THREE.Mesh(
+              new THREE.BoxGeometry(14, 7 * Math.min(1, sy + 0.1), 10),
+              new THREE.MeshStandardMaterial({ color: 0xb08a4a, wireframe: true }),
+            );
+            sc.position.set(p.x, (3.5 * Math.min(1, sy + 0.1)) / sy, p.z + back);
+            g.add(sc);
+          }
+          if (stage < 4) {
+            const heap = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.2, 10), mat(0xd9b77a));
+            heap.position.set(p.x + 5, 0.6 / sy, p.z - back * 1.6);
+            heap.scale.y = 1 / sy;
+            g.add(heap);
+            for (let k = 0; k < 3; k++) {
+              const blocks = box(1.2, 0.8, 0.8, 0xa8a49a, p.x - 5 + k * 1.4, 0, p.z - back * 1.6);
+              blocks.scale.y = 1 / sy;
+              blocks.position.y = 0.4 / sy;
+              g.add(blocks);
+            }
+          }
         }
         for (const cb of c.colliders)
           this.colliders.out.push({
@@ -7814,7 +8014,10 @@ export class IlmCityEngine {
   }
   /** Put every rentable house and land plot in its saved state. */
   initPlots(
-    states: Record<string, { kind: "rented" | "owned" | "building" | "built"; floors?: number }>,
+    states: Record<
+      string,
+      { kind: "rented" | "owned" | "building" | "built"; floors?: number; stage?: number }
+    >,
   ) {
     for (const id of this.plotFx.keys()) {
       const p = this.plots.find((q) => q.id === id)!;
