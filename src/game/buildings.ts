@@ -362,7 +362,59 @@ export const MAT = {
   pavement: () => M("pavement", () => std({ map: pavementTex() })),
   grass: () => M("grass", () => std({ map: grassTex() })),
   plaque: (t: string) => M("plq" + t, () => std({ map: plaqueTex(t), roughness: 0.4 })),
+  /** painted wooden boards */
+  siding: (c: number) => M("sd" + c, () => std({ color: c, map: sidingTex(), roughness: 0.8 })),
+  /** rows of clay roof tiles */
+  tiles: (c: number) => M("tl" + c, () => std({ color: c, map: tilesTex(), roughness: 0.7 })),
+  /** the glass of a sunroom */
+  sunroom: () =>
+    M("sun", () =>
+      std({
+        color: 0xcfe8f0,
+        transparent: true,
+        opacity: 0.35,
+        roughness: 0.1,
+        metalness: 0.2,
+        depthWrite: false,
+      }),
+    ),
 };
+/** Horizontal painted boards, 2 m per tile. */
+function sidingTex() {
+  return tex("siding", 128, 128, (c, w, h) => {
+    c.fillStyle = "#fff";
+    c.fillRect(0, 0, w, h);
+    noise(c, w, h, 1200, 236, 255);
+    for (let y = 0; y < h; y += 16) {
+      c.fillStyle = "rgba(0,0,0,0.16)";
+      c.fillRect(0, y + 13, w, 3);
+      c.fillStyle = "rgba(255,255,255,0.5)";
+      c.fillRect(0, y, w, 2);
+    }
+  });
+}
+/** Overlapping rounded clay tiles, 2 m per tile. */
+function tilesTex() {
+  return tex("tiles", 128, 128, (c, w, h) => {
+    c.fillStyle = "#fff";
+    c.fillRect(0, 0, w, h);
+    for (let row = 0; row < 8; row++) {
+      const y = row * 16;
+      const off = row % 2 ? 8 : 0;
+      for (let x = -16; x < w + 16; x += 16) {
+        const g = c.createLinearGradient(0, y, 0, y + 16);
+        g.addColorStop(0, "rgba(0,0,0,0.0)");
+        g.addColorStop(1, "rgba(0,0,0,0.28)");
+        c.fillStyle = g;
+        c.beginPath();
+        c.ellipse(x + off + 8, y + 8, 8, 9, 0, 0, Math.PI);
+        c.fill();
+      }
+      c.fillStyle = "rgba(0,0,0,0.22)";
+      c.fillRect(0, y + 15, w, 1);
+    }
+  });
+}
 
 /* ---------------- geometry with world-sized texture coordinates ---------------- */
 
@@ -500,6 +552,48 @@ const FRAMES = [0xb8322a, 0x2a56a8, 0xe0b52c, 0x1f6f63, 0x6a2f8a, 0xf4efe4];
 const GATES = [0x1d4d2e, 0x1d2f5a, 0x1a1a1a, 0x6a1f24, 0x2a5f7a];
 const ROOFS = [0x3f6fa8, 0x9a3a2a, 0x3d7a4a, 0x6a6f74, 0x8a5a2a];
 const FENCES = [0xf4f1ea, 0xe9e4d6, 0xdcd6c8];
+/** Warm painted boards for cottages, clay tile roofs, doors, flowers and leaves. */
+const COTTAGE_WALLS = [
+  0xd9895a, 0xf2e6cf, 0xb7cfae, 0xbcd3e3, 0xf0d78c, 0xe8a596, 0xf4f1ea, 0xc9a27a, 0xd9c2e0,
+];
+const TILE_ROOFS = [0xa8442f, 0x9a3a2a, 0x7a4a3a, 0x4f6f86, 0x3d6a52, 0xb0603a];
+const DOORS = [0x6b4226, 0x1f6f63, 0x2a4a7a, 0x8a2f3a, 0x4a3a2a];
+const FLOWERS = [0xe8445a, 0xf2c230, 0xffffff, 0xd66bd0, 0xff8a3d, 0x6b8be8, 0xff6f91];
+const LEAVES = [0x4f8f45, 0x5f9e3a, 0x3f7d3a, 0x6aa84f];
+
+/** A pitched roof: two tiled slopes from the eaves up to a ridge along x, with
+    triangular gable ends in the wall material. Its base sits at y. */
+function gable(
+  b: Batch,
+  w: number,
+  d: number,
+  h: number,
+  over: number,
+  roof: THREE.Material,
+  ends: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+) {
+  const run = d / 2 + over;
+  const L = Math.hypot(run, h);
+  const a = Math.atan2(h, run);
+  for (const s of [1, -1]) {
+    const g = boxGeo(w + over * 2, 0.16, L, 2);
+    g.rotateX(s * a);
+    b.add(g, roof, x, y + h / 2 - (over * h) / run / 2, z + (s * run) / 2);
+  }
+  const shape = new THREE.Shape();
+  shape.moveTo(-d / 2, 0);
+  shape.lineTo(d / 2, 0);
+  shape.lineTo(0, h * (d / 2 / run));
+  shape.closePath();
+  for (const s of [1, -1]) {
+    const g = new THREE.ShapeGeometry(shape);
+    g.rotateY((s * Math.PI) / 2);
+    b.add(g, ends, x + (s * w) / 2 - s * 0.02, y, z, 0, false);
+  }
+}
 
 /**
  * A walled compound with its front fence on z = +depth/2 (facing the street).
@@ -549,20 +643,37 @@ export function compound(
     });
   };
 
-  // compound floor
-  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  // a second dice for the new looks, so the old one keeps every plot the same
+  let seed = (o.number * 7919 + Math.round(o.x * 13 + o.z * 7)) >>> 0;
+  const r2 = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(a: T[]) => a[Math.floor(r2() * a.length)];
 
-  // fence: block wall with coping, and a gate between two pillars
-  const FH = 2.1,
+  // the yard: a lawn, with a stone path from the gate to the porch
+  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT2.lawn(), 0, 0.035, 0, 0, false);
+
+  // a low white wall with rails on top, and a gate between two pillars
+  const FH = 1.3,
     T = 0.24;
-  const fenceM = MAT.block(fence);
-  const cope = MAT.plain(0xf7f5ef);
+  const fenceM = MAT.plaster(fence);
+  const white = MAT.plain(0xf7f5ef);
   const gw = 4.4;
   const gx = (r() < 0.5 ? -1 : 1) * (PW / 2 - 4.5);
+  void gateC;
+  const railTop = (x0: number, x1: number, z: number) => {
+    b.box(x1 - x0, 0.1, 0.1, white, (x0 + x1) / 2, FH + 0.75, z);
+    for (let x = x0 + 0.4; x < x1 - 0.2; x += 1.2) b.box(0.08, 0.75, 0.08, white, x, FH, z);
+  };
   const seg = (x0: number, x1: number, z: number) => {
     if (x1 - x0 < 0.05) return;
     b.box(x1 - x0, FH, T, fenceM, (x0 + x1) / 2, 0, z, 0, 2);
-    b.box(x1 - x0 + 0.1, 0.12, T + 0.14, cope, (x0 + x1) / 2, FH, z);
+    b.box(x1 - x0 + 0.1, 0.12, T + 0.14, white, (x0 + x1) / 2, FH, z);
+    railTop(x0, x1, z);
     solid(x0, x1, z - T / 2, z + T / 2);
   };
   const front = PD / 2;
@@ -571,69 +682,132 @@ export function compound(
   seg(-PW / 2, PW / 2, -PD / 2);
   for (const sx of [-PW / 2, PW / 2]) {
     b.add(boxGeo(T, FH, PD, 2), fenceM, sx, FH / 2, 0, 0);
-    b.box(T + 0.14, 0.12, PD, cope, sx, FH, 0);
+    b.box(T + 0.14, 0.12, PD, white, sx, FH, 0);
     solid(sx - T / 2, sx + T / 2, -PD / 2, PD / 2);
   }
   for (const px of [gx - gw / 2 - 0.3, gx + gw / 2 + 0.3]) {
-    b.box(0.6, 2.5, 0.6, fenceM, px, 0, front, 0, 2);
-    b.box(0.75, 0.14, 0.75, cope, px, 2.5, front);
+    b.box(0.6, 2.3, 0.6, fenceM, px, 0, front, 0, 2);
+    b.box(0.75, 0.14, 0.75, white, px, 2.3, front);
+    b.add(new THREE.SphereGeometry(0.22, 10, 8), white, px, 2.6, front);
     solid(px - 0.3, px + 0.3, front - 0.3, front + 0.3);
   }
-  // gate leaves, closed with a small opening to walk through
-  b.add(boxGeo(gw * 0.5, 2.1, 0.07), MAT.gate(gateC), gx - gw * 0.25, 1.1, front - 0.05);
-  b.add(boxGeo(gw * 0.25, 2.1, 0.07), MAT.gate(gateC), gx + gw * 0.38, 1.1, front - 0.05);
+  // a painted gate, partly open
+  b.add(boxGeo(gw * 0.5, 1.6, 0.07), MAT.gate(0xf4efe4), gx - gw * 0.25, 0.85, front - 0.05);
+  b.add(boxGeo(gw * 0.25, 1.6, 0.07), MAT.gate(0xf4efe4), gx + gw * 0.38, 0.85, front - 0.05);
   solid(gx - gw / 2, gx, front - 0.2, front + 0.2);
-  // house number on the pillar
-  b.plane(0.5, 0.25, MAT.plaque("No. " + o.number), gx + gw / 2 + 0.3, 1.9, front + 0.31);
+  b.plane(0.5, 0.25, MAT.plaque("No. " + o.number), gx + gw / 2 + 0.3, 1.85, front + 0.31);
 
-  // the building, at the back of the compound
+  // the house, at the back of the yard, raised on a plinth with a porch
   const BW = Math.min(PW - 4, 11 + Math.floor(r() * 4)),
     BD = Math.min(PD - 9, 8 + Math.floor(r() * 3));
   const bz = -PD / 2 + 1.5 + BD / 2;
   const FHt = 3.2;
-  const wallM = MAT.plaster(wall);
-  const trim = MAT.plain(0xf7f5ef);
-  b.box(BW + 0.3, 0.45, BD + 0.3, MAT.plain(0x8a8174), 0, 0, bz); // plinth
+  const P0 = 0.6;
+  const cottage = !flat;
+  const wallC = cottage ? pick(COTTAGE_WALLS) : wall;
+  const wallM = cottage ? MAT.siding(wallC) : MAT.plaster(wall);
+  const trim = white;
+  const winM = MAT.window(cottage ? 0xf4efe4 : frame);
+  b.box(BW + 0.4, P0, BD + 0.4, MAT.plain(0x8a7a66), 0, 0, bz); // plinth
+  const flowerBox = (x: number, y: number, z: number, w: number) => {
+    b.box(w, 0.32, 0.38, MAT.plain(0x7a5234), x, y, z);
+    for (let k = 0; k < 6; k++)
+      b.add(
+        new THREE.IcosahedronGeometry(0.16, 0),
+        MAT.plain(pick(FLOWERS)),
+        x - w / 2 + 0.2 + (k * (w - 0.4)) / 5,
+        y + 0.42 + r2() * 0.08,
+        z + (r2() - 0.5) * 0.15,
+      );
+    b.add(new THREE.BoxGeometry(w - 0.1, 0.12, 0.3), MAT.plain(0x3f7d3a), x, y + 0.36, z);
+  };
   for (let f = 0; f < floors; f++) {
-    const y = 0.45 + f * FHt;
+    const y = P0 + f * FHt;
     b.box(BW, FHt - 0.25, BD, wallM, 0, y, bz);
-    b.box(BW + 0.25, 0.25, BD + 0.25, trim, 0, y + FHt - 0.25, bz); // floor slab edge
-    // windows on the front and sides
-    const n = Math.max(2, Math.floor(BW / 3));
+    b.box(BW + 0.25, 0.25, BD + 0.25, trim, 0, y + FHt - 0.25, bz); // floor edge
+    // corner boards
+    for (const cx of [-BW / 2, BW / 2])
+      for (const cz of [-BD / 2, BD / 2]) b.box(0.22, FHt - 0.25, 0.22, trim, cx, y, bz + cz);
+    // big framed windows on the front and back
+    const n = Math.max(2, Math.floor(BW / 3.2));
     for (let i = 0; i < n; i++) {
       const wx = -BW / 2 + (BW / n) * (i + 0.5);
-      if (f === 0 && Math.abs(wx) < 1.2) continue; // the front door
-      b.plane(1.3, 1.5, MAT.window(frame), wx, y + 1.55, bz + BD / 2 + 0.02);
-      b.box(1.5, 0.08, 0.18, trim, wx, y + 0.76, bz + BD / 2 + 0.05);
-      b.plane(1.3, 1.5, MAT.window(frame), wx, y + 1.55, bz - BD / 2 - 0.02, Math.PI);
+      if (f === 0 && Math.abs(wx) < 1.6) continue; // the front door
+      b.plane(1.6, 1.8, winM, wx, y + 1.5, bz + BD / 2 + 0.02);
+      b.box(1.85, 0.1, 0.16, trim, wx, y + 0.56, bz + BD / 2 + 0.06);
+      b.box(1.85, 0.1, 0.16, trim, wx, y + 2.42, bz + BD / 2 + 0.06);
+      if (cottage && f === 0) flowerBox(wx, y + 0.18, bz + BD / 2 + 0.3, 1.7);
+      b.plane(1.6, 1.8, winM, wx, y + 1.5, bz - BD / 2 - 0.02, Math.PI);
     }
     for (const s of [1, -1]) {
-      b.plane(1.2, 1.4, MAT.window(frame), s * (BW / 2 + 0.02), y + 1.55, bz, (s * Math.PI) / 2);
-      // a split air-conditioner on the side wall
+      b.plane(1.4, 1.6, winM, s * (BW / 2 + 0.02), y + 1.5, bz, (s * Math.PI) / 2);
       if ((f + (s > 0 ? 1 : 0)) % 2 === 0 && r() < 0.6)
         b.add(
           boxGeo(0.35, 0.55, 0.8),
           MAT.grille(),
           s * (BW / 2 + 0.2),
           y + 1.0,
-          bz + BD / 4,
+          bz - BD / 4,
           Math.PI / 2,
         );
     }
-    // balcony on the upper floors
+    // a balcony with white rails on the upper floors
     if (f > 0) {
       b.box(BW * 0.55, 0.18, 1.3, trim, 0, y - 0.1, bz + BD / 2 + 0.65);
       b.plane(BW * 0.55, 1.0, MAT.rail(), 0, y + 0.55, bz + BD / 2 + 1.3);
       for (const s of [1, -1])
         b.plane(1.3, 1.0, MAT.rail(), s * BW * 0.275, y + 0.55, bz + BD / 2 + 0.65, Math.PI / 2);
+      if (cottage) flowerBox(0, y + 0.08, bz + BD / 2 + 1.42, BW * 0.5);
     }
   }
-  const top = 0.45 + floors * FHt;
-  // front door with a canopy and steps
-  b.plane(1.1, 2.3, MAT.door(0x6b4226), 0, 0.45 + 1.15, bz + BD / 2 + 0.02);
-  b.box(2.2, 0.15, 1.2, trim, 0, 2.95, bz + BD / 2 + 0.6);
-  b.box(2.0, 0.22, 0.9, MAT.plain(0x9a9184), 0, 0, bz + BD / 2 + 0.45);
+  const top = P0 + floors * FHt;
+  // the front door, a porch on posts with its own little roof, and wide steps
+  const dz = bz + BD / 2;
+  b.plane(1.2, 2.3, MAT.door(pick(DOORS)), 0, P0 + 1.15, dz + 0.02);
+  const deck = MAT.plain(0xc89a6a, 0.7);
+  b.box(4.4, P0, 2.4, deck, 0, 0, dz + 1.2);
+  b.box(2.6, P0 * 0.66, 0.6, deck, 0, 0, dz + 2.7);
+  b.box(2.6, P0 * 0.33, 0.6, deck, 0, 0, dz + 3.3);
+  for (const s of [-1, 1]) {
+    // posts and rails at the sides of the porch
+    b.box(0.18, 2.5, 0.18, trim, s * 2.05, P0, dz + 2.25);
+    b.box(0.08, 0.08, 2.3, trim, s * 2.05, P0 + 0.95, dz + 1.15);
+    for (let k = 0; k < 4; k++) b.box(0.06, 0.95, 0.06, trim, s * 2.05, P0, dz + 0.3 + k * 0.6);
+  }
+  if (cottage) {
+    gable(b, 4.8, 2.9, 0.9, 0.25, MAT.tiles(pick(TILE_ROOFS)), trim, 0, P0 + 2.5, dz + 1.3);
+  } else b.box(4.8, 0.18, 2.9, trim, 0, P0 + 2.5, dz + 1.3);
   solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2);
+  solid(-2.2, -1.3, dz, dz + 2.4);
+  solid(1.3, 2.2, dz, dz + 2.4);
+
+  // a glass sunroom on one side, full of plants
+  if (cottage && PW - BW >= 7 && r2() < 0.5) {
+    const s = r2() < 0.5 ? -1 : 1;
+    const sw = Math.min(3.4, (PW - BW) / 2 - 0.6),
+      sd = BD * 0.7,
+      sx = s * (BW / 2 + sw / 2),
+      sz = bz + BD / 2 - sd / 2;
+    b.box(sw, 0.5, sd, MAT.plain(0x8a7a66), sx, 0, sz);
+    b.add(boxGeo(sw - 0.1, 2.6, sd - 0.1), MAT.sunroom(), sx, 0.5 + 1.3, sz);
+    for (const [ex, ez] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ])
+      b.box(0.12, 2.6, 0.12, trim, sx + (ex * sw) / 2, 0.5, sz + (ez * sd) / 2);
+    b.box(sw + 0.2, 0.12, sd + 0.2, trim, sx, 3.1, sz);
+    for (let k = 0; k < 3; k++)
+      b.add(
+        new THREE.IcosahedronGeometry(0.45, 0),
+        MAT.plain(0x4f8f45),
+        sx + (r2() - 0.5) * (sw - 1),
+        1.0,
+        sz + (r2() - 0.5) * (sd - 1),
+      );
+    solid(sx - sw / 2, sx + sw / 2, sz - sd / 2, sz + sd / 2);
+  }
 
   // roof
   if (flat) {
@@ -663,7 +837,18 @@ export function compound(
       top + 2.05,
       tz,
     );
-    // satellite dish
+    // a roof garden in planters
+    for (let k = 0; k < 3; k++) {
+      const px = -BW / 2 + 1.5 + k * 1.6;
+      b.box(1.2, 0.5, 0.6, MAT.plain(0x7a5234), px, top, bz + BD / 2 - 0.8);
+      b.add(
+        new THREE.IcosahedronGeometry(0.45, 0),
+        MAT.plain(0x4f8f45),
+        px,
+        top + 0.8,
+        bz + BD / 2 - 0.8,
+      );
+    }
     b.add(
       new THREE.SphereGeometry(0.45, 12, 6, 0, Math.PI * 2, 0, 0.9),
       MAT.plain(0xe9e9e4, 0.4),
@@ -673,17 +858,14 @@ export function compound(
       0,
     );
   } else {
-    // long-span roof: a low hipped roof of corrugated sheets
-    const roof = new THREE.ConeGeometry(1, 1, 4, 1, true);
-    roof.rotateY(Math.PI / 4);
-    roof.scale((BW + 1.4) / Math.SQRT2, 2.4, (BD + 1.4) / Math.SQRT2);
-    const uv = roof.attributes.uv as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 8, uv.getY(i) * 3);
-    b.add(roof, MAT.zinc(roofC), 0, top + 1.2, bz);
-    b.box(BW + 1.4, 0.2, BD + 1.4, MAT.plain(0xf2efe6), 0, top - 0.1, bz); // fascia board
+    // a pitched roof of clay tiles, with gable ends
+    const roofC = pick(TILE_ROOFS);
+    gable(b, BW + 1.0, BD + 1.2, 2.6, 0.3, MAT.tiles(roofC), wallM, 0, top, bz);
+    b.box(BW + 0.5, 0.2, BD + 0.5, trim, 0, top - 0.1, bz); // fascia board
+    void roofC;
   }
 
-  // a generator and plants in the front yard
+  // the garden: a generator by the wall, flower beds along the fence, a shady tree
   if (r() < 0.5)
     b.box(
       1.1,
@@ -692,24 +874,49 @@ export function compound(
       MAT.plain(r() < 0.5 ? 0xd9a520 : 0x2f6fb0, 0.6),
       -BW / 2 + 1,
       0,
-      bz + BD / 2 + 2.5,
+      bz - BD / 2 - 1.2 > -PD / 2 + 0.5 ? bz - BD / 2 - 1.2 : bz + BD / 2 + 2.5,
     );
   for (let i = 0; i < 3; i++) {
     const px = -PW / 2 + 1.2 + r() * (PW - 2.4);
+    const c = r() < 0.5 ? 0x3f7d3a : 0x4f8f45;
+    if (Math.abs(px - gx) < gw / 2 + 0.6) continue;
+    b.add(new THREE.IcosahedronGeometry(0.55, 0), MAT.plain(c), px, 0.45, front - 0.9);
+  }
+  // flower beds along the inside of the front wall
+  for (let x = -PW / 2 + 0.8; x < PW / 2 - 0.6; x += 0.55) {
+    if (Math.abs(x - gx) < gw / 2 + 0.5) continue;
     b.add(
-      new THREE.CylinderGeometry(0.3, 0.22, 0.5, 10),
-      MAT.plain(0xb0603a),
-      px,
-      0.25,
-      front - 0.9,
+      new THREE.IcosahedronGeometry(0.2 + r2() * 0.08, 0),
+      MAT.plain(r2() < 0.35 ? 0x3f7d3a : pick(FLOWERS)),
+      x,
+      0.25 + r2() * 0.15,
+      front - 0.45 - r2() * 0.3,
     );
-    b.add(
-      new THREE.IcosahedronGeometry(0.5, 0),
-      MAT.plain(r() < 0.5 ? 0x3f7d3a : 0x4f8f45),
-      px,
-      0.85,
-      front - 0.9,
-    );
+  }
+  // stepping stones from the gate to the porch
+  const pathEnd = dz + 3.6;
+  for (let k = 0; k < 6; k++) {
+    const t = k / 5;
+    const px = gx * (1 - t),
+      pz = front - 1 + (pathEnd - (front - 1)) * t;
+    b.add(new THREE.CylinderGeometry(0.42, 0.42, 0.06, 8), MAT.plain(0xcfc6b4), px, 0.06, pz);
+  }
+  // a round shady tree in a back corner, when there is room
+  {
+    const tx = (gx > 0 ? -1 : 1) * (PW / 2 - 1.6),
+      tz = bz + BD / 2 + 1.6;
+    if (Math.abs(tx) - BW / 2 > 1.6) {
+      b.add(new THREE.CylinderGeometry(0.18, 0.26, 2.6, 8), MAT.plain(0x7a5a3a), tx, 1.3, tz);
+      b.add(new THREE.IcosahedronGeometry(1.7, 1), MAT.plain(pick(LEAVES)), tx, 3.4, tz);
+      b.add(
+        new THREE.IcosahedronGeometry(1.2, 1),
+        MAT.plain(pick(LEAVES)),
+        tx + 0.7,
+        4.2,
+        tz - 0.3,
+      );
+      solid(tx - 0.3, tx + 0.3, tz - 0.3, tz + 0.3);
+    }
   }
 
   b.base.identity();

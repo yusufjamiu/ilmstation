@@ -480,10 +480,22 @@ function tree(x: number, z: number, s = 1) {
   const t = cyl(0.18 * s, 0.25 * s, 1.6 * s, 0x7a5a3a, 6);
   t.position.y = 0.8 * s;
   g.add(t);
-  const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4 * s, 0), mat(0x4f8a3f));
-  c.position.y = 2.4 * s;
-  c.castShadow = true;
-  g.add(c);
+  // a full, round crown of three leafy clumps
+  const shades = [0x4f8a3f, 0x5f9e3a, 0x3f7d3a];
+  const seed = Math.abs(Math.round(x * 7 + z * 13));
+  for (const [dx, dy, dz, r] of [
+    [0, 2.5, 0, 1.45],
+    [0.75, 2.15, 0.35, 1.0],
+    [-0.65, 2.25, -0.4, 1.05],
+  ]) {
+    const c = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(r * s, 1),
+      mat(shades[(seed + Math.round(dx * 10)) % 3]),
+    );
+    c.position.set(dx * s, dy * s, dz * s);
+    c.castShadow = true;
+    g.add(c);
+  }
   g.position.set(x, 0, z);
   return g;
 }
