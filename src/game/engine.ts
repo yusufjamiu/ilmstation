@@ -646,12 +646,15 @@ export class IlmCityEngine {
     this.renderer.domElement.style.touchAction = "none";
     host.appendChild(this.renderer.domElement);
     // the phone ran out of graphics memory: go to smooth graphics so it doesn't happen again
+    // the graphics card gave up: each time, ask less of it so it settles instead of looping
     this.renderer.domElement.addEventListener("webglcontextlost", () => {
-      if (this.low) return;
+      this.lost++;
       setTimeout(() => {
         if (this.disposed) return;
-        this.setQuality("low", true);
-        this.onSlowPhone?.();
+        if (!this.low) {
+          this.setQuality("low", true);
+          this.onSlowPhone?.();
+        } else this.lite();
       }, 0);
     });
 
@@ -1908,16 +1911,22 @@ export class IlmCityEngine {
    *  so phones don't run out of graphics memory as you travel. */
   private freeArea(a: { g: THREE.Group; onGpu?: boolean }) {
     a.onGpu = false;
-    const keep = new Set<THREE.BufferGeometry>();
+    const keep = new Set<object>();
+    const maps = (m: THREE.Mesh) =>
+      (Array.isArray(m.material) ? m.material : m.material ? [m.material] : []).map(
+        (x) => (x as THREE.MeshBasicMaterial).map,
+      );
     for (const b of this.areaGroups)
       if (b.g.visible)
         b.g.traverse((o) => {
           const m = o as THREE.Mesh;
           if (m.geometry) keep.add(m.geometry);
+          if (m.isMesh) for (const t of maps(m)) if (t) keep.add(t);
         });
     a.g.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry && !keep.has(m.geometry)) m.geometry.dispose();
+      if (m.isMesh) for (const t of maps(m)) if (t && !keep.has(t)) t.dispose();
     });
   }
   /** Every compound in the city (for rent, sale and visits). */
@@ -6591,6 +6600,7 @@ export class IlmCityEngine {
     this.dg.add(g);
   }
 
+  private emptyBoard = new Map<string, THREE.Material>();
   private boards = new Map<string, { b: Billboard; base?: Billboard["ad"]; paint: () => void }>();
   /** Show players' approved adverts on their billboards (the rest keep their usual design). */
   setAds(ads: Record<string, NonNullable<Billboard["ad"]>>) {
@@ -6653,7 +6663,20 @@ export class IlmCityEngine {
       c.font = `500 ${Math.round(H * 0.085)}px "Work Sans", system-ui, sans-serif`;
       c.fillText(ad.line, W * 0.06, H * 0.76);
     };
-    const { mesh, tex, canvas } = canvasPlane(PW, PW * 0.4, draw, 1000);
+    // boards without an advert all share one picture per town (a picture each would
+    // fill a phone's graphics memory); a board with an advert gets its own
+    const town = cityOf(districtById(b.district.replace(/^road:/, "")));
+    const key = town === "ilorin" ? "ilorin" : "other";
+    let shared = this.emptyBoard.get(key);
+    if (!shared) {
+      const keep = b.ad;
+      b.ad = undefined;
+      shared = canvasPlane(PW, PW * 0.4, draw, 640).mesh.material as THREE.Material;
+      b.ad = keep;
+      this.emptyBoard.set(key, shared);
+    }
+    const emptyMat = shared;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(PW, PW * 0.4), emptyMat);
     mesh.position.set(0, 3.8 + 1.95, -0.3);
     mesh.userData.tap = "billboard:" + b.id;
     faces[0].add(mesh);
@@ -6662,11 +6685,25 @@ export class IlmCityEngine {
     twin.userData.tap = mesh.userData.tap;
     faces[1].add(twin);
     this.tappables.push(twin);
+    let own: THREE.MeshBasicMaterial | null = null;
     const paint = () => {
+      if (!b.ad) {
+        own?.map?.dispose();
+        own?.dispose();
+        own = null;
+        mesh.material = twin.material = emptyMat;
+        return;
+      }
+      if (!own) {
+        own = canvasPlane(PW, PW * 0.4, draw, 640).mesh.material as THREE.MeshBasicMaterial;
+        mesh.material = twin.material = own;
+      }
+      const tex = own.map as THREE.CanvasTexture;
+      const canvas = tex.image as HTMLCanvasElement;
       const c = canvas.getContext("2d")!;
       draw(c, canvas.width, canvas.height);
       tex.needsUpdate = true;
-      if (b.ad?.imageUrl) {
+      if (b.ad.imageUrl) {
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
@@ -6676,7 +6713,7 @@ export class IlmCityEngine {
         img.src = b.ad.imageUrl;
       }
     };
-    if (b.ad?.imageUrl) paint();
+    if (b.ad) paint();
     this.boards.set(b.id, { b, base: b.ad, paint });
     this.tappables.push(mesh);
     this.dg.add(g);
@@ -7889,6 +7926,19 @@ export class IlmCityEngine {
   /** called when the game switches itself to smooth graphics on a slow phone */
   onSlowPhone: (() => void) | null = null;
   private fps = { t: 0, frames: 0, checked: false, auto: true };
+  private lost = 0;
+  /** After repeated graphics crashes: no shadows, plain pixels and a short view. */
+  private lite() {
+    this.renderer.shadowMap.enabled = false;
+    this.sun.castShadow = false;
+    this.renderer.setPixelRatio(1);
+    this.viewDist = this.lost > 2 ? 140 : 180;
+    this.camera.far = 320;
+    this.camera.updateProjectionMatrix();
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = 50;
+    fog.far = this.viewDist - 10;
+  }
   /** Smooth: fewer pixels, no shadows, a shorter view. Beautiful: everything. */
   setQuality(q: "low" | "high", auto = false) {
     this.low = q === "low";
@@ -7929,9 +7979,15 @@ export class IlmCityEngine {
         }
       }
     }
-    this.update(dt, now / 1000);
-    this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
+    this.update(dt, now / 1000);
+    // while the graphics card is resetting there is nothing to draw on
+    if (this.renderer.getContext().isContextLost()) return;
+    try {
+      this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      console.warn("IlmCity: a frame could not be drawn", err);
+    }
   };
 
   private moveVec() {
