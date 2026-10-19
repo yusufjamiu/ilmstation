@@ -78,6 +78,8 @@ export type EngineEvents = {
   onPlace: (name: string) => void;
   /** The arrival drive into a new area started (true) or finished (false). */
   onCinematic?: (on: boolean) => void;
+  /** an area of another city has just been built (its plots and shops need painting) */
+  onAreaBuilt?: (id: string) => void;
   onRide?: (info: { next: string; stopping: boolean; fast: boolean; kmh: number } | null) => void;
 };
 
@@ -661,6 +663,7 @@ export class IlmCityEngine {
 
     this.buildCar();
     this.buildInteriors();
+    this.startId = start?.district ?? "lekki";
     this.buildWorld();
     this.buildTraffic();
     this.district = districtById(start?.district ?? "lekki");
@@ -691,6 +694,8 @@ export class IlmCityEngine {
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKeyUp);
     this.raf = requestAnimationFrame(this.loop);
+    // once you are in and playing, quietly build the other cities
+    setTimeout(() => this.buildInBackground(), 2500);
   }
 
   /* ---------------- public API ---------------- */
@@ -755,6 +760,7 @@ export class IlmCityEngine {
     this.player.visible = true;
   }
   dispose() {
+    this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.resizeObs.disconnect();
     window.removeEventListener("keydown", this.onKey);
@@ -785,14 +791,62 @@ export class IlmCityEngine {
   }
 
   /** Builds one area into its own group at its place on the Lagos map. */
+  /** Areas not built yet (in other cities), with the empty group waiting for them. */
+  private placeholders = new Map<string, THREE.Group>();
+  private startId = "lekki";
+  /** Build the areas of a city now, if they are still waiting. */
+  ensureCity(city: string) {
+    for (const id of [...this.placeholders.keys()])
+      if (cityOf(districtById(id)) === city) this.buildLater(id);
+  }
+  /** Build one waiting area (keeping the engine's building state as it was). */
+  private buildLater(id: string) {
+    if (!this.placeholders.has(id)) return;
+    const keep = { dg: this.dg, ox: this.ox, oz: this.oz, batch: this.curBatch };
+    this.buildDistrict(id);
+    this.dg = keep.dg;
+    this.ox = keep.ox;
+    this.oz = keep.oz;
+    this.curBatch = keep.batch;
+    this.applyLight();
+    this.ev.onAreaBuilt?.(id);
+  }
+  /** While you play, build the other cities one area at a time. */
+  private buildInBackground() {
+    if (this.disposed) return;
+    // the nearest waiting area to you first
+    const p = this.player.position;
+    const next = [...this.placeholders.keys()].sort((a, b) => {
+      const A = districtById(a).origin,
+        B = districtById(b).origin;
+      return Math.hypot(A.x - p.x, A.z - p.z) - Math.hypot(B.x - p.x, B.z - p.z);
+    })[0];
+    if (!next) return;
+    setTimeout(
+      () => {
+        if (this.disposed) return;
+        // not while travelling or in a cut-scene: wait for a calm moment
+        if (!this.cine) this.buildLater(next);
+        this.buildInBackground();
+      },
+      this.cine ? 1500 : 400,
+    );
+  }
+  private disposed = false;
   private buildDistrict(id: string) {
     const D = districtById(id);
     this.ox = D.origin.x;
     this.oz = D.origin.z;
-    this.dg = new THREE.Group();
-    this.dg.position.set(D.origin.x, 0, D.origin.z);
-    this.scene.add(this.dg);
-    this.areaGroups.push({ g: this.dg, x: D.origin.x, z: D.origin.z });
+    const waiting = this.placeholders.get(id);
+    if (waiting) {
+      this.placeholders.delete(id);
+      this.dg = waiting;
+    } else {
+      this.dg = new THREE.Group();
+      this.dg.position.set(D.origin.x, 0, D.origin.z);
+      this.scene.add(this.dg);
+      this.areaGroups.push({ g: this.dg, x: D.origin.x, z: D.origin.z });
+    }
     const side = D.origin.x > centerOf(D).x ? -1 : 1; // the end of the main street facing the junction
     this.reserved.push(
       { x0: this.ox - 84, x1: this.ox - 60, z0: this.oz + 8, z1: this.oz + 22 },
@@ -953,9 +1007,9 @@ export class IlmCityEngine {
             // throwaway batch so every later plot keeps the same number and look as before
             const turn0 = north ? 0 : Math.PI;
             const ghost = shops
-              ? shopRow(new Batch(), { x, z: cz, turn: turn0, rnd }).colliders
+              ? shopRow(new Batch(true), { x, z: cz, turn: turn0, rnd }).colliders
               : !land
-                ? compound(new Batch(), {
+                ? compound(new Batch(true), {
                     x,
                     z: cz,
                     turn: turn0,
@@ -1349,7 +1403,24 @@ export class IlmCityEngine {
     }
     this.colliders.out.push({ x0: 420, x1: 1200, z0: -1900, z1: -1612 });
 
-    DISTRICTS.forEach((d) => this.buildDistrict(d.id));
+    // only the city you start in is built now; the other cities are built a little at a
+    // time once you are playing (or at once, if you travel there first)
+    const S0 = districtById(this.startId);
+    const startCity = cityOf(S0);
+    for (const d of DISTRICTS) {
+      // the area you start in and the areas close around it are built before you see anything
+      const near =
+        cityOf(d) === startCity &&
+        Math.hypot(d.origin.x - S0.origin.x, d.origin.z - S0.origin.z) < 520;
+      if (near) this.buildDistrict(d.id);
+      else {
+        const g = new THREE.Group();
+        g.position.set(d.origin.x, 0, d.origin.z);
+        this.scene.add(g);
+        this.areaGroups.push({ g, x: d.origin.x, z: d.origin.z });
+        this.placeholders.set(d.id, g);
+      }
+    }
 
     // a roundabout at the heart of each city
     for (const [cid, c] of Object.entries(CITY_CENTER)) {
@@ -5514,6 +5585,8 @@ export class IlmCityEngine {
       under the area's welcome gate and along the main street. */
   /** Arrive straight at a place (off a plane): outside, standing at its zone. */
   arriveAt(zoneId: string) {
+    if (!this.zones.some((q) => q.id === zoneId))
+      for (const id of [...this.placeholders.keys()]) this.buildLater(id);
     const z = this.zones.find((q) => q.id === zoneId);
     if (!z) return false;
     const D = this.areaAt(z.x, z.z);
@@ -5556,6 +5629,7 @@ export class IlmCityEngine {
   }
   travel(id: string, byCar: boolean) {
     const D = districtById(id);
+    this.ensureCity(cityOf(D));
     this.where = "out";
     this.district = D;
     this.driving = false;

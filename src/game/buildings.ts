@@ -464,6 +464,9 @@ export function groundGeo(w: number, d: number, tile = 4) {
 /* ---------------- a builder that merges everything at the end ---------------- */
 
 export class Batch {
+  /** A dry batch throws everything away: for working out a layout (and rolling the same
+      dice) without the cost of building any geometry. */
+  constructor(readonly dry = false) {}
   private parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
   private noShadow = new Set<THREE.Material>();
   private m = new THREE.Matrix4();
@@ -472,6 +475,7 @@ export class Batch {
   base = new THREE.Matrix4();
 
   add(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, ry = 0, shadow = true) {
+    if (this.dry) return;
     const g = geo.index ? geo.toNonIndexed() : geo.clone();
     if (!g.attributes.uv) {
       g.setAttribute(
@@ -490,6 +494,7 @@ export class Batch {
   }
   /** Merge a ready-made object (its meshes keep their materials). */
   addObject(obj: THREE.Object3D) {
+    if (this.dry) return;
     obj.updateMatrixWorld(true);
     obj.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -523,10 +528,12 @@ export class Batch {
     ry = 0,
     tile = 4,
   ) {
+    if (this.dry) return;
     this.add(boxGeo(w, h, d, tile), mat, x, y + h / 2, z, ry);
   }
   /** An upright plane facing +z (before `ry`). */
   plane(w: number, h: number, mat: THREE.Material, x: number, y: number, z: number, ry = 0) {
+    if (this.dry) return;
     this.add(new THREE.PlaneGeometry(w, h), mat, x, y, z, ry, false);
   }
   build(): THREE.Mesh[] {
@@ -634,7 +641,7 @@ export function compound(
   if (o.style && o.style !== "cottage") {
     // roll the same dice as the cottage would, so every plot keeps its number and kind,
     // then build the area's own kind of house on the same plot with the same gate
-    const ref = compound(new Batch(), { ...o, style: undefined });
+    const ref = compound(new Batch(true), { ...o, style: undefined });
     return styledHouse(b, o, ref, o.style);
   }
   const r = o.rnd;
@@ -1479,7 +1486,7 @@ export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn:
       const fruit = MAT.plain(PRODUCE[(k + c) % PRODUCE.length], 0.6);
       for (let f = 0; f < 6; f++)
         b.add(
-          new THREE.IcosahedronGeometry(0.12, 1),
+          new THREE.IcosahedronGeometry(0.12, 0),
           fruit,
           bx - 0.4 + (f % 3) * 0.4,
           1.32 + Math.floor(f / 3) * 0.08,
@@ -1503,9 +1510,9 @@ export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn:
     );
     b.add(groundGeo(SW, SD, 2), MAT.plain(0xa89c88), cx, 0.04, 0, 0, false);
     // string lights from this stall to the next
-    for (let t = 0; t <= 6; t++) {
-      const lx = cx + SW / 2 - 0.2 + (t / 6) * 0.9 + 0.05;
-      const sag = Math.sin((t / 6) * Math.PI) * 0.25;
+    for (let t = 0; t <= 3; t++) {
+      const lx = cx + SW / 2 - 0.2 + (t / 3) * 0.9 + 0.05;
+      const sag = Math.sin((t / 3) * Math.PI) * 0.25;
       b.add(
         new THREE.SphereGeometry(0.07, 6, 4),
         bulb,
@@ -1516,11 +1523,11 @@ export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn:
         false,
       );
     }
-    for (let t = 0; t < 8; t++)
+    for (let t = 0; t < 5; t++)
       b.add(
         new THREE.SphereGeometry(0.07, 6, 4),
         bulb,
-        cx - SW / 2 + 0.3 + (t * (SW - 0.6)) / 7,
+        cx - SW / 2 + 0.3 + (t * (SW - 0.6)) / 4,
         2.62,
         SD / 2 + 0.55,
         0,
@@ -2105,7 +2112,7 @@ function hipRoof(
 export function datePalmInto(b: Batch, x: number, z: number, s = 1) {
   const H = 7 * s;
   b.add(new THREE.CylinderGeometry(0.22 * s, 0.32 * s, H, 7), MAT.plain(0x8a6a44), x, H / 2, z);
-  for (let y = 1; y < H; y += 0.6 * s)
+  for (let y = 1; y < H; y += 1.2 * s)
     b.add(
       new THREE.CylinderGeometry(0.34 * s, 0.34 * s, 0.12, 7),
       MAT.plain(0x7a5a36),

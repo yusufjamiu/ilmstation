@@ -5790,6 +5790,7 @@ function CityGame({
   );
 
   /* ---------- engine lifecycle ---------- */
+  const areaBuiltRef = useRef(() => {});
   const [peopleReady, setPeopleReady] = useState(false);
   /** the first picture of the city is on screen: until then only the loading screen shows */
   const [shown, setShown] = useState(false);
@@ -5814,6 +5815,8 @@ function CityGame({
           onCinematic: (on) => {
             if (!on) setArriving(null);
           },
+          // an area of another city was just built: put its plots, shops and adverts right
+          onAreaBuilt: () => areaBuiltRef.current(),
         },
         {
           district: saveRef.current.district,
@@ -5897,6 +5900,18 @@ function CityGame({
       }
       e.initPlots(st);
       for (const sid of e.shopIds()) paintShop(e, sid);
+      areaBuiltRef.current = () => {
+        const now: typeof st = {};
+        for (const [pid, o] of Object.entries(saveRef.current.plots ?? {})) {
+          const k = plotStateFn(o);
+          if (k) now[pid] = k;
+        }
+        e.initPlots(now);
+        for (const [pid, by] of takenRef.current)
+          if (!saveRef.current.plots?.[pid]) e.setPlot(pid, { kind: "taken", by });
+        for (const sid of e.shopIds()) paintShop(e, sid);
+        e.setAds(adsRef.current);
+      };
     }
     const iv = setInterval(() => {
       // prayer times follow the city you are in
