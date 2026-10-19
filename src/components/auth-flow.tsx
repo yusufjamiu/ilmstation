@@ -440,7 +440,7 @@ function WelcomeStep({ name, zone, interests, score, level }: { name: string; zo
       ["Interests", `${interests.length} topics`],
     ].map(([k, v]) => <div key={k} className="border-2 border-foreground bg-background p-3 text-foreground"><dt className="text-[10px] font-bold uppercase text-muted-foreground">{k}</dt><dd className="mt-0.5 font-semibold">{v}</dd></div>)}</dl>
     {cityReturn() ? (
-      <Button asChild size="lg" className="mt-8 w-full bg-foreground text-background sm:w-auto"><a href="/city" onClick={() => backToCity()}>Back to IlmWorld <ArrowRight /></a></Button>
+      <Button asChild size="lg" className="mt-8 w-full bg-foreground text-background sm:w-auto"><a href="/world" onClick={() => backToCity()}>Back to IlmWorld <ArrowRight /></a></Button>
     ) : (
       <Button asChild size="lg" className="mt-8 w-full bg-foreground text-background sm:w-auto"><Link to="/app">Start my first quest <ArrowRight /></Link></Button>
     )}
@@ -462,6 +462,6 @@ function backToCity() {
   } catch {
     /* storage blocked */
   }
-  window.location.href = "/city";
+  window.location.href = "/world";
   return true;
 }

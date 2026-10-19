@@ -541,7 +541,7 @@ function useCityAuth(): Who {
       }
     }
     const guest = { uid: null, firstName: "", female: false, adult: false };
-    const t = setTimeout(() => finish(guest), 4000);
+    const t = setTimeout(() => finish(guest), 12000);
     (async () => {
       try {
         const { auth, db } = await import("@/lib/firebase");
@@ -595,6 +595,9 @@ export default function IlmCityGame() {
         </div>
       </div>
     );
+  // you need an IlmStation account to play: your money and progress live in your account
+  if (!uid && (!import.meta.env.DEV || new URLSearchParams(window.location.search).has("gate")))
+    return <SignInGate />;
   return (
     <CityGame
       key={uid ?? "guest"}
@@ -7961,6 +7964,37 @@ const SHOP_HIJABS = [
   0xc58b5c,
 ];
 const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+/** Shown to anyone who is not logged in: IlmWorld needs an account. */
+function SignInGate() {
+  return (
+    <div className="grid h-full place-items-center bg-[#10201e] p-6 text-center text-[#fdf8ec]">
+      <div className="w-full max-w-sm">
+        <div className="font-serif text-5xl">
+          Ilm<span className="text-[#45b8a8]">World</span>
+        </div>
+        <p className="mt-3 text-[15px] opacity-85">
+          Live, pray, learn and travel in a 3D Muslim world that runs on real salah times.
+        </p>
+        <p className="mt-5 rounded-xl bg-white/5 p-3 text-[13.5px] opacity-80">
+          Log in with your IlmStation account to play. Your money, house and progress are kept safe
+          in your account, on any phone or computer.
+        </p>
+        <button
+          onClick={() => goToLogin("/login")}
+          className="mt-5 w-full rounded-xl bg-[#e6b84a] py-3 text-[15px] font-bold text-[#2a1c05]"
+        >
+          Log in
+        </button>
+        <button
+          onClick={() => goToLogin("/signup")}
+          className="mt-2 w-full rounded-xl border border-[#fdf8ec]/30 py-3 text-[15px] font-bold"
+        >
+          Create a free account
+        </button>
+      </div>
+    </div>
+  );
+}
 const goToLogin = (to: "/login" | "/signup") => {
   try {
     sessionStorage.setItem("ilmcity-return", "1");
