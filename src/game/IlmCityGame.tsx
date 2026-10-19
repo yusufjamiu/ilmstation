@@ -727,6 +727,49 @@ function CityGame({
       Math.min(7500, 2600 + text.length * 45),
     );
   }, []);
+  // an admin changed this player's naira in the Firebase console while they are playing:
+  // add the difference to the game straight away (the game's own saves always match)
+  useEffect(() => {
+    const uid = cloud.uid;
+    if (!uid) return;
+    let off: (() => void) | null = null;
+    let live = true;
+    void (async () => {
+      try {
+        const { db } = await import("@/lib/firebase");
+        const { doc, onSnapshot } = await import("firebase/firestore");
+        if (!live) return;
+        off = onSnapshot(doc(db, "city_saves", uid), (snap) => {
+          if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+          const d = snap.data() as { data?: string; naira?: number };
+          if (typeof d.naira !== "number" || !d.data) return;
+          let saved: Save;
+          try {
+            saved = JSON.parse(d.data) as Save;
+          } catch {
+            return;
+          }
+          const diff = Math.round(d.naira / NAIRA_UNIT) - saved.coins;
+          if (!diff) return;
+          setSave((x) => {
+            const n = { ...x, coins: Math.max(0, x.coins + diff) };
+            writeSave(n);
+            return n;
+          });
+          toast(
+            `${diff > 0 ? "+" : "−"}₦${Math.abs(diff * NAIRA_UNIT).toLocaleString()} from IlmWorld admin`,
+            "good",
+          );
+        });
+      } catch {
+        /* offline */
+      }
+    })();
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [toast]);
   useEffect(() => {
     cloud.onError = (m) => toast(m, m.includes("✓") ? "good" : "warn");
     // the first save after loading tells us at once if the account can be saved to
