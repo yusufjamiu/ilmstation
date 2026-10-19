@@ -402,7 +402,8 @@ const cloud = {
         savedAt: s.savedAt ?? Date.now(),
         name: s.profile?.name ?? "",
       });
-    } catch {
+    } catch (err) {
+      console.warn("IlmWorld: could not save to city_saves", err);
       /* offline: the next change will try again */
       this.pending = this.pending ?? s;
     }
@@ -465,7 +466,8 @@ async function pullCloudSave(uid: string) {
       await cloud.flush();
     }
     localStorage.setItem(key, JSON.stringify(pick));
-  } catch {
+  } catch (err) {
+    console.warn("IlmWorld: could not load city_saves", err);
     /* offline or not allowed: play with what this phone has */
   }
 }
