@@ -62,7 +62,8 @@ import {
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
 
-export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs";
+export type InteriorKind =
+  "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs" | "boutique";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -560,6 +561,7 @@ export class IlmCityEngine {
     restaurant: [],
     mall: [],
     upstairs: [],
+    boutique: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -582,6 +584,7 @@ export class IlmCityEngine {
     restaurant: new THREE.Vector3(1300, 0, 0),
     mall: new THREE.Vector3(1420, 0, 0),
     upstairs: new THREE.Vector3(1100, 0, 60),
+    boutique: new THREE.Vector3(1300, 0, 60),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -1038,6 +1041,12 @@ export class IlmCityEngine {
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
+    if (
+      ["lekki", "ikeja", "akoka", "agege", "ikorodu", "fate", "ilorincentral", "tanke"].includes(
+        D.id,
+      )
+    )
+      this.buildBoutique(D);
     if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
     if (!D.holy) this.buildCourt(D);
@@ -3592,6 +3601,73 @@ export class IlmCityEngine {
       scene: "out",
     });
   }
+  /** IlmWorld Fashion: a clothes shop with a glass front and a pink awning. */
+  private buildBoutique(D: District) {
+    const W = 13,
+      Dp = 9;
+    const lot = this.findLot(D, W, Dp + 3);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = north ? 0 : Math.PI;
+    // the shop itself, with a deep window bay at the front for the mannequins
+    g.add(box(W, 5, 6, 0xfbe3ec, 0, 0, -2.5));
+    g.add(box(W, 1.3, 3.1, 0xfbe3ec, 0, 3.7, 2)); // above the window
+    for (const sx of [-1, 1]) g.add(box(1, 3.7, 3.1, 0xfbe3ec, sx * (W / 2 - 0.5), 0, 2));
+    g.add(box(W + 0.4, 0.35, Dp + 0.4, 0xd66bd0, 0, 5, -1));
+    {
+      // the shop window: glass you can see the clothes through
+      const glass = new THREE.Mesh(
+        new THREE.BoxGeometry(W - 2, 3.4, 0.1),
+        new THREE.MeshStandardMaterial({
+          color: 0xbfe6ee,
+          transparent: true,
+          opacity: 0.3,
+          roughness: 0.1,
+          metalness: 0.3,
+          depthWrite: false,
+        }),
+      );
+      glass.position.set(0, 2, Dp / 2 - 0.95);
+      g.add(glass);
+      g.add(box(W - 2, 0.15, 3, 0xf2a6b4, 0, 0.3, Dp / 2 - 2.4)); // the display floor
+    }
+    g.add(box(2.2, 3, 0.14, 0xffffff, 0, 0, Dp / 2 - 0.9)); // door frame
+    const aw = new THREE.Mesh(
+      new THREE.BoxGeometry(W, 0.1, 1.8),
+      new THREE.MeshStandardMaterial({ color: 0xd66bd0 }),
+    );
+    aw.position.set(0, 3.9, Dp / 2);
+    aw.rotation.x = 0.25;
+    g.add(aw);
+    for (let sx = -W / 2 + 0.3; sx < W / 2; sx += 0.6) {
+      const sc = new THREE.Mesh(
+        new THREE.CircleGeometry(0.3, 10, Math.PI, Math.PI),
+        new THREE.MeshStandardMaterial({ color: 0xd66bd0, side: THREE.DoubleSide }),
+      );
+      sc.position.set(sx, 3.62, Dp / 2 + 0.9);
+      g.add(sc);
+    }
+    // clothes on show in the window
+    const m1 = person(0x0f2a5a, { cap: 0xc9a227, outfit: "agbada", seed: 3 });
+    m1.position.set(-3, 0.45, Dp / 2 - 2.2);
+    const m2 = person(0x3a1f4a, { hijab: 0xe6d3a0, outfit: "lace", seed: 4 });
+    m2.position.set(3, 0.45, Dp / 2 - 2.2);
+    g.add(m1, m2);
+    const sign = this.signBoard("IlmWorld Fashion", 9, 1.2, "#d66bd0", "#ffffff");
+    sign.position.set(0, 4.5, Dp / 2 - 0.88);
+    g.add(sign);
+    this.dg.add(g);
+    this.zones.push({
+      id: "door:boutique:" + D.id,
+      label: "Enter IlmWorld Fashion · clothes",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 2.6,
+      scene: "out",
+    });
+  }
   /** IlmWorld Mall: a big building; inside, shop units for real sellers. */
   private buildMall(D: District) {
     const W = 20,
@@ -5354,6 +5430,138 @@ export class IlmCityEngine {
       ]) {
         const bench = box(3, 0.5, 0.8, 0x6d4a2b, lx, 0, lz);
         this.solid("mall", g, bench, 3, 0.8);
+      }
+    }
+    // IlmWorld Fashion: bright walls, a pink floor, racks of clothes, mannequins and a mirror
+    {
+      const { g, o } = this.room("boutique", 20, 16, 0x4fc3d0, 0xf2a6b4);
+      const Z = (id: string, label2: string, x: number, z: number) =>
+        this.zones.push({ id, label: label2, x: o.x + x, z: o.z + z, r: 2, scene: "boutique" });
+      const sign = label("IlmWorld Fashion · clothes for brothers and sisters", {
+        size: 0.75,
+        bg: "rgba(214,107,208,0.95)",
+      });
+      sign.position.set(0, 4.4, -7.6);
+      g.add(sign);
+      // a rack: a stand with a ring of hanging garments
+      const rack = (
+        x: number,
+        z: number,
+        colors: number[],
+        long: boolean,
+        title: string,
+        id: string,
+      ) => {
+        const r = new THREE.Group();
+        r.position.set(x, 0, z);
+        r.add(cyl(1.3, 1.4, 0.25, 0x9aa8b8, 14));
+        const pole = cyl(0.06, 0.06, 2.2, 0xf4f4f4, 8);
+        pole.position.y = 1.2;
+        r.add(pole);
+        const bar = box(2.6, 0.06, 0.06, 0xf4f4f4, 0, 2.15, 0);
+        r.add(bar);
+        colors.forEach((c, i) => {
+          const gx = -1.1 + (i * 2.2) / Math.max(1, colors.length - 1);
+          const garment = box(0.5, long ? 1.6 : 0.8, 0.12, c, gx, long ? 0.5 : 1.25, 0);
+          r.add(garment);
+          if (!long) r.add(box(0.75, 0.25, 0.12, c, gx, 1.85, 0)); // shoulders
+          const hook = cyl(0.015, 0.015, 0.12, 0xdddddd, 4);
+          hook.position.set(gx, 2.12, 0);
+          r.add(hook);
+        });
+        this.solid("boutique", g, r, 2.8, 1.2);
+        const t = label(title, { size: 0.5, bg: "rgba(16,32,30,0.85)" });
+        t.position.set(x, 2.9, z);
+        g.add(t);
+        Z(id, title + " · try and buy", x, z + 1.6);
+      };
+      rack(
+        -6.5,
+        -4,
+        [0xf4efe4, 0xcdb38a, 0x2f6f8f, 0x3d5a4a, 0x5a3f6a],
+        true,
+        "Thobes",
+        "rack:thobe",
+      );
+      rack(
+        -6.5,
+        1.5,
+        [0x1d1d26, 0x5a3f6a, 0x7d2f3a, 0x2a4a6a, 0x3d5a4a],
+        true,
+        "Abayas",
+        "rack:abaya",
+      );
+      rack(
+        6.5,
+        -4,
+        [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0xb36a8a],
+        false,
+        "Hijabs",
+        "rack:hijab",
+      );
+      rack(6.5, 1.5, [0xffffff, 0x2f8f83, 0x1d1d26, 0x7d2f3a, 0xd9b45a], false, "Caps", "rack:cap");
+      // mannequins in the premium clothes
+      const m1 = person(0x0f2a5a, { cap: 0xc9a227, outfit: "agbada", seed: 3 });
+      m1.position.set(-2.2, 0.35, -5.2);
+      const m2 = person(0x3a1f4a, { hijab: 0xe6d3a0, outfit: "lace", seed: 4 });
+      m2.position.set(2.2, 0.35, -5.2);
+      for (const m of [m1, m2]) {
+        const base = cyl(0.7, 0.8, 0.35, 0xf4f4f4, 16);
+        base.position.set(m.position.x, 0, m.position.z);
+        this.solid("boutique", g, base, 1.4, 1.4);
+        g.add(m);
+      }
+      const prem = label("✨ Premium · agbada and lace", {
+        size: 0.55,
+        bg: "rgba(201,162,39,0.95)",
+      });
+      prem.position.set(0, 3.4, -5.2);
+      g.add(prem);
+      Z("rack:premium", "✨ Premium agbada and lace", 0, -3.6);
+      // a tall mirror, a counter with a till, a sofa, plants and flowers
+      const mirror = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.4, 2.6),
+        new THREE.MeshStandardMaterial({ color: 0xdfe9ee, metalness: 0.9, roughness: 0.08 }),
+      );
+      mirror.position.set(9.75, 1.6, 5);
+      mirror.rotation.y = -Math.PI / 2;
+      g.add(mirror);
+      g.add(box(0.12, 2.8, 1.6, 0xd9b45a, 9.85, 0.3, 5));
+      Z("mirror", "🪞 Look in the mirror · change clothes", 8.4, 5);
+      const counter = new THREE.Group();
+      counter.add(box(3.4, 1.1, 1, 0xd66bd0, 0, 0, 0), box(3.6, 0.08, 1.2, 0xffffff, 0, 1.1, 0));
+      counter.add(box(0.5, 0.4, 0.4, 0x2a2a30, 0.8, 1.15, 0));
+      counter.position.set(-6.5, 0, 5.6);
+      this.solid("boutique", g, counter, 3.6, 1.2);
+      const seller = person(0xd66bd0, { hijab: 0xfdf8ec, seed: 9 });
+      seller.position.set(-6.5, 0, 4.6);
+      seller.rotation.y = Math.PI;
+      g.add(seller);
+      Z("rack:counter", "Pay at the counter", -6.5, 7);
+      const sofa = box(3.2, 0.7, 1, 0xe8445a, 1.5, 0, 6.2);
+      this.solid("boutique", g, sofa, 3.2, 1);
+      for (const [px, pz] of [
+        [-9, -7],
+        [9, -7],
+        [-3.5, 3],
+      ]) {
+        const pot = cyl(0.35, 0.28, 0.6, 0xf4f4f4, 12);
+        pot.position.set(px, 0.3, pz);
+        g.add(pot);
+        const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 1), mat(0x4f8f45));
+        leaf.position.set(px, 1.1, pz);
+        g.add(leaf);
+      }
+      const vase = cyl(0.3, 0.2, 0.6, 0xc9b6e8, 8);
+      vase.position.set(0, 0.3, 0.5);
+      g.add(vase);
+      for (let i = 0; i < 4; i++) {
+        const f = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.18, 0),
+          mat([0xd66bd0, 0xe8445a, 0xf2c230, 0xffffff][i]),
+        );
+        f.position.set(Math.cos(i * 1.6) * 0.18, 0.95, 0.5 + Math.sin(i * 1.6) * 0.18);
+        g.add(f);
       }
     }
     // Restaurant: a counter at the back, tables and people eating

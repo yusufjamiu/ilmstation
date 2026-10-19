@@ -2895,39 +2895,50 @@ function CityGame({
   );
   const giveSadaqahRef = useRef(giveSadaqah);
   giveSadaqahRef.current = giveSadaqah;
-  const openWardrobe = useCallback(() => {
-    const look = saveRef.current.profile;
-    if (!look) return;
-    advance("clothes");
-    setPanel({
-      kind: "info",
-      title: "👕 Clothes",
-      body: (
-        <WardrobeView
-          look={look}
-          owned={saveRef.current.wardrobe ?? []}
-          coins={saveRef.current.coins}
-          onWear={(p) => {
-            const next = { ...saveRef.current.profile!, ...p };
-            update((x) => ({ ...x, profile: next }));
-            engine.current?.setPlayerLook(next);
-          }}
-          onBuy={(key, p, price) => {
-            if (saveRef.current.coins < price) return;
-            const next = { ...saveRef.current.profile!, ...p };
-            update((x) => ({
-              ...x,
-              coins: x.coins - price,
-              profile: next,
-              wardrobe: [...(x.wardrobe ?? []), key],
-            }));
-            engine.current?.setPlayerLook(next);
-            toast(`New clothes! −${N(price)}. They look good on you, Masha Allah.`, "good");
-          }}
-        />
-      ),
-    });
-  }, [update, toast, advance]);
+  const openWardrobe = useCallback(
+    (shop = false) => {
+      const look = saveRef.current.profile;
+      if (!look) return;
+      advance("clothes");
+      setPanel({
+        kind: "info",
+        title: shop ? "🛍️ IlmWorld Fashion" : "👕 My clothes",
+        body: (
+          <WardrobeView
+            shop={shop}
+            onShop={() => {
+              setPanel(null);
+              if (!engine.current?.goToZone("door:boutique:"))
+                toast(
+                  "IlmWorld Fashion is in Lekki, Ikeja, Akoka, Agege, Igbe Laara, Fate, Ilorin Central and Tanke.",
+                );
+            }}
+            look={look}
+            owned={saveRef.current.wardrobe ?? []}
+            coins={saveRef.current.coins}
+            onWear={(p) => {
+              const next = { ...saveRef.current.profile!, ...p };
+              update((x) => ({ ...x, profile: next }));
+              engine.current?.setPlayerLook(next);
+            }}
+            onBuy={(key, p, price) => {
+              if (saveRef.current.coins < price) return;
+              const next = { ...saveRef.current.profile!, ...p };
+              update((x) => ({
+                ...x,
+                coins: x.coins - price,
+                profile: next,
+                wardrobe: [...(x.wardrobe ?? []), key],
+              }));
+              engine.current?.setPlayerLook(next);
+              toast(`New clothes! −${N(price)}. They look good on you, Masha Allah.`, "good");
+            }}
+          />
+        ),
+      });
+    },
+    [update, toast, advance],
+  );
   const openWardrobeRef = useRef(openWardrobe);
   openWardrobeRef.current = openWardrobe;
   /** Rent due: what the landlord says when you come home. */
@@ -4341,6 +4352,19 @@ function CityGame({
             />
           ),
         });
+        return;
+      }
+      if (id.startsWith("door:boutique:")) {
+        e.enterInterior("boutique", "IlmWorld Fashion");
+        setInside(true);
+        tuneRef.current();
+        toast(
+          "Assalamu alaikum! Look round the racks. Tap a rack or the mirror to try clothes on.",
+        );
+        return;
+      }
+      if (id.startsWith("rack:") || id === "mirror") {
+        openWardrobeRef.current(true);
         return;
       }
       if (id.startsWith("door:mall:")) {
@@ -8182,8 +8206,8 @@ const GUIDE: GuideStep[] = [
   {
     id: "clothes",
     title: "Your clothes",
-    text: "Look at the clothes shop: new thobes, abayas, caps and hijabs cost ₦500 each. What you own, you can change into for free.",
-    open: { what: "clothes", label: "Open the clothes shop" },
+    text: "👤 Profile → Clothes shows what you own. New thobes, abayas, caps and hijabs (₦500) are sold at IlmWorld Fashion shops.",
+    open: { what: "clothes", label: "Open my clothes" },
   },
   {
     id: "wallet",
@@ -10411,7 +10435,11 @@ function WardrobeView({
   coins,
   onWear,
   onBuy,
+  shop,
+  onShop,
 }: {
+  shop: boolean;
+  onShop: () => void;
   look: Look;
   owned: string[];
   coins: number;
@@ -10453,7 +10481,8 @@ function WardrobeView({
                   setPick(null);
                   setCur({ ...cur, ...p });
                   onWear(p);
-                } else setPick({ key, p, name: label.toLowerCase(), price });
+                } else if (shop) setPick({ key, p, name: label.toLowerCase(), price });
+                else setPick({ key: "", p, name: label.toLowerCase(), price });
               }}
               className={`relative size-10 rounded-full border-2 ${on ? "border-[#e6b84a] ring-2 ring-[#e6b84a]/50" : pick?.key === key ? "border-[#1f6f63] ring-2 ring-[#1f6f63]/40" : "border-black/10"}`}
               style={{ background: hex(c) }}
@@ -10472,8 +10501,9 @@ function WardrobeView({
   return (
     <div className="space-y-3">
       <p className="text-[13px] opacity-75">
-        Tap something you own to wear it. New clothes cost {N(CLOTHES_PRICE)} each. You have{" "}
-        {N(money)}.
+        {shop
+          ? `Tap a colour to try it. New clothes cost ${N(CLOTHES_PRICE)} each, premium ${N(PREMIUM_PRICE)}. You have ${N(money)}.`
+          : "Tap something you own to wear it. Clothes marked ₦ are sold at IlmWorld Fashion."}
       </p>
       {row(cur.female ? "Abaya" : "Thobe", "robe", cur.female ? SHOP_ABAYAS : SHOP_THOBES)}
       {row(cur.female ? "Hijab" : "Cap", "accent", cur.female ? SHOP_HIJABS : SHOP_CAPS)}
@@ -10502,7 +10532,15 @@ function WardrobeView({
           PREMIUM_PRICE,
         )}
       </div>
-      {pick && (
+      {pick && !pick.key && (
+        <button
+          onClick={onShop}
+          className="w-full rounded-xl bg-[#d66bd0] py-3 font-bold text-white"
+        >
+          🛍️ Buy new clothes at IlmWorld Fashion · show me the way
+        </button>
+      )}
+      {pick && pick.key && (
         <button
           disabled={money < pick.price}
           onClick={() => {
