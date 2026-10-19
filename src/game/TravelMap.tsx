@@ -31,6 +31,12 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   adewole: { name: "Adewole", lat: 8.51, lng: 4.52 },
   ilorinairport: { name: "Ilorin Airport", lat: 8.44, lng: 4.494 },
   postoffice: { name: "Post Office", lat: 8.481, lng: 4.553, hub: true },
+  haram: { name: "Al-Haram", lat: 21.4225, lng: 39.8262 },
+  aziziyah: { name: "Aziziyah", lat: 21.405, lng: 39.87 },
+  jeddahairport: { name: "Jeddah Airport", lat: 21.68, lng: 39.15 },
+  nabawi: { name: "Al-Masjid An-Nabawi", lat: 24.4672, lng: 39.6112 },
+  quba: { name: "Quba", lat: 24.4393, lng: 39.6172 },
+  madinahairport: { name: "Madinah Airport", lat: 24.553, lng: 39.705 },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -65,9 +71,20 @@ const ROADS: [string, string][] = [
   ["postoffice", "fate"],
   ["postoffice", "adewole"],
   ["fate", "ilorinairport"],
+  ["haram", "aziziyah"],
+  ["aziziyah", "jeddahairport"],
+  ["nabawi", "quba"],
+  ["quba", "madinahairport"],
 ];
 /** Which city a place on the map is in (hubs included). */
-const cityAt = (id: string) => (PLACES[id].lat > 7.5 ? "ilorin" : "lagos");
+const HUB_CITY: Record<string, string> = {
+  island: "lagos",
+  yaba: "lagos",
+  ketu: "lagos",
+  apapa: "lagos",
+  postoffice: "ilorin",
+};
+const cityAt = (id: string) => HUB_CITY[id] ?? cityOf(districtById(id));
 
 const W = 400,
   H = 380;
@@ -93,6 +110,8 @@ const projector = (f: Frame) => (id: string) => ({
 const CITY_POINT: Record<string, P & { name: string }> = {
   lagos: { name: "Lagos", lat: 6.52, lng: 3.37 },
   ilorin: { name: "Ilorin", lat: 8.49, lng: 4.55 },
+  makkah: { name: "Makkah", lat: 21.42, lng: 39.83 },
+  madinah: { name: "Madinah", lat: 24.47, lng: 39.61 },
 };
 
 function km(a: P, b: P) {
@@ -231,7 +250,9 @@ export function TravelMap({
             : byCar
               ? "Driving your car"
               : intercity
-                ? "On the inter-city bus"
+                ? cityA === "makkah" || cityA === "madinah"
+                  ? "On the Haramain train"
+                  : "On the inter-city bus"
                 : "On the yellow bus"}{" "}
           ·{" "}
           {intercity
@@ -387,8 +408,17 @@ export function TravelMap({
         <p className="mt-2 text-center text-[12px] opacity-70">
           {pos.p < 1 && intercity
             ? plane
-              ? "Flying over Ogun and Oyo… about an hour in the air"
-              : "Along the Lagos–Ibadan Expressway and up to Ilorin"
+              ? cityA === "makkah" ||
+                cityA === "madinah" ||
+                cityB === "makkah" ||
+                cityB === "madinah"
+                ? cityA !== "lagos" && cityA !== "ilorin" && cityB !== "lagos" && cityB !== "ilorin"
+                  ? "A short flight over the Hijaz mountains"
+                  : "Over the Sahara and the Red Sea… about six hours in the air"
+                : "Flying over Ogun and Oyo… about an hour in the air"
+              : cityA === "makkah" || cityA === "madinah"
+                ? "On the Haramain high-speed train"
+                : "Along the Lagos–Ibadan Expressway and up to Ilorin"
             : pos.p < 1
               ? `Via ${
                   stops

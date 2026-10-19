@@ -33,6 +33,22 @@ export const CITIES: Record<string, City> = {
     tz: "Africa/Lagos",
     method: METHODS.MWL,
   },
+  makkah: {
+    id: "makkah",
+    name: "Makkah",
+    lat: 21.4225,
+    lng: 39.8262,
+    tz: "Asia/Riyadh",
+    method: METHODS.UQ,
+  },
+  madinah: {
+    id: "madinah",
+    name: "Madinah",
+    lat: 24.4672,
+    lng: 39.6112,
+    tz: "Asia/Riyadh",
+    method: METHODS.UQ,
+  },
   riyadh: {
     id: "riyadh",
     name: "Riyadh",

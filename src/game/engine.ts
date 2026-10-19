@@ -97,6 +97,8 @@ type Walker = {
   hisbah?: boolean;
   /** sits in one place (students at a meeting point) */
   seated?: boolean;
+  /** a pilgrim in Makkah or Madinah: no name tag, does not stop to talk */
+  pilgrim?: boolean;
 };
 
 const PALETTE = {
@@ -828,8 +830,10 @@ export class IlmCityEngine {
       this.streetSign(-60, st.z + 8.5, st.id, 0);
     });
     const crossEnd = southEdge - 6;
-    road(0, (north + crossEnd) / 2, 12, crossEnd - north);
-    for (let z = north; z < crossEnd; z += 6) {
+    // in Makkah and Madinah the Haram is north of the main road: the cross road only runs south
+    const crossTop = D.holy ? -8 : north;
+    road(0, (crossTop + crossEnd) / 2, 12, crossEnd - crossTop);
+    for (let z = crossTop; z < crossEnd; z += 6) {
       if (zs.some((sz) => Math.abs(z - sz) < 8)) continue;
       const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
       d.rotation.x = -Math.PI / 2;
@@ -1022,9 +1026,9 @@ export class IlmCityEngine {
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
-    if (play) this.buildPlay(D, play);
+    if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
-    this.buildCourt(D);
+    if (!D.holy) this.buildCourt(D);
     const wires = new THREE.Group();
     zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
@@ -1155,12 +1159,12 @@ export class IlmCityEngine {
       ]);
     });
     routes.push([
-      [9, north + 1],
+      [9, (D.holy ? -8 : north) + 1],
       [9, crossEnd],
     ]);
     routes.push([
       [-9, crossEnd],
-      [-9, north + 1],
+      [-9, (D.holy ? -8 : north) + 1],
     ]);
     routes.forEach((route, i) => {
       const k = (start + i) % names.length;
@@ -1253,14 +1257,19 @@ export class IlmCityEngine {
     this.colliders.out.push({ x0: -1100, x1: 10, z0: -1900, z1: -680 });
     this.colliders.out.push({ x0: 10, x1: 250, z0: -1900, z1: -822 });
     this.colliders.out.push({ x0: 250, x1: 420, z0: -1900, z1: -680 });
-    // Ilorin: its own ground, with edges all round
-    {
-      const il = DISTRICTS.filter((d) => cityOf(d) === "ilorin");
+    // every other city: its own ground (sand in Saudi Arabia), with edges all round
+    for (const city of Object.keys(CITY_CENTER).filter((c) => c !== "lagos")) {
+      const il = DISTRICTS.filter((d) => cityOf(d) === city);
+      if (!il.length) continue;
       const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)) - 70,
         x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)) + 70,
         z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)) - 70,
         z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z)) + 70;
-      const g2 = new THREE.Mesh(groundGeo(x1 - x0, z1 - z0, 10), MAT.grass());
+      const holyCity = il.some((d) => d.holy);
+      const g2 = new THREE.Mesh(
+        groundGeo(x1 - x0, z1 - z0, 10),
+        holyCity ? mat(0xd9c49a) : MAT.grass(),
+      );
       g2.position.set((x0 + x1) / 2, -0.01, (z0 + z1) / 2);
       g2.receiveShadow = true;
       S.add(g2);
@@ -1766,7 +1775,9 @@ export class IlmCityEngine {
 
   private buildLandmark(l: Landmark, D: District) {
     const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
-    if (l.kind === "masjid") this.buildMasjid(l.x, sz - 23, l);
+    if (l.kind === "haram") this.buildHaram(l, D);
+    else if (l.kind === "nabawi") this.buildNabawi(l, D);
+    else if (l.kind === "masjid") this.buildMasjid(l.x, sz - 23, l);
     else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
     else if (l.kind === "home") this.buildHome(l.x, sz - 17);
     else if (l.kind === "souq") this.buildSouq(l.x, sz - 19, l);
@@ -3053,6 +3064,484 @@ export class IlmCityEngine {
     );
     this.dg.add(g);
   }
+  /* ---------------- Makkah and Madinah ---------------- */
+  /** Where the Kaaba, Safa and Marwah are (world), for tawaf and sa'i. */
+  holy: {
+    kaaba?: { x: number; z: number };
+    safa?: { x: number; z: number };
+    marwah?: { x: number; z: number };
+  } = {};
+  /** Al-Masjid Al-Haram: the colonnades round an open courtyard with the Kaaba in the middle,
+      Maqam Ibrahim, the Zamzam taps, Safa and Marwah, tall minarets and the clock tower. */
+  private buildHaram(l: Landmark, D: District) {
+    const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
+    const C = { x: l.x, z: sz - 130 };
+    const OUT = 88,
+      IN = 46,
+      H = 15;
+    const g = new THREE.Group();
+    g.position.set(C.x, 0, C.z);
+    const white = 0xf3f0e7;
+    // the marble courtyard (mataf) and the outer plaza
+    const plaza = new THREE.Mesh(
+      new THREE.PlaneGeometry(OUT * 2 + 30, OUT * 2 + 40),
+      mat(0xe9e4d8),
+    );
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.set(0, 0.025, 8);
+    plaza.receiveShadow = true;
+    g.add(plaza);
+    const mataf = new THREE.Mesh(new THREE.PlaneGeometry(IN * 2, IN * 2), mat(0xfbfaf6));
+    mataf.rotation.x = -Math.PI / 2;
+    mataf.position.y = 0.04;
+    mataf.receiveShadow = true;
+    g.add(mataf);
+    // the colonnades: four wings, with the King Abdulaziz Gate on the south
+    const wing = (x0: number, x1: number, z0: number, z1: number) => {
+      const w = x1 - x0,
+        d = z1 - z0;
+      g.add(box(w, H, d, white, (x0 + x1) / 2, 0, (z0 + z1) / 2));
+      g.add(box(w + 0.6, 1.2, d + 0.6, 0xd9cfb8, (x0 + x1) / 2, H, (z0 + z1) / 2));
+      this.addCollider("out", C.x + x0, C.x + x1, C.z + z0, C.z + z1);
+    };
+    wing(-OUT, OUT, -OUT, -IN); // north
+    wing(-OUT, -IN, -IN, IN); // west
+    wing(IN, OUT, -IN, IN); // east
+    wing(-OUT, -9, IN, OUT); // south, left of the gate
+    wing(9, OUT, IN, OUT); // south, right of the gate
+    // arches facing the courtyard and the street
+    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
+    const arches = (y: number, z: number, x0: number, x1: number, n: number, face: number) => {
+      for (let i = 0; i < n; i++) {
+        const x = x0 + ((i + 0.5) * (x1 - x0)) / n;
+        const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.2), archMat);
+        a.position.set(x, y, z + face * 0.06);
+        if (face < 0) a.rotation.y = Math.PI;
+        g.add(a);
+      }
+    };
+    arches(3, OUT, -OUT + 2, -11, 12, 1);
+    arches(3, OUT, 11, OUT - 2, 12, 1);
+    arches(3, -IN, -IN + 2, IN - 2, 14, 1);
+    arches(3, IN, -IN + 2, -11, 6, -1);
+    arches(3, IN, 11, IN - 2, 6, -1);
+    // the gate: an arch with two minarets
+    g.add(box(20, 2.4, 6, 0xd9cfb8, 0, H - 1.2, OUT - 3));
+    const gateSign = this.signBoard("KING ABDULAZIZ GATE", 16, 1.1, "#5a4a2a", "#f3e2b0");
+    gateSign.position.set(0, H - 3, OUT + 0.1);
+    g.add(gateSign);
+    const minaret = (x: number, z: number, h: number) => {
+      const shaft = cyl(1.6, 2, h, 0xf3f0e7, 8);
+      shaft.position.set(x, h / 2, z);
+      g.add(shaft);
+      for (const y of [h * 0.45, h * 0.75]) {
+        const bal = cyl(2.5, 2.5, 0.8, 0xd9cfb8, 8);
+        bal.position.set(x, y, z);
+        g.add(bal);
+      }
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0xc9a227));
+      top.position.set(x, h + 3, z);
+      g.add(top);
+      const c = crescent();
+      c.scale.setScalar(1.2);
+      c.position.set(x - 0.3, h + 7.2, z);
+      g.add(c);
+      this.addCollider("out", C.x + x - 2.2, C.x + x + 2.2, C.z + z - 2.2, C.z + z + 2.2);
+    };
+    minaret(-12, OUT + 2, 62);
+    minaret(12, OUT + 2, 62);
+    for (const [x, z] of [
+      [-OUT, -OUT],
+      [OUT, -OUT],
+      [-OUT, OUT],
+      [OUT, OUT],
+    ])
+      minaret(x, z, 56);
+    // the Kaaba: black kiswah with its gold band, the door, Hijr Ismail and the Black Stone
+    const K = new THREE.Group();
+    K.add(box(12, 15, 12, 0x111111));
+    const band = box(12.15, 1.2, 12.15, 0xc9a227, 0, 10.4, 0);
+    K.add(band);
+    K.add(box(2.4, 3.6, 0.2, 0xc9a227, 2.2, 2.2, 6.05)); // the door
+    const stone = new THREE.Mesh(
+      new THREE.TorusGeometry(0.45, 0.14, 8, 16),
+      mat(0xc0c4c8, { metalness: 0.6, roughness: 0.3 }),
+    );
+    stone.position.set(6.05, 1.5, 6.05);
+    stone.rotation.y = Math.PI / 4;
+    K.add(stone);
+    const hijr = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.45, 8, 28, Math.PI), mat(0xe9e4d8));
+    hijr.rotation.x = -Math.PI / 2;
+    hijr.position.set(-6, 0.6, 0);
+    hijr.rotation.z = Math.PI / 2;
+    K.add(hijr);
+    g.add(K);
+    this.addCollider("out", C.x - 6.2, C.x + 6.2, C.z - 6.2, C.z + 6.2);
+    // Maqam Ibrahim: a small gold-and-glass cage
+    const maqam = new THREE.Group();
+    maqam.add(cyl(0.9, 1.1, 0.6, 0xd9cfb8, 12));
+    const cage = cyl(0.8, 0.8, 2.2, 0xc9a227, 12);
+    cage.position.y = 1.7;
+    maqam.add(cage);
+    const capm = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.9, 12), mat(0xc9a227));
+    capm.position.y = 3.2;
+    maqam.add(capm);
+    maqam.position.set(0, 0, 14);
+    g.add(maqam);
+    this.addCollider("out", C.x - 1, C.x + 1, C.z + 13, C.z + 15);
+    // Zamzam taps along the west colonnade
+    for (let i = 0; i < 5; i++) {
+      const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
+      g.add(t);
+    }
+    // Safa and Marwah: two low rocky hills at either end of the Mas'a, on the east side
+    const hill = (z: number, name: string) => {
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(2.4, 0), mat(0x9a8a72));
+      r.scale.set(1.4, 0.6, 1.2);
+      r.position.set(IN - 6, 0.9, z);
+      g.add(r);
+      const t = label(name, { size: 1, bg: "rgba(31,111,99,0.92)" });
+      t.position.set(IN - 6, 4.5, z);
+      g.add(t);
+    };
+    hill(-IN + 6, "Safa");
+    hill(IN - 6, "Marwah");
+    this.dg.add(g);
+    // the clock tower across the road
+    const T = new THREE.Group();
+    T.position.set(C.x + 140, 0, sz + 60);
+    T.add(box(40, 30, 40, 0xe9e2d0));
+    T.add(box(26, 120, 26, 0xece6d6, 0, 30));
+    const face = new THREE.Mesh(new THREE.CircleGeometry(9, 32), mat(0xffffff));
+    for (const r of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const f = face.clone();
+      f.position.set(Math.sin(r) * 13.1, 128, Math.cos(r) * 13.1);
+      f.rotation.y = r;
+      T.add(f);
+    }
+    T.add(box(18, 22, 18, 0x2e8b57, 0, 150));
+    const spire = new THREE.Mesh(new THREE.ConeGeometry(3, 26, 8), mat(0xc9a227));
+    spire.position.y = 185;
+    T.add(spire);
+    const tc = crescent();
+    tc.scale.setScalar(3);
+    tc.position.set(-0.8, 200, 0);
+    T.add(tc);
+    this.dg.add(T);
+    this.addCollider("out", C.x + 120, C.x + 160, sz + 40, sz + 80);
+    this.reserved.push({
+      x0: this.ox + C.x + 116,
+      x1: this.ox + C.x + 164,
+      z0: this.oz + sz + 36,
+      z1: this.oz + sz + 84,
+    });
+    const tl = label("Makkah Clock Royal Tower", { size: 2, bg: "rgba(31,111,99,0.9)" });
+    tl.position.set(C.x + 140, 36, sz + 60);
+    this.dg.add(tl);
+    // keep houses off the whole Haram and its plaza
+    this.reserved.push({
+      x0: this.ox + C.x - OUT - 14,
+      x1: this.ox + C.x + OUT + 14,
+      z0: this.oz + C.z - OUT - 14,
+      z1: this.oz + sz - 10,
+    });
+    // places to tap
+    const W = (x: number, z: number) => ({ x: this.ox + C.x + x, z: this.oz + C.z + z });
+    const kz = W(0, 0),
+      safa = W(IN - 6, -IN + 6),
+      marwah = W(IN - 6, IN - 6);
+    this.holy.kaaba = kz;
+    this.holy.safa = safa;
+    this.holy.marwah = marwah;
+    const zone = (id: string, label2: string, p: { x: number; z: number }, r = 3.4) =>
+      this.zones.push({ id, label: label2, x: p.x, z: p.z, r, scene: "out" });
+    zone("kaaba:tawaf", "🕋 Tawaf around the Kaaba", W(0, 9.5), 4);
+    zone("maqam", "Pray behind Maqam Ibrahim", W(0, 18));
+    zone("zamzam", "💧 Drink Zamzam", W(-IN + 3.5, 0));
+    zone("safa:sai", "Sa'i between Safa and Marwah", W(IN - 6, -IN + 10));
+    zone(`door:masjid:${l.id}`, `Enter ${l.name} for salah`, W(0, OUT + 4), 4);
+    // pilgrims in ihram walking round the Kaaba, the Kaaba on their left
+    for (let i = 0; i < 18; i++) {
+      const r = 10 + (i % 4) * 3.2;
+      const route: [number, number][] = [];
+      const a0 = (i / 18) * Math.PI * 2;
+      for (let k = 0; k < 16; k++) {
+        const a = a0 + (k / 16) * Math.PI * 2;
+        route.push([C.x + Math.cos(a) * r, C.z - Math.sin(a) * r]);
+      }
+      const female = i % 3 === 2;
+      const pg = female
+        ? person(0x1d1d26, { hijab: i % 2 ? 0xf4f4ef : 0x1d1d26, seed: i })
+        : person(0xf7f7f2, { cap: null, seed: i, outfit: "thobe" });
+      pg.position.set(route[0][0], 0, route[0][1]);
+      this.dg.add(pg);
+      this.walkers.push({ g: pg, route, k: 1, wait: i * 0.3, t: 0, district: D.id, pilgrim: true });
+    }
+  }
+
+  /** Al-Masjid An-Nabawi: a great white mosque with many minarets, the Green Dome, and a
+      courtyard of white umbrellas. */
+  private buildNabawi(l: Landmark, D: District) {
+    const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
+    const C = { x: l.x, z: sz - 125 };
+    const W = 160,
+      Dd = 96,
+      H = 16;
+    const g = new THREE.Group();
+    g.position.set(C.x, 0, C.z);
+    const hall = box(W, H, Dd, 0xf3efe4, 0, 0, -10);
+    g.add(hall);
+    g.add(box(W + 1, 1.4, Dd + 1, 0xd9cfb8, 0, H, -10));
+    this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z - 10 - Dd / 2, C.z - 10 + Dd / 2);
+    // arches along the front
+    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
+    for (let i = 0; i < 26; i++) {
+      const x = -W / 2 + 3 + i * ((W - 6) / 25);
+      if (Math.abs(x) < 6) continue;
+      const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 6), archMat);
+      a.position.set(x, 3.5, -10 + Dd / 2 + 0.06);
+      g.add(a);
+    }
+    g.add(box(10, 9, 1, 0xc9a227, 0, 0, -10 + Dd / 2 + 0.3)); // the main door
+    // the Green Dome over the resting place of the Prophet ﷺ, and a silver dome beside it
+    const dome = (x: number, z: number, r: number, color: number) => {
+      const drum = cyl(r * 0.9, r * 0.9, 3, 0xece6d6, 20);
+      drum.position.set(x, H + 1.5, z);
+      g.add(drum);
+      const d = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+        mat(color, { roughness: 0.45 }),
+      );
+      d.scale.y = 1.35;
+      d.position.set(x, H + 3, z);
+      d.castShadow = true;
+      g.add(d);
+      const c = crescent();
+      c.position.set(x - 0.3, H + 3 + r * 1.35 + 1.4, z);
+      g.add(c);
+    };
+    dome(W / 2 - 22, Dd / 2 - 28, 7, 0x2e8b57);
+    dome(-10, -10, 6, 0xb8bec4);
+    // ten minarets
+    const minaret = (x: number, z: number, h: number) => {
+      const shaft = cyl(1.5, 1.9, h, 0xf3efe4, 8);
+      shaft.position.set(x, h / 2, z);
+      g.add(shaft);
+      for (const y of [h * 0.5, h * 0.78]) {
+        const bal = cyl(2.4, 2.4, 0.8, 0xd9cfb8, 8);
+        bal.position.set(x, y, z);
+        g.add(bal);
+      }
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0x2e8b57));
+      top.position.set(x, h + 3, z);
+      g.add(top);
+      const c = crescent();
+      c.position.set(x - 0.3, h + 6.8, z);
+      g.add(c);
+      this.addCollider("out", C.x + x - 2, C.x + x + 2, C.z + z - 2, C.z + z + 2);
+    };
+    for (const x of [-W / 2, -W / 4, 0, W / 4, W / 2]) minaret(x, -10 - Dd / 2, 52);
+    for (const x of [-W / 2, -12, 12, W / 2]) minaret(x, -10 + Dd / 2 + 2, 56);
+    // the courtyard with its white umbrellas
+    const court = new THREE.Mesh(new THREE.PlaneGeometry(W, 70), mat(0xf6f3ea));
+    court.rotation.x = -Math.PI / 2;
+    court.position.set(0, 0.03, -10 + Dd / 2 + 35);
+    court.receiveShadow = true;
+    g.add(court);
+    for (let i = 0; i < 6; i++)
+      for (const zz of [52, 72]) {
+        const x = -W / 2 + 16 + i * ((W - 32) / 5);
+        const pole = cyl(0.25, 0.3, 9, 0xd9d9d9, 8);
+        pole.position.set(x, 4.5, zz);
+        g.add(pole);
+        const canopy = new THREE.Mesh(
+          new THREE.ConeGeometry(8, 3, 4, 1, true),
+          mat(0xf8f8f4, { side: THREE.DoubleSide }),
+        );
+        canopy.rotation.y = Math.PI / 4;
+        canopy.position.set(x, 9.2, zz);
+        canopy.castShadow = true;
+        g.add(canopy);
+        this.addCollider("out", C.x + x - 0.4, C.x + x + 0.4, C.z + zz - 0.4, C.z + zz + 0.4);
+      }
+    this.dg.add(g);
+    this.reserved.push({
+      x0: this.ox + C.x - W / 2 - 10,
+      x1: this.ox + C.x + W / 2 + 10,
+      z0: this.oz + C.z - 10 - Dd / 2 - 10,
+      z1: this.oz + sz - 10,
+    });
+    const P = (x: number, z: number) => ({ x: this.ox + C.x + x, z: this.oz + C.z + z });
+    this.zones.push({
+      id: `door:masjid:${l.id}`,
+      label: `Enter ${l.name}`,
+      ...P(0, -10 + Dd / 2 + 4),
+      r: 4,
+      scene: "out",
+    });
+    this.zones.push({
+      id: "nabawi:salam",
+      label: "Send salam to the Prophet ﷺ",
+      ...P(W / 2 - 22, -10 + Dd / 2 + 5),
+      r: 4,
+      scene: "out",
+    });
+    const t = label(l.name, { size: 1.8, bg: "rgba(46,139,87,0.92)" });
+    t.position.set(C.x, H + 14, C.z - 10 + Dd / 2);
+    this.dg.add(t);
+    // visitors in the courtyard
+    for (let i = 0; i < 12; i++) {
+      const x0 = -W / 2 + 12 + (i % 6) * 26,
+        zz = C.z - 10 + Dd / 2 + 10 + (i % 2) * 22;
+      const route: [number, number][] = [
+        [C.x + x0, zz],
+        [C.x + x0 + 20, zz + 8],
+      ];
+      const female = i % 3 === 1;
+      const pg = female
+        ? person(0x1d1d26, { hijab: 0x1d1d26, seed: 40 + i })
+        : person([0xf7f7f2, 0xe8e2d4, 0xf4efe4][i % 3], { cap: 0xffffff, seed: 40 + i });
+      pg.position.set(route[0][0], 0, route[0][1]);
+      this.dg.add(pg);
+      this.walkers.push({ g: pg, route, k: 1, wait: i * 0.5, t: 0, district: D.id, pilgrim: true });
+    }
+  }
+
+  /* ---------------- Jumu'ah: worshippers fill the mosques on Friday ---------------- */
+  private jumuahOn = false;
+  private jumuahCrowds = new Map<string, THREE.Group>();
+  /** Turn the Friday crowd on or off (rows of worshippers outside the mosques of your area). */
+  setJumuah(on: boolean) {
+    this.jumuahOn = on;
+    if (!on) {
+      for (const g of this.jumuahCrowds.values()) {
+        g.traverse((c) => forgetHuman(c));
+        g.removeFromParent();
+      }
+      this.jumuahCrowds.clear();
+      return;
+    }
+    const D = this.district;
+    if (!D || this.jumuahCrowds.has(D.id) || D.holy) return;
+    const g = new THREE.Group();
+    const H = halfOf(D);
+    const doors = this.zones.filter(
+      (z) =>
+        z.scene === "out" &&
+        z.id.startsWith("door:masjid:") &&
+        Math.abs(z.x - D.origin.x) < H.x &&
+        Math.abs(z.z - D.origin.z) < H.z,
+    );
+    let n = 0;
+    for (const z of doors)
+      for (let row = 0; row < 2; row++)
+        for (let i = -3; i <= 3; i++) {
+          const x = z.x + i * 1.6,
+            zz = z.z + 3.5 + row * 1.8;
+          if (!this.freeOut(x, zz, 0.3)) continue;
+          const female = row === 1 && i > 1;
+          const p = female
+            ? person(0x1d1d26, { hijab: [0x1d1d26, 0xe9e2d0][n % 2], seed: n })
+            : person([0xf4efe4, 0xcdb38a, 0xe8e2d4, 0x2f4a7a][n % 4], { cap: 0xffffff, seed: n });
+          p.position.set(x, 0, zz);
+          p.rotation.y = Math.PI; // facing the mosque
+          sitPerson(p);
+          g.add(p);
+          n++;
+        }
+    this.scene.add(g);
+    this.jumuahCrowds.set(D.id, g);
+  }
+
+  /* ---------------- walking a set path (tawaf, sa'i) ---------------- */
+  private pathWalk: {
+    pts: { x: number; z: number }[];
+    k: number;
+    speed: number;
+    onPoint?: (i: number) => void;
+    onDone?: () => void;
+    t: number;
+  } | null = null;
+  walkPath(
+    pts: { x: number; z: number }[],
+    speed: number,
+    onPoint?: (i: number) => void,
+    onDone?: () => void,
+  ) {
+    if (this.where !== "out" || !pts.length) return false;
+    if (this.driving) this.exitCar();
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.pathWalk = { pts, k: 0, speed, onPoint, onDone, t: 0 };
+    return true;
+  }
+  stopPath() {
+    this.pathWalk = null;
+    animatePerson(this.player, 0, 0);
+  }
+  isWalkingPath() {
+    return !!this.pathWalk;
+  }
+  private stepPath(dt: number) {
+    const w = this.pathWalk!;
+    const p = this.player.position;
+    let left = w.speed * dt;
+    while (left > 0 && w.k < w.pts.length) {
+      const q = w.pts[w.k];
+      const dx = q.x - p.x,
+        dz = q.z - p.z,
+        d = Math.hypot(dx, dz);
+      if (d > 0.01) this.player.rotation.y = Math.atan2(dx, dz);
+      if (d <= left) {
+        p.x = q.x;
+        p.z = q.z;
+        left -= d;
+        const i = w.k++;
+        w.onPoint?.(i);
+      } else {
+        p.x += (dx / d) * left;
+        p.z += (dz / d) * left;
+        left = 0;
+      }
+    }
+    w.t += dt;
+    animatePerson(this.player, w.t * 7, 1, w.speed);
+    if (w.k >= w.pts.length) {
+      const done = w.onDone;
+      this.pathWalk = null;
+      animatePerson(this.player, 0, 0);
+      done?.();
+    }
+  }
+  /** Seven rounds round the Kaaba, starting at the Black Stone, the Kaaba on your left. */
+  startTawaf(onRound: (n: number) => void, onDone: () => void) {
+    const K = this.holy.kaaba;
+    if (!K) return false;
+    const r = 9.5,
+      per = 24;
+    const pts: { x: number; z: number }[] = [];
+    for (let i = 0; i <= 7 * per; i++) {
+      const a = -Math.PI / 4 + (i / per) * Math.PI * 2;
+      pts.push({ x: K.x + Math.cos(a) * r, z: K.z - Math.sin(a) * r });
+    }
+    return this.walkPath(
+      pts,
+      6,
+      (i) => {
+        if (i > 0 && i % per === 0) onRound(i / per);
+      },
+      onDone,
+    );
+  }
+  /** Seven walks between Safa and Marwah, starting at Safa. */
+  startSai(onLeg: (n: number) => void, onDone: () => void) {
+    const { safa, marwah } = this.holy;
+    if (!safa || !marwah) return false;
+    const pts = [safa];
+    for (let i = 1; i <= 7; i++) pts.push(i % 2 ? marwah : safa);
+    return this.walkPath(pts, 8, (i) => i > 0 && onLeg(i), onDone);
+  }
+
   /** IlmMotors: a glass showroom with cars on display. */
   private buildDealer(D: District) {
     const W = 14,
@@ -3822,21 +4311,26 @@ export class IlmCityEngine {
     robe: number;
     accent: number;
     style?: "agbada" | "lace";
+    /** two white sheets for Umrah (brothers) */
+    ihram?: boolean;
   }) {
-    const fresh = o.female
-      ? person(o.robe, {
-          hijab: o.accent,
-          skin: o.skin,
-          seed: 2,
-          outfit: o.style === "lace" ? "lace" : "abaya",
-        })
-      : person(o.robe, {
-          cap: o.accent,
-          skin: o.skin,
-          seed: 1,
-          outfit: o.style === "agbada" ? "agbada" : "thobe",
-          beard: true,
-        });
+    const fresh =
+      o.ihram && !o.female
+        ? person(0xf8f8f4, { cap: null, skin: o.skin, seed: 1, outfit: "thobe", beard: true })
+        : o.female
+          ? person(o.robe, {
+              hijab: o.accent,
+              skin: o.skin,
+              seed: 2,
+              outfit: o.style === "lace" ? "lace" : "abaya",
+            })
+          : person(o.robe, {
+              cap: o.accent,
+              skin: o.skin,
+              seed: 1,
+              outfit: o.style === "agbada" ? "agbada" : "thobe",
+              beard: true,
+            });
     for (const c of [...this.player.children]) {
       this.player.remove(c);
       forgetHuman(c);
@@ -4183,15 +4677,18 @@ export class IlmCityEngine {
         // a gold tag for the blessed, a green heart for generous givers
         const blessed = p.badge?.includes("✨"),
           generous = p.badge?.includes("💚");
-        const tag = label(`${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}`, {
-          size: 0.75,
-          bg: blessed
-            ? "rgba(201,162,39,0.98)"
-            : generous
-              ? "rgba(29,107,58,0.95)"
-              : "rgba(230,184,74,0.95)",
-          fg: generous && !blessed ? "#ffffff" : undefined,
-        });
+        const tag = label(
+          `${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}${p.badge?.includes("🕋") ? " 🕋" : ""}`,
+          {
+            size: 0.75,
+            bg: blessed
+              ? "rgba(201,162,39,0.98)"
+              : generous
+                ? "rgba(29,107,58,0.95)"
+                : "rgba(230,184,74,0.95)",
+            fg: generous && !blessed ? "#ffffff" : undefined,
+          },
+        );
         tag.position.y = 2.65;
         g.add(tag);
         g.position.set(p.x, 0, p.z);
@@ -6190,6 +6687,7 @@ export class IlmCityEngine {
     } else if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
+    else if (this.pathWalk) this.stepPath(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
     if (this.match && this.spectating) this.match.step(dt, null);

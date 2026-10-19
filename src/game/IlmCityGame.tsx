@@ -204,6 +204,8 @@ type Save = {
   lease?: { until: number };
   /** sadaqah given at the masjid, in all (game units) */
   sadaqah?: number;
+  /** Umrah: the step you are on, and how many you have completed */
+  umrah?: { stage?: "tawaf" | "maqam" | "zamzam" | "sai" | "halq"; done: number };
 };
 type Look = {
   name: string;
@@ -226,13 +228,31 @@ const MIN_WITHDRAW = 1000;
 /** New clothes cost ₦500 each. */
 const CLOTHES_PRICE = 50;
 
+/** What to do next in Umrah. */
+const UMRAH_NEXT: Record<string, string> = {
+  tawaf: "tawaf, 7 rounds round the Kaaba",
+  maqam: "two rak'ahs behind Maqam Ibrahim",
+  zamzam: "drink Zamzam",
+  sai: "sa'i, from Safa to Marwah 7 times",
+  halq: "shave or shorten your hair at the barber on Ajyad Street",
+};
+const UMRAH_ZONE: Record<string, string> = {
+  tawaf: "kaaba:tawaf",
+  maqam: "maqam",
+  zamzam: "zamzam",
+  sai: "safa:sai",
+  halq: "office:haram-barber",
+};
+const countryOf = (d: District) =>
+  WORLD_CITIES.find((w) => w.id === cityOf(d))?.country ?? "Nigeria";
+
 /** Badges others see on your name: ✨ when Allah has blessed you with wealth (₦100,000 or a
     house of your own), 💚 when you have given ₦5,000 or more in sadaqah. */
 const BLESSED_MONEY = 10000;
 const GENEROUS_GIVING = 500;
 function badgeOf(s: Save) {
   const owns = Object.values(s.plots ?? {}).some((o) => o.kind === "bought" || o.kind === "built");
-  return `${(s.sadaqah ?? 0) >= GENEROUS_GIVING ? "💚" : ""}${s.coins >= BLESSED_MONEY || owns ? "✨" : ""}`;
+  return `${(s.sadaqah ?? 0) >= GENEROUS_GIVING ? "💚" : ""}${s.coins >= BLESSED_MONEY || owns ? "✨" : ""}${(s.umrah?.done ?? 0) > 0 ? "🕋" : ""}`;
 }
 /** Premium clothes for those who can afford them: ₦20,000 each. */
 const PREMIUM_PRICE = 2000;
@@ -1620,10 +1640,18 @@ function CityGame({
       const here = e.districtId();
       // to another city: the inter-city bus from the motor park
       const far = cityOf(districtById(here)) !== cityOf(districtById(to));
-      const fare = far ? INTERCITY.bus : BUS_FARE;
+      if (countryOf(districtById(here)) !== countryOf(districtById(to))) {
+        toast(
+          "To travel abroad, fly from the airport (📱 Phone → OutingStation → Travel).",
+          "warn",
+        );
+        return;
+      }
+      const train = far && countryOf(districtById(to)) === "Saudi Arabia";
+      const fare = far ? (train ? INTERCITY.train : INTERCITY.bus) : BUS_FARE;
       if (!byCar && saveRef.current.coins < fare) {
         toast(
-          `The ${far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
+          `The ${train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
           "warn",
         );
         return;
@@ -2068,6 +2096,8 @@ function CityGame({
   );
 
   /** Pray in the masjid: the obligatory prayer if it is due, or two voluntary rak'ahs. */
+  /** something to do when this prayer is finished (two rak'ahs behind Maqam Ibrahim) */
+  const afterPrayerRef = useRef<(() => void) | null>(null);
   const startPrayer = useCallback(
     (voluntary: boolean) => {
       const e = engine.current;
@@ -2129,6 +2159,9 @@ function CityGame({
                 update((x) => ({ ...x, ilm: x.ilm + 2 }));
                 toast("May Allah accept your prayer. +2 Ilm", "good");
               }
+              const then = afterPrayerRef.current;
+              afterPrayerRef.current = null;
+              if (then) setTimeout(then, 600);
             }}
           />
         ),
@@ -3701,6 +3734,199 @@ function CityGame({
         });
         return;
       }
+      /* ---------- Umrah in Makkah, and the Prophet's Mosque in Madinah ---------- */
+      if (id === "kaaba:tawaf") {
+        const st = saveRef.current.umrah?.stage;
+        const startTawaf = (umrah: boolean) => {
+          setPanel(null);
+          toast("Bismillah, Allahu Akbar. Round 1 of 7 begins at the Black Stone.", "good");
+          e.startTawaf(
+            (n) => {
+              toast(
+                n < 7
+                  ? `Round ${n} done · Allahu Akbar. Round ${n + 1} of 7`
+                  : "Seventh round done!",
+                "good",
+              );
+              if (n === 1) sayDhikr("tawafDua", undefined, true);
+            },
+            () => {
+              need({ iman: 20 });
+              update((x) => ({
+                ...x,
+                ilm: x.ilm + 10,
+                umrah: umrah ? { ...(x.umrah ?? { done: 0 }), stage: "maqam" } : x.umrah,
+              }));
+              if (umrah) {
+                toast("Tawaf complete. Now pray two rak'ahs behind Maqam Ibrahim. +10 Ilm", "good");
+                setTimeout(() => engine.current?.guideTo("maqam"), 400);
+              } else toast("Tawaf complete. May Allah accept it from you. +10 Ilm", "good");
+            },
+          );
+        };
+        if (st === "tawaf") {
+          startTawaf(true);
+          return;
+        }
+        if (st) {
+          toast(`You are in the middle of your Umrah: ${UMRAH_NEXT[st]}`);
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "🕋 The Kaaba",
+          body: (
+            <div className="space-y-3">
+              <p className="text-[14px]">
+                The House of Allah. Umrah is: <b>ihram</b> and the Talbiyah, <b>tawaf</b> (7
+                rounds), two rak'ahs behind <b>Maqam Ibrahim</b>, <b>Zamzam</b>, <b>sa'i</b> between
+                Safa and Marwah (7 times), then <b>shaving or shortening</b> the hair.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "tawaf" } }));
+                  const p = saveRef.current.profile;
+                  if (p && !p.female) engine.current?.setPlayerLook({ ...p, ihram: true });
+                  sayDhikr("talbiyah", () =>
+                    toast("You are in ihram. Tap the Kaaba again to begin tawaf.", "good"),
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                🤍 Make Umrah: enter ihram
+              </button>
+              <button
+                onClick={() => startTawaf(false)}
+                className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+              >
+                Voluntary tawaf (7 rounds)
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "maqam") {
+        if (saveRef.current.umrah?.stage !== "maqam") {
+          toast("Maqam Ibrahim: the stone Ibrahim stood on while building the Kaaba.");
+          return;
+        }
+        afterPrayerRef.current = () => {
+          update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "zamzam" } }));
+          toast("Now drink Zamzam, by the taps on the west side.", "good");
+          setTimeout(() => engine.current?.guideTo("zamzam"), 400);
+        };
+        startPrayer(true);
+        return;
+      }
+      if (id === "zamzam") {
+        need({ hunger: 10, iman: 8 });
+        const umrah = saveRef.current.umrah?.stage === "zamzam";
+        if (umrah) update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "sai" } }));
+        toast(
+          umrah
+            ? "Bismillah. Zamzam is for whatever it is drunk for. Now go to Safa for sa'i."
+            : "Bismillah. You drank Zamzam, in three sips. Alhamdulillah.",
+          "good",
+        );
+        if (umrah) setTimeout(() => engine.current?.guideTo("safa:sai"), 400);
+        return;
+      }
+      if (id === "safa:sai") {
+        if (saveRef.current.umrah?.stage !== "sai") {
+          toast("Sa'i is done after the tawaf of Umrah. Begin at the Kaaba.");
+          return;
+        }
+        sayDhikr("safa", () => {
+          e.startSai(
+            (n) =>
+              toast(
+                n < 7
+                  ? `${n % 2 ? "Marwah" : "Safa"} · walk ${n} of 7 done. Allahu Akbar.`
+                  : "Seventh walk done, at Marwah!",
+                "good",
+              ),
+            () => {
+              need({ iman: 20, energy: -10 });
+              update((x) => ({
+                ...x,
+                ilm: x.ilm + 10,
+                umrah: { ...(x.umrah ?? { done: 0 }), stage: "halq" },
+              }));
+              toast("Sa'i complete. Last step: the barber on Ajyad Street. +10 Ilm", "good");
+              setTimeout(() => engine.current?.guideTo("office:haram-barber"), 400);
+            },
+          );
+        });
+        return;
+      }
+      if (id === "office:haram-barber") {
+        if (saveRef.current.umrah?.stage !== "halq") {
+          toast("The barber shaves and shortens hair for pilgrims who have finished Umrah.");
+          return;
+        }
+        const finish = (how: string) => {
+          setPanel(null);
+          update((x) => ({
+            ...x,
+            ilm: x.ilm + 100,
+            umrah: { done: (x.umrah?.done ?? 0) + 1 },
+          }));
+          need({ iman: 100 });
+          const p = saveRef.current.profile;
+          if (p) engine.current?.setPlayerLook(p);
+          toast(
+            `${how}. Your Umrah is complete! Taqabbal Allahu minna wa minkum. +100 Ilm 🕋`,
+            "good",
+          );
+        };
+        setPanel({
+          kind: "info",
+          title: "💈 Barber",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[14px]">
+                {saveRef.current.profile?.female
+                  ? "Sisters cut a fingertip's length from the end of their hair."
+                  : "Shaving the whole head is best; shortening it all over is also allowed."}
+              </p>
+              {saveRef.current.profile?.female ? (
+                <button
+                  onClick={() => finish("Your hair is shortened")}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  ✂️ Shorten (taqsir)
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => finish("Your head is shaved")}
+                    className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                  >
+                    🪒 Shave (halq) · best
+                  </button>
+                  <button
+                    onClick={() => finish("Your hair is shortened")}
+                    className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+                  >
+                    ✂️ Shorten (taqsir)
+                  </button>
+                </>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "nabawi:salam") {
+        sayDhikr("salamProphet", () => {
+          update((x) => ({ ...x, ilm: x.ilm + 5 }));
+          need({ iman: 15 });
+          toast("Allahumma salli 'ala Muhammad. +5 Ilm", "good");
+        });
+        return;
+      }
       if (id.startsWith("mansion:")) {
         const L = landmarkById(id.slice(8));
         if (!L) return;
@@ -3929,6 +4155,24 @@ function CityGame({
               1200,
             );
           }
+        }
+        if (jumuahTime(c) && !s.prayed.dhuhr) {
+          setPanel({
+            kind: "info",
+            title: `Jumu'ah at ${name}`,
+            body: (
+              <JumuahView
+                clock={c}
+                onHeard={() => {
+                  update((x) => ({ ...x, ilm: x.ilm + 10 }));
+                  need({ iman: 15 });
+                  toast("You listened to the khutbah. +10 Ilm", "good");
+                }}
+                onPray={() => startPrayer(false)}
+              />
+            ),
+          });
+          return;
         }
         if (lec) openLecture(lec, true);
         else {
@@ -4161,8 +4405,20 @@ function CityGame({
       if (id.startsWith("airport:")) {
         const city = id.slice(8);
         const here = e.districtId();
+        const homeCountry = WORLD_CITIES.find((w) => w.id === city)?.country ?? "Nigeria";
+        const priceTo = (dest: string, business: boolean) => {
+          const abroad =
+            (WORLD_CITIES.find((w) => w.id === dest)?.country ?? "Nigeria") !== homeCountry;
+          return abroad
+            ? business
+              ? INTERCITY.abroadBusiness
+              : INTERCITY.abroad
+            : business
+              ? INTERCITY.business
+              : INTERCITY.fly;
+        };
         const fly = (dest: string, business: boolean) => {
-          const price = business ? INTERCITY.business : INTERCITY.fly;
+          const price = priceTo(dest, business);
           if (saveRef.current.coins < price) {
             setPanel({
               kind: "info",
@@ -4191,6 +4447,7 @@ function CityGame({
             setArriving(
               `${WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name} · ${port.name}`,
             );
+            setTimeout(() => setArriving(null), 4500);
           };
           setTravelling({ from: here, to: port.id, byCar: false, plane: true });
         };
@@ -4200,13 +4457,12 @@ function CityGame({
           body: (
             <div className="space-y-3">
               <p className="text-[13px] opacity-75">
-                Fly to another city in minutes. Economy {N(INTERCITY.fly)}, business class{" "}
-                {N(INTERCITY.business)}. You have {N(saveRef.current.coins)}.
+                Fly to another city. You have {N(saveRef.current.coins)}.
               </p>
               {WORLD_CITIES.filter((c) => c.live && c.id !== city).map((c) => (
                 <div key={c.id} className="rounded-xl bg-white p-3 shadow-sm">
                   <div className="font-bold">
-                    {c.name}, {c.state} State
+                    {c.name}, {c.country === "Nigeria" ? `${c.state} State` : c.country}
                   </div>
                   <div className="text-[12.5px] opacity-70">{c.blurb}</div>
                   <div className="mt-2 flex gap-2">
@@ -4214,13 +4470,13 @@ function CityGame({
                       onClick={() => fly(c.id, false)}
                       className="flex-1 rounded-lg bg-[#2f4a7a] px-3 py-2 text-[13px] font-bold text-white"
                     >
-                      Economy · {N(INTERCITY.fly)}
+                      Economy · {N(priceTo(c.id, false))}
                     </button>
                     <button
                       onClick={() => fly(c.id, true)}
                       className="flex-1 rounded-lg bg-[#e6b84a] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
                     >
-                      Business · {N(INTERCITY.business)}
+                      Business · {N(priceTo(c.id, true))}
                     </button>
                   </div>
                 </div>
@@ -4259,7 +4515,19 @@ function CityGame({
                         onClick={() => go(d.id, false)}
                         className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
                       >
-                        {far ? "Inter-city bus" : "Bus"} · {N(far ? INTERCITY.bus : BUS_FARE)}
+                        {far
+                          ? countryOf(d) === "Saudi Arabia"
+                            ? "Haramain train"
+                            : "Inter-city bus"
+                          : "Bus"}{" "}
+                        ·{" "}
+                        {N(
+                          far
+                            ? countryOf(d) === "Saudi Arabia"
+                              ? INTERCITY.train
+                              : INTERCITY.bus
+                            : BUS_FARE,
+                        )}
                       </button>
                     )}
                     {carHere && (
@@ -4525,7 +4793,8 @@ function CityGame({
     if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
-    if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
+    if (saveRef.current.profile)
+      e.setPlayerLook({ ...saveRef.current.profile, ihram: !!saveRef.current.umrah?.stage });
     e.setHomeItems(saveRef.current.items ?? []);
     {
       const pt = homePaint(onlineRef.current?.uid, saveRef.current.paint);
@@ -4597,6 +4866,7 @@ function CityGame({
           toast(`Adhan for ${p.name}. The masjid is open.`, "good");
       setClock(c);
       e.setClock(c);
+      e.setJumuah(jumuahTime(c));
       const pp = e.playerPos();
       if (pp.where === "out" && !e.isDriving())
         update((s) => ({
@@ -5692,7 +5962,9 @@ function CityGame({
         >
           <div className="rounded-2xl border-2 border-[#e6b84a] bg-[#1f6f63]/95 px-6 py-4 text-center text-[#fdf8ec] shadow-2xl">
             <div className="text-[12px] font-semibold uppercase tracking-[0.15em] text-[#e6b84a]">
-              {districtById(save.district ?? "lekki").state} State
+              {countryOf(districtById(save.district ?? "lekki")) === "Nigeria"
+                ? `${districtById(save.district ?? "lekki").state} State`
+                : countryOf(districtById(save.district ?? "lekki"))}
             </div>
             <div className="font-serif text-3xl leading-tight">Welcome to {arriving}</div>
           </div>
@@ -7681,7 +7953,7 @@ function Onboarding({
           <h2 className="font-serif text-2xl">Where do you want to start?</h2>
           <p className="text-[13px] opacity-75">You can travel anywhere later by danfo or car.</p>
           <div className="mt-3 space-y-2 overflow-y-auto">
-            {DISTRICTS.filter((d) => !d.landmarks.some((l) => l.kind === "airport")).map(
+            {DISTRICTS.filter((d) => !d.holy && !d.landmarks.some((l) => l.kind === "airport")).map(
               (d, i, all) => (
                 <div key={d.id}>
                   {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
@@ -8923,7 +9195,7 @@ const OUTING_TABS = [
 function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
   const out: Outing[] = [];
   if (tab === "travel")
-    return DISTRICTS.filter((D) => D.id !== here)
+    return DISTRICTS.filter((D) => D.id !== here && countryOf(D) === countryOf(districtById(here)))
       .sort(
         (a, b) =>
           Number(cityOf(a) !== cityOf(districtById(here))) -
@@ -9922,6 +10194,11 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
       text: `Collect your car at the ${districtById(s.impound.area).name} police station`,
       prefix: "police:",
     };
+  if (s.umrah?.stage && !inside)
+    return {
+      text: `Umrah: ${UMRAH_NEXT[s.umrah.stage]}`,
+      prefix: UMRAH_ZONE[s.umrah.stage],
+    };
   if (s.meal)
     return inside
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
@@ -10061,6 +10338,7 @@ function ProfileView({
             {title} · {look?.female ? "Sister" : "Brother"}
             {badge.includes("💚") ? " · 💚 Generous giver" : ""}
             {badge.includes("✨") ? " · ✨ Blessed" : ""}
+            {badge.includes("🕋") ? " · 🕋 Made Umrah" : ""}
           </div>
           <div className="truncate text-[12px] opacity-75">
             {home}
@@ -10856,6 +11134,190 @@ function MssnView({
 
 const JERSEY_PRICE = 25;
 
+/* ---------------- Jumu'ah ---------------- */
+/** Friday: from 40 minutes before Dhuhr until Jumu'ah has been prayed (or 50 minutes after). */
+function jumuahTime(c: Clock) {
+  return c.friday && c.min >= c.times.dhuhr - 40 && c.min < c.times.dhuhr + 50;
+}
+const KHUTBAH_TOPICS: { title: string; parts: [string[], string[]] }[] = [
+  {
+    title: "Taqwa: being mindful of Allah",
+    parts: [
+      [
+        'Allah says: "O you who believe, fear Allah as He should be feared, and do not die except as Muslims." (Al \'Imran 3:102)',
+        "Taqwa is to guard yourself from what displeases Allah: in your salah, your trade, your words and your private moments.",
+      ],
+      [
+        '"Whoever is mindful of Allah, He will make a way out for him and provide for him from where he does not expect." (At-Talaq 65:2-3)',
+        "This week, choose one sin to leave and one good deed to keep, for the sake of Allah.",
+      ],
+    ],
+  },
+  {
+    title: "Guarding the salah",
+    parts: [
+      [
+        'Allah says: "Indeed, salah prevents immorality and wrongdoing." (Al-\'Ankabut 29:45)',
+        "Salah is the first deed we will be asked about. Pray on time, in the masjid when you can.",
+      ],
+      [
+        "Teach your children to pray, and remind your friends kindly.",
+        "Do not let work, games or the phone push salah out of its time.",
+      ],
+    ],
+  },
+  {
+    title: "Brotherhood and peace between people",
+    parts: [
+      [
+        'Allah says: "The believers are but brothers, so make peace between your brothers." (Al-Hujurat 49:10)',
+        "Greet one another with salam, visit the sick, and help those in need.",
+      ],
+      [
+        "Do not spy on one another or backbite (Al-Hujurat 49:12).",
+        "If you have quarrelled with someone, be the first to give salam this week.",
+      ],
+    ],
+  },
+  {
+    title: "Kindness to parents",
+    parts: [
+      [
+        'Allah says: "And your Lord has decreed that you worship none but Him, and that you be good to your parents." (Al-Isra 17:23)',
+        'Do not say "uff" to them, and speak to them with honour.',
+      ],
+      [
+        'Call your parents this week, help them at home, and make dua: "My Lord, have mercy on them as they raised me when I was small." (17:24)',
+      ],
+    ],
+  },
+  {
+    title: "Seeking knowledge",
+    parts: [
+      [
+        'Allah says: "Say: are those who know equal to those who do not know?" (Az-Zumar 39:9)',
+        'The Prophet ﷺ said: "Whoever takes a path to seek knowledge, Allah makes easy for him a path to Paradise." (Muslim)',
+      ],
+      [
+        "Give some time every day to the Qur'an and to learning your deen, and share what you learn.",
+      ],
+    ],
+  },
+  {
+    title: "Honesty in trade and work",
+    parts: [
+      [
+        'Allah says: "Woe to those who give less in measure and weight." (Al-Mutaffifin 83:1)',
+        "Allah has permitted trade and forbidden riba (Al-Baqarah 2:275).",
+      ],
+      [
+        "Be honest in your market stall, your shop and your job. Halal earnings bring barakah to your home.",
+      ],
+    ],
+  },
+];
+function JumuahView({
+  clock,
+  onPray,
+  onHeard,
+}: {
+  clock: Clock;
+  onPray: () => void;
+  onHeard: () => void;
+}) {
+  const week = Math.floor(new Date(clock.key + "T12:00:00Z").getTime() / (7 * 86400000));
+  const topic = KHUTBAH_TOPICS[week % KHUTBAH_TOPICS.length];
+  const [step, setStep] = useState(0);
+  const [secs, setSecs] = useState(0);
+  const started = clock.min >= clock.times.dhuhr;
+  useEffect(() => {
+    if (step !== 1 && step !== 3) return;
+    setSecs(0);
+    const t0 = Date.now();
+    const iv = setInterval(() => setSecs(Math.floor((Date.now() - t0) / 1000)), 500);
+    return () => clearInterval(iv);
+  }, [step]);
+  const wait = 12;
+  const btn = "w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50";
+  if (step === 0)
+    return (
+      <div className="space-y-3">
+        <p className="text-[14px]">
+          Jumu&apos;ah Mubarak! The imam gives the khutbah, then everyone prays two rak&apos;ahs
+          together in place of Dhuhr.
+        </p>
+        <div className="space-y-1 rounded-xl bg-white p-3 text-[12.5px] shadow-sm">
+          <div className="font-bold">Sunnah of Friday</div>
+          <div>• Ghusl, clean clothes and perfume (brothers), and come early.</div>
+          <div>• Read Surah Al-Kahf and send many salawat on the Prophet ﷺ.</div>
+          <div>
+            • Listen in silence: talking during the khutbah, even to say &quot;be quiet&quot;,
+            spoils it (Bukhari, Muslim).
+          </div>
+          <div>• Make dua in the last hour before Maghrib.</div>
+        </div>
+        <button onClick={() => setStep(1)} className={btn}>
+          🕌 Sit and listen to the khutbah
+        </button>
+      </div>
+    );
+  if (step === 1 || step === 3) {
+    const part = topic.parts[step === 1 ? 0 : 1];
+    return (
+      <div className="space-y-3">
+        <div className="text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
+          Khutbah · part {step === 1 ? 1 : 2} · {topic.title}
+        </div>
+        {step === 1 && (
+          <p dir="rtl" lang="ar" className="text-center font-[Amiri] text-[19px] leading-[1.9]">
+            إِنَّ الْحَمْدَ لِلَّهِ، نَحْمَدُهُ وَنَسْتَعِينُهُ وَنَسْتَغْفِرُهُ
+          </p>
+        )}
+        {part.map((t, i) => (
+          <p key={i} className="text-[14px]">
+            {t}
+          </p>
+        ))}
+        <button
+          disabled={secs < wait}
+          onClick={() => {
+            if (step === 3) onHeard();
+            setStep(step + 1);
+          }}
+          className={btn}
+        >
+          {secs < wait
+            ? `Listening… ${wait - secs}`
+            : step === 1
+              ? "The imam sits briefly"
+              : "The khutbah ends"}
+        </button>
+      </div>
+    );
+  }
+  if (step === 2)
+    return (
+      <div className="space-y-3">
+        <p className="text-[14px]">
+          The imam sits for a moment between the two khutbahs. Make a short dua in your heart.
+        </p>
+        <button onClick={() => setStep(3)} className={btn}>
+          He stands for the second khutbah
+        </button>
+      </div>
+    );
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px]">The iqamah is called. Stand in the rows, shoulder to shoulder.</p>
+      <button disabled={!started} onClick={onPray} className={btn}>
+        {started
+          ? "🤲 Pray Jumu'ah · 2 rak'ahs"
+          : `Jumu'ah begins at ${fmtTime(clock.times.dhuhr)}`}
+      </button>
+    </div>
+  );
+}
+
 /* ---------------- tennis ---------------- */
 function TennisHud({
   t,
@@ -11177,7 +11639,8 @@ function travelOptions(here: string) {
       local: true,
     }));
   const city = cityOf(districtById(here));
-  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot)
+  const country = countryOf(districtById(here));
+  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot && countryOf(d) === country)
     .sort((a, b) => Number(cityOf(a) !== city) - Number(cityOf(b) !== city))
     .map((d) => {
       const stops = stopsOf(d.id);

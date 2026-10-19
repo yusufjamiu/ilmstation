@@ -31,6 +31,72 @@ export type Street = { id: string; name: string; bio: string };
 const ILORIN_ST =
   "A street in Ilorin, Kwara State: the city of scholars, known for its Islamic learning.";
 export const STREETS: Record<string, Street> = {
+  ibrahimkhalil: {
+    id: "ibrahimkhalil",
+    name: "Ibrahim Al-Khalil Road",
+    bio: "The road from the south up to Al-Masjid Al-Haram, lined with hotels for pilgrims.",
+  },
+  ajyad: {
+    id: "ajyad",
+    name: "Ajyad Street",
+    bio: "Hotels and shops a short walk from the Haram.",
+  },
+  aziziyahroad: {
+    id: "aziziyahroad",
+    name: "Aziziyah Road",
+    bio: "Where many pilgrims stay, between the Haram and Mina.",
+  },
+  masjidalkhayf: {
+    id: "masjidalkhayf",
+    name: "Al-Khayf Street",
+    bio: "A street of hotels and eateries in Aziziyah.",
+  },
+  mina: {
+    id: "mina",
+    name: "Mina Road",
+    bio: "The road out to Mina, where pilgrims stay during Hajj.",
+  },
+  jeddahairportroad: {
+    id: "jeddahairportroad",
+    name: "Airport Road, Jeddah",
+    bio: "The road to King Abdulaziz International Airport.",
+  },
+  jeddahcargo: {
+    id: "jeddahcargo",
+    name: "Hajj Terminal Road",
+    bio: "Shops and eateries for travellers.",
+  },
+  kingfaisal: {
+    id: "kingfaisal",
+    name: "King Faisal Road",
+    bio: "The ring road around Al-Masjid An-Nabawi, lined with hotels.",
+  },
+  abudharr: {
+    id: "abudharr",
+    name: "Abu Dharr Street",
+    bio: "Hotels, dates and perfume shops near the Prophet's Mosque.",
+  },
+  qubaroad: {
+    id: "qubaroad",
+    name: "Quba Road",
+    bio: "The road from the Prophet's Mosque to Masjid Quba, walked by the Prophet ﷺ every Saturday.",
+  },
+  awali: {
+    id: "awali",
+    name: "Al-Awali Street",
+    bio: "Date farms and homes on the south side of Madinah.",
+  },
+  uhud: { id: "uhud", name: "Uhud Road", bio: "The road north towards Mount Uhud." },
+  madinahairportroad: {
+    id: "madinahairportroad",
+    name: "Airport Road, Madinah",
+    bio: "The road to Prince Mohammad bin Abdulaziz Airport.",
+  },
+  madinahcargo: {
+    id: "madinahcargo",
+    name: "Airport Market Road",
+    bio: "Shops and eateries for travellers.",
+  },
   onikijipa: {
     id: "onikijipa",
     name: "Mufti Sheikh Sulaiman Farooq Onikijipa Street",
@@ -206,7 +272,11 @@ export type LandmarkKind =
   /** a covered meeting point with mats where students sit and gist */
   | "hangout"
   /** the city's airport: fly to another city */
-  | "airport";
+  | "airport"
+  /** Al-Masjid Al-Haram with the Kaaba, Maqam Ibrahim, Zamzam and Safa and Marwah */
+  | "haram"
+  /** Al-Masjid An-Nabawi with the Green Dome */
+  | "nabawi";
 export type Landmark = {
   id: string;
   kind: LandmarkKind;
@@ -259,6 +329,8 @@ export type District = {
   landmarks: Landmark[];
   /** the city this area is in (default Lagos); each city is its own map */
   city?: string;
+  /** Makkah and Madinah: no football pitch, police station or sisters' corner */
+  holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
   campus?: { gate: string; z: number };
 };
@@ -1486,11 +1558,236 @@ export const DISTRICTS: District[] = [
       },
     ],
   },
+
+  /* ---------------- Makkah: the Haram and the Kaaba ---------------- */
+  {
+    id: "haram",
+    city: "makkah",
+    holy: true,
+    tier: 1,
+    name: "Al-Haram",
+    state: "Makkah",
+    region: "Makkah",
+    origin: { x: -5330, z: -480 },
+    half: { x: 230, z: 230 },
+    highway: "Ibrahim Al-Khalil Road",
+    busStop: "Al-Haram",
+    toLet: 0.3,
+    shops: 0.5,
+    land: 0,
+    streets: [
+      { id: "ibrahimkhalil", z: 0, decor: true },
+      { id: "ajyad", z: 100 },
+    ],
+    landmarks: [
+      {
+        id: "masjid-al-haram",
+        kind: "haram",
+        name: "Al-Masjid Al-Haram",
+        street: "ibrahimkhalil",
+        x: 0,
+        about:
+          "The Sacred Mosque around the Kaaba, the first house of worship built for mankind. Make tawaf, pray behind Maqam Ibrahim, drink Zamzam and walk between Safa and Marwah.",
+      },
+      {
+        id: "haram-barber",
+        kind: "office",
+        name: "Barber · Halq and Taqsir",
+        street: "ajyad",
+        x: -50,
+        width: 22,
+        depth: 18,
+        floors: 1,
+        brand: { color: 0xf7f7f2, accent: 0x1f6f63 },
+        about: "Shave or shorten your hair to complete your Umrah.",
+      },
+    ],
+  },
+  {
+    id: "aziziyah",
+    city: "makkah",
+    holy: true,
+    tier: 2,
+    name: "Aziziyah",
+    state: "Makkah",
+    region: "Makkah",
+    origin: { x: -4680, z: -480 },
+    highway: "King Abdulaziz Road",
+    busStop: "Aziziyah",
+    toLet: 0.45,
+    shops: 0.45,
+    land: 0,
+    streets: [
+      { id: "aziziyahroad", z: 0, decor: true },
+      { id: "masjidalkhayf", z: -66 },
+      { id: "mina", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "aziziyah-mosque",
+        kind: "masjid",
+        name: "Aziziyah Mosque",
+        street: "aziziyahroad",
+        x: -40,
+      },
+      {
+        id: "abdullateef-hajj-makkah",
+        kind: "office",
+        name: "Abdul Lateef Hajj & Umrah Tours · Makkah",
+        street: "aziziyahroad",
+        x: 48,
+        width: 30,
+        depth: 24,
+        floors: 3,
+        brand: { color: 0x2a1c05, accent: 0xe6b84a },
+        about:
+          "Hajj and Umrah from Nigeria: your hotel, guides and transport in Makkah and Madinah.",
+      },
+    ],
+  },
+  {
+    id: "jeddahairport",
+    city: "makkah",
+    holy: true,
+    tier: 1,
+    name: "Jeddah Airport",
+    state: "Makkah",
+    region: "Makkah",
+    origin: { x: -4395, z: -480 },
+    half: { x: 112, z: 90 },
+    highway: "Airport Road, Jeddah",
+    parent: "aziziyah",
+    link: "east",
+    busStop: "Jeddah Airport",
+    toLet: 0,
+    land: 0,
+    shops: 0.7,
+    streets: [
+      { id: "jeddahairportroad", z: 0, decor: true },
+      { id: "jeddahcargo", z: 55 },
+    ],
+    landmarks: [
+      {
+        id: "makkah",
+        kind: "airport",
+        name: "King Abdulaziz International Airport",
+        street: "jeddahairportroad",
+        x: -52,
+        width: 72,
+        depth: 40,
+        floors: 2,
+        brand: { color: 0x1d6b3a, accent: 0xffffff },
+        about: "The airport for pilgrims to Makkah. Flights to Lagos, Ilorin and Madinah.",
+      },
+    ],
+  },
+
+  /* ---------------- Madinah: the Prophet's Mosque ﷺ ---------------- */
+  {
+    id: "nabawi",
+    city: "madinah",
+    holy: true,
+    tier: 1,
+    name: "Al-Masjid An-Nabawi",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5330, z: -3480 },
+    half: { x: 230, z: 230 },
+    highway: "King Faisal Road",
+    busStop: "Al-Masjid An-Nabawi",
+    toLet: 0.3,
+    shops: 0.5,
+    land: 0,
+    streets: [
+      { id: "kingfaisal", z: 0, decor: true },
+      { id: "abudharr", z: 100 },
+    ],
+    landmarks: [
+      {
+        id: "masjid-an-nabawi",
+        kind: "nabawi",
+        name: "Al-Masjid An-Nabawi",
+        street: "kingfaisal",
+        x: 0,
+        about:
+          "The Mosque of the Prophet ﷺ in Madinah, with the Green Dome over his resting place and the Rawdah, a garden from the gardens of Paradise.",
+      },
+    ],
+  },
+  {
+    id: "quba",
+    city: "madinah",
+    holy: true,
+    tier: 2,
+    name: "Quba",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -4680, z: -3480 },
+    highway: "Quba Road",
+    busStop: "Quba",
+    toLet: 0.45,
+    shops: 0.4,
+    land: 0,
+    streets: [
+      { id: "qubaroad", z: 0, decor: true },
+      { id: "awali", z: -66 },
+      { id: "uhud", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "masjid-quba",
+        kind: "masjid",
+        name: "Masjid Quba",
+        street: "qubaroad",
+        x: -40,
+        about:
+          "The first mosque built in Islam. Praying two rak'ahs here is like the reward of an Umrah.",
+      },
+    ],
+  },
+  {
+    id: "madinahairport",
+    city: "madinah",
+    holy: true,
+    tier: 1,
+    name: "Madinah Airport",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -4395, z: -3480 },
+    half: { x: 112, z: 90 },
+    highway: "Airport Road, Madinah",
+    parent: "quba",
+    link: "east",
+    busStop: "Madinah Airport",
+    toLet: 0,
+    land: 0,
+    shops: 0.7,
+    streets: [
+      { id: "madinahairportroad", z: 0, decor: true },
+      { id: "madinahcargo", z: 55 },
+    ],
+    landmarks: [
+      {
+        id: "madinah",
+        kind: "airport",
+        name: "Prince Mohammad bin Abdulaziz Airport",
+        street: "madinahairportroad",
+        x: -52,
+        width: 72,
+        depth: 40,
+        floors: 2,
+        brand: { color: 0x1d6b3a, accent: 0xffffff },
+        about: "Madinah's airport. Flights to Lagos, Ilorin and Makkah (Jeddah).",
+      },
+    ],
+  },
 ];
 /** Where each city's junction is on the map; its areas sit around it. */
 export const CITY_CENTER: Record<string, { x: number; z: number }> = {
   lagos: { x: 0, z: 0 },
   ilorin: { x: 4200, z: -480 },
+  makkah: { x: -5000, z: -480 },
+  madinah: { x: -5000, z: -3480 },
 };
 export const cityOf = (d: District) => d.city ?? "lagos";
 export const centerOf = (d: District) => CITY_CENTER[cityOf(d)] ?? CITY_CENTER.lagos;
@@ -1498,9 +1795,20 @@ export const centerOf = (d: District) => CITY_CENTER[cityOf(d)] ?? CITY_CENTER.l
 export const JUNCTION_NAME: Record<string, string> = {
   lagos: "City Junction",
   ilorin: "Post Office Roundabout",
+  makkah: "Makkah Junction",
+  madinah: "Madinah Junction",
 };
 /** Travel between cities, in game units (₦10 each). */
-export const INTERCITY = { bus: 300, fly: 1500, business: 4000 };
+export const INTERCITY = {
+  bus: 300,
+  fly: 1500,
+  business: 4000,
+  /** to and from Saudi Arabia */
+  abroad: 15000,
+  abroadBusiness: 40000,
+  /** the Haramain train between Makkah and Madinah */
+  train: 1500,
+};
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */
@@ -1550,6 +1858,22 @@ export const WORLD_CITIES: WorldCity[] = [
     country: "Nigeria",
     live: false,
     blurb: "The old walled city, Kurmi market and the Kano Central Mosque.",
+  },
+  {
+    id: "makkah",
+    name: "Makkah",
+    state: "Makkah",
+    country: "Saudi Arabia",
+    live: true,
+    blurb: "Al-Masjid Al-Haram and the Kaaba: make Umrah, tawaf, sa'i and drink Zamzam.",
+  },
+  {
+    id: "madinah",
+    name: "Madinah",
+    state: "Madinah",
+    country: "Saudi Arabia",
+    live: true,
+    blurb: "The city of the Prophet ﷺ: Al-Masjid An-Nabawi, the Green Dome and Masjid Quba.",
   },
   {
     id: "accra",
@@ -2492,6 +2816,42 @@ export type PlaceDhikr = {
   tip?: string;
 };
 export const PLACE_DHIKR: Record<string, PlaceDhikr> = {
+  talbiyah: {
+    title: "Talbiyah · entering ihram",
+    arabic:
+      "لَبَّيْكَ اللَّهُمَّ لَبَّيْكَ، لَبَّيْكَ لَا شَرِيكَ لَكَ لَبَّيْكَ، إِنَّ الْحَمْدَ وَالنِّعْمَةَ لَكَ وَالْمُلْكَ، لَا شَرِيكَ لَكَ",
+    say: "Labbayk Allahumma labbayk, labbayka la sharika laka labbayk, innal-hamda wan-ni'mata laka wal-mulk, la sharika lak.",
+    meaning:
+      "Here I am, O Allah, here I am. Here I am, You have no partner, here I am. All praise, blessing and dominion are Yours. You have no partner.",
+    source: "Bukhari, Muslim",
+    tip: "Make the intention for Umrah in your heart. Keep saying the Talbiyah until you begin tawaf.",
+  },
+  tawafDua: {
+    title: "Between the Yemeni Corner and the Black Stone",
+    arabic:
+      "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ",
+    say: "Rabbana atina fid-dunya hasanah, wa fil-akhirati hasanah, wa qina 'adhaban-nar.",
+    meaning:
+      "Our Lord, give us good in this world and good in the Hereafter, and protect us from the punishment of the Fire.",
+    source: "Abu Dawud · Al-Baqarah 2:201",
+    tip: "In the rest of each round, make any dua or dhikr you like.",
+  },
+  safa: {
+    title: "At Safa",
+    arabic: "إِنَّ الصَّفَا وَالْمَرْوَةَ مِن شَعَائِرِ اللَّهِ",
+    say: "Innas-Safa wal-Marwata min sha'a'irillah.",
+    meaning: "Indeed, Safa and Marwah are among the symbols of Allah.",
+    source: "Al-Baqarah 2:158, recited by the Prophet ﷺ at Safa (Muslim)",
+    tip: "Face the Kaaba, say Allahu Akbar and make dua. Do the same on Marwah.",
+  },
+  salamProphet: {
+    title: "Greeting the Prophet ﷺ",
+    arabic: "السَّلَامُ عَلَيْكَ يَا رَسُولَ اللَّهِ",
+    say: "As-salamu 'alayka ya Rasulallah.",
+    meaning: "Peace be upon you, O Messenger of Allah.",
+    source: "The practice of Ibn 'Umar (Muwatta Malik)",
+    tip: "Then greet Abu Bakr and 'Umar, may Allah be pleased with them, and turn to the qibla to make dua to Allah.",
+  },
   leaveHome: {
     title: "Leaving the house",
     arabic:
