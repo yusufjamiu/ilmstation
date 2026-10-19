@@ -2569,6 +2569,32 @@ function CityGame({
       off?.();
     };
   }, [onlineReady]);
+  /* ---------- the IlmStation team can top themselves up to test ---------- */
+  const [isAdmin, setIsAdmin] = useState(false);
+  const isAdminRef = useRef(false);
+  isAdminRef.current = isAdmin;
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o) return;
+    if (
+      import.meta.env.DEV &&
+      new URLSearchParams(window.location.search).get("online") === "local"
+    ) {
+      setIsAdmin(true);
+      return;
+    }
+    void (async () => {
+      try {
+        const { db } = await import("@/lib/firebase");
+        const f = await import("firebase/firestore");
+        const s = await f.getDoc(f.doc(db, "admins", o.uid));
+        setIsAdmin(s.exists());
+      } catch {
+        /* not an admin */
+      }
+    })();
+  }, [onlineReady]);
+
   /* ---------- money between players ---------- */
   const transfers = useRef<Transfers | null>(null);
   useEffect(() => {
@@ -4992,6 +5018,19 @@ function CityGame({
                           }
                     }
                     items={[
+                      ...(isAdminRef.current
+                        ? [
+                            {
+                              icon: "🛠️",
+                              label: "Test ₦50,000",
+                              run: () => {
+                                update((x) => ({ ...x, coins: x.coins + 5000 }));
+                                setPanel(null);
+                                toast("Admin test money: +₦50,000", "good");
+                              },
+                            },
+                          ]
+                        : []),
                       { icon: "👕", label: "Clothes", run: () => openWardrobeRef.current() },
                       ...(saveRef.current.homePlot
                         ? []
@@ -8891,7 +8930,13 @@ function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => bo
           Number(cityOf(b) !== cityOf(districtById(here))),
       )
       .map((D) => ({
-        icon: cityOf(D) !== cityOf(districtById(here)) ? "🌍" : D.parent ? "🏘️" : "🌆",
+        icon: D.landmarks.some((l) => l.kind === "airport")
+          ? "✈️"
+          : cityOf(D) !== cityOf(districtById(here))
+            ? "🌍"
+            : D.parent
+              ? "🏘️"
+              : "🌆",
         name: fullName(D),
         sub:
           cityOf(D) !== cityOf(districtById(here))
