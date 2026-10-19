@@ -3222,8 +3222,51 @@ function CityGame({
   inboxRef.current = inbox;
 
   /* ---------- work ---------- */
+  const [shift, setShift] = useState<{
+    name: string;
+    done: number;
+    total: number;
+    text: string;
+  } | null>(null);
+  const payShift = useCallback(
+    (job: Job, quality: number) => {
+      const pay = Math.round(
+        job.pay * (0.5 + 0.5 * quality) * (1 + ilmLevel(saveRef.current.ilm).bonus),
+      );
+      update((x) => ({
+        ...x,
+        coins: x.coins + pay,
+        ilm: x.ilm + 2,
+        worked: clockRef.current.key,
+      }));
+      need({ energy: -15, social: 10 });
+      toast(`Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`, "good");
+    },
+    [update, need, toast],
+  );
   const startWork = useCallback(
-    (job: Job) =>
+    (job: Job) => {
+      if (job.play) {
+        setPanel(null);
+        const e = engine.current;
+        const ok = e?.startJob(job.play, (done, total, next) => {
+          if (next) setShift({ name: job.name, done, total, text: next });
+          else {
+            setShift(null);
+            payShift(job, 1);
+          }
+        });
+        if (!ok) {
+          toast(
+            job.play === "caretaker"
+              ? "Stand near the masjid door to start sweeping."
+              : job.play === "porter"
+                ? "Go to a market with stalls to start carrying."
+                : "Go to a shop on a street with houses to start deliveries.",
+          );
+        }
+        return;
+      }
       setPanel({
         kind: "info",
         title: `Work · ${job.place}`,
@@ -3231,26 +3274,14 @@ function CityGame({
           <WorkView
             job={job}
             onDone={(right, total) => {
-              const pay = Math.round(
-                job.pay * (0.5 + (0.5 * right) / total) * (1 + ilmLevel(saveRef.current.ilm).bonus),
-              );
-              update((x) => ({
-                ...x,
-                coins: x.coins + pay,
-                ilm: x.ilm + 2,
-                worked: clockRef.current.key,
-              }));
-              need({ energy: -15, social: 10 });
               setPanel(null);
-              toast(
-                `Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`,
-                "good",
-              );
+              payShift(job, right / total);
             }}
           />
         ),
-      }),
-    [update, need, toast],
+      });
+    },
+    [payShift, toast],
   );
   const openJobs = useCallback(
     () =>
@@ -5739,7 +5770,27 @@ function CityGame({
                   : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
             </span>
           )}
-        {goal && (
+        {shift && (
+          <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
+            <div className="leading-tight">
+              <div className="text-[10.5px] font-bold uppercase tracking-wide text-[#e6b84a]">
+                💼 {shift.name} · {shift.done}/{shift.total}
+              </div>
+              <div className="text-[12.5px] font-semibold">{shift.text}</div>
+            </div>
+            <button
+              onClick={() => {
+                engine.current?.stopJob();
+                setShift(null);
+                toast("Shift stopped. You can start again any time today.");
+              }}
+              className="shrink-0 rounded-lg border border-[#e6b84a]/60 px-2 py-1 text-[11.5px] font-bold"
+            >
+              Stop
+            </button>
+          </div>
+        )}
+        {goal && !shift && (
           <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
             <span className="text-[12.5px] font-semibold leading-tight">🎯 {goal.text}</span>
             {(goal.prefix || goal.act) && (
@@ -10120,6 +10171,11 @@ function JobsView({
               {j.area ? `, ${fullName(districtById(j.area))}` : ""} · {hoursText(j)}
             </div>
             <div className="mt-1 text-[13px]">{j.about}</div>
+            {j.play && (
+              <div className="mt-1 inline-block rounded-full bg-[#e6b84a]/25 px-2 py-0.5 text-[11px] font-bold text-[#7a5a10]">
+                🙌 Hands-on: you do this work yourself in the city
+              </div>
+            )}
             <button
               onClick={() => (mine ? onGo(j) : onTake(j))}
               className="mt-2 rounded-lg bg-[#1f6f63] px-3 py-1.5 text-[13px] font-bold text-[#fdf8ec]"

@@ -2528,6 +2528,8 @@ export type Job = {
   hours: [number, number] | null;
   about: string;
   tasks: JobQ[];
+  /** a job you do with your hands in the city rather than by answering questions */
+  play?: "porter" | "caretaker" | "rider";
 };
 const J = (q: string, a: string, ...w: string[]): JobQ => {
   const o = [a, ...w];
@@ -2756,7 +2758,8 @@ export const JOBS: Job[] = [
     area: "",
     pay: 35,
     hours: null,
-    about: "Keep the mosque clean, lay the mats and help call the adhan.",
+    about: "Sweep the masjid yard with a broom before the people come to pray.",
+    play: "caretaker",
     tasks: [
       J(
         "Before Jumu'ah you should…",
@@ -2782,7 +2785,8 @@ export const JOBS: Job[] = [
     area: "",
     pay: 25,
     hours: null,
-    about: "Carry goods for traders and shoppers at the market.",
+    about: "Carry baskets of goods on your head from stall to stall at the market.",
+    play: "porter",
     tasks: [
       J(
         "A woman has heavy bags. You…",
@@ -2799,6 +2803,18 @@ export const JOBS: Job[] = [
       ),
       J("It is time for salah. You…", "Pause and pray", "Keep working through it", "Sleep"),
     ],
+  },
+  {
+    id: "rider",
+    name: "Dispatch rider",
+    place: "Any shop",
+    at: "shop:",
+    area: "",
+    pay: 40,
+    hours: null,
+    about: "Collect parcels at a shop and deliver them to houses on your street.",
+    play: "rider",
+    tasks: [],
   },
 ];
 export const STREAK_REWARDS: Record<number, number> = { 3: 20, 7: 50, 14: 100, 30: 200 };

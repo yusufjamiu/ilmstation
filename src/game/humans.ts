@@ -38,7 +38,10 @@ type Rig = {
   once: THREE.AnimationAction | null;
   /** a table tennis bat in the right hand, and how far through a swing (1 = still) */
   bat?: { mesh: THREE.Object3D; t: number } | null;
+  /** something carried for work: a load on the head, a parcel in both hands or a broom */
+  carry?: { mesh: THREE.Object3D; how: Carry; sweep: number } | null;
 };
+export type Carry = "head" | "hands" | "broom";
 
 let base: { scene: THREE.Group; clips: THREE.AnimationClip[] } | null = null;
 let loading: Promise<boolean> | null = null;
@@ -926,6 +929,70 @@ export function tickHumans(dt: number, camera: THREE.Camera, radius = 70) {
     if (r.once && !r.once.isRunning()) r.once = null;
     r.mixer.update(dt);
     if (r.bat) poseBat(r, dt);
+    if (r.carry) poseCarry(r, dt);
+  }
+}
+
+/** Carry something (or put it down with null). */
+export function rigCarry(o: THREE.Object3D, mesh: THREE.Object3D | null, how: Carry = "head") {
+  const r = rigOf(o);
+  if (!r) return false;
+  r.carry?.mesh.removeFromParent();
+  r.carry = null;
+  if (mesh && r.bones.Head) {
+    o.add(mesh);
+    r.carry = { mesh, how, sweep: 0 };
+  }
+  return true;
+}
+/** Sweep with the broom for a moment. */
+export function rigSweep(o: THREE.Object3D, seconds: number) {
+  const r = rigOf(o);
+  if (r?.carry) r.carry.sweep = seconds;
+}
+const cq = new THREE.Quaternion(),
+  cx = new THREE.Vector3(),
+  cy = new THREE.Vector3(0, 1, 0),
+  cp = new THREE.Vector3(),
+  cp2 = new THREE.Vector3();
+function poseCarry(r: Rig, dt: number) {
+  const c = r.carry!;
+  const b = r.bones;
+  r.root.updateWorldMatrix(true, false);
+  r.root.getWorldQuaternion(cq);
+  cx.set(1, 0, 0).applyQuaternion(cq);
+  const o = c.mesh.parent!;
+  if (c.how === "head") {
+    // one hand up holding the load steady on the head
+    turn(b.RightArm, cx, -2.5);
+    turn(b.RightForeArm, cx, -0.5);
+    b.Head.updateWorldMatrix(true, false);
+    b.Head.getWorldPosition(cp);
+    o.worldToLocal(cp);
+    c.mesh.position.set(cp.x, cp.y + 0.32, cp.z);
+  } else if (c.how === "hands") {
+    turn(b.LeftArm, cx, -0.75);
+    turn(b.RightArm, cx, -0.75);
+    turn(b.LeftForeArm, cx, -0.7);
+    turn(b.RightForeArm, cx, -0.7);
+    b.LeftHand.updateWorldMatrix(true, false);
+    b.LeftHand.getWorldPosition(cp);
+    b.RightHand.getWorldPosition(cp2);
+    cp.add(cp2).multiplyScalar(0.5);
+    o.worldToLocal(cp);
+    c.mesh.position.copy(cp);
+  } else {
+    // a broom in the right hand; while sweeping it brushes side to side
+    c.sweep = Math.max(0, c.sweep - dt);
+    const k = c.sweep > 0 ? Math.sin(performance.now() / 110) : 0;
+    turn(b.RightArm, cx, -0.45);
+    turn(b.RightArm, cy, 0.25 * k);
+    turn(b.RightForeArm, cx, -0.35);
+    b.RightHand.updateWorldMatrix(true, false);
+    b.RightHand.getWorldPosition(cp);
+    o.worldToLocal(cp);
+    c.mesh.position.copy(cp);
+    c.mesh.rotation.set(0.5, 0, 0.5 * k);
   }
 }
 

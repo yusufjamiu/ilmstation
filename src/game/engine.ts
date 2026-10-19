@@ -57,6 +57,9 @@ import {
   type Outfit,
   rigBat,
   rigSwing,
+  rigCarry,
+  rigSweep,
+  type Carry,
 } from "./humans";
 
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
@@ -75,6 +78,8 @@ export type EngineEvents = {
 };
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
+export type WorkKind = "porter" | "caretaker" | "rider";
+type JobStep = { x: number; z: number; label: string; act: "pick" | "drop" | "sweep" };
 type Zone = {
   /** a zone for something not yet bought is switched off */
   off?: boolean;
@@ -3903,6 +3908,315 @@ export class IlmCityEngine {
     pin.rotation.y = t * 2;
   }
 
+  /* ---------------- playable jobs ---------------- */
+  /* Some jobs are done with your own hands in the city: carry loads between market stalls,
+     sweep the masjid yard, or deliver parcels to houses. A gold ring shows where to go
+     next; walking into it does the task. */
+  private job: {
+    kind: WorkKind;
+    steps: JobStep[];
+    i: number;
+    ring: THREE.Group;
+    piles: Map<number, THREE.Object3D>;
+    sweepT: number;
+    onStep: (done: number, total: number, next: string | null) => void;
+  } | null = null;
+  private carrying: { mesh: THREE.Object3D; how: Carry } | null = null;
+  private freeAt(x: number, z: number, r: number) {
+    for (const b of this.colliders.out)
+      if (x - r < b.x1 && x + r > b.x0 && z - r < b.z1 && z + r > b.z0) return false;
+    return true;
+  }
+  /** A clear straight walk between two points. */
+  private clearLine(x0: number, z0: number, x1: number, z1: number) {
+    const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.8);
+    for (let k = 1; k <= n; k++) {
+      const f = k / n;
+      if (!this.freeAt(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f, 0.35)) return false;
+    }
+    return true;
+  }
+  private carryMesh(kind: "load" | "parcel" | "broom") {
+    const g = new THREE.Group();
+    if (kind === "load") {
+      // a woven basket of yams and peppers, carried on the head
+      const basket = cyl(0.42, 0.3, 0.26, 0xb98a4e, 12);
+      basket.position.y = 0.13;
+      g.add(basket);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        const yam = new THREE.Mesh(
+          new THREE.SphereGeometry(0.13, 8, 6),
+          mat(k % 2 ? 0x7a4e2a : 0xc8102e),
+        );
+        yam.scale.set(1.4, 0.8, 0.8);
+        yam.position.set(Math.cos(a) * 0.2, 0.3, Math.sin(a) * 0.2);
+        g.add(yam);
+      }
+    } else if (kind === "parcel") {
+      g.add(box(0.5, 0.36, 0.38, 0xc49a6c, 0, -0.18, 0.12));
+      g.add(box(0.51, 0.05, 0.1, 0x2f8f3a, 0, 0, 0.12)); // tape
+    } else {
+      const stick = cyl(0.025, 0.025, 1.3, 0x8a5a3a, 6);
+      stick.position.y = -0.55;
+      g.add(stick);
+      // a Nigerian broom: a bundle of palm sticks
+      const bristle = cyl(0.04, 0.16, 0.45, 0xd8c37a, 8);
+      bristle.position.y = -1.3;
+      g.add(bristle);
+    }
+    return g;
+  }
+  private setCarry(kind: "load" | "parcel" | "broom" | null) {
+    if (this.carrying) {
+      rigCarry(this.player, null);
+      this.carrying.mesh.removeFromParent();
+      this.carrying = null;
+    }
+    if (!kind) return;
+    const mesh = this.carryMesh(kind);
+    const how: Carry = kind === "load" ? "head" : kind === "parcel" ? "hands" : "broom";
+    this.carrying = { mesh, how };
+    if (!rigCarry(this.player, mesh, how)) {
+      // no animated body: hold it in a fixed place
+      mesh.position.set(
+        how === "broom" ? 0.35 : 0,
+        how === "head" ? 2.15 : 1.1,
+        how === "hands" ? 0.35 : 0,
+      );
+      this.player.add(mesh);
+    }
+  }
+  /** Start a shift you work with your hands. Returns false if there is nowhere to work here. */
+  startJob(kind: WorkKind, onStep: (done: number, total: number, next: string | null) => void) {
+    this.stopJob();
+    if (this.where !== "out") return false;
+    const p = this.player.position;
+    const near = (prefix: string, max: number) =>
+      this.zones
+        .filter((z) => z.scene === "out" && !z.off && z.id.startsWith(prefix))
+        .map((z) => ({ z, d: Math.hypot(z.x - p.x, z.z - p.z) }))
+        .filter((o) => o.d < max)
+        .sort((a, b) => a.d - b.d)
+        .map((o) => o.z);
+    const steps: JobStep[] = [];
+    if (kind === "porter") {
+      const st = near("stall:", 90);
+      if (st.length < 2) return false;
+      // three trips, each to a stall further along
+      const order = [st[0], ...st.slice(1).sort(() => Math.random() - 0.5)];
+      for (let k = 0; k < 3; k++) {
+        // a fresh stall for every pick-up and drop, so each trip is a real walk
+        const a = order[(k * 2) % order.length],
+          b = order[(k * 2 + 1) % order.length];
+        steps.push({
+          x: a.x,
+          z: a.z,
+          label: `Trip ${k + 1} of 3: pick up the load at the stall`,
+          act: "pick",
+        });
+        steps.push({
+          x: b.x,
+          z: b.z,
+          label: `Trip ${k + 1} of 3: carry it on your head to the next stall`,
+          act: "drop",
+        });
+      }
+    } else if (kind === "caretaker") {
+      const door = near("door:masjid:", 60)[0];
+      if (!door) return false;
+      for (let tries = 0; tries < 300 && steps.length < 6; tries++) {
+        const a = Math.random() * Math.PI * 2,
+          r = 3 + Math.random() * 7;
+        const x = door.x + Math.cos(a) * r,
+          z = door.z + Math.sin(a) * r;
+        if (!this.freeAt(x, z, 0.7) || !this.clearLine(door.x, door.z, x, z)) continue;
+        // in the yard and on the pavement, never out on the road
+        const D = this.district;
+        if (D.streets.some((st) => Math.abs(z - D.origin.z - st.z) < 7)) continue;
+        if (Math.abs(x - D.origin.x) < 7) continue;
+        if (steps.some((s) => Math.hypot(s.x - x, s.z - z) < 2.2)) continue;
+        steps.push({ x, z, label: "Sweep up the leaves", act: "sweep" });
+      }
+      if (steps.length < 3) return false;
+      steps.push({
+        x: door.x,
+        z: door.z,
+        label: "Put the broom back at the masjid door",
+        act: "drop",
+      });
+    } else {
+      const shop = [
+        ...near("shop:", 150),
+        ...near("door:boutique:", 150),
+        ...near("door:mall:", 150),
+        ...near("stall:", 150),
+      ].sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+      if (!shop) return false;
+      const D = this.district;
+      const homes = this.plots
+        .filter((q) => q.district === D.id && q.kind === "house")
+        .map((q) => ({
+          x: D.origin.x + q.gate.x,
+          // just outside the gate, on the street side
+          z: D.origin.z + q.gate.z + Math.sign(q.streetZ - q.gate.z) * 1.6,
+          street: q.street,
+        }))
+        .filter((h) => {
+          const d = Math.hypot(h.x - shop.x, h.z - shop.z);
+          return d > 15 && d < 110;
+        })
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3);
+      if (homes.length < 2) return false;
+      // visit them in a sensible order: always the nearest one next
+      const route: typeof homes = [];
+      let cx = shop.x,
+        cz = shop.z;
+      while (homes.length) {
+        homes.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
+        const h = homes.shift()!;
+        route.push(h);
+        cx = h.x;
+        cz = h.z;
+      }
+      steps.push({
+        x: shop.x,
+        z: shop.z,
+        label: `Collect ${route.length} parcels at the shop`,
+        act: "pick",
+      });
+      route.forEach((h, k) =>
+        steps.push({
+          x: h.x,
+          z: h.z,
+          label: `Deliver parcel ${k + 1} of ${route.length} to the house on ${h.street}`,
+          act: "drop",
+        }),
+      );
+    }
+    const ring = new THREE.Group();
+    const disc = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.2, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0xf2c230,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.y = 0.06;
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 3, 20, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xf2c230,
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    beam.position.y = 1.5;
+    ring.add(disc, beam);
+    this.scene.add(ring);
+    const piles = new Map<number, THREE.Object3D>();
+    steps.forEach((s, k) => {
+      if (s.act !== "sweep") return;
+      const g = new THREE.Group();
+      for (let n = 0; n < 9; n++) {
+        const leaf = new THREE.Mesh(
+          new THREE.CircleGeometry(0.12 + Math.random() * 0.08, 5),
+          mat([0x9a6a2a, 0xc49a3a, 0x6d7a2a, 0x8a4a1a][n % 4]),
+        );
+        leaf.rotation.set(-Math.PI / 2, 0, Math.random() * 6);
+        leaf.position.set(
+          (Math.random() - 0.5) * 1.1,
+          0.04 + n * 0.004,
+          (Math.random() - 0.5) * 1.1,
+        );
+        g.add(leaf);
+      }
+      g.position.set(s.x, 0, s.z);
+      this.scene.add(g);
+      piles.set(k, g);
+    });
+    this.job = { kind, steps, i: 0, ring, piles, sweepT: 0, onStep };
+    if (kind === "caretaker") this.setCarry("broom");
+    this.placeRing();
+    onStep(0, steps.length, steps[0].label);
+    return true;
+  }
+  stopJob() {
+    const j = this.job;
+    if (!j) return;
+    j.ring.removeFromParent();
+    for (const g of j.piles.values()) g.removeFromParent();
+    this.job = null;
+    this.setCarry(null);
+    this.clearGuide();
+  }
+  jobActive() {
+    return !!this.job;
+  }
+  private placeRing() {
+    const j = this.job!;
+    const s = j.steps[j.i];
+    j.ring.position.set(s.x, 0, s.z);
+    this.pointAt(s.x, s.z);
+  }
+  /** The gold arrow, pointing at a spot rather than a place. */
+  private pointAt(x: number, z: number) {
+    const zone: Zone = { id: "job:spot", label: "", x, z, r: 1.4, scene: "out" };
+    this.zones.push(zone);
+    this.guideTo("job:spot");
+    this.zones.splice(this.zones.indexOf(zone), 1);
+  }
+  private stepJob(dt: number, t: number) {
+    const j = this.job;
+    if (!j) return;
+    if (this.where !== "out") return;
+    const s = j.steps[j.i];
+    const p = this.player.position;
+    j.ring.rotation.y = t * 0.8;
+    (j.ring.children[0] as THREE.Mesh).scale.setScalar(1 + Math.sin(t * 4) * 0.06);
+    if (!this.guide) this.pointAt(s.x, s.z);
+    if (Math.hypot(s.x - p.x, s.z - p.z) > 1.3) {
+      j.sweepT = 0;
+      return;
+    }
+    if (s.act === "sweep") {
+      // stand on the pile and sweep for a moment
+      if (j.sweepT === 0) rigSweep(this.player, 1.4);
+      j.sweepT += dt;
+      const pile = j.piles.get(j.i);
+      if (pile) pile.scale.setScalar(Math.max(0.05, 1 - j.sweepT / 1.4));
+      if (j.sweepT < 1.4) return;
+      pile?.removeFromParent();
+      j.piles.delete(j.i);
+      j.sweepT = 0;
+    } else if (s.act === "pick") {
+      this.setCarry(j.kind === "porter" ? "load" : "parcel");
+    } else {
+      const more = j.i < j.steps.length - 1;
+      // the broom stays in hand until the end; parcels until the last one is delivered
+      if (!(j.kind === "rider" && more))
+        this.setCarry(j.kind === "caretaker" && more ? "broom" : null);
+    }
+    j.i++;
+    this.clearGuide();
+    if (j.i >= j.steps.length) {
+      const total = j.steps.length;
+      const cb = j.onStep;
+      this.stopJob();
+      cb(total, total, null);
+      return;
+    }
+    this.placeRing();
+    j.onStep(j.i, j.steps.length, j.steps[j.i].label);
+  }
+
   /* ---------------- food delivery ---------------- */
   private rider: {
     g: THREE.Group;
@@ -4426,6 +4740,12 @@ export class IlmCityEngine {
     }
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
+    if (this.carrying) {
+      const { mesh, how } = this.carrying;
+      mesh.removeFromParent();
+      this.carrying = null;
+      if (rigCarry(this.player, mesh, how)) this.carrying = { mesh, how };
+    }
   }
   /** Is someone (you, a neighbour, another player) just in front of this walker? */
   private personAhead(x: number, z: number, ux: number, uz: number, self: THREE.Object3D) {
@@ -6923,6 +7243,7 @@ export class IlmCityEngine {
     this.stepRider(dt);
     this.stepParking(dt);
     this.stepGuide(performance.now() / 1000);
+    this.stepJob(dt, performance.now() / 1000);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
