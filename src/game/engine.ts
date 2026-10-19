@@ -540,8 +540,8 @@ export class IlmCityEngine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(45, 1, 0.5, 600);
-  private sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
-  private hemi = new THREE.HemisphereLight(0xcfe6ff, 0x8a7a5a, 1.1);
+  private sun = new THREE.DirectionalLight(0xffe2b8, 2.2);
+  private hemi = new THREE.HemisphereLight(0xdde9f2, 0xa88a62, 1.1);
   private winMat = new THREE.MeshStandardMaterial({
     color: 0x34525a,
     emissive: 0xffc878,
@@ -628,6 +628,7 @@ export class IlmCityEngine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
     this.renderer.domElement.style.display = "block";
     this.renderer.domElement.style.touchAction = "none";
     host.appendChild(this.renderer.domElement);
@@ -7439,9 +7440,9 @@ export class IlmCityEngine {
     if (this.where !== "out") {
       this.sun.castShadow = false;
       this.sun.intensity = 0.5;
-      this.sun.color.set(0xfff1d6);
-      this.hemi.intensity = 1.2;
-      this.hemi.color.set(0xfff0dc);
+      this.sun.color.set(0xffe2b8);
+      this.hemi.intensity = 1.25;
+      this.hemi.color.set(0xffe6c8);
       this.scene.background = new THREE.Color(0x1a1612);
       (this.scene.fog as THREE.Fog).color.set(0x1a1612);
       return;
@@ -7476,14 +7477,15 @@ export class IlmCityEngine {
       .lerp(new THREE.Color(0xd08a5a), Math.min(1, golden) * 0.7)
       .multiplyScalar(1 - dk * 0.85);
     cm.opacity = 0.92 - dk * 0.5;
-    (this.scene.fog as THREE.Fog).color.copy(sky);
+    // a soft warm haze on the horizon in the day, like a sunny afternoon
+    (this.scene.fog as THREE.Fog).color.copy(sky).lerp(new THREE.Color(0xf1dcc0), 0.35 * (1 - dk));
     this.sun.intensity = 2.4 * (1 - dk) + 0.45 * dk;
     this.sun.color
-      .set(0xfff1d6)
+      .set(0xffe2b8)
       .lerp(new THREE.Color(0xffb070), Math.min(1, golden))
       .lerp(new THREE.Color(0x9fb4e8), dk);
     this.hemi.intensity = 1.15 - dk * 0.55;
-    this.hemi.color.set(0xcfe6ff).lerp(new THREE.Color(0x6a7fb8), dk);
+    this.hemi.color.set(0xdde9f2).lerp(new THREE.Color(0x6a7fb8), dk);
     this.winMat.emissiveIntensity = dk * 1.6;
     this.lampMat.emissiveIntensity = dk * 2.2;
   }
