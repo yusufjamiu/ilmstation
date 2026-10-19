@@ -5,6 +5,11 @@ import {
   STREETS,
   AD_EMAIL,
   DISTRICTS,
+  CITY_CENTER,
+  JUNCTION_NAME,
+  centerOf,
+  cityOf,
+  houseStyleOf,
   districtById,
   halfOf,
   fullName,
@@ -31,6 +36,9 @@ import {
   mansion,
   office,
   powerLine,
+  datePalmInto,
+  MAT3,
+  boxGeo,
   shopRow,
   stallRow,
   type Compound,
@@ -53,12 +61,16 @@ import {
   type Outfit,
   rigBat,
   rigSwing,
+  rigCarry,
+  rigSweep,
+  type Carry,
 } from "./humans";
 
 /* IlmCity 3D engine: one Lekki district, three interiors, a car and walking neighbours.
    Everything is built from simple low-poly shapes so the first load stays small. */
 
-export type InteriorKind = "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs";
+export type InteriorKind =
+  "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs" | "boutique";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -66,10 +78,14 @@ export type EngineEvents = {
   onPlace: (name: string) => void;
   /** The arrival drive into a new area started (true) or finished (false). */
   onCinematic?: (on: boolean) => void;
+  /** an area of another city has just been built (its plots and shops need painting) */
+  onAreaBuilt?: (id: string) => void;
   onRide?: (info: { next: string; stopping: boolean; fast: boolean; kmh: number } | null) => void;
 };
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
+export type WorkKind = "porter" | "caretaker" | "rider";
+type JobStep = { x: number; z: number; label: string; act: "pick" | "drop" | "sweep" };
 type Zone = {
   /** a zone for something not yet bought is switched off */
   off?: boolean;
@@ -93,6 +109,8 @@ type Walker = {
   hisbah?: boolean;
   /** sits in one place (students at a meeting point) */
   seated?: boolean;
+  /** a pilgrim in Makkah or Madinah: no name tag, does not stop to talk */
+  pilgrim?: boolean;
 };
 
 const PALETTE = {
@@ -372,6 +390,37 @@ function person(
   return g;
 }
 
+/** A passenger plane, nose along +z: body, wings, tail and engines. */
+export function planeMesh(stripe: number) {
+  const g = new THREE.Group();
+  const white = 0xf4f6f8;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 22, 16), mat(white));
+  body.rotation.x = Math.PI / 2;
+  body.position.y = 2.6;
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 10), mat(white));
+  nose.scale.set(1, 1, 1.6);
+  nose.position.set(0, 2.6, 11);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(1.5, 4, 16), mat(white));
+  tail.rotation.x = -Math.PI / 2;
+  tail.position.set(0, 2.6, -13);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.52, 1.52, 18, 16, 1, true), mat(stripe));
+  band.rotation.x = Math.PI / 2;
+  band.scale.set(1, 1, 0.2);
+  band.position.set(0, 2.2, 0);
+  const wing = box(20, 0.25, 4, white, 0, 2, 1);
+  const fin = box(0.3, 4, 3, stripe, 0, 3.6, -12);
+  const tailWing = box(7, 0.2, 2, white, 0, 3.4, -12);
+  const engines = [-5, 5].map((x) => {
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 3, 12), mat(0x9aa0a6));
+    e.rotation.x = Math.PI / 2;
+    e.position.set(x, 1.4, 2);
+    return e;
+  });
+  for (const m of [body, nose, tail, band, ...engines]) m.castShadow = true;
+  g.add(body, nose, tail, band, wing, fin, tailWing, ...engines);
+  return g;
+}
+
 /** A table tennis bat: a round rubber face on a wooden handle, held at the handle. */
 function batMesh(face: number) {
   const g = new THREE.Group();
@@ -443,10 +492,22 @@ function tree(x: number, z: number, s = 1) {
   const t = cyl(0.18 * s, 0.25 * s, 1.6 * s, 0x7a5a3a, 6);
   t.position.y = 0.8 * s;
   g.add(t);
-  const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4 * s, 0), mat(0x4f8a3f));
-  c.position.y = 2.4 * s;
-  c.castShadow = true;
-  g.add(c);
+  // a full, round crown of three leafy clumps
+  const shades = [0x4f8a3f, 0x5f9e3a, 0x3f7d3a];
+  const seed = Math.abs(Math.round(x * 7 + z * 13));
+  for (const [dx, dy, dz, r] of [
+    [0, 2.5, 0, 1.45],
+    [0.75, 2.15, 0.35, 1.0],
+    [-0.65, 2.25, -0.4, 1.05],
+  ]) {
+    const c = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(r * s, 1),
+      mat(shades[(seed + Math.round(dx * 10)) % 3]),
+    );
+    c.position.set(dx * s, dy * s, dz * s);
+    c.castShadow = true;
+    g.add(c);
+  }
   g.position.set(x, 0, z);
   return g;
 }
@@ -465,9 +526,11 @@ function crescent(color = PALETTE.gold) {
 }
 
 /** A yellow Lagos city bus, nose pointing along +x. */
-function makeBus() {
+/** The bus that drives you between areas: yellow in Nigeria, white and green in Saudi Arabia. */
+function makeBus(saudi = false) {
   const bus = new THREE.Group();
-  bus.add(box(8, 2.6, 2.6, 0xf2c230, 0, 0.5, 0));
+  bus.add(box(8, 2.6, 2.6, saudi ? 0xf4f4f0 : 0xf2c230, 0, 0.5, 0));
+  if (saudi) bus.add(box(8.04, 0.25, 2.66, 0x0e6b3a, 0, 1.15, 0, false));
   bus.add(box(7.4, 0.9, 2.64, 0x2a3a44, 0, 1.6, 0, false));
   bus.add(box(8.04, 0.3, 2.64, 0x1d1f22, 0, 0.6, 0, false));
   bus.add(box(0.1, 1.1, 2.2, 0x2a3a44, 4.02, 1.4, 0, false));
@@ -490,8 +553,8 @@ export class IlmCityEngine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(45, 1, 0.5, 600);
-  private sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
-  private hemi = new THREE.HemisphereLight(0xcfe6ff, 0x8a7a5a, 1.1);
+  private sun = new THREE.DirectionalLight(0xffe2b8, 2.2);
+  private hemi = new THREE.HemisphereLight(0xdde9f2, 0xa88a62, 1.1);
   private winMat = new THREE.MeshStandardMaterial({
     color: 0x34525a,
     emissive: 0xffc878,
@@ -511,6 +574,7 @@ export class IlmCityEngine {
     restaurant: [],
     mall: [],
     upstairs: [],
+    boutique: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -533,6 +597,7 @@ export class IlmCityEngine {
     restaurant: new THREE.Vector3(1300, 0, 0),
     mall: new THREE.Vector3(1420, 0, 0),
     upstairs: new THREE.Vector3(1100, 0, 60),
+    boutique: new THREE.Vector3(1300, 0, 60),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -576,9 +641,22 @@ export class IlmCityEngine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
     this.renderer.domElement.style.display = "block";
     this.renderer.domElement.style.touchAction = "none";
     host.appendChild(this.renderer.domElement);
+    // the phone ran out of graphics memory: go to smooth graphics so it doesn't happen again
+    // the graphics card gave up: each time, ask less of it so it settles instead of looping
+    this.renderer.domElement.addEventListener("webglcontextlost", () => {
+      this.lost++;
+      setTimeout(() => {
+        if (this.disposed) return;
+        if (!this.low) {
+          this.setQuality("low", true);
+          this.onSlowPhone?.();
+        } else this.lite();
+      }, 0);
+    });
 
     this.scene.background = new THREE.Color(0x9fd3e8);
     this.scene.fog = new THREE.Fog(0x9fd3e8, 70, 260);
@@ -597,6 +675,7 @@ export class IlmCityEngine {
 
     this.buildCar();
     this.buildInteriors();
+    this.startId = start?.district ?? "lekki";
     this.buildWorld();
     this.buildTraffic();
     this.district = districtById(start?.district ?? "lekki");
@@ -611,7 +690,7 @@ export class IlmCityEngine {
     this.scene.add(this.player);
     if (start?.x !== undefined && start.z !== undefined && this.free(start.x, start.z, 0.6))
       this.player.position.set(start.x, 0, start.z);
-    else this.player.position.copy(this.outPos);
+    else this.standAt(this.outPos.x, this.outPos.z);
     this.marker.rotation.x = -Math.PI / 2;
     this.marker.position.y = 0.05;
     this.marker.visible = false;
@@ -627,6 +706,8 @@ export class IlmCityEngine {
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKeyUp);
     this.raf = requestAnimationFrame(this.loop);
+    // once you are in and playing, quietly build the other cities
+    setTimeout(() => this.buildInBackground(), 2500);
   }
 
   /* ---------------- public API ---------------- */
@@ -687,10 +768,11 @@ export class IlmCityEngine {
     ).multiplyScalar(2.6);
     const p = this.car.position.clone().add(side);
     if (!this.free(p.x, p.z, 0.6)) p.copy(this.car.position).sub(side);
-    this.player.position.set(p.x, 0, p.z);
+    this.standAt(p.x, p.z, this.car.position);
     this.player.visible = true;
   }
   dispose() {
+    this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.resizeObs.disconnect();
     window.removeEventListener("keydown", this.onKey);
@@ -721,15 +803,70 @@ export class IlmCityEngine {
   }
 
   /** Builds one area into its own group at its place on the Lagos map. */
+  /** Areas not built yet (in other cities), with the empty group waiting for them. */
+  private placeholders = new Map<string, THREE.Group>();
+  private startId = "lekki";
+  /** Build the areas of a city now, if they are still waiting. */
+  ensureCity(city: string) {
+    for (const id of [...this.placeholders.keys()])
+      if (cityOf(districtById(id)) === city) this.buildLater(id);
+  }
+  /** Build one waiting area (keeping the engine's building state as it was). */
+  private buildLater(id: string) {
+    if (!this.placeholders.has(id)) return;
+    const keep = { dg: this.dg, ox: this.ox, oz: this.oz, batch: this.curBatch };
+    this.buildDistrict(id);
+    this.dg = keep.dg;
+    this.ox = keep.ox;
+    this.oz = keep.oz;
+    this.curBatch = keep.batch;
+    this.applyLight();
+    this.ev.onAreaBuilt?.(id);
+  }
+  /** While you play, build the other cities one area at a time. */
+  private buildInBackground() {
+    if (this.disposed) return;
+    // the nearest waiting area to you first
+    const p = this.player.position;
+    const here = cityOf(this.district);
+    const next = [...this.placeholders.keys()]
+      .filter((id) => cityOf(districtById(id)) === here)
+      .sort((a, b) => {
+        const A = districtById(a).origin,
+          B = districtById(b).origin;
+        return Math.hypot(A.x - p.x, A.z - p.z) - Math.hypot(B.x - p.x, B.z - p.z);
+      })[0];
+    if (!next) {
+      // nothing left in this city: look again later (you may have travelled)
+      setTimeout(() => this.buildInBackground(), 4000);
+      return;
+    }
+    setTimeout(
+      () => {
+        if (this.disposed) return;
+        // not while travelling or in a cut-scene: wait for a calm moment
+        if (!this.cine) this.buildLater(next);
+        this.buildInBackground();
+      },
+      this.cine ? 1500 : 400,
+    );
+  }
+  private disposed = false;
   private buildDistrict(id: string) {
     const D = districtById(id);
     this.ox = D.origin.x;
     this.oz = D.origin.z;
-    this.dg = new THREE.Group();
-    this.dg.position.set(D.origin.x, 0, D.origin.z);
-    this.scene.add(this.dg);
-    this.areaGroups.push({ g: this.dg, x: D.origin.x, z: D.origin.z });
-    const side = D.origin.x > 0 ? -1 : 1; // the end of the main street facing the City Junction
+    const waiting = this.placeholders.get(id);
+    if (waiting) {
+      this.placeholders.delete(id);
+      this.dg = waiting;
+    } else {
+      this.dg = new THREE.Group();
+      this.dg.position.set(D.origin.x, 0, D.origin.z);
+      this.scene.add(this.dg);
+      this.areaGroups.push({ g: this.dg, x: D.origin.x, z: D.origin.z });
+    }
+    const side = D.origin.x > centerOf(D).x ? -1 : 1; // the end of the main street facing the junction
     this.reserved.push(
       { x0: this.ox - 84, x1: this.ox - 60, z0: this.oz + 8, z1: this.oz + 22 },
       { x0: this.ox - 22, x1: this.ox - 10, z0: this.oz + 7, z1: this.oz + 13 },
@@ -741,6 +878,13 @@ export class IlmCityEngine {
 
     // Lekki's beach and the ocean
     const H = halfOf(D);
+    // the towns of Makkah and Madinah are paved stone, not desert (Mina and Arafat stay open plains)
+    if (D.holy && D.id !== "mina" && D.id !== "arafat") {
+      const pv = new THREE.Mesh(groundGeo(H.x * 2, H.z * 2, 3), MAT.pavement());
+      pv.position.set(0, 0.008, 0);
+      pv.receiveShadow = true;
+      S.add(pv);
+    }
     const southEdge = D.lagoon ? 76 : H.z - 1;
     const north = -(H.z - 4); // the northern end of the cross road
     const XR = H.x - 16; // how far streets run either side of the cross road
@@ -793,8 +937,10 @@ export class IlmCityEngine {
       this.streetSign(-60, st.z + 8.5, st.id, 0);
     });
     const crossEnd = southEdge - 6;
-    road(0, (north + crossEnd) / 2, 12, crossEnd - north);
-    for (let z = north; z < crossEnd; z += 6) {
+    // in Makkah and Madinah the Haram is north of the main road: the cross road only runs south
+    const crossTop = D.holy ? -8 : north;
+    road(0, (crossTop + crossEnd) / 2, 12, crossEnd - crossTop);
+    for (let z = crossTop; z < crossEnd; z += 6) {
       if (zs.some((sz) => Math.abs(z - sz) < 8)) continue;
       const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
       d.rotation.x = -Math.PI / 2;
@@ -822,11 +968,12 @@ export class IlmCityEngine {
 
     // landmarks along their streets, front doors facing the street
     D.landmarks.forEach((l) => this.buildLandmark(l, D));
+    if (D.campus) this.buildCampusWall(D);
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
     if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
 
     // bus park
-    this.buildBusPark(-72, 15);
+    this.buildBusPark(-72, 15, !!D.holy);
 
     // billboards beside the main street
     const spots: [number, number, number][] = [];
@@ -879,9 +1026,16 @@ export class IlmCityEngine {
             // throwaway batch so every later plot keeps the same number and look as before
             const turn0 = north ? 0 : Math.PI;
             const ghost = shops
-              ? shopRow(new Batch(), { x, z: cz, turn: turn0, rnd }).colliders
+              ? shopRow(new Batch(true), { x, z: cz, turn: turn0, rnd }).colliders
               : !land
-                ? compound(new Batch(), { x, z: cz, turn: turn0, number: num, rnd }).colliders
+                ? compound(new Batch(true), {
+                    x,
+                    z: cz,
+                    turn: turn0,
+                    number: num,
+                    rnd,
+                    style: houseStyleOf(D),
+                  }).colliders
                 : [];
             // while the streets are laid out, the replaced house still takes up its space
             for (const g of ghost) {
@@ -945,7 +1099,7 @@ export class IlmCityEngine {
                 STREETS[D.streets[si].id].name,
               ),
             );
-          } else c = compound(batch, { x, z: cz, turn, number: num, rnd });
+          } else c = compound(batch, { x, z: cz, turn, number: num, rnd, style: houseStyleOf(D) });
           num += 2;
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
 
@@ -986,11 +1140,19 @@ export class IlmCityEngine {
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
-    if (play) this.buildPlay(D, play);
+    if (
+      ["lekki", "ikeja", "akoka", "agege", "ikorodu", "fate", "ilorincentral", "tanke"].includes(
+        D.id,
+      )
+    )
+      this.buildBoutique(D);
+    if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
-    this.buildCourt(D);
+    if (!D.holy) this.buildCourt(D);
+    // quiet residential closes behind the main streets, lined with houses ready to let
+    if (!D.campus) this.buildCloses(D, zs, D.holy ? -8 : north, southEdge, batch);
     const wires = new THREE.Group();
-    zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
+    if (!D.holy) zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
     D.streets
       .filter((st) => st.decor)
@@ -1009,8 +1171,10 @@ export class IlmCityEngine {
               z - 0.45,
               z + 0.45,
             );
-            if (k % 2 === 0) batch.addObject(palm(x, z, 0.85));
-            else {
+            if (k % 2 === 0) {
+              if (D.holy) datePalmInto(batch, x, z, 0.75);
+              else batch.addObject(palm(x, z, 0.85));
+            } else {
               const bed = new THREE.Mesh(
                 new THREE.BoxGeometry(2.4, 0.35, 0.9),
                 MAT.plain(0xd8d2c2),
@@ -1033,11 +1197,23 @@ export class IlmCityEngine {
               );
               pole.position.set(x + 1.6, 2.75, z);
               batch.addObject(pole);
-              for (const [i, c] of [0x1f8a3a, 0xfdfdfd, 0x1f8a3a].entries()) {
-                const band = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.8), MAT.plain(c));
-                band.position.set(x + 1.6 + 0.21 + i * 0.42, 5.0, z);
-                batch.addObject(band);
-              }
+              if (D.holy) {
+                // the Saudi flag: green with the shahadah and a white sword
+                const fl = new THREE.Mesh(new THREE.PlaneGeometry(1.26, 0.8), MAT.plain(0x006c35));
+                fl.position.set(x + 1.6 + 0.63, 5.0, z);
+                batch.addObject(fl);
+                const sw = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.06), MAT.plain(0xfdfdfd));
+                sw.position.set(x + 1.6 + 0.63, 4.82, z + 0.01);
+                batch.addObject(sw);
+                const tx = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.16), MAT.plain(0xe8f2ea));
+                tx.position.set(x + 1.6 + 0.63, 5.12, z + 0.01);
+                batch.addObject(tx);
+              } else
+                for (const [i, c] of [0x1f8a3a, 0xfdfdfd, 0x1f8a3a].entries()) {
+                  const band = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.8), MAT.plain(c));
+                  band.position.set(x + 1.6 + 0.21 + i * 0.42, 5.0, z);
+                  batch.addObject(band);
+                }
             }
             k++;
           }
@@ -1081,7 +1257,11 @@ export class IlmCityEngine {
       const x = -XR + rnd() * XR * 2,
         z = north + rnd() * (southEdge - 8 - north);
       if (!clear(x, z)) continue;
-      batch.addObject(rnd() < 0.55 ? palm(x, z, 0.8 + rnd() * 0.3) : tree(x, z, 0.9 + rnd() * 0.4));
+      const isPalm = rnd() < 0.55,
+        sc = isPalm ? 0.8 + rnd() * 0.3 : 0.9 + rnd() * 0.4;
+      // date palms in Makkah and Madinah, neem trees on Arafat
+      if (D.holy) datePalmInto(batch, x, z, sc);
+      else batch.addObject(isPalm ? palm(x, z, sc) : tree(x, z, sc));
       this.addCollider("out", x - 0.45, x + 0.45, z - 0.45, z + 0.45);
       n++;
     }
@@ -1119,12 +1299,12 @@ export class IlmCityEngine {
       ]);
     });
     routes.push([
-      [9, north + 1],
+      [9, (D.holy ? -8 : north) + 1],
       [9, crossEnd],
     ]);
     routes.push([
       [-9, crossEnd],
-      [-9, north + 1],
+      [-9, (D.holy ? -8 : north) + 1],
     ]);
     routes.forEach((route, i) => {
       const k = (start + i) % names.length;
@@ -1213,40 +1393,87 @@ export class IlmCityEngine {
     this.colliders.out.push({ x0: -1100, x1: -800, z0: -1900, z1: 900 });
     this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1900, z1: 900 });
     // the north edge: Ikorodu reaches further north than the rest of the city
-    this.colliders.out.push({ x0: -1100, x1: 420, z0: -1900, z1: -680 });
+    // (the Lagos airport road goes north from Ikeja, past the edge)
+    this.colliders.out.push({ x0: -1100, x1: 10, z0: -1900, z1: -680 });
+    this.colliders.out.push({ x0: 10, x1: 250, z0: -1900, z1: -822 });
+    this.colliders.out.push({ x0: 250, x1: 420, z0: -1900, z1: -680 });
+    // every other city: its own ground (sand in Saudi Arabia), with edges all round
+    for (const city of Object.keys(CITY_CENTER).filter((c) => c !== "lagos")) {
+      const il = DISTRICTS.filter((d) => cityOf(d) === city);
+      if (!il.length) continue;
+      const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)) - 70,
+        x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)) + 70,
+        z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)) - 70,
+        z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z)) + 70;
+      const holyCity = il.some((d) => d.holy);
+      const g2 = new THREE.Mesh(
+        groundGeo(x1 - x0, z1 - z0, 10),
+        holyCity ? mat(0xd9c49a) : MAT.grass(),
+      );
+      g2.position.set((x0 + x1) / 2, -0.01, (z0 + z1) / 2);
+      g2.receiveShadow = true;
+      S.add(g2);
+      this.colliders.out.push(
+        { x0: x0 - 300, x1: x0, z0: z0 - 300, z1: z1 + 300 },
+        { x0: x1, x1: x1 + 300, z0: z0 - 300, z1: z1 + 300 },
+        { x0, x1, z0: z0 - 300, z1: z0 },
+        { x0, x1, z0: z1, z1: z1 + 300 },
+      );
+    }
     this.colliders.out.push({ x0: 420, x1: 1200, z0: -1900, z1: -1612 });
 
-    DISTRICTS.forEach((d) => this.buildDistrict(d.id));
-
-    // City Junction roundabout
-    const ring = new THREE.Mesh(new THREE.RingGeometry(16, 30, 48), mat(PALETTE.road));
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.04;
-    ring.receiveShadow = true;
-    S.add(ring);
-    const island = new THREE.Mesh(new THREE.CircleGeometry(16, 40), mat(0x7f9e52));
-    island.rotation.x = -Math.PI / 2;
-    island.position.y = 0.05;
-    S.add(island);
-    const monument = new THREE.Group();
-    monument.add(box(3, 1, 3, 0xd9d1bd));
-    const pillar = cyl(0.8, 1.1, 9, 0xece6d6, 8);
-    pillar.position.y = 5.5;
-    monument.add(pillar);
-    const top = crescent();
-    top.scale.setScalar(2);
-    top.position.set(-0.4, 11.4, 0);
-    monument.add(top);
-    S.add(monument);
-    this.colliders.out.push({ x0: -3, x1: 3, z0: -3, z1: 3 });
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      S.add(palm(Math.cos(a) * 11, Math.sin(a) * 11, 0.9));
+    // only the city you start in is built now; the other cities are built a little at a
+    // time once you are playing (or at once, if you travel there first)
+    const S0 = districtById(this.startId);
+    const startCity = cityOf(S0);
+    for (const d of DISTRICTS) {
+      // the area you start in and the areas close around it are built before you see anything
+      const near =
+        cityOf(d) === startCity &&
+        Math.hypot(d.origin.x - S0.origin.x, d.origin.z - S0.origin.z) < 520;
+      if (near) this.buildDistrict(d.id);
+      else {
+        const g = new THREE.Group();
+        g.position.set(d.origin.x, 0, d.origin.z);
+        this.scene.add(g);
+        this.areaGroups.push({ g, x: d.origin.x, z: d.origin.z });
+        this.placeholders.set(d.id, g);
+      }
     }
-    const jl = label("City Junction", { bg: "rgba(31,111,99,0.9)", size: 1.6 });
-    jl.position.set(0, 14, 0);
-    S.add(jl);
 
+    // a roundabout at the heart of each city
+    for (const [cid, c] of Object.entries(CITY_CENTER)) {
+      const J = new THREE.Group();
+      J.position.set(c.x, 0, c.z);
+      S.add(J);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(16, 30, 48), mat(PALETTE.road));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04;
+      ring.receiveShadow = true;
+      J.add(ring);
+      const island = new THREE.Mesh(new THREE.CircleGeometry(16, 40), mat(0x7f9e52));
+      island.rotation.x = -Math.PI / 2;
+      island.position.y = 0.05;
+      J.add(island);
+      const monument = new THREE.Group();
+      monument.add(box(3, 1, 3, 0xd9d1bd));
+      const pillar = cyl(0.8, 1.1, 9, 0xece6d6, 8);
+      pillar.position.y = 5.5;
+      monument.add(pillar);
+      const top = crescent();
+      top.scale.setScalar(2);
+      top.position.set(-0.4, 11.4, 0);
+      monument.add(top);
+      J.add(monument);
+      this.colliders.out.push({ x0: c.x - 3, x1: c.x + 3, z0: c.z - 3, z1: c.z + 3 });
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        J.add(palm(Math.cos(a) * 11, Math.sin(a) * 11, 0.9));
+      }
+      const jl = label(JUNCTION_NAME[cid], { bg: "rgba(31,111,99,0.9)", size: 1.6 });
+      jl.position.set(0, 14, 0);
+      J.add(jl);
+    }
     // roads joining linked areas (Ikorodu Road, Isheri–Igando Road, Ajah–Badore Road)
     for (const d of DISTRICTS) {
       if (!d.parent) continue;
@@ -1296,9 +1523,12 @@ export class IlmCityEngine {
     }
     // expressways from the junction to the end of each main street
     DISTRICTS.filter((d) => !d.parent).forEach((d) => {
+      const c = centerOf(d);
       const [ax, az] = this.roadEnd(d);
-      const len0 = Math.hypot(ax, az);
-      this.expressway((ax / len0) * 24, (az / len0) * 24, ax, az, d.highway);
+      const dx = ax - c.x,
+        dz = az - c.z;
+      const len0 = Math.hypot(dx, dz);
+      this.expressway(c.x + (dx / len0) * 24, c.z + (dz / len0) * 24, ax, az, d.highway);
     });
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
@@ -1329,9 +1559,17 @@ export class IlmCityEngine {
             d.origin.z,
           ];
       } else {
-        const [ax, az] = this.roadEnd(d);
+        const c = centerOf(d);
+        const [ex, ez] = this.roadEnd(d);
+        const ax = ex - c.x,
+          az = ez - c.z;
         const L = Math.hypot(ax, az);
-        [x0, z0, x1, z1] = [(ax / L) * 40, (az / L) * 40, ax - (ax / L) * 30, az - (az / L) * 30];
+        [x0, z0, x1, z1] = [
+          c.x + (ax / L) * 40,
+          c.z + (az / L) * 40,
+          ex - (ax / L) * 30,
+          ez - (az / L) * 30,
+        ];
       }
       const dx = x1 - x0,
         dz = z1 - z0,
@@ -1364,7 +1602,8 @@ export class IlmCityEngine {
           segs.push([d.origin.x, p.origin.z - halfOf(p).z, d.origin.x, d.origin.z + halfOf(d).z]);
       } else {
         const [ax, az] = this.roadEnd(d);
-        segs.push([0, 0, ax, az]);
+        const c = centerOf(d);
+        segs.push([c.x, c.z, ax, az]);
       }
     }
     return segs;
@@ -1584,7 +1823,7 @@ export class IlmCityEngine {
 
   /** Where an area's main street meets its expressway. */
   private roadEnd(d: District): [number, number] {
-    const side = d.origin.x > 0 ? -1 : 1;
+    const side = d.origin.x > centerOf(d).x ? -1 : 1;
     return [d.origin.x + side * (halfOf(d).x - 6), d.origin.z];
   }
 
@@ -1651,16 +1890,45 @@ export class IlmCityEngine {
           return d.highway;
         continue;
       }
-      const [ax, az] = this.roadEnd(d);
-      const t = Math.max(0, Math.min(1, (x * ax + z * az) / (ax * ax + az * az)));
-      if (Math.hypot(x - ax * t, z - az * t) < 11) return d.highway;
+      const c = centerOf(d);
+      const [ex, ez] = this.roadEnd(d);
+      const ax = ex - c.x,
+        az = ez - c.z,
+        px = x - c.x,
+        pz = z - c.z;
+      const t = Math.max(0, Math.min(1, (px * ax + pz * az) / (ax * ax + az * az)));
+      if (Math.hypot(px - ax * t, pz - az * t) < 11) return d.highway;
     }
-    return Math.hypot(x, z) < 34 ? "City Junction" : null;
+    for (const [id, c] of Object.entries(CITY_CENTER))
+      if (Math.hypot(x - c.x, z - c.z) < 34) return JUNCTION_NAME[id];
+    return null;
   }
 
   private reserved: Box[] = [];
   private worldBatch = new Batch();
-  private areaGroups: { g: THREE.Group; x: number; z: number }[] = [];
+  private areaGroups: { g: THREE.Group; x: number; z: number; onGpu?: boolean }[] = [];
+  /** Let the graphics card forget a far-away area (it is sent again when you come back),
+   *  so phones don't run out of graphics memory as you travel. */
+  private freeArea(a: { g: THREE.Group; onGpu?: boolean }) {
+    a.onGpu = false;
+    const keep = new Set<object>();
+    const maps = (m: THREE.Mesh) =>
+      (Array.isArray(m.material) ? m.material : m.material ? [m.material] : []).map(
+        (x) => (x as THREE.MeshBasicMaterial).map,
+      );
+    for (const b of this.areaGroups)
+      if (b.g.visible)
+        b.g.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.geometry) keep.add(m.geometry);
+          if (m.isMesh) for (const t of maps(m)) if (t) keep.add(t);
+        });
+    a.g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry && !keep.has(m.geometry)) m.geometry.dispose();
+      if (m.isMesh) for (const t of maps(m)) if (t && !keep.has(t)) t.dispose();
+    });
+  }
   /** Every compound in the city (for rent, sale and visits). */
   plots: (Compound & {
     id: string;
@@ -1671,6 +1939,9 @@ export class IlmCityEngine {
     streetZ: number;
     x: number;
     z: number;
+    /** a smaller plot (the closes): its width and depth */
+    pw?: number;
+    pd?: number;
   })[] = [];
   private ox = 0;
   private oz = 0;
@@ -1686,8 +1957,18 @@ export class IlmCityEngine {
 
   private buildLandmark(l: Landmark, D: District) {
     const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
-    if (l.kind === "masjid") this.buildMasjid(l.x, sz - 23, l);
-    else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
+    if (l.kind === "haram") this.buildHaram(l, D);
+    else if (l.kind === "nabawi") this.buildNabawi(l, D);
+    else if (l.kind === "jamarat") this.buildJamarat(l, sz, D);
+    else if (l.kind === "rahmah") this.buildRahmah(l, D, sz);
+    else if (l.kind === "clocktower") this.buildClockTower(l.x, sz - 30, l.name);
+    else if (l.kind === "masjid") {
+      this.buildMasjid(l.x, sz - 23, l);
+      // the famous mosques of Madinah keep their own shape: minarets and white domes
+      if (l.id === "masjid-quba") this.masjidCrown(l.x, sz - 23, 4, 6);
+      if (l.id === "masjid-qiblatayn") this.masjidCrown(l.x, sz - 23, 2, 2);
+      if (l.id === "masjid-qiblatayn") this.mountUhud(D);
+    } else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
     else if (l.kind === "home") this.buildHome(l.x, sz - 17);
     else if (l.kind === "souq") this.buildSouq(l.x, sz - 19, l);
     else if (l.kind === "market") this.buildMarket(D);
@@ -1725,6 +2006,96 @@ export class IlmCityEngine {
                       accent: l.brand?.accent ?? 0xffffff,
                     });
       if (seats.length) this.seatStudents(seats, D);
+      if (l.kind === "station") {
+        // the white high-speed train waiting at the platform behind the station
+        const pz = south ? cz + d / 2 + 6 : cz - d / 2 - 6;
+        const train = new THREE.Group();
+        const body = 0xf4f4f0;
+        for (let c = 0; c < 3; c++) {
+          const x0 = l.x - 32 + c * 21;
+          train.add(box(20, 3.4, 3.2, body, x0, 0.5, pz));
+          train.add(box(20.05, 0.35, 3.25, 0x9a7a3a, x0, 1.6, pz));
+          train.add(box(18, 0.9, 3.25, 0x2a3a44, x0, 2.3, pz));
+        }
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(1.75, 6, 12), mat(body));
+        nose.rotation.z = -Math.PI / 2;
+        nose.scale.set(1, 1, 0.9);
+        nose.position.set(l.x - 32 + 2 * 21 + 13, 2.2, pz);
+        train.add(nose);
+        train.add(box(70, 0.5, 6, 0xb8b2a4, l.x - 11, 0, pz)); // the platform
+        this.dg.add(train);
+        this.addCollider("out", l.x - 46, l.x + 26, pz - 3, pz + 3);
+        this.reserved.push({
+          x0: this.ox + l.x - 48,
+          x1: this.ox + l.x + 28,
+          z0: this.oz + pz - 5,
+          z1: this.oz + pz + 5,
+        });
+        const t = label("🚄 " + l.name, { size: 1.1, bg: "rgba(154,122,58,0.92)" });
+        t.position.set(l.x, (l.floors ?? 2) * 4 + 4, cz);
+        this.dg.add(t);
+      }
+      if (l.kind === "airport" && l.id === "makkah") {
+        // the Hajj Terminal at Jeddah: a field of white tent roofs on tall pylons
+        const tx0 = l.x + w / 2 + 10;
+        for (let i = 0; i < 4; i++)
+          for (let k = 0; k < 2; k++) {
+            const x = tx0 + 9 + i * 19,
+              z = cz - 9 + k * 19 * (south ? 1 : -1) * -1;
+            const tent = new THREE.Mesh(
+              new THREE.ConeGeometry(9.5, 7, 4, 1, true),
+              mat(0xf8f8f4, { side: THREE.DoubleSide, roughness: 0.9 }),
+            );
+            tent.rotation.y = Math.PI / 4;
+            tent.position.set(x, 13.5, z);
+            tent.castShadow = true;
+            this.dg.add(tent);
+            const pole = cyl(0.35, 0.45, 17, 0xd9d9d9, 8);
+            pole.position.set(x, 8.5, z);
+            this.dg.add(pole);
+            this.addCollider("out", x - 0.5, x + 0.5, z - 0.5, z + 0.5);
+          }
+        const ht = label("Hajj Terminal", { size: 1.4, bg: "rgba(29,107,58,0.92)" });
+        ht.position.set(tx0 + 38, 19, cz);
+        this.dg.add(ht);
+        this.reserved.push({
+          x0: this.ox + tx0,
+          x1: this.ox + tx0 + 80,
+          z0: this.oz + cz - 30,
+          z1: this.oz + cz + 30,
+        });
+      }
+      if (l.kind === "airport" && l.id === "madinah") {
+        // Madinah's terminal: a row of tall white arches across its front
+        const fz = south ? cz - d / 2 - 1.5 : cz + d / 2 + 1.5;
+        for (let i = 0; i < 7; i++) {
+          const x = l.x - w / 2 + 6 + i * ((w - 12) / 6);
+          const arch = new THREE.Mesh(
+            new THREE.TorusGeometry(5, 0.6, 8, 20, Math.PI),
+            mat(0xf8f8f4),
+          );
+          arch.position.set(x, 9, fz);
+          this.dg.add(arch);
+          for (const s2 of [-5, 5]) {
+            const p2 = cyl(0.6, 0.6, 9, 0xf8f8f4, 8);
+            p2.position.set(x + s2, 4.5, fz);
+            this.dg.add(p2);
+            this.addCollider("out", x + s2 - 0.7, x + s2 + 0.7, fz - 0.7, fz + 0.7);
+          }
+        }
+      }
+      if (l.kind === "airport") {
+        // a plane parked on the apron behind the terminal
+        const plane = planeMesh(l.brand?.color ?? 0x2f4a7a);
+        const pz = south ? cz + d / 2 + 16 : cz - d / 2 - 16;
+        plane.position.set(l.x, 0, pz);
+        plane.rotation.y = Math.PI / 2;
+        this.dg.add(plane);
+        this.addCollider("out", l.x - 11, l.x + 11, pz - 10, pz + 10);
+        const t = label("✈️ " + l.name, { size: 1.2, bg: "rgba(31,74,122,0.92)" });
+        t.position.set(l.x, (l.floors ?? 2) * 4 + 4, cz);
+        this.dg.add(t);
+      }
       if (l.kind === "field" || l.kind === "hangout")
         this.reserved.push({
           x0: this.ox + l.x - w / 2,
@@ -1748,9 +2119,13 @@ export class IlmCityEngine {
               ? "Enter " + l.name.split(" · ")[0]
               : l.kind === "field"
                 ? "Play football"
-                : l.kind === "hangout"
-                  ? "Sit and gist"
-                  : "Visit " + l.name;
+                : l.kind === "airport"
+                  ? "✈️ Fly to another city"
+                  : l.kind === "station"
+                    ? "🚄 Take the Haramain train"
+                    : l.kind === "hangout"
+                      ? "Sit and gist"
+                      : "Visit " + l.name;
         this.zones.push({
           id,
           label: text,
@@ -1766,6 +2141,172 @@ export class IlmCityEngine {
     }
   }
   private curBatch = new Batch();
+
+  /** Narrow tarred closes in the space between the main streets, with compounds on both
+      sides wall to wall, the way Lagos neighbourhoods are packed. Most houses are to let. */
+  private buildCloses(D: District, zs: number[], top: number, bottom: number, batch: Batch) {
+    const H = halfOf(D);
+    let h = 7;
+    for (const ch of D.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = mulberry(h);
+    const NAMES = D.holy
+      ? [
+          "Al-Rahmah",
+          "Al-Noor",
+          "Al-Huda",
+          "As-Salam",
+          "Al-Barakah",
+          "Al-Ihsan",
+          "Al-Falah",
+          "Al-Hijrah",
+        ]
+      : [
+          "Sabr",
+          "Ihsan",
+          "Tawakkul",
+          "Ikhlas",
+          "Huda",
+          "Noor",
+          "Salam",
+          "Ukhuwwah",
+          "Hikmah",
+          "Birr",
+        ];
+    // what the main streets already cover (road plus a row of compounds each side)
+    const cov = zs.map((z) => [z - 32, z + 32]).sort((a, b) => a[0] - b[0]);
+    const bands: [number, number][] = [];
+    let cur = top + 2;
+    for (const [a, b] of cov) {
+      if (a > cur) bands.push([cur, a]);
+      cur = Math.max(cur, b);
+    }
+    if (bottom - 2 > cur) bands.push([cur, bottom - 2]);
+    const lanes: { lz: number; sides: number[]; depth: number }[] = [];
+    for (const [a, b] of bands) {
+      const L = b - a;
+      if (L >= 36)
+        lanes.push({ lz: (a + b) / 2, sides: [-1, 1], depth: Math.min(20, (L - 7) / 2 - 0.5) });
+      else if (L >= 24) lanes.push({ lz: a + 3.5, sides: [1], depth: Math.min(20, L - 8) });
+    }
+    const asphalt = MAT.asphalt();
+    const kerb = MAT.plain(0xe9e4d8);
+    const PW = 18,
+      STEP = 19;
+    let built = 0;
+    lanes.forEach((ln, li) => {
+      const name = `${NAMES[(h + li) % NAMES.length]} ${D.holy ? "Street" : "Close"}`;
+      let num = 2;
+      // which stretches of the lane have houses on them
+      const cells: number[] = [];
+      for (let x = -(H.x - 14); x <= H.x - 14; x += STEP) {
+        if (Math.abs(x) < 16 || built >= 44) continue;
+        if (!this.boxFree(x - STEP / 2, x + STEP / 2, ln.lz - 3, ln.lz + 3)) continue;
+        let here = false;
+        for (const sd of ln.sides) {
+          const d = ln.depth;
+          const cz = ln.lz + sd * (3.2 + d / 2);
+          if (!this.boxFree(x - PW / 2, x + PW / 2, cz - d / 2, cz + d / 2)) continue;
+          const r1 = rnd();
+          const land = r1 < 0.08;
+          const toLet = !land && r1 < 0.85;
+          const id = `${D.id}-c${li}-${num}`;
+          const turn = sd < 0 ? 0 : Math.PI;
+          let c: Compound;
+          if (land) {
+            const earth = new THREE.Mesh(groundGeo(PW - 1, d - 1, 3), MAT.plain(0xc4a06a));
+            earth.position.set(x, 0.03, cz);
+            batch.addObject(earth);
+            const front = cz - sd * (d / 2);
+            c = {
+              colliders: [],
+              door: { x, z: front },
+              gate: { x, z: front - sd * 0.5 },
+              floors: 0,
+              number: num,
+            };
+          } else
+            c = compound(batch, {
+              x,
+              z: cz,
+              turn,
+              width: PW,
+              depth: d,
+              number: num,
+              rnd,
+              style: houseStyleOf(D),
+            });
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + x - PW / 2,
+            x1: this.ox + x + PW / 2,
+            z0: this.oz + cz - d / 2,
+            z1: this.oz + cz + d / 2,
+          });
+          this.plots.push({
+            ...c,
+            id,
+            kind: land ? "land" : "house",
+            toLet,
+            district: D.id,
+            street: name,
+            streetZ: ln.lz,
+            x,
+            z: cz,
+            pw: PW,
+            pd: d,
+          });
+          if (land || toLet) {
+            const zone: Zone = {
+              id: "plot:" + id,
+              label: "",
+              x: this.ox + c.gate.x,
+              z: this.oz + c.gate.z,
+              r: 3.4,
+              scene: "out",
+            };
+            this.zones.push(zone);
+            this.plotFx.set(id, { zone });
+          }
+          num += 1;
+          built++;
+          here = true;
+        }
+        if (here) cells.push(x);
+      }
+      if (!cells.length) return;
+      // the tarred lane under the houses; it runs on to the cross road where it can
+      cells.sort((a, b) => a - b);
+      const runs: [number, number][] = [];
+      for (const x of cells) {
+        const last = runs[runs.length - 1];
+        if (last && x - last[1] <= STEP + 0.1) last[1] = x;
+        else runs.push([x, x]);
+      }
+      for (const run of runs) {
+        let x0 = run[0] - STEP / 2,
+          x1 = run[1] + STEP / 2;
+        if (x0 > 0 && x0 - 6 < STEP + 2 && this.boxFree(6, x0, ln.lz - 3, ln.lz + 3)) x0 = 6;
+        if (x1 < 0 && -6 - x1 < STEP + 2 && this.boxFree(x1, -6, ln.lz - 3, ln.lz + 3)) x1 = -6;
+        const len = x1 - x0,
+          cx = (x0 + x1) / 2;
+        const kb = new THREE.Mesh(groundGeo(len, 7, 2), kerb);
+        kb.position.set(cx, 0.025, ln.lz);
+        batch.addObject(kb);
+        const rd = new THREE.Mesh(groundGeo(len, 6, 4), asphalt);
+        rd.position.set(cx, 0.035, ln.lz);
+        batch.addObject(rd);
+        this.reserved.push({
+          x0: this.ox + x0,
+          x1: this.ox + x1,
+          z0: this.oz + ln.lz - 3.5,
+          z1: this.oz + ln.lz + 3.5,
+        });
+      }
+      const t = label(name, { size: 0.8, bg: "rgba(31,111,99,0.9)" });
+      t.position.set(cells[0] < 0 && cells[cells.length - 1] < 0 ? -16 : 16, 3.2, ln.lz - 4);
+      this.dg.add(t);
+    });
+  }
 
   /** Three plots in a row, free of everything, for the pitch and the sisters' corner. */
   private choosePlayPlots(
@@ -2185,6 +2726,7 @@ export class IlmCityEngine {
     const c = this.courts.get(zoneId);
     if (!c || this.where !== "out") return false;
     this.endTennis();
+    this.tennisZone = zoneId;
     if (this.driving) this.exitCar();
     this.tapTarget = null;
     this.marker.visible = false;
@@ -2268,8 +2810,15 @@ export class IlmCityEngine {
     }
     this.tennis.dispose();
     this.tennis = null;
+    // step back out to the front of the table tennis spot, where you came in
+    const z = this.zones.find((q) => q.id === this.tennisZone);
+    if (z) {
+      this.player.position.set(z.x, 0, z.z);
+      this.player.rotation.y = 0;
+    }
     this.snapCamera();
   }
+  private tennisZone = "";
   private stepTennis(v: THREE.Vector2, dt: number) {
     const t = this.tennis!;
     let move: { x: number; z: number } | null = null;
@@ -2481,10 +3030,27 @@ export class IlmCityEngine {
     const sign = new THREE.Mesh(
       new THREE.PlaneGeometry(kind === "shop" ? 4.6 : 4.4, kind === "shop" ? 0.95 : 1.3),
     );
-    const sd = kind === "shop" ? 3.95 : 2.15;
-    sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 2.75, center.z + uz * sd);
+    // a stall's board stands on top of its canopy, in front of the frill and the lights
+    const sd = kind === "shop" ? 3.95 : 2.6;
+    sign.position.set(center.x + ux * sd, kind === "shop" ? 4.25 : 3.85, center.z + uz * sd);
     sign.rotation.y = ry;
     parent.add(sign);
+    if (kind === "stall") {
+      // the board's frame and the two legs holding it up on the canopy
+      const back = box(4.6, 1.5, 0.08, 0x5a3f22, 0, 0, 0, false);
+      back.position.set(center.x + ux * (sd - 0.06), 3.85, center.z + uz * (sd - 0.06));
+      back.rotation.y = ry;
+      parent.add(back);
+      for (const s of [-1.9, 1.9]) {
+        const leg = box(0.1, 0.35, 0.1, 0x5a3f22, 0, 0, 0, false);
+        leg.position.set(
+          center.x + ux * (sd - 0.1) + uz * s,
+          3.0,
+          center.z + uz * (sd - 0.1) - ux * s,
+        );
+        parent.add(leg);
+      }
+    }
     // a small sign sticking out sideways, so you can read the name walking along the street
     const vx = uz,
       vz = -ux;
@@ -2892,6 +3458,1250 @@ export class IlmCityEngine {
       512,
     ).mesh;
   }
+  /** A university behind its wall: a fence round the campus and a gate on the cross road
+      with the university's name written big across it. Shops and houses stay outside. */
+  private buildCampusWall(D: District) {
+    const c = D.campus!;
+    const H = halfOf(D);
+    const z = c.z,
+      x0 = -H.x + 1,
+      x1 = H.x - 1,
+      zb = -H.z + 1;
+    const g = new THREE.Group();
+    const wall = (ax: number, az: number, bx: number, bz: number) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      const along = Math.abs(bx - ax) > Math.abs(bz - az);
+      const w = new THREE.Mesh(
+        new THREE.BoxGeometry(along ? len : 0.35, 2.2, along ? 0.35 : len),
+        mat(0xe9e2d0),
+      );
+      w.position.set((ax + bx) / 2, 1.1, (az + bz) / 2);
+      w.castShadow = true;
+      w.receiveShadow = true;
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(along ? len : 0.5, 0.18, along ? 0.5 : len),
+        mat(0x1f6f63),
+      );
+      cap.position.set((ax + bx) / 2, 2.25, (az + bz) / 2);
+      g.add(w, cap);
+      this.addCollider(
+        "out",
+        Math.min(ax, bx) - 0.2,
+        Math.max(ax, bx) + 0.2,
+        Math.min(az, bz) - 0.2,
+        Math.max(az, bz) + 0.2,
+      );
+    };
+    // the front wall, open at the gate on the cross road
+    wall(x0, z, -11.3, z);
+    wall(11.3, z, x1, z);
+    wall(x0, z, x0, zb);
+    wall(x1, z, x1, zb);
+    wall(x0, zb, x1, zb);
+    // the gate: two pillars and a beam with the university's name
+    for (const px of [-10.5, 10.5]) g.add(box(1.6, 8.4, 1.6, 0xd9d1bd, px, 0, z));
+    g.add(box(22.6, 1.6, 1.4, 0x1f6f63, 0, 7, z));
+    const front = this.signBoard(c.gate, 19, 1.3, "#1f6f63", "#ffffff");
+    front.position.set(0, 7.8, z + 0.75);
+    g.add(front);
+    const back = this.signBoard(c.gate, 19, 1.3, "#1f6f63", "#ffffff");
+    back.position.set(0, 7.8, z - 0.75);
+    back.rotation.y = Math.PI;
+    g.add(back);
+    const hint = label("Main Gate · " + c.gate, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
+    hint.position.set(0, 10.4, z);
+    g.add(hint);
+    this.colliders.out.push(
+      { x0: this.ox - 11.3, x1: this.ox - 9.7, z0: this.oz + z - 0.8, z1: this.oz + z + 0.8 },
+      { x0: this.ox + 9.7, x1: this.ox + 11.3, z0: this.oz + z - 0.8, z1: this.oz + z + 0.8 },
+    );
+    this.dg.add(g);
+  }
+  /* ---------------- Makkah and Madinah ---------------- */
+  /** Where the Kaaba, Safa and Marwah are (world), for tawaf and sa'i. */
+  holy: {
+    kaaba?: { x: number; z: number };
+    safa?: { x: number; z: number };
+    marwah?: { x: number; z: number };
+  } = {};
+  /** Al-Masjid Al-Haram: the colonnades round an open courtyard with the Kaaba in the middle,
+      Maqam Ibrahim, the Zamzam taps, Safa and Marwah, tall minarets and the clock tower. */
+  private buildHaram(l: Landmark, D: District) {
+    const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
+    const C = { x: l.x, z: sz - 130 };
+    const OUT = 88,
+      IN = 46,
+      H = 15;
+    const g = new THREE.Group();
+    g.position.set(C.x, 0, C.z);
+    const white = 0xf3f0e7;
+    // the marble courtyard (mataf) and the outer plaza
+    const plaza = new THREE.Mesh(
+      new THREE.PlaneGeometry(OUT * 2 + 30, OUT * 2 + 40),
+      mat(0xe9e4d8),
+    );
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.set(0, 0.025, 8);
+    plaza.receiveShadow = true;
+    g.add(plaza);
+    const mataf = new THREE.Mesh(new THREE.PlaneGeometry(IN * 2, IN * 2), mat(0xfbfaf6));
+    mataf.rotation.x = -Math.PI / 2;
+    mataf.position.y = 0.04;
+    mataf.receiveShadow = true;
+    g.add(mataf);
+    // the colonnades: four wings, with the King Abdulaziz Gate on the south
+    const wing = (x0: number, x1: number, z0: number, z1: number) => {
+      const w = x1 - x0,
+        d = z1 - z0;
+      g.add(box(w, H, d, white, (x0 + x1) / 2, 0, (z0 + z1) / 2));
+      g.add(box(w + 0.6, 1.2, d + 0.6, 0xd9cfb8, (x0 + x1) / 2, H, (z0 + z1) / 2));
+      this.addCollider("out", C.x + x0, C.x + x1, C.z + z0, C.z + z1);
+    };
+    wing(-OUT, OUT, -OUT, -IN); // north
+    wing(-OUT, -IN, -IN, IN); // west
+    wing(IN, OUT, -IN, IN); // east
+    wing(-OUT, -9, IN, OUT); // south, left of the gate
+    wing(9, OUT, IN, OUT); // south, right of the gate
+    // arches facing the courtyard and the street
+    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
+    const arches = (y: number, z: number, x0: number, x1: number, n: number, face: number) => {
+      for (let i = 0; i < n; i++) {
+        const x = x0 + ((i + 0.5) * (x1 - x0)) / n;
+        const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.2), archMat);
+        a.position.set(x, y, z + face * 0.06);
+        if (face < 0) a.rotation.y = Math.PI;
+        g.add(a);
+      }
+    };
+    arches(3, OUT, -OUT + 2, -11, 12, 1);
+    arches(3, OUT, 11, OUT - 2, 12, 1);
+    arches(3, -IN, -IN + 2, IN - 2, 14, 1);
+    arches(3, IN, -IN + 2, -11, 6, -1);
+    arches(3, IN, 11, IN - 2, 6, -1);
+    // the gate: an arch with two minarets
+    g.add(box(20, 2.4, 6, 0xd9cfb8, 0, H - 1.2, OUT - 3));
+    const gateSign = this.signBoard("KING ABDULAZIZ GATE", 16, 1.1, "#5a4a2a", "#f3e2b0");
+    gateSign.position.set(0, H - 3, OUT + 0.1);
+    g.add(gateSign);
+    const minaret = (x: number, z: number, h: number) => {
+      const shaft = cyl(1.6, 2, h, 0xf3f0e7, 8);
+      shaft.position.set(x, h / 2, z);
+      g.add(shaft);
+      for (const y of [h * 0.45, h * 0.75]) {
+        const bal = cyl(2.5, 2.5, 0.8, 0xd9cfb8, 8);
+        bal.position.set(x, y, z);
+        g.add(bal);
+      }
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0xc9a227));
+      top.position.set(x, h + 3, z);
+      g.add(top);
+      const c = crescent();
+      c.scale.setScalar(1.2);
+      c.position.set(x - 0.3, h + 7.2, z);
+      g.add(c);
+      this.addCollider("out", C.x + x - 2.2, C.x + x + 2.2, C.z + z - 2.2, C.z + z + 2.2);
+    };
+    minaret(-12, OUT + 2, 62);
+    minaret(12, OUT + 2, 62);
+    for (const [x, z] of [
+      [-OUT, -OUT],
+      [OUT, -OUT],
+      [-OUT, OUT],
+      [OUT, OUT],
+    ])
+      minaret(x, z, 56);
+    // the Kaaba: black kiswah with its gold band, the door, Hijr Ismail and the Black Stone
+    const K = new THREE.Group();
+    K.add(box(12, 15, 12, 0x111111));
+    const band = box(12.15, 1.2, 12.15, 0xc9a227, 0, 10.4, 0);
+    K.add(band);
+    // the door, on the face just after the Black Stone (the Multazam is between them)
+    K.add(box(0.2, 3.6, 2.4, 0xc9a227, 6.05, 2.2, 2.4));
+    const stone = new THREE.Mesh(
+      new THREE.TorusGeometry(0.45, 0.14, 8, 16),
+      mat(0xc0c4c8, { metalness: 0.6, roughness: 0.3 }),
+    );
+    stone.position.set(6.05, 1.5, 6.05);
+    stone.rotation.y = Math.PI / 4;
+    K.add(stone);
+    const hijr = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.45, 8, 28, Math.PI), mat(0xe9e4d8));
+    // Hijr Ismail: the low curved wall on the far side, part of the Kaaba
+    hijr.rotation.x = -Math.PI / 2;
+    hijr.position.set(0, 0.6, -6);
+    K.add(hijr);
+    g.add(K);
+    this.addCollider("out", C.x - 6.2, C.x + 6.2, C.z - 6.2, C.z + 6.2);
+    // Maqam Ibrahim: a small gold-and-glass cage
+    const maqam = new THREE.Group();
+    maqam.add(cyl(0.9, 1.1, 0.6, 0xd9cfb8, 12));
+    const cage = cyl(0.8, 0.8, 2.2, 0xc9a227, 12);
+    cage.position.y = 1.7;
+    maqam.add(cage);
+    const capm = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.9, 12), mat(0xc9a227));
+    capm.position.y = 3.2;
+    maqam.add(capm);
+    // in front of the Kaaba's door
+    maqam.position.set(15, 0, 2.4);
+    g.add(maqam);
+    this.addCollider("out", C.x + 14, C.x + 16, C.z + 1.4, C.z + 3.4);
+    // the start of each round: a line from the Black Stone and a green light on the wall
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.35, IN - 9), mat(0x6b4426));
+    line.rotation.x = -Math.PI / 2;
+    line.rotation.z = Math.PI / 4;
+    line.position.set(Math.SQRT1_2 * (IN / 2 + 3), 0.06, Math.SQRT1_2 * (IN / 2 + 3));
+    g.add(line);
+    const lamp = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 0.3),
+      new THREE.MeshBasicMaterial({ color: 0x2bd47a, toneMapped: false }),
+    );
+    lamp.position.set(IN - 0.4, 7, IN - 0.4);
+    lamp.rotation.y = Math.PI / 4;
+    g.add(lamp);
+    const bl = label("Black Stone line · start and end of each round", {
+      size: 0.7,
+      bg: "rgba(31,140,80,0.9)",
+    });
+    bl.position.set(Math.SQRT1_2 * 20, 3, Math.SQRT1_2 * 20);
+    g.add(bl);
+    // worshippers sitting in rings round the Kaaba, waiting for the next salah
+    for (let ring = 0; ring < 2; ring++) {
+      const rr = 27 + ring * 3,
+        n = 18 + ring * 4;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + ring * 0.12;
+        const x = Math.cos(a) * rr,
+          z = Math.sin(a) * rr;
+        if (x > 12 && Math.abs(z) < 8) continue; // keep the way to the Maqam clear
+        const f = (i + ring) % 4 === 3;
+        const pg = f
+          ? person(0x1d1d26, { hijab: 0xf4f4ef, seed: 80 + i })
+          : person([0xf7f7f2, 0xe8e2d4, 0xf4efe4][i % 3], { cap: 0xffffff, seed: 80 + i });
+        pg.position.set(x, 0.1, z);
+        pg.rotation.y = Math.atan2(-x, -z);
+        if (!sitHuman(pg)) sitPerson(pg);
+        g.add(pg);
+      }
+    }
+    // Zamzam taps along the west colonnade
+    for (let i = 0; i < 5; i++) {
+      const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
+      g.add(t);
+    }
+    // the Mas'a: a two-storey marble gallery down the east side, from Safa to Marwah,
+    // with the green lights in the middle where men hasten
+    this.buildMasa(g, IN, H, C);
+    this.dg.add(g);
+    // the Abraj Al-Bait with the Makkah clock tower, across the road from the King Abdulaziz Gate
+    this.buildAbraj(C.x, sz);
+    // hotels round the Haram
+    this.buildHotelRing(C, OUT, sz);
+    // keep houses off the whole Haram and its plaza
+    this.reserved.push({
+      x0: this.ox + C.x - OUT - 14,
+      x1: this.ox + C.x + OUT + 14,
+      z0: this.oz + C.z - OUT - 14,
+      z1: this.oz + sz - 10,
+    });
+    // places to tap
+    const W = (x: number, z: number) => ({ x: this.ox + C.x + x, z: this.oz + C.z + z });
+    const kz = W(0, 0),
+      safa = W(IN - 6, -IN + 6),
+      marwah = W(IN - 6, IN - 6);
+    this.holy.kaaba = kz;
+    this.holy.safa = safa;
+    this.holy.marwah = marwah;
+    const zone = (id: string, label2: string, p: { x: number; z: number }, r = 3.4) =>
+      this.zones.push({ id, label: label2, x: p.x, z: p.z, r, scene: "out" });
+    zone("kaaba:tawaf", "🕋 Tawaf around the Kaaba", W(0, 9.5), 4);
+    zone("maqam", "Pray behind Maqam Ibrahim", W(19, 2.4));
+    zone("zamzam", "💧 Drink Zamzam", W(-IN + 3.5, 0));
+    zone("safa:sai", "Sa'i between Safa and Marwah", W(IN - 6, -IN + 10));
+    zone(`door:masjid:${l.id}`, `Enter ${l.name} for salah`, W(0, OUT + 4), 4);
+    // pilgrims in ihram walking round the Kaaba, the Kaaba on their left
+    for (let i = 0; i < 18; i++) {
+      const r = 10 + (i % 4) * 3.2;
+      const route: [number, number][] = [];
+      const a0 = (i / 18) * Math.PI * 2;
+      for (let k = 0; k < 16; k++) {
+        const a = a0 + (k / 16) * Math.PI * 2;
+        route.push([C.x + Math.cos(a) * r, C.z - Math.sin(a) * r]);
+      }
+      const female = i % 3 === 2;
+      const pg = female
+        ? person(0x1d1d26, { hijab: i % 2 ? 0xf4f4ef : 0x1d1d26, seed: i })
+        : person(0xf7f7f2, { cap: null, seed: i, outfit: "thobe" });
+      pg.position.set(route[0][0], 0, route[0][1]);
+      this.dg.add(pg);
+      this.walkers.push({ g: pg, route, k: 1, wait: i * 0.3, t: 0, district: D.id, pilgrim: true });
+    }
+  }
+
+  /** The Mas'a inside the east colonnade: a marble walkway between the rocks of Safa (north)
+      and Marwah (south), under two storeys of arches, with green lights over the middle. */
+  private buildMasa(g: THREE.Group, IN: number, H: number, C: { x: number; z: number }) {
+    const x0 = IN - 13,
+      x1 = IN,
+      L = IN - 2;
+    const cx = (x0 + x1) / 2;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, L * 2), mat(0xf8f6f0));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(cx, 0.05, 0);
+    floor.receiveShadow = true;
+    g.add(floor);
+    // the upper floor and the roof, held up on rows of columns facing the Kaaba
+    g.add(box(x1 - x0, 0.9, L * 2, 0xece6d6, cx, 7, 0));
+    g.add(box(x1 - x0, 0.9, L * 2, 0xe2dacb, cx, H - 0.9, 0));
+    for (let z = -L + 3; z <= L - 3; z += 6) {
+      for (const y of [0, 7.9]) {
+        const col = cyl(0.5, 0.6, y ? H - 0.9 - 7.9 : 7, 0xf3f0e7, 10);
+        col.position.set(x0 + 0.6, y + (y ? (H - 0.9 - 7.9) / 2 : 3.5), z);
+        g.add(col);
+      }
+      const arch = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.3, 6, 12, Math.PI), mat(0xd9cfb8));
+      arch.rotation.y = Math.PI / 2;
+      arch.position.set(x0 + 0.6, 4.4, z + 3);
+      g.add(arch);
+      // the dividing rail down the middle of the Mas'a
+      g.add(box(0.15, 1, 5.2, 0xc9a227, cx + 1, 0, z + 3));
+    }
+    // the colonnade is solid except for three ways in from the courtyard
+    for (const [za, zb] of [
+      [-L, -L + 8],
+      [-L + 14, -6],
+      [6, L - 14],
+      [L - 8, L],
+    ])
+      this.addCollider("out", C.x + x0, C.x + x0 + 1.2, C.z + za, C.z + zb);
+    // green lights on the ceiling between the two green columns
+    const green = new THREE.MeshBasicMaterial({ color: 0x2bd47a, toneMapped: false });
+    for (const dx of [-3, 0, 3]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 24), green);
+      strip.position.set(cx + dx, 6.5, 0);
+      g.add(strip);
+    }
+    for (const z of [-12, 12]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 6.5, 0.8), green);
+      pillar.position.set(cx + 4.5, 3.25, z);
+      g.add(pillar);
+    }
+    const gl = label("Green lights · brothers hasten here", {
+      size: 0.8,
+      bg: "rgba(31,140,80,0.9)",
+    });
+    gl.position.set(cx, 5.6, 0);
+    g.add(gl);
+    // Safa and Marwah: the rocks of the two hills under their domes
+    const hill = (z: number, name: string, ar: string) => {
+      const rock = new THREE.Group();
+      for (const [dx, dy, dz, rr] of [
+        [0, 0.9, 0, 2.6],
+        [1.6, 0.5, 1.2, 1.7],
+        [-1.5, 0.6, -1, 1.9],
+        [0.4, 1.6, -0.6, 1.5],
+      ]) {
+        const m2 = new THREE.Mesh(new THREE.DodecahedronGeometry(rr, 0), mat(0x8a7560));
+        m2.position.set(dx, dy, dz);
+        m2.rotation.set(dx, dz, dy);
+        m2.castShadow = true;
+        rock.add(m2);
+      }
+      rock.scale.set(1, 0.75, 1);
+      rock.position.set(cx, 0, z);
+      g.add(rock);
+      const guard = new THREE.Mesh(
+        new THREE.CylinderGeometry(4.2, 4.2, 1.1, 24, 1, true),
+        mat(0xe8f2f6, { transparent: true, opacity: 0.35, side: THREE.DoubleSide }),
+      );
+      guard.position.set(cx, 0.55, z);
+      g.add(guard);
+      const drum = cyl(5, 5, 2, 0xece6d6, 20);
+      drum.position.set(cx, H + 1, z);
+      g.add(drum);
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(5, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+        mat(0xd9d4c8),
+      );
+      dome.position.set(cx, H + 2, z);
+      g.add(dome);
+      const t = label(`${name} · ${ar}`, { size: 1.1, bg: "rgba(31,111,99,0.92)" });
+      t.position.set(cx, 5.2, z);
+      g.add(t);
+    };
+    hill(-L + 4, "Safa", "الصفا");
+    hill(L - 4, "Marwah", "المروة");
+  }
+
+  /** A clock face: white with a gold ring, Arabic numerals and "Allahu Akbar" above. */
+  private clockFace(r: number) {
+    const { mesh } = canvasPlane(
+      r * 2,
+      r * 2.6,
+      (c, W, Hh) => {
+        c.fillStyle = "#1d6b3a";
+        c.fillRect(0, 0, W, Hh);
+        const R = W / 2 - 8,
+          cx = W / 2,
+          cy = Hh - W / 2;
+        c.fillStyle = "#f3d27a";
+        c.font = `700 ${Math.round(W * 0.12)}px serif`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.fillText("الله أكبر", cx, (Hh - W) / 2 + 4);
+        c.beginPath();
+        c.arc(cx, cy, R, 0, Math.PI * 2);
+        c.fillStyle = "#c9a227";
+        c.fill();
+        c.beginPath();
+        c.arc(cx, cy, R * 0.9, 0, Math.PI * 2);
+        c.fillStyle = "#fbfaf4";
+        c.fill();
+        const nums = ["١٢", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩", "١٠", "١١"];
+        c.fillStyle = "#1d1d1d";
+        c.font = `700 ${Math.round(R * 0.16)}px serif`;
+        nums.forEach((n, i) => {
+          const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+          c.fillText(n, cx + Math.cos(a) * R * 0.74, cy + Math.sin(a) * R * 0.74);
+        });
+        c.strokeStyle = "#1d1d1d";
+        c.lineCap = "round";
+        c.lineWidth = R * 0.05;
+        c.beginPath();
+        c.moveTo(cx, cy);
+        c.lineTo(cx + R * 0.35, cy - R * 0.3);
+        c.stroke();
+        c.lineWidth = R * 0.035;
+        c.beginPath();
+        c.moveTo(cx, cy);
+        c.lineTo(cx - R * 0.05, cy - R * 0.62);
+        c.stroke();
+      },
+      512,
+    );
+    return mesh;
+  }
+
+  /** The Abraj Al-Bait: a stone podium with hotel towers, and the clock tower in the middle
+      with its four great clock faces, a green-lit crown and a golden crescent. */
+  private buildAbraj(hx: number, sz: number) {
+    const cx = hx + 82,
+      cz = sz + 54;
+    const PW = 120,
+      PD = 64,
+      PH = 18;
+    const T = new THREE.Group();
+    T.position.set(cx, 0, cz);
+    const facade = (
+      w: number,
+      h: number,
+      d: number,
+      c: number,
+      x: number,
+      y: number,
+      z: number,
+    ) => {
+      const m = new THREE.Mesh(boxGeo(w, h, d, 3.3), MAT3.facade(c));
+      m.position.set(x, y + h / 2, z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      T.add(m);
+      return m;
+    };
+    // the podium: shopping halls with arches at street level
+    facade(PW, PH, PD, 0xe6dcc6, 0, 0, 0);
+    T.add(box(PW + 1, 1, PD + 1, 0xcbb894, 0, PH, 0));
+    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
+    for (let i = 0; i < 18; i++) {
+      const a = new THREE.Mesh(new THREE.PlaneGeometry(4, 6), archMat);
+      a.position.set(-PW / 2 + 4 + i * ((PW - 8) / 17), 3.2, -PD / 2 - 0.06);
+      a.rotation.y = Math.PI;
+      T.add(a);
+    }
+    // six hotel towers on the podium
+    for (const [x, z, h, w] of [
+      [-46, -18, 70, 16],
+      [-46, 16, 88, 16],
+      [-24, 22, 62, 14],
+      [24, 22, 62, 14],
+      [46, 16, 88, 16],
+      [46, -18, 70, 16],
+    ]) {
+      facade(w, h, w, 0xeae2d0, x, PH, z);
+      T.add(box(w + 1.5, 2.5, w + 1.5, 0xcbb894, x, PH + h, z));
+      T.add(box(w * 0.6, 6, w * 0.6, 0xe6dcc6, x, PH + h + 2.5, z));
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(1.2, 8, 6), mat(0xc9a227));
+      sp.position.set(x, PH + h + 12.5, z);
+      T.add(sp);
+    }
+    // the clock tower
+    const S = 26;
+    const shaftH = 150;
+    facade(S, shaftH, S, 0xece6d6, 0, PH, -4);
+    const yc = PH + shaftH;
+    T.add(box(S + 6, 2, S + 6, 0xcbb894, 0, yc, -4));
+    T.add(box(S + 4, 38, S + 4, 0xf0ebdf, 0, yc + 2, -4));
+    for (const ry of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const f = this.clockFace(14);
+      f.position.set(
+        Math.sin(ry) * ((S + 4) / 2 + 0.1),
+        yc + 2 + 19,
+        -4 + Math.cos(ry) * ((S + 4) / 2 + 0.1),
+      );
+      f.rotation.y = ry;
+      T.add(f);
+    }
+    // the crown: tiers lit green at night, then the gold spire and crescent
+    const greenM = new THREE.MeshStandardMaterial({
+      color: 0x1d6b3a,
+      emissive: 0x2bd47a,
+      emissiveIntensity: 0.5,
+    });
+    let y = yc + 40;
+    for (const [w, h] of [
+      [S + 2, 6],
+      [S - 4, 8],
+      [S - 10, 8],
+    ]) {
+      const tier = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), greenM);
+      tier.position.set(0, y + h / 2, -4);
+      T.add(tier);
+      T.add(box(w + 1, 0.8, w + 1, 0xf0ebdf, 0, y + h, -4));
+      y += h + 0.8;
+    }
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(6, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+      mat(0xc9a227, { metalness: 0.6, roughness: 0.3 }),
+    );
+    dome.position.set(0, y, -4);
+    T.add(dome);
+    const spire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.6, 2.2, 34, 10),
+      mat(0xc9a227, { metalness: 0.6, roughness: 0.3 }),
+    );
+    spire.position.set(0, y + 6 + 17, -4);
+    T.add(spire);
+    const tc = crescent();
+    tc.scale.setScalar(4);
+    tc.position.set(-1, y + 6 + 38, -4);
+    T.add(tc);
+    this.dg.add(T);
+    this.addCollider("out", cx - PW / 2, cx + PW / 2, cz - PD / 2, cz + PD / 2);
+    this.reserved.push({
+      x0: this.ox + cx - PW / 2 - 4,
+      x1: this.ox + cx + PW / 2 + 4,
+      z0: this.oz + cz - PD / 2 - 4,
+      z1: this.oz + cz + PD / 2 + 4,
+    });
+    const tl = label("Abraj Al-Bait · Makkah Clock Tower", { size: 2, bg: "rgba(31,111,99,0.9)" });
+    tl.position.set(cx, PH + 6, cz - PD / 2);
+    this.dg.add(tl);
+  }
+
+  /** Tall hotels on the blocks round the Haram, the way pilgrims see Makkah. */
+  private buildHotelRing(C: { x: number; z: number }, OUT: number, sz: number) {
+    const names = [
+      "Hilton Suites",
+      "Swissotel",
+      "Dar Al-Tawhid",
+      "Al-Safwa Towers",
+      "Hotel Makkah",
+      "Le Meridien",
+      "Elaf Ajyad",
+      "Al-Marwa Rayhaan",
+    ];
+    let k = 0;
+    for (const side of [-1, 1])
+      for (const z of [C.z - 70, C.z, C.z + 62]) {
+        if (z > sz - 34) continue;
+        for (const dx of [OUT + 30, OUT + 62, OUT + 94]) {
+          const x = C.x + side * dx;
+          const w = 22,
+            d = 20;
+          if (!this.boxFree(x - w / 2 - 2, x + w / 2 + 2, z - d / 2 - 2, z + d / 2 + 2)) continue;
+          const h = 40 + ((k * 37) % 50);
+          const m = new THREE.Mesh(
+            boxGeo(w, h, d, 3.3),
+            MAT3.facade([0xeae2d0, 0xe6dcc6, 0xf2ece0, 0xdccfb4][k % 4]),
+          );
+          m.position.set(x, h / 2, z);
+          m.castShadow = true;
+          m.receiveShadow = true;
+          this.dg.add(m);
+          this.dg.add(box(w + 1.2, 1.6, d + 1.2, 0xcbb894, x, h, z));
+          const sign = this.signBoard(names[k % names.length], w * 0.8, 2, "#1d6b3a", "#f3e2b0");
+          sign.position.set(x, h - 3, z + d / 2 + 0.1);
+          this.dg.add(sign);
+          const sign2 = this.signBoard(names[k % names.length], w * 0.8, 2, "#1d6b3a", "#f3e2b0");
+          sign2.position.set(x, h - 3, z - d / 2 - 0.1);
+          sign2.rotation.y = Math.PI;
+          this.dg.add(sign2);
+          this.addCollider("out", x - w / 2, x + w / 2, z - d / 2, z + d / 2);
+          this.reserved.push({
+            x0: this.ox + x - w / 2 - 2,
+            x1: this.ox + x + w / 2 + 2,
+            z0: this.oz + z - d / 2 - 2,
+            z1: this.oz + z + d / 2 + 2,
+          });
+          k++;
+        }
+      }
+  }
+
+  /** The Jamarat in Mina: a long bridge of four floors with the three stone pillars rising
+      through it, each in its oval basin. */
+  private buildJamarat(l: Landmark, sz: number, D: District) {
+    const C = { x: l.x, z: sz - 34 };
+    const L = 150,
+      Wd = 22;
+    const g = new THREE.Group();
+    g.position.set(C.x, 0, C.z);
+    const slab = 0xe6e2d8,
+      col = 0xd8d2c4;
+    for (const y of [6, 12, 18, 24]) {
+      g.add(box(L, y === 24 ? 0.6 : 1, Wd, slab, 0, y - 1, 0));
+      if (y < 24) {
+        // railings along both sides of each floor
+        for (const zz of [-Wd / 2, Wd / 2]) g.add(box(L, 1.1, 0.15, 0x9aa3a8, 0, y, zz));
+      }
+    }
+    // white shade canopies on the roof
+    for (let x = -L / 2 + 8; x < L / 2; x += 16) {
+      const c = new THREE.Mesh(
+        new THREE.ConeGeometry(6, 3, 4, 1, true),
+        mat(0xf8f8f4, { side: THREE.DoubleSide }),
+      );
+      c.rotation.y = Math.PI / 4;
+      c.position.set(x, 25.5, 0);
+      g.add(c);
+    }
+    for (let x = -L / 2 + 2; x <= L / 2 - 2; x += 12)
+      for (const zz of [-Wd / 2 + 1, Wd / 2 - 1]) {
+        const c = cyl(0.7, 0.7, 23.4, col, 10);
+        c.position.set(x, 11.7, zz);
+        g.add(c);
+        this.addCollider("out", C.x + x - 0.8, C.x + x + 0.8, C.z + zz - 0.8, C.z + zz + 0.8);
+      }
+    // ramps up at each end
+    for (const sx of [-1, 1]) {
+      const ramp = box(30, 0.8, 10, slab, 0, 0, 0);
+      ramp.position.set(sx * (L / 2 + 14), 3, -Wd / 2 + 6);
+      ramp.rotation.z = sx * -0.2;
+      g.add(ramp);
+    }
+    // the three pillars: Al-Ula (smallest, by Masjid Al-Khayf), Al-Wusta, Al-Aqabah
+    const names: [number, string, string][] = [
+      [48, "Al-Jamrah Al-Ula", "ula"],
+      [0, "Al-Jamrah Al-Wusta", "wusta"],
+      [-48, "Al-Jamrah Al-Aqabah", "aqabah"],
+    ];
+    for (const [x, name, id] of names) {
+      g.add(box(3, 30, 14, 0x8d8a84, x, 0, 0));
+      for (const y of [0, 6, 12, 18]) {
+        // the oval basin round the pillar on every floor
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 6, 28), mat(0x6f6a62));
+        rim.scale.set(5.5, 10, 1);
+        rim.rotation.x = Math.PI / 2;
+        rim.position.set(x, y + 0.9, 0);
+        g.add(rim);
+      }
+      const t = label(name, { size: 1.2, bg: "rgba(31,111,99,0.92)" });
+      t.position.set(x, 7.6, Wd / 2 + 1);
+      g.add(t);
+      this.addCollider("out", C.x + x - 5.5, C.x + x + 5.5, C.z - 9.5, C.z + 9.5);
+      this.zones.push({
+        id: `jamarat:${id}`,
+        label: `Stone ${name} · 7 pebbles`,
+        x: this.ox + C.x + x,
+        z: this.oz + C.z + 11.5,
+        r: 3.4,
+        scene: "out",
+      });
+    }
+    const big = label("The Jamarat · الجمرات", { size: 2.2, bg: "rgba(31,111,99,0.92)" });
+    big.position.set(0, 30, 0);
+    g.add(big);
+    this.dg.add(g);
+    this.reserved.push({
+      x0: this.ox + C.x - L / 2 - 46,
+      x1: this.ox + C.x + L / 2 + 46,
+      z0: this.oz + C.z - Wd / 2 - 4,
+      z1: this.oz + C.z + Wd / 2 + 4,
+    });
+    // pilgrims walking along under the bridge
+    for (let i = 0; i < 14; i++) {
+      const z = C.z + (i % 2 ? 6 : -6) + (i % 3) - 1;
+      const route: [number, number][] = [
+        [C.x - L / 2 + 6, z],
+        [C.x + L / 2 - 6, z],
+      ];
+      const pg =
+        i % 3 === 2
+          ? person(0x1d1d26, { hijab: 0xf4f4ef, seed: 60 + i })
+          : person(0xf7f7f2, { cap: null, seed: 60 + i, outfit: "thobe" });
+      const t0 = (i / 14) * L;
+      pg.position.set(C.x - L / 2 + 6 + t0, 0, z);
+      this.dg.add(pg);
+      this.walkers.push({
+        g: pg,
+        route,
+        k: 1,
+        wait: i * 0.7,
+        t: 0,
+        district: D.id,
+        pilgrim: true,
+      });
+    }
+  }
+
+  /** Jabal ar-Rahmah: a rocky hill on the plain of Arafat with steps up to its white pillar,
+      and the gravel of Muzdalifah where pilgrims pick up pebbles. */
+  private buildRahmah(l: Landmark, D: District, sz: number) {
+    const C = { x: l.x, z: sz - 48 };
+    const g = new THREE.Group();
+    g.position.set(C.x, 0, C.z);
+    const rock = [0x8a7560, 0x9a836a, 0x7a6550];
+    let k = 0;
+    for (const [dx, dy, dz, r] of [
+      [0, 4, 0, 16],
+      [-10, 2, 6, 11],
+      [11, 2, 4, 10],
+      [4, 2, -10, 11],
+      [-8, 1, -9, 9],
+      [0, 10, -2, 10],
+      [3, 15, -1, 6],
+      [14, 1, -6, 7],
+      [-15, 1, -2, 8],
+    ]) {
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 1), mat(rock[k++ % 3]));
+      m.position.set(dx, dy - r * 0.35, dz);
+      m.scale.y = 0.7;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      g.add(m);
+    }
+    // the white pillar on the summit
+    g.add(box(1.6, 8, 1.6, 0xf8f8f4, 2, 16.5, -1));
+    // steps up the south face
+    for (let i = 0; i < 18; i++)
+      g.add(box(3.2, 0.5, 1.4, 0xd9cfb8, 1 + i * 0.05, i * 0.95, 17 - i * 0.95));
+    const t = label("Jabal ar-Rahmah · جبل الرحمة", { size: 1.8, bg: "rgba(31,111,99,0.92)" });
+    t.position.set(2, 28, -1);
+    g.add(t);
+    this.dg.add(g);
+    this.addCollider("out", C.x - 20, C.x + 20, C.z - 18, C.z + 14);
+    this.reserved.push({
+      x0: this.ox + C.x - 30,
+      x1: this.ox + C.x + 30,
+      z0: this.oz + C.z - 30,
+      z1: this.oz + C.z + 22,
+    });
+    this.zones.push({
+      id: "arafat:wuquf",
+      label: "🤲 Stand at Arafat and make du'a",
+      x: this.ox + C.x + 2,
+      z: this.oz + C.z + 19,
+      r: 4,
+      scene: "out",
+    });
+    // the gravel of Muzdalifah, by its street
+    const mz = D.streets.find((s) => s.id === "muzdalifah")?.z;
+    if (mz !== undefined) {
+      const px = 70,
+        pz = mz + 14;
+      const gravel = new THREE.Mesh(groundGeo(26, 12, 2), MAT.plain(0xa8987e));
+      gravel.position.set(px, 0.05, pz);
+      this.dg.add(gravel);
+      for (let i = 0; i < 40; i++) {
+        const p = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.12 + (i % 3) * 0.04, 0),
+          mat(0x6f6a62),
+        );
+        p.position.set(px - 12 + ((i * 37) % 24), 0.1, pz - 5 + ((i * 53) % 10));
+        this.dg.add(p);
+      }
+      const t2 = label("Muzdalifah · المزدلفة", { size: 1.2, bg: "rgba(31,111,99,0.92)" });
+      t2.position.set(px, 3.5, pz);
+      this.dg.add(t2);
+      this.reserved.push({
+        x0: this.ox + px - 14,
+        x1: this.ox + px + 14,
+        z0: this.oz + pz - 7,
+        z1: this.oz + pz + 7,
+      });
+      this.zones.push({
+        id: "muzdalifah:pebbles",
+        label: "Pick up pebbles for the Jamarat",
+        x: this.ox + px,
+        z: this.oz + pz,
+        r: 5,
+        scene: "out",
+      });
+    }
+  }
+
+  /** A slender stone clock tower with four faces (by the Prophet's Mosque in Madinah). */
+  private buildClockTower(x: number, z: number, name: string) {
+    const T = new THREE.Group();
+    T.position.set(x, 0, z);
+    T.add(box(10, 3, 10, 0xd9cfb8, 0, 0, 0));
+    const shaft = new THREE.Mesh(boxGeo(6, 40, 6, 3.3), MAT3.facade(0xeee6d4));
+    shaft.position.y = 3 + 20;
+    shaft.castShadow = true;
+    T.add(shaft);
+    T.add(box(8, 1, 8, 0xcbb894, 0, 43, 0));
+    T.add(box(7.5, 9, 7.5, 0xf3efe4, 0, 44, 0));
+    for (const ry of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const f = this.clockFace(3.2);
+      f.position.set(Math.sin(ry) * 3.8, 48.5, Math.cos(ry) * 3.8);
+      f.rotation.y = ry;
+      T.add(f);
+    }
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(3.6, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+      mat(0x2e8b57, { roughness: 0.45 }),
+    );
+    dome.position.y = 53;
+    T.add(dome);
+    const c = crescent();
+    c.scale.setScalar(1.4);
+    c.position.set(-0.4, 58.5, 0);
+    T.add(c);
+    this.dg.add(T);
+    this.addCollider("out", x - 5, x + 5, z - 5, z + 5);
+    this.reserved.push({
+      x0: this.ox + x - 7,
+      x1: this.ox + x + 7,
+      z0: this.oz + z - 7,
+      z1: this.oz + z + 7,
+    });
+    const t = label(name, { size: 1.2, bg: "rgba(46,139,87,0.92)" });
+    t.position.set(x, 8, z + 6);
+    this.dg.add(t);
+  }
+
+  /** Tall white minarets at the corners and a row of white domes on a mosque's roof. */
+  private masjidCrown(cx: number, cz: number, minarets: number, domes: number) {
+    const W = 34,
+      D = 22,
+      H = 7.6;
+    const g = new THREE.Group();
+    g.position.set(cx, 0, cz);
+    const corners: [number, number][] = [
+      [-W / 2 - 1.5, D / 2 + 1.5],
+      [W / 2 + 1.5, D / 2 + 1.5],
+      [-W / 2 - 1.5, -D / 2 - 1.5],
+      [W / 2 + 1.5, -D / 2 - 1.5],
+    ];
+    for (const [x, z] of corners.slice(0, minarets)) {
+      const sh = cyl(0.9, 1.1, 28, 0xf8f6f0, 8);
+      sh.position.set(x, 14, z);
+      g.add(sh);
+      const bal = cyl(1.5, 1.5, 0.6, 0xe6e0d0, 8);
+      bal.position.set(x, 21, z);
+      g.add(bal);
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1, 3.5, 8), mat(0xf8f6f0));
+      top.position.set(x, 29.7, z);
+      g.add(top);
+      const c = crescent();
+      c.scale.setScalar(0.6);
+      c.position.set(x - 0.2, 32.2, z);
+      g.add(c);
+      this.addCollider("out", cx + x - 1.2, cx + x + 1.2, cz + z - 1.2, cz + z + 1.2);
+    }
+    for (let i = 0; i < domes; i++) {
+      const x = domes === 1 ? 0 : -W / 2 + 5 + (i * (W - 10)) / (domes - 1);
+      const r = i === Math.floor(domes / 2) ? 3.6 : 2.4;
+      const d = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2),
+        mat(0xf8f6f0, { roughness: 0.5 }),
+      );
+      d.position.set(x, H + 0.6, -2);
+      d.castShadow = true;
+      g.add(d);
+    }
+    this.dg.add(g);
+  }
+
+  /** Mount Uhud: a long red-brown ridge on the north edge of the area. */
+  private mountUhud(D: District) {
+    const H = halfOf(D);
+    const g = new THREE.Group();
+    const cols = [0x9a5a3a, 0x8a4f34, 0xa8653f];
+    for (let i = 0; i < 14; i++) {
+      const r = 18 + ((i * 7) % 12);
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 1), mat(cols[i % 3]));
+      m.scale.set(1.3, 0.75, 0.8);
+      m.position.set(-H.x + 10 + i * ((H.x * 2 - 20) / 13), r * 0.3, -H.z - 26 - (i % 3) * 6);
+      m.castShadow = true;
+      g.add(m);
+    }
+    const t = label("Mount Uhud · جبل أحد", { size: 2, bg: "rgba(46,139,87,0.92)" });
+    t.position.set(0, 34, -H.z - 30);
+    g.add(t);
+    this.dg.add(g);
+  }
+
+  /** Al-Masjid An-Nabawi: a great white mosque with many minarets, the Green Dome, and a
+      courtyard of white umbrellas. */
+  private buildNabawi(l: Landmark, D: District) {
+    const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
+    const C = { x: l.x, z: sz - 125 };
+    const W = 160,
+      Dd = 96,
+      H = 16;
+    const g = new THREE.Group();
+    g.position.set(C.x, 0, C.z);
+    const hall = box(W, H, Dd, 0xf3efe4, 0, 0, -10);
+    g.add(hall);
+    g.add(box(W + 1, 1.4, Dd + 1, 0xd9cfb8, 0, H, -10));
+    this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z - 10 - Dd / 2, C.z - 10 + Dd / 2);
+    // arches along the front
+    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
+    for (let i = 0; i < 26; i++) {
+      const x = -W / 2 + 3 + i * ((W - 6) / 25);
+      if (Math.abs(x) < 6) continue;
+      const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 6), archMat);
+      a.position.set(x, 3.5, -10 + Dd / 2 + 0.06);
+      g.add(a);
+    }
+    g.add(box(10, 9, 1, 0xc9a227, 0, 0, -10 + Dd / 2 + 0.3)); // the main door
+    // the Green Dome over the resting place of the Prophet ﷺ, and a silver dome beside it
+    const dome = (x: number, z: number, r: number, color: number) => {
+      const drum = cyl(r * 0.9, r * 0.9, 3, 0xece6d6, 20);
+      drum.position.set(x, H + 1.5, z);
+      g.add(drum);
+      const d = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+        mat(color, { roughness: 0.45 }),
+      );
+      d.scale.y = 1.35;
+      d.position.set(x, H + 3, z);
+      d.castShadow = true;
+      g.add(d);
+      const c = crescent();
+      c.position.set(x - 0.3, H + 3 + r * 1.35 + 1.4, z);
+      g.add(c);
+    };
+    dome(W / 2 - 22, Dd / 2 - 28, 7, 0x2e8b57);
+    dome(-10, -10, 6, 0xb8bec4);
+    // ten minarets
+    const minaret = (x: number, z: number, h: number) => {
+      const shaft = cyl(1.5, 1.9, h, 0xf3efe4, 8);
+      shaft.position.set(x, h / 2, z);
+      g.add(shaft);
+      for (const y of [h * 0.5, h * 0.78]) {
+        const bal = cyl(2.4, 2.4, 0.8, 0xd9cfb8, 8);
+        bal.position.set(x, y, z);
+        g.add(bal);
+      }
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0x2e8b57));
+      top.position.set(x, h + 3, z);
+      g.add(top);
+      const c = crescent();
+      c.position.set(x - 0.3, h + 6.8, z);
+      g.add(c);
+      this.addCollider("out", C.x + x - 2, C.x + x + 2, C.z + z - 2, C.z + z + 2);
+    };
+    for (const x of [-W / 2, -W / 4, 0, W / 4, W / 2]) minaret(x, -10 - Dd / 2, 52);
+    for (const x of [-W / 2, -12, 12, W / 2]) minaret(x, -10 + Dd / 2 + 2, 56);
+    // the courtyard with its white umbrellas
+    const court = new THREE.Mesh(new THREE.PlaneGeometry(W, 70), mat(0xf6f3ea));
+    court.rotation.x = -Math.PI / 2;
+    court.position.set(0, 0.03, -10 + Dd / 2 + 35);
+    court.receiveShadow = true;
+    g.add(court);
+    for (let i = 0; i < 6; i++)
+      for (const zz of [52, 72]) {
+        const x = -W / 2 + 16 + i * ((W - 32) / 5);
+        const pole = cyl(0.25, 0.3, 9, 0xd9d9d9, 8);
+        pole.position.set(x, 4.5, zz);
+        g.add(pole);
+        const canopy = new THREE.Mesh(
+          new THREE.ConeGeometry(8, 3, 4, 1, true),
+          mat(0xf8f8f4, { side: THREE.DoubleSide }),
+        );
+        canopy.rotation.y = Math.PI / 4;
+        canopy.position.set(x, 9.2, zz);
+        canopy.castShadow = true;
+        g.add(canopy);
+        this.addCollider("out", C.x + x - 0.4, C.x + x + 0.4, C.z + zz - 0.4, C.z + zz + 0.4);
+      }
+    // Jannat al-Baqi: the walled graveyard to the east, rows of plain stones in the sand
+    {
+      const bx = W / 2 + 48,
+        bz = -10,
+        BW = 64,
+        BD = 80;
+      const sand = new THREE.Mesh(groundGeo(BW, BD, 3), MAT.plain(0xd8c49a));
+      sand.position.set(bx, 0.04, bz);
+      g.add(sand);
+      for (const [w, d, x, z] of [
+        [BW, 0.6, 0, -BD / 2],
+        [BW, 0.6, 0, BD / 2],
+        [0.6, BD, -BW / 2, 0],
+        [0.6, BD, BW / 2, 0],
+      ] as [number, number, number, number][]) {
+        g.add(box(w, 2.4, d, 0xece6d6, bx + x, 0, bz + z));
+        this.addCollider(
+          "out",
+          C.x + bx + x - w / 2,
+          C.x + bx + x + w / 2,
+          C.z + bz + z - d / 2,
+          C.z + bz + z + d / 2,
+        );
+      }
+      for (let i = 0; i < 140; i++) {
+        const x = bx - BW / 2 + 3 + ((i * 7.3) % (BW - 6)),
+          z = bz - BD / 2 + 3 + Math.floor((i * 7.3) / (BW - 6)) * 5;
+        if (z > bz + BD / 2 - 3) break;
+        g.add(box(0.3, 0.5, 0.2, 0x8a8478, x, 0, z));
+      }
+      const t2 = label("Jannat al-Baqi · البقيع", { size: 1.4, bg: "rgba(46,139,87,0.92)" });
+      t2.position.set(bx, 5, bz + BD / 2 + 1);
+      g.add(t2);
+      this.reserved.push({
+        x0: this.ox + C.x + bx - BW / 2 - 4,
+        x1: this.ox + C.x + bx + BW / 2 + 4,
+        z0: this.oz + C.z + bz - BD / 2 - 4,
+        z1: this.oz + C.z + bz + BD / 2 + 4,
+      });
+    }
+    this.dg.add(g);
+    this.reserved.push({
+      x0: this.ox + C.x - W / 2 - 10,
+      x1: this.ox + C.x + W / 2 + 10,
+      z0: this.oz + C.z - 10 - Dd / 2 - 10,
+      z1: this.oz + sz - 10,
+    });
+    const P = (x: number, z: number) => ({ x: this.ox + C.x + x, z: this.oz + C.z + z });
+    this.zones.push({
+      id: `door:masjid:${l.id}`,
+      label: `Enter ${l.name}`,
+      ...P(0, -10 + Dd / 2 + 4),
+      r: 4,
+      scene: "out",
+    });
+    this.zones.push({
+      id: "nabawi:salam",
+      label: "Send salam to the Prophet ﷺ",
+      ...P(W / 2 - 22, -10 + Dd / 2 + 5),
+      r: 4,
+      scene: "out",
+    });
+    const t = label(l.name, { size: 1.8, bg: "rgba(46,139,87,0.92)" });
+    t.position.set(C.x, H + 14, C.z - 10 + Dd / 2);
+    this.dg.add(t);
+    // visitors in the courtyard
+    for (let i = 0; i < 12; i++) {
+      const x0 = -W / 2 + 12 + (i % 6) * 26,
+        zz = C.z - 10 + Dd / 2 + 10 + (i % 2) * 22;
+      const route: [number, number][] = [
+        [C.x + x0, zz],
+        [C.x + x0 + 20, zz + 8],
+      ];
+      const female = i % 3 === 1;
+      const pg = female
+        ? person(0x1d1d26, { hijab: 0x1d1d26, seed: 40 + i })
+        : person([0xf7f7f2, 0xe8e2d4, 0xf4efe4][i % 3], { cap: 0xffffff, seed: 40 + i });
+      pg.position.set(route[0][0], 0, route[0][1]);
+      this.dg.add(pg);
+      this.walkers.push({ g: pg, route, k: 1, wait: i * 0.5, t: 0, district: D.id, pilgrim: true });
+    }
+  }
+
+  /* ---------------- Jumu'ah: worshippers fill the mosques on Friday ---------------- */
+  private jumuahOn = false;
+  private jumuahCrowds = new Map<string, THREE.Group>();
+  /** Turn the Friday crowd on or off (rows of worshippers outside the mosques of your area). */
+  setJumuah(on: boolean) {
+    this.jumuahOn = on;
+    if (!on) {
+      for (const g of this.jumuahCrowds.values()) {
+        g.traverse((c) => forgetHuman(c));
+        g.removeFromParent();
+      }
+      this.jumuahCrowds.clear();
+      return;
+    }
+    const D = this.district;
+    if (!D || this.jumuahCrowds.has(D.id) || D.holy) return;
+    const g = new THREE.Group();
+    const H = halfOf(D);
+    const doors = this.zones.filter(
+      (z) =>
+        z.scene === "out" &&
+        z.id.startsWith("door:masjid:") &&
+        Math.abs(z.x - D.origin.x) < H.x &&
+        Math.abs(z.z - D.origin.z) < H.z,
+    );
+    let n = 0;
+    for (const z of doors)
+      for (let row = 0; row < 2; row++)
+        for (let i = -3; i <= 3; i++) {
+          const x = z.x + i * 1.6,
+            zz = z.z + 3.5 + row * 1.8;
+          if (!this.freeOut(x, zz, 0.3)) continue;
+          const female = row === 1 && i > 1;
+          const p = female
+            ? person(0x1d1d26, { hijab: [0x1d1d26, 0xe9e2d0][n % 2], seed: n })
+            : person([0xf4efe4, 0xcdb38a, 0xe8e2d4, 0x2f4a7a][n % 4], { cap: 0xffffff, seed: n });
+          p.position.set(x, 0, zz);
+          p.rotation.y = Math.PI; // facing the mosque
+          sitPerson(p);
+          g.add(p);
+          n++;
+        }
+    this.scene.add(g);
+    this.jumuahCrowds.set(D.id, g);
+  }
+
+  /* ---------------- walking a set path (tawaf, sa'i) ---------------- */
+  private pathWalk: {
+    pts: { x: number; z: number }[];
+    k: number;
+    speed: number;
+    onPoint?: (i: number) => void;
+    onDone?: () => void;
+    t: number;
+  } | null = null;
+  walkPath(
+    pts: { x: number; z: number }[],
+    speed: number,
+    onPoint?: (i: number) => void,
+    onDone?: () => void,
+  ) {
+    if (this.where !== "out" || !pts.length) return false;
+    if (this.driving) this.exitCar();
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.pathWalk = { pts, k: 0, speed, onPoint, onDone, t: 0 };
+    return true;
+  }
+  stopPath() {
+    this.pathWalk = null;
+    animatePerson(this.player, 0, 0);
+  }
+  isWalkingPath() {
+    return !!this.pathWalk;
+  }
+  private stepPath(dt: number) {
+    const w = this.pathWalk!;
+    const p = this.player.position;
+    let left = w.speed * dt;
+    while (left > 0 && w.k < w.pts.length) {
+      const q = w.pts[w.k];
+      const dx = q.x - p.x,
+        dz = q.z - p.z,
+        d = Math.hypot(dx, dz);
+      if (d > 0.01) this.player.rotation.y = Math.atan2(dx, dz);
+      if (d <= left) {
+        p.x = q.x;
+        p.z = q.z;
+        left -= d;
+        const i = w.k++;
+        w.onPoint?.(i);
+      } else {
+        p.x += (dx / d) * left;
+        p.z += (dz / d) * left;
+        left = 0;
+      }
+    }
+    w.t += dt;
+    animatePerson(this.player, w.t * 7, 1, w.speed);
+    if (w.k >= w.pts.length) {
+      const done = w.onDone;
+      this.pathWalk = null;
+      animatePerson(this.player, 0, 0);
+      done?.();
+    }
+  }
+  /** Seven rounds round the Kaaba, starting at the Black Stone, the Kaaba on your left. */
+  /** Seven rounds round the Kaaba, anticlockwise from the Black Stone. `onMark` tells you
+      where you are in each round (24 steps a round): 0 Black Stone, 2 the Multazam by the
+      door, 9 Hijr Ismail, 18 the Yemeni corner, 19 the last stretch back to the Black Stone. */
+  startTawaf(
+    onRound: (n: number) => void,
+    onDone: () => void,
+    onMark?: (k: number, round: number) => void,
+  ) {
+    const K = this.holy.kaaba;
+    if (!K) return false;
+    const r = 9.5,
+      per = 24;
+    const pts: { x: number; z: number }[] = [];
+    for (let i = 0; i <= 7 * per; i++) {
+      const a = -Math.PI / 4 + (i / per) * Math.PI * 2;
+      pts.push({ x: K.x + Math.cos(a) * r, z: K.z - Math.sin(a) * r });
+    }
+    onMark?.(0, 1);
+    return this.walkPath(
+      pts,
+      6,
+      (i) => {
+        if (i > 0 && i % per === 0) onRound(i / per);
+        if (i > 0 && i < 7 * per) onMark?.(i % per, Math.floor(i / per) + 1);
+      },
+      onDone,
+    );
+  }
+  /** Seven walks between Safa and Marwah, starting at Safa, passing the green lights each way.
+      Events: "safa", "marwah" (arriving), "green" and "greenEnd" (the stretch where men hasten). */
+  startSai(
+    onLeg: (n: number) => void,
+    onDone: () => void,
+    onEvent?: (ev: "safa" | "marwah" | "green" | "greenEnd", leg: number) => void,
+  ) {
+    const { safa, marwah } = this.holy;
+    if (!safa || !marwah) return false;
+    const mid = (f: number) => ({
+      x: safa.x + (marwah.x - safa.x) * f,
+      z: safa.z + (marwah.z - safa.z) * f,
+    });
+    const g1 = mid(0.35),
+      g2 = mid(0.65);
+    const pts = [safa];
+    const kinds: ("safa" | "marwah" | "green" | "greenEnd")[] = ["safa"];
+    for (let i = 1; i <= 7; i++) {
+      const toMarwah = i % 2 === 1;
+      pts.push(toMarwah ? g1 : g2, toMarwah ? g2 : g1, toMarwah ? marwah : safa);
+      kinds.push("green", "greenEnd", toMarwah ? "marwah" : "safa");
+    }
+    onEvent?.("safa", 0);
+    return this.walkPath(
+      pts,
+      8,
+      (i) => {
+        if (i === 0) return;
+        const leg = Math.ceil(i / 3);
+        onEvent?.(kinds[i], leg);
+        if (i % 3 === 0) onLeg(leg);
+      },
+      onDone,
+    );
+  }
+  /** Walk in through the gate of Al-Masjid Al-Haram (or An-Nabawi): you stand in the
+      courtyard, facing the Kaaba (or the mosque). True if this is one of them. */
+  enterHolyCourt(lid: string) {
+    const z = this.zones.find((q) => q.id === "door:masjid:" + lid);
+    if (!z) return false;
+    if (this.driving) this.exitCar();
+    if (lid === "masjid-al-haram" && this.holy.kaaba) {
+      const K = this.holy.kaaba;
+      this.standAt(K.x - 6, K.z + 33, z);
+      this.player.rotation.y = Math.atan2(
+        K.x - this.player.position.x,
+        K.z - this.player.position.z,
+      );
+      this.camYaw = Math.atan2(this.player.position.x - K.x, this.player.position.z - K.z);
+    } else {
+      this.standAt(z.x + 6, z.z + 18, z);
+      this.player.rotation.y = Math.PI;
+      this.camYaw = 0;
+    }
+    this.tapTarget = null;
+    this.snapCamera();
+    return true;
+  }
+
   /** IlmMotors: a glass showroom with cars on display. */
   private buildDealer(D: District) {
     const W = 14,
@@ -2924,6 +4734,73 @@ export class IlmCityEngine {
     this.zones.push({
       id: "dealer:" + D.id,
       label: "IlmMotors · buy a car",
+      x: x + this.ox,
+      z: fz + this.oz,
+      r: 2.6,
+      scene: "out",
+    });
+  }
+  /** IlmWorld Fashion: a clothes shop with a glass front and a pink awning. */
+  private buildBoutique(D: District) {
+    const W = 13,
+      Dp = 9;
+    const lot = this.findLot(D, W, Dp + 3);
+    if (!lot) return;
+    const { x, z, north, fz } = lot;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = north ? 0 : Math.PI;
+    // the shop itself, with a deep window bay at the front for the mannequins
+    g.add(box(W, 5, 6, 0xfbe3ec, 0, 0, -2.5));
+    g.add(box(W, 1.3, 3.1, 0xfbe3ec, 0, 3.7, 2)); // above the window
+    for (const sx of [-1, 1]) g.add(box(1, 3.7, 3.1, 0xfbe3ec, sx * (W / 2 - 0.5), 0, 2));
+    g.add(box(W + 0.4, 0.35, Dp + 0.4, 0xd66bd0, 0, 5, -1));
+    {
+      // the shop window: glass you can see the clothes through
+      const glass = new THREE.Mesh(
+        new THREE.BoxGeometry(W - 2, 3.4, 0.1),
+        new THREE.MeshStandardMaterial({
+          color: 0xbfe6ee,
+          transparent: true,
+          opacity: 0.3,
+          roughness: 0.1,
+          metalness: 0.3,
+          depthWrite: false,
+        }),
+      );
+      glass.position.set(0, 2, Dp / 2 - 0.95);
+      g.add(glass);
+      g.add(box(W - 2, 0.15, 3, 0xf2a6b4, 0, 0.3, Dp / 2 - 2.4)); // the display floor
+    }
+    g.add(box(2.2, 3, 0.14, 0xffffff, 0, 0, Dp / 2 - 0.9)); // door frame
+    const aw = new THREE.Mesh(
+      new THREE.BoxGeometry(W, 0.1, 1.8),
+      new THREE.MeshStandardMaterial({ color: 0xd66bd0 }),
+    );
+    aw.position.set(0, 3.9, Dp / 2);
+    aw.rotation.x = 0.25;
+    g.add(aw);
+    for (let sx = -W / 2 + 0.3; sx < W / 2; sx += 0.6) {
+      const sc = new THREE.Mesh(
+        new THREE.CircleGeometry(0.3, 10, Math.PI, Math.PI),
+        new THREE.MeshStandardMaterial({ color: 0xd66bd0, side: THREE.DoubleSide }),
+      );
+      sc.position.set(sx, 3.62, Dp / 2 + 0.9);
+      g.add(sc);
+    }
+    // clothes on show in the window
+    const m1 = person(0x0f2a5a, { cap: 0xc9a227, outfit: "agbada", seed: 3 });
+    m1.position.set(-3, 0.45, Dp / 2 - 2.2);
+    const m2 = person(0x3a1f4a, { hijab: 0xe6d3a0, outfit: "lace", seed: 4 });
+    m2.position.set(3, 0.45, Dp / 2 - 2.2);
+    g.add(m1, m2);
+    const sign = this.signBoard("IlmWorld Fashion", 9, 1.2, "#d66bd0", "#ffffff");
+    sign.position.set(0, 4.5, Dp / 2 - 0.88);
+    g.add(sign);
+    this.dg.add(g);
+    this.zones.push({
+      id: "door:boutique:" + D.id,
+      label: "Enter IlmWorld Fashion · clothes",
       x: x + this.ox,
       z: fz + this.oz,
       r: 2.6,
@@ -3164,6 +5041,315 @@ export class IlmCityEngine {
     pin.rotation.y = t * 2;
   }
 
+  /* ---------------- playable jobs ---------------- */
+  /* Some jobs are done with your own hands in the city: carry loads between market stalls,
+     sweep the masjid yard, or deliver parcels to houses. A gold ring shows where to go
+     next; walking into it does the task. */
+  private job: {
+    kind: WorkKind;
+    steps: JobStep[];
+    i: number;
+    ring: THREE.Group;
+    piles: Map<number, THREE.Object3D>;
+    sweepT: number;
+    onStep: (done: number, total: number, next: string | null) => void;
+  } | null = null;
+  private carrying: { mesh: THREE.Object3D; how: Carry } | null = null;
+  private freeAt(x: number, z: number, r: number) {
+    for (const b of this.colliders.out)
+      if (x - r < b.x1 && x + r > b.x0 && z - r < b.z1 && z + r > b.z0) return false;
+    return true;
+  }
+  /** A clear straight walk between two points. */
+  private clearLine(x0: number, z0: number, x1: number, z1: number) {
+    const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.8);
+    for (let k = 1; k <= n; k++) {
+      const f = k / n;
+      if (!this.freeAt(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f, 0.35)) return false;
+    }
+    return true;
+  }
+  private carryMesh(kind: "load" | "parcel" | "broom") {
+    const g = new THREE.Group();
+    if (kind === "load") {
+      // a woven basket of yams and peppers, carried on the head
+      const basket = cyl(0.42, 0.3, 0.26, 0xb98a4e, 12);
+      basket.position.y = 0.13;
+      g.add(basket);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        const yam = new THREE.Mesh(
+          new THREE.SphereGeometry(0.13, 8, 6),
+          mat(k % 2 ? 0x7a4e2a : 0xc8102e),
+        );
+        yam.scale.set(1.4, 0.8, 0.8);
+        yam.position.set(Math.cos(a) * 0.2, 0.3, Math.sin(a) * 0.2);
+        g.add(yam);
+      }
+    } else if (kind === "parcel") {
+      g.add(box(0.5, 0.36, 0.38, 0xc49a6c, 0, -0.18, 0.12));
+      g.add(box(0.51, 0.05, 0.1, 0x2f8f3a, 0, 0, 0.12)); // tape
+    } else {
+      const stick = cyl(0.025, 0.025, 1.3, 0x8a5a3a, 6);
+      stick.position.y = -0.55;
+      g.add(stick);
+      // a Nigerian broom: a bundle of palm sticks
+      const bristle = cyl(0.04, 0.16, 0.45, 0xd8c37a, 8);
+      bristle.position.y = -1.3;
+      g.add(bristle);
+    }
+    return g;
+  }
+  private setCarry(kind: "load" | "parcel" | "broom" | null) {
+    if (this.carrying) {
+      rigCarry(this.player, null);
+      this.carrying.mesh.removeFromParent();
+      this.carrying = null;
+    }
+    if (!kind) return;
+    const mesh = this.carryMesh(kind);
+    const how: Carry = kind === "load" ? "head" : kind === "parcel" ? "hands" : "broom";
+    this.carrying = { mesh, how };
+    if (!rigCarry(this.player, mesh, how)) {
+      // no animated body: hold it in a fixed place
+      mesh.position.set(
+        how === "broom" ? 0.35 : 0,
+        how === "head" ? 2.15 : 1.1,
+        how === "hands" ? 0.35 : 0,
+      );
+      this.player.add(mesh);
+    }
+  }
+  /** Start a shift you work with your hands. Returns false if there is nowhere to work here. */
+  startJob(kind: WorkKind, onStep: (done: number, total: number, next: string | null) => void) {
+    this.stopJob();
+    if (this.where !== "out") return false;
+    const p = this.player.position;
+    const near = (prefix: string, max: number) =>
+      this.zones
+        .filter((z) => z.scene === "out" && !z.off && z.id.startsWith(prefix))
+        .map((z) => ({ z, d: Math.hypot(z.x - p.x, z.z - p.z) }))
+        .filter((o) => o.d < max)
+        .sort((a, b) => a.d - b.d)
+        .map((o) => o.z);
+    const steps: JobStep[] = [];
+    if (kind === "porter") {
+      const st = near("stall:", 90);
+      if (st.length < 2) return false;
+      // three trips, each to a stall further along
+      const order = [st[0], ...st.slice(1).sort(() => Math.random() - 0.5)];
+      for (let k = 0; k < 3; k++) {
+        // a fresh stall for every pick-up and drop, so each trip is a real walk
+        const a = order[(k * 2) % order.length],
+          b = order[(k * 2 + 1) % order.length];
+        steps.push({
+          x: a.x,
+          z: a.z,
+          label: `Trip ${k + 1} of 3: pick up the load at the stall`,
+          act: "pick",
+        });
+        steps.push({
+          x: b.x,
+          z: b.z,
+          label: `Trip ${k + 1} of 3: carry it on your head to the next stall`,
+          act: "drop",
+        });
+      }
+    } else if (kind === "caretaker") {
+      const door = near("door:masjid:", 60)[0];
+      if (!door) return false;
+      for (let tries = 0; tries < 300 && steps.length < 6; tries++) {
+        const a = Math.random() * Math.PI * 2,
+          r = 3 + Math.random() * 7;
+        const x = door.x + Math.cos(a) * r,
+          z = door.z + Math.sin(a) * r;
+        if (!this.freeAt(x, z, 0.7) || !this.clearLine(door.x, door.z, x, z)) continue;
+        // in the yard and on the pavement, never out on the road
+        const D = this.district;
+        if (D.streets.some((st) => Math.abs(z - D.origin.z - st.z) < 7)) continue;
+        if (Math.abs(x - D.origin.x) < 7) continue;
+        if (steps.some((s) => Math.hypot(s.x - x, s.z - z) < 2.2)) continue;
+        steps.push({ x, z, label: "Sweep up the leaves", act: "sweep" });
+      }
+      if (steps.length < 3) return false;
+      steps.push({
+        x: door.x,
+        z: door.z,
+        label: "Put the broom back at the masjid door",
+        act: "drop",
+      });
+    } else {
+      const shop = [
+        ...near("shop:", 150),
+        ...near("door:boutique:", 150),
+        ...near("door:mall:", 150),
+        ...near("stall:", 150),
+      ].sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+      if (!shop) return false;
+      const D = this.district;
+      const homes = this.plots
+        .filter((q) => q.district === D.id && q.kind === "house")
+        .map((q) => ({
+          x: D.origin.x + q.gate.x,
+          // just outside the gate, on the street side
+          z: D.origin.z + q.gate.z + Math.sign(q.streetZ - q.gate.z) * 1.6,
+          street: q.street,
+        }))
+        .filter((h) => {
+          const d = Math.hypot(h.x - shop.x, h.z - shop.z);
+          return d > 15 && d < 110;
+        })
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3);
+      if (homes.length < 2) return false;
+      // visit them in a sensible order: always the nearest one next
+      const route: typeof homes = [];
+      let cx = shop.x,
+        cz = shop.z;
+      while (homes.length) {
+        homes.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
+        const h = homes.shift()!;
+        route.push(h);
+        cx = h.x;
+        cz = h.z;
+      }
+      steps.push({
+        x: shop.x,
+        z: shop.z,
+        label: `Collect ${route.length} parcels at the shop`,
+        act: "pick",
+      });
+      route.forEach((h, k) =>
+        steps.push({
+          x: h.x,
+          z: h.z,
+          label: `Deliver parcel ${k + 1} of ${route.length} to the house on ${h.street}`,
+          act: "drop",
+        }),
+      );
+    }
+    const ring = new THREE.Group();
+    const disc = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.2, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0xf2c230,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.y = 0.06;
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 3, 20, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xf2c230,
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    beam.position.y = 1.5;
+    ring.add(disc, beam);
+    this.scene.add(ring);
+    const piles = new Map<number, THREE.Object3D>();
+    steps.forEach((s, k) => {
+      if (s.act !== "sweep") return;
+      const g = new THREE.Group();
+      for (let n = 0; n < 9; n++) {
+        const leaf = new THREE.Mesh(
+          new THREE.CircleGeometry(0.12 + Math.random() * 0.08, 5),
+          mat([0x9a6a2a, 0xc49a3a, 0x6d7a2a, 0x8a4a1a][n % 4]),
+        );
+        leaf.rotation.set(-Math.PI / 2, 0, Math.random() * 6);
+        leaf.position.set(
+          (Math.random() - 0.5) * 1.1,
+          0.04 + n * 0.004,
+          (Math.random() - 0.5) * 1.1,
+        );
+        g.add(leaf);
+      }
+      g.position.set(s.x, 0, s.z);
+      this.scene.add(g);
+      piles.set(k, g);
+    });
+    this.job = { kind, steps, i: 0, ring, piles, sweepT: 0, onStep };
+    if (kind === "caretaker") this.setCarry("broom");
+    this.placeRing();
+    onStep(0, steps.length, steps[0].label);
+    return true;
+  }
+  stopJob() {
+    const j = this.job;
+    if (!j) return;
+    j.ring.removeFromParent();
+    for (const g of j.piles.values()) g.removeFromParent();
+    this.job = null;
+    this.setCarry(null);
+    this.clearGuide();
+  }
+  jobActive() {
+    return !!this.job;
+  }
+  private placeRing() {
+    const j = this.job!;
+    const s = j.steps[j.i];
+    j.ring.position.set(s.x, 0, s.z);
+    this.pointAt(s.x, s.z);
+  }
+  /** The gold arrow, pointing at a spot rather than a place. */
+  private pointAt(x: number, z: number) {
+    const zone: Zone = { id: "job:spot", label: "", x, z, r: 1.4, scene: "out" };
+    this.zones.push(zone);
+    this.guideTo("job:spot");
+    this.zones.splice(this.zones.indexOf(zone), 1);
+  }
+  private stepJob(dt: number, t: number) {
+    const j = this.job;
+    if (!j) return;
+    if (this.where !== "out") return;
+    const s = j.steps[j.i];
+    const p = this.player.position;
+    j.ring.rotation.y = t * 0.8;
+    (j.ring.children[0] as THREE.Mesh).scale.setScalar(1 + Math.sin(t * 4) * 0.06);
+    if (!this.guide) this.pointAt(s.x, s.z);
+    if (Math.hypot(s.x - p.x, s.z - p.z) > 1.3) {
+      j.sweepT = 0;
+      return;
+    }
+    if (s.act === "sweep") {
+      // stand on the pile and sweep for a moment
+      if (j.sweepT === 0) rigSweep(this.player, 1.4);
+      j.sweepT += dt;
+      const pile = j.piles.get(j.i);
+      if (pile) pile.scale.setScalar(Math.max(0.05, 1 - j.sweepT / 1.4));
+      if (j.sweepT < 1.4) return;
+      pile?.removeFromParent();
+      j.piles.delete(j.i);
+      j.sweepT = 0;
+    } else if (s.act === "pick") {
+      this.setCarry(j.kind === "porter" ? "load" : "parcel");
+    } else {
+      const more = j.i < j.steps.length - 1;
+      // the broom stays in hand until the end; parcels until the last one is delivered
+      if (!(j.kind === "rider" && more))
+        this.setCarry(j.kind === "caretaker" && more ? "broom" : null);
+    }
+    j.i++;
+    this.clearGuide();
+    if (j.i >= j.steps.length) {
+      const total = j.steps.length;
+      const cb = j.onStep;
+      this.stopJob();
+      cb(total, total, null);
+      return;
+    }
+    this.placeRing();
+    j.onStep(j.i, j.steps.length, j.steps[j.i].label);
+  }
+
   /* ---------------- food delivery ---------------- */
   private rider: {
     g: THREE.Group;
@@ -3302,6 +5488,7 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: 0xe8dcb5,
+            style: houseStyleOf(D),
           });
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
           this.reserved.push({
@@ -3388,7 +5575,7 @@ export class IlmCityEngine {
     });
   }
 
-  private buildBusPark(x: number, z: number) {
+  private buildBusPark(x: number, z: number, saudi = false) {
     const S = this.dg;
     const pad = new THREE.Mesh(new THREE.PlaneGeometry(18, 9), mat(0x6a6e74));
     pad.rotation.x = -Math.PI / 2;
@@ -3404,7 +5591,8 @@ export class IlmCityEngine {
     // a yellow city bus
     const bus = new THREE.Group();
     bus.position.set(x + 3, 0, z);
-    bus.add(box(8, 2.6, 2.6, 0xf2c230, 0, 0.5, 0));
+    bus.add(box(8, 2.6, 2.6, saudi ? 0xf4f4f0 : 0xf2c230, 0, 0.5, 0));
+    if (saudi) bus.add(box(8.04, 0.25, 2.66, 0x0e6b3a, 0, 1.15, 0, false));
     bus.add(box(7.4, 0.9, 2.64, 0x2a3a44, 0, 1.6, 0, false));
     bus.add(box(8.04, 0.3, 2.64, 0x1d1f22, 0, 0.6, 0, false));
     const wheel = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 12);
@@ -3436,15 +5624,60 @@ export class IlmCityEngine {
 
   /** Fast travel by bus or car: the trip plays on the Lagos map, then the vehicle drives in
       under the area's welcome gate and along the main street. */
+  /** Arrive straight at a place (off a plane): outside, standing at its zone. */
+  arriveAt(zoneId: string) {
+    if (!this.zones.some((q) => q.id === zoneId))
+      for (const id of [...this.placeholders.keys()]) this.buildLater(id);
+    const z = this.zones.find((q) => q.id === zoneId);
+    if (!z) return false;
+    const D = this.areaAt(z.x, z.z);
+    if (D) this.district = D;
+    if (this.where !== "out") this.exitInterior();
+    this.driving = false;
+    this.player.visible = true;
+    this.standAt(z.x, z.z + 3, z);
+    this.tapTarget = null;
+    this.snapCamera();
+    return true;
+  }
+  /** Put the player down at (x, z), or at the nearest open spot if a wall or a building is
+      there: first along the street, then all round. */
+  private standAt(x: number, z: number, from?: { x: number; z: number }) {
+    // a spot is good if you can stand there and, when we know where the road is, walk
+    // straight to it from there (so you never land inside a walled yard)
+    const reach = (px: number, pz: number) => {
+      if (!from) return true;
+      const n = Math.ceil(Math.hypot(px - from.x, pz - from.z) / 0.6);
+      for (let k = 1; k < n; k++) {
+        const f = k / n;
+        if (!this.free(from.x + (px - from.x) * f, from.z + (pz - from.z) * f, 0.4)) return false;
+      }
+      return true;
+    };
+    const ok = (px: number, pz: number) => this.free(px, pz, 0.7) && reach(px, pz);
+    let spot: [number, number] | null = ok(x, z) ? [x, z] : null;
+    for (let d = 1; !spot && d <= 40; d++)
+      for (const s of [-1, 1]) if (!spot && ok(x + s * d, z)) spot = [x + s * d, z];
+    for (let r = 1; !spot && r <= 40; r++)
+      for (let a = 0; !spot && a < 24; a++) {
+        const px = x + Math.cos((a / 24) * Math.PI * 2) * r,
+          pz = z + Math.sin((a / 24) * Math.PI * 2) * r;
+        if (ok(px, pz)) spot = [px, pz];
+      }
+    if (!spot && from) spot = [from.x, from.z];
+    const [px, pz] = spot ?? [x, z];
+    this.player.position.set(px, 0, pz);
+  }
   travel(id: string, byCar: boolean) {
     const D = districtById(id);
+    this.ensureCity(cityOf(D));
     this.where = "out";
     this.district = D;
     this.driving = false;
     this.player.visible = false;
     this.tapTarget = null;
     this.marker.visible = false;
-    const side = D.origin.x > 0 ? -1 : 1;
+    const side = D.origin.x > centerOf(D).x ? -1 : 1;
     const W = (x: number, z: number) => new THREE.Vector3(D.origin.x + x, 0, D.origin.z + z);
     let vehicle: THREE.Group;
     let path: THREE.Vector3[];
@@ -3458,7 +5691,7 @@ export class IlmCityEngine {
           ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
           : [W(dside * (Hx + 38), -3), W(dside * 40, -3), W(-4, 9.8), W(-16, 9.8)];
     } else {
-      vehicle = makeBus();
+      vehicle = makeBus(!!D.holy);
       this.scene.add(vehicle);
       path =
         D.parent && D.link !== "east"
@@ -3517,10 +5750,10 @@ export class IlmCityEngine {
     if (c.byCar) {
       this.carHeading = Math.PI;
       this.car.rotation.y = Math.PI;
-      this.player.position.set(o.x - 16, 0, o.z + 13);
+      this.standAt(o.x - 16, o.z + 13, this.car.position);
     } else {
       c.vehicle.removeFromParent();
-      this.player.position.set(o.x - 54, 0, o.z + 13.5);
+      this.standAt(o.x - 54, o.z + 13.5, c.vehicle.position);
     }
     this.player.rotation.y = Math.PI;
     this.camYaw = 0;
@@ -3579,7 +5812,7 @@ export class IlmCityEngine {
     mesh.position.set(0, 6.7, 0.37);
     g.add(mesh);
     // the back of the gate shows where the road goes as you leave
-    const to = D.parent ? fullName(districtById(D.parent)) : "City Junction";
+    const to = D.parent ? fullName(districtById(D.parent)) : JUNCTION_NAME[cityOf(D)];
     const back = canvasPlane(
       17.6,
       2.3,
@@ -3632,7 +5865,7 @@ export class IlmCityEngine {
     const D = districtById(id);
     this.where = "out";
     this.district = D;
-    this.player.position.set(D.origin.x - 9, 0, D.origin.z + 17);
+    this.standAt(D.origin.x - 9, D.origin.z + 17);
     this.player.rotation.y = Math.PI;
     this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
     this.carHeading = Math.PI;
@@ -3641,16 +5874,44 @@ export class IlmCityEngine {
     this.snapCamera();
   }
   /** Dress your character: brother or sister, skin tone and clothes. */
-  setPlayerLook(o: { female: boolean; skin: number; robe: number; accent: number }) {
-    const fresh = o.female
-      ? person(o.robe, { hijab: o.accent, skin: o.skin, seed: 2 })
-      : person(o.robe, { cap: o.accent, skin: o.skin, seed: 1, outfit: "thobe", beard: true });
+  setPlayerLook(o: {
+    female: boolean;
+    skin: number;
+    robe: number;
+    accent: number;
+    style?: "agbada" | "lace";
+    /** two white sheets for Umrah (brothers) */
+    ihram?: boolean;
+  }) {
+    const fresh =
+      o.ihram && !o.female
+        ? person(0xf8f8f4, { cap: null, skin: o.skin, seed: 1, outfit: "thobe", beard: true })
+        : o.female
+          ? person(o.robe, {
+              hijab: o.accent,
+              skin: o.skin,
+              seed: 2,
+              outfit: o.style === "lace" ? "lace" : "abaya",
+            })
+          : person(o.robe, {
+              cap: o.accent,
+              skin: o.skin,
+              seed: 1,
+              outfit: o.style === "agbada" ? "agbada" : "thobe",
+              beard: true,
+            });
     for (const c of [...this.player.children]) {
       this.player.remove(c);
       forgetHuman(c);
     }
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
+    if (this.carrying) {
+      const { mesh, how } = this.carrying;
+      mesh.removeFromParent();
+      this.carrying = null;
+      if (rigCarry(this.player, mesh, how)) this.carrying = { mesh, how };
+    }
   }
   /** Is someone (you, a neighbour, another player) just in front of this walker? */
   private personAhead(x: number, z: number, ux: number, uz: number, self: THREE.Object3D) {
@@ -3738,7 +5999,7 @@ export class IlmCityEngine {
     const pts = [L(px, sP + 2)];
     if (sP !== sT) pts.push(L(-2, sP + 2), L(-2, sT + 2));
     pts.push(L(tx, sT + 2));
-    const mesh = vehicleMesh("keke", 0xf2c230);
+    const mesh = vehicleMesh("keke", 0xf2c230, this.district.holy);
     mesh.position.copy(hailed ? hailed.mesh.position : pts[0]);
     this.scene.add(mesh);
     if (hailed) {
@@ -3948,17 +6209,24 @@ export class IlmCityEngine {
     list: {
       uid: string;
       name: string;
-      look: { female: boolean; skin: number; robe: number; accent: number };
+      look: {
+        female: boolean;
+        skin: number;
+        robe: number;
+        accent: number;
+        style?: "agbada" | "lace";
+      };
       x: number;
       z: number;
       h: number;
       moving: boolean;
+      badge?: string;
     }[],
   ) {
     const seen = new Set<string>();
     for (const p of list) {
       seen.add(p.uid);
-      const key = JSON.stringify(p.look);
+      const key = JSON.stringify(p.look) + (p.badge ?? "");
       let r = this.remotes.get(p.uid);
       if (r && r.look !== key) {
         r.g.removeFromParent();
@@ -3968,15 +6236,34 @@ export class IlmCityEngine {
       }
       if (!r) {
         const g = p.look.female
-          ? person(p.look.robe, { hijab: p.look.accent, skin: p.look.skin, seed: 2 })
+          ? person(p.look.robe, {
+              hijab: p.look.accent,
+              skin: p.look.skin,
+              seed: 2,
+              outfit: p.look.style === "lace" ? "lace" : "abaya",
+            })
           : person(p.look.robe, {
               cap: p.look.accent,
               skin: p.look.skin,
               seed: 1,
-              outfit: "thobe",
+              outfit: p.look.style === "agbada" ? "agbada" : "thobe",
               beard: true,
             });
-        const tag = label("● " + p.name, { size: 0.75, bg: "rgba(230,184,74,0.95)" });
+        // a gold tag for the blessed, a green heart for generous givers
+        const blessed = p.badge?.includes("✨"),
+          generous = p.badge?.includes("💚");
+        const tag = label(
+          `${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}${p.badge?.includes("🕋") ? " 🕋" : ""}`,
+          {
+            size: 0.75,
+            bg: blessed
+              ? "rgba(201,162,39,0.98)"
+              : generous
+                ? "rgba(29,107,58,0.95)"
+                : "rgba(230,184,74,0.95)",
+            fg: generous && !blessed ? "#ffffff" : undefined,
+          },
+        );
         tag.position.y = 2.65;
         g.add(tag);
         g.position.set(p.x, 0, p.z);
@@ -4313,6 +6600,7 @@ export class IlmCityEngine {
     this.dg.add(g);
   }
 
+  private emptyBoard = new Map<string, THREE.Material>();
   private boards = new Map<string, { b: Billboard; base?: Billboard["ad"]; paint: () => void }>();
   /** Show players' approved adverts on their billboards (the rest keep their usual design). */
   setAds(ads: Record<string, NonNullable<Billboard["ad"]>>) {
@@ -4348,7 +6636,8 @@ export class IlmCityEngine {
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.font = `800 ${Math.round(H * 0.2)}px "Work Sans", system-ui, sans-serif`;
-        c.fillText("YOUR ADVERT HERE", W / 2, H * 0.36);
+        const town = cityOf(districtById(b.district.replace(/^road:/, "")));
+        c.fillText(town === "ilorin" ? "ADVERTISE IN ILORIN" : "YOUR ADVERT HERE", W / 2, H * 0.36);
         c.font = `500 ${Math.round(H * 0.085)}px "Work Sans", system-ui, sans-serif`;
         c.fillText("To post your advert, contact", W / 2, H * 0.62);
         c.font = `700 ${Math.round(H * 0.11)}px "Work Sans", system-ui, sans-serif`;
@@ -4374,7 +6663,20 @@ export class IlmCityEngine {
       c.font = `500 ${Math.round(H * 0.085)}px "Work Sans", system-ui, sans-serif`;
       c.fillText(ad.line, W * 0.06, H * 0.76);
     };
-    const { mesh, tex, canvas } = canvasPlane(PW, PW * 0.4, draw, 1000);
+    // boards without an advert all share one picture per town (a picture each would
+    // fill a phone's graphics memory); a board with an advert gets its own
+    const town = cityOf(districtById(b.district.replace(/^road:/, "")));
+    const key = town === "ilorin" ? "ilorin" : "other";
+    let shared = this.emptyBoard.get(key);
+    if (!shared) {
+      const keep = b.ad;
+      b.ad = undefined;
+      shared = canvasPlane(PW, PW * 0.4, draw, 640).mesh.material as THREE.Material;
+      b.ad = keep;
+      this.emptyBoard.set(key, shared);
+    }
+    const emptyMat = shared;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(PW, PW * 0.4), emptyMat);
     mesh.position.set(0, 3.8 + 1.95, -0.3);
     mesh.userData.tap = "billboard:" + b.id;
     faces[0].add(mesh);
@@ -4383,11 +6685,25 @@ export class IlmCityEngine {
     twin.userData.tap = mesh.userData.tap;
     faces[1].add(twin);
     this.tappables.push(twin);
+    let own: THREE.MeshBasicMaterial | null = null;
     const paint = () => {
+      if (!b.ad) {
+        own?.map?.dispose();
+        own?.dispose();
+        own = null;
+        mesh.material = twin.material = emptyMat;
+        return;
+      }
+      if (!own) {
+        own = canvasPlane(PW, PW * 0.4, draw, 640).mesh.material as THREE.MeshBasicMaterial;
+        mesh.material = twin.material = own;
+      }
+      const tex = own.map as THREE.CanvasTexture;
+      const canvas = tex.image as HTMLCanvasElement;
       const c = canvas.getContext("2d")!;
       draw(c, canvas.width, canvas.height);
       tex.needsUpdate = true;
-      if (b.ad?.imageUrl) {
+      if (b.ad.imageUrl) {
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
@@ -4397,7 +6713,7 @@ export class IlmCityEngine {
         img.src = b.ad.imageUrl;
       }
     };
-    if (b.ad?.imageUrl) paint();
+    if (b.ad) paint();
     this.boards.set(b.id, { b, base: b.ad, paint });
     this.tappables.push(mesh);
     this.dg.add(g);
@@ -4629,6 +6945,138 @@ export class IlmCityEngine {
       ]) {
         const bench = box(3, 0.5, 0.8, 0x6d4a2b, lx, 0, lz);
         this.solid("mall", g, bench, 3, 0.8);
+      }
+    }
+    // IlmWorld Fashion: bright walls, a pink floor, racks of clothes, mannequins and a mirror
+    {
+      const { g, o } = this.room("boutique", 20, 16, 0x4fc3d0, 0xf2a6b4);
+      const Z = (id: string, label2: string, x: number, z: number) =>
+        this.zones.push({ id, label: label2, x: o.x + x, z: o.z + z, r: 2, scene: "boutique" });
+      const sign = label("IlmWorld Fashion · clothes for brothers and sisters", {
+        size: 0.75,
+        bg: "rgba(214,107,208,0.95)",
+      });
+      sign.position.set(0, 4.4, -7.6);
+      g.add(sign);
+      // a rack: a stand with a ring of hanging garments
+      const rack = (
+        x: number,
+        z: number,
+        colors: number[],
+        long: boolean,
+        title: string,
+        id: string,
+      ) => {
+        const r = new THREE.Group();
+        r.position.set(x, 0, z);
+        r.add(cyl(1.3, 1.4, 0.25, 0x9aa8b8, 14));
+        const pole = cyl(0.06, 0.06, 2.2, 0xf4f4f4, 8);
+        pole.position.y = 1.2;
+        r.add(pole);
+        const bar = box(2.6, 0.06, 0.06, 0xf4f4f4, 0, 2.15, 0);
+        r.add(bar);
+        colors.forEach((c, i) => {
+          const gx = -1.1 + (i * 2.2) / Math.max(1, colors.length - 1);
+          const garment = box(0.5, long ? 1.6 : 0.8, 0.12, c, gx, long ? 0.5 : 1.25, 0);
+          r.add(garment);
+          if (!long) r.add(box(0.75, 0.25, 0.12, c, gx, 1.85, 0)); // shoulders
+          const hook = cyl(0.015, 0.015, 0.12, 0xdddddd, 4);
+          hook.position.set(gx, 2.12, 0);
+          r.add(hook);
+        });
+        this.solid("boutique", g, r, 2.8, 1.2);
+        const t = label(title, { size: 0.5, bg: "rgba(16,32,30,0.85)" });
+        t.position.set(x, 2.9, z);
+        g.add(t);
+        Z(id, title + " · try and buy", x, z + 1.6);
+      };
+      rack(
+        -6.5,
+        -4,
+        [0xf4efe4, 0xcdb38a, 0x2f6f8f, 0x3d5a4a, 0x5a3f6a],
+        true,
+        "Thobes",
+        "rack:thobe",
+      );
+      rack(
+        -6.5,
+        1.5,
+        [0x1d1d26, 0x5a3f6a, 0x7d2f3a, 0x2a4a6a, 0x3d5a4a],
+        true,
+        "Abayas",
+        "rack:abaya",
+      );
+      rack(
+        6.5,
+        -4,
+        [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0xb36a8a],
+        false,
+        "Hijabs",
+        "rack:hijab",
+      );
+      rack(6.5, 1.5, [0xffffff, 0x2f8f83, 0x1d1d26, 0x7d2f3a, 0xd9b45a], false, "Caps", "rack:cap");
+      // mannequins in the premium clothes
+      const m1 = person(0x0f2a5a, { cap: 0xc9a227, outfit: "agbada", seed: 3 });
+      m1.position.set(-2.2, 0.35, -5.2);
+      const m2 = person(0x3a1f4a, { hijab: 0xe6d3a0, outfit: "lace", seed: 4 });
+      m2.position.set(2.2, 0.35, -5.2);
+      for (const m of [m1, m2]) {
+        const base = cyl(0.7, 0.8, 0.35, 0xf4f4f4, 16);
+        base.position.set(m.position.x, 0, m.position.z);
+        this.solid("boutique", g, base, 1.4, 1.4);
+        g.add(m);
+      }
+      const prem = label("✨ Premium · agbada and lace", {
+        size: 0.55,
+        bg: "rgba(201,162,39,0.95)",
+      });
+      prem.position.set(0, 3.4, -5.2);
+      g.add(prem);
+      Z("rack:premium", "✨ Premium agbada and lace", 0, -3.6);
+      // a tall mirror, a counter with a till, a sofa, plants and flowers
+      const mirror = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.4, 2.6),
+        new THREE.MeshStandardMaterial({ color: 0xdfe9ee, metalness: 0.9, roughness: 0.08 }),
+      );
+      mirror.position.set(9.75, 1.6, 5);
+      mirror.rotation.y = -Math.PI / 2;
+      g.add(mirror);
+      g.add(box(0.12, 2.8, 1.6, 0xd9b45a, 9.85, 0.3, 5));
+      Z("mirror", "🪞 Look in the mirror · change clothes", 8.4, 5);
+      const counter = new THREE.Group();
+      counter.add(box(3.4, 1.1, 1, 0xd66bd0, 0, 0, 0), box(3.6, 0.08, 1.2, 0xffffff, 0, 1.1, 0));
+      counter.add(box(0.5, 0.4, 0.4, 0x2a2a30, 0.8, 1.15, 0));
+      counter.position.set(-6.5, 0, 5.6);
+      this.solid("boutique", g, counter, 3.6, 1.2);
+      const seller = person(0xd66bd0, { hijab: 0xfdf8ec, seed: 9 });
+      seller.position.set(-6.5, 0, 4.6);
+      seller.rotation.y = Math.PI;
+      g.add(seller);
+      Z("rack:counter", "Pay at the counter", -6.5, 7);
+      const sofa = box(3.2, 0.7, 1, 0xe8445a, 1.5, 0, 6.2);
+      this.solid("boutique", g, sofa, 3.2, 1);
+      for (const [px, pz] of [
+        [-9, -7],
+        [9, -7],
+        [-3.5, 3],
+      ]) {
+        const pot = cyl(0.35, 0.28, 0.6, 0xf4f4f4, 12);
+        pot.position.set(px, 0.3, pz);
+        g.add(pot);
+        const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 1), mat(0x4f8f45));
+        leaf.position.set(px, 1.1, pz);
+        g.add(leaf);
+      }
+      const vase = cyl(0.3, 0.2, 0.6, 0xc9b6e8, 8);
+      vase.position.set(0, 0.3, 0.5);
+      g.add(vase);
+      for (let i = 0; i < 4; i++) {
+        const f = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.18, 0),
+          mat([0xd66bd0, 0xe8445a, 0xf2c230, 0xffffff][i]),
+        );
+        f.position.set(Math.cos(i * 1.6) * 0.18, 0.95, 0.5 + Math.sin(i * 1.6) * 0.18);
+        g.add(f);
       }
     }
     // Restaurant: a counter at the back, tables and people eating
@@ -5356,6 +7804,9 @@ export class IlmCityEngine {
   private freeOut(x: number, z: number, r: number) {
     for (const b of this.colliders.out)
       if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
+    // your parked car (and the car you are driving) is in the way too
+    if (this.car.visible && Math.hypot(x - this.car.position.x, z - this.car.position.z) < 2.6 + r)
+      return false;
     return true;
   }
   private free(x: number, z: number, r: number) {
@@ -5475,6 +7926,19 @@ export class IlmCityEngine {
   /** called when the game switches itself to smooth graphics on a slow phone */
   onSlowPhone: (() => void) | null = null;
   private fps = { t: 0, frames: 0, checked: false, auto: true };
+  private lost = 0;
+  /** After repeated graphics crashes: no shadows, plain pixels and a short view. */
+  private lite() {
+    this.renderer.shadowMap.enabled = false;
+    this.sun.castShadow = false;
+    this.renderer.setPixelRatio(1);
+    this.viewDist = this.lost > 2 ? 140 : 180;
+    this.camera.far = 320;
+    this.camera.updateProjectionMatrix();
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = 50;
+    fog.far = this.viewDist - 10;
+  }
   /** Smooth: fewer pixels, no shadows, a shorter view. Beautiful: everything. */
   setQuality(q: "low" | "high", auto = false) {
     this.low = q === "low";
@@ -5515,9 +7979,15 @@ export class IlmCityEngine {
         }
       }
     }
-    this.update(dt, now / 1000);
-    this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
+    this.update(dt, now / 1000);
+    // while the graphics card is resetting there is nothing to draw on
+    if (this.renderer.getContext().isContextLost()) return;
+    try {
+      this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      console.warn("IlmCity: a frame could not be drawn", err);
+    }
   };
 
   private moveVec() {
@@ -5594,6 +8064,8 @@ export class IlmCityEngine {
       kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken";
       floors?: number;
       by?: string;
+      /** while building: 1 foundation, 2 walls, 3 roof, 4 finishing */
+      stage?: number;
     },
   ) {
     const p = this.plots.find((q) => q.id === id);
@@ -5653,17 +8125,38 @@ export class IlmCityEngine {
           number: p.number,
           rnd: mulberry(p.number * 31 + p.district.length),
           floors: state.floors ?? 1,
+          width: p.pw,
+          depth: p.pd,
+          style: houseStyleOf(districtById(p.district)),
         });
         for (const m of b.build()) g.add(m);
         if (state.kind === "building") {
-          // a site in progress: the walls stand, wrapped in bamboo scaffolding
-          g.scale.y = 0.55;
-          const sc = new THREE.Mesh(
-            new THREE.BoxGeometry(16, 7, 12),
-            new THREE.MeshStandardMaterial({ color: 0xb08a4a, wireframe: true }),
-          );
-          sc.position.set(p.x, 3.5 / 0.55, p.z + (turn === 0 ? -3 : 3));
-          g.add(sc);
+          // a site in progress: the foundation, then the walls, the roof and the finishing,
+          // with bamboo scaffolding, a heap of sand and stacks of blocks
+          const stage = state.stage ?? 2;
+          const sy = [0.08, 0.55, 0.85, 1][Math.min(3, Math.max(0, stage - 1))];
+          g.scale.y = sy;
+          const back = turn === 0 ? -3 : 3;
+          if (stage > 1) {
+            const sc = new THREE.Mesh(
+              new THREE.BoxGeometry(14, 7 * Math.min(1, sy + 0.1), 10),
+              new THREE.MeshStandardMaterial({ color: 0xb08a4a, wireframe: true }),
+            );
+            sc.position.set(p.x, (3.5 * Math.min(1, sy + 0.1)) / sy, p.z + back);
+            g.add(sc);
+          }
+          if (stage < 4) {
+            const heap = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.2, 10), mat(0xd9b77a));
+            heap.position.set(p.x + 5, 0.6 / sy, p.z - back * 1.6);
+            heap.scale.y = 1 / sy;
+            g.add(heap);
+            for (let k = 0; k < 3; k++) {
+              const blocks = box(1.2, 0.8, 0.8, 0xa8a49a, p.x - 5 + k * 1.4, 0, p.z - back * 1.6);
+              blocks.scale.y = 1 / sy;
+              blocks.position.y = 0.4 / sy;
+              g.add(blocks);
+            }
+          }
         }
         for (const cb of c.colliders)
           this.colliders.out.push({
@@ -5683,7 +8176,10 @@ export class IlmCityEngine {
   }
   /** Put every rentable house and land plot in its saved state. */
   initPlots(
-    states: Record<string, { kind: "rented" | "owned" | "building" | "built"; floors?: number }>,
+    states: Record<
+      string,
+      { kind: "rented" | "owned" | "building" | "built"; floors?: number; stage?: number }
+    >,
   ) {
     for (const id of this.plotFx.keys()) {
       const p = this.plots.find((q) => q.id === id)!;
@@ -5854,7 +8350,7 @@ export class IlmCityEngine {
       b.addObject(g);
       this.zones.push({
         id: "busstop:" + st.id,
-        label: "Wait for a danfo",
+        label: st.x < -3000 ? "Wait for the bus" : "Wait for a danfo",
         x: st.x,
         z: st.z,
         r: 3.6,
@@ -5875,7 +8371,7 @@ export class IlmCityEngine {
         this.traffic.riding = null;
         this.traffic.fast = false;
         this.player.visible = true;
-        this.player.position.set(stop.x, 0, stop.z);
+        this.standAt(stop.x, stop.z, stop);
         this.player.rotation.y = stop.heading + Math.PI / 2;
         this.ev.onRide?.(null);
         this.ev.onAction("arrived:" + stop.district);
@@ -5971,6 +8467,7 @@ export class IlmCityEngine {
     } else if (this.cine) this.stepCinematic(dt);
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
+    else if (this.pathWalk) this.stepPath(dt);
     else if (!this.riding) this.walk(v, dt, t);
 
     if (this.match && this.spectating) this.match.step(dt, null);
@@ -5985,14 +8482,18 @@ export class IlmCityEngine {
     this.stepRider(dt);
     this.stepParking(dt);
     this.stepGuide(performance.now() / 1000);
+    this.stepJob(dt, performance.now() / 1000);
     this.stepTraffic(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
     // only draw areas near the camera
     if (this.where === "out")
-      for (const a of this.areaGroups)
-        a.g.visible =
-          Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z) < this.viewDist;
+      for (const a of this.areaGroups) {
+        const d = Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z);
+        a.g.visible = d < this.viewDist;
+        if (a.g.visible) a.onGpu = true;
+        else if (a.onGpu && d > this.viewDist + 400) this.freeArea(a);
+      }
 
     // neighbours
     for (const w of this.walkers) {
@@ -6128,7 +8629,14 @@ export class IlmCityEngine {
     )
       best = null;
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
-      best = { id: "board", label: "Board the danfo", x: 0, z: 0, r: 0, scene: "out" };
+      best = {
+        id: "board",
+        label: this.district.holy ? "Board the bus" : "Board the danfo",
+        x: 0,
+        z: 0,
+        r: 0,
+        scene: "out",
+      };
     else if (this.driving)
       best = { id: "car-exit", label: "Get out of the car", x: 0, z: 0, r: 0, scene: "out" };
     else
@@ -6173,7 +8681,15 @@ export class IlmCityEngine {
       }
     if (!best || bd > 2) {
       const kk = this.kekeBeside();
-      if (kk) best = { id: "keke", label: "Take a keke", x: 0, z: 0, r: 0, scene: "out" };
+      if (kk)
+        best = {
+          id: "keke",
+          label: this.district.holy ? "Take a taxi" : "Take a keke",
+          x: 0,
+          z: 0,
+          r: 0,
+          scene: "out",
+        };
     }
     if (!this.cine && !this.driving && this.where === "out" && this.car.visible) {
       const dc = Math.hypot(this.car.position.x - pos.x, this.car.position.z - pos.z);
@@ -6198,10 +8714,7 @@ export class IlmCityEngine {
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
-      place = `${fullName(area)} · ${area.state}`;
-      const lz = pos.z - area.origin.z;
-      const st = area.streets.find((s2) => Math.abs(lz - s2.z) < 7);
-      if (st) place = `${STREETS[st.id]?.name ?? ""}, ${fullName(area)}`;
+      place = `${area.name}, ${area.state}`;
     } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
     if (place !== this.place) {
       this.place = place;
@@ -6246,13 +8759,15 @@ export class IlmCityEngine {
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
+      // if you somehow end up inside a wall, you can always walk out of it
+      const stuck = !this.free(this.player.position.x, this.player.position.z, 0.5);
       if (
-        this.free(nx, this.player.position.z, 0.5) &&
+        (stuck || this.free(nx, this.player.position.z, 0.5)) &&
         !this.bumpsPerson(nx, this.player.position.z)
       )
         this.player.position.x = nx;
       if (
-        this.free(this.player.position.x, nz, 0.5) &&
+        (stuck || this.free(this.player.position.x, nz, 0.5)) &&
         !this.bumpsPerson(this.player.position.x, nz)
       )
         this.player.position.z = nz;
@@ -6502,9 +9017,9 @@ export class IlmCityEngine {
     if (this.where !== "out") {
       this.sun.castShadow = false;
       this.sun.intensity = 0.5;
-      this.sun.color.set(0xfff1d6);
-      this.hemi.intensity = 1.2;
-      this.hemi.color.set(0xfff0dc);
+      this.sun.color.set(0xffe2b8);
+      this.hemi.intensity = 1.25;
+      this.hemi.color.set(0xffe6c8);
       this.scene.background = new THREE.Color(0x1a1612);
       (this.scene.fog as THREE.Fog).color.set(0x1a1612);
       return;
@@ -6539,14 +9054,15 @@ export class IlmCityEngine {
       .lerp(new THREE.Color(0xd08a5a), Math.min(1, golden) * 0.7)
       .multiplyScalar(1 - dk * 0.85);
     cm.opacity = 0.92 - dk * 0.5;
-    (this.scene.fog as THREE.Fog).color.copy(sky);
+    // a soft warm haze on the horizon in the day, like a sunny afternoon
+    (this.scene.fog as THREE.Fog).color.copy(sky).lerp(new THREE.Color(0xf1dcc0), 0.35 * (1 - dk));
     this.sun.intensity = 2.4 * (1 - dk) + 0.45 * dk;
     this.sun.color
-      .set(0xfff1d6)
+      .set(0xffe2b8)
       .lerp(new THREE.Color(0xffb070), Math.min(1, golden))
       .lerp(new THREE.Color(0x9fb4e8), dk);
     this.hemi.intensity = 1.15 - dk * 0.55;
-    this.hemi.color.set(0xcfe6ff).lerp(new THREE.Color(0x6a7fb8), dk);
+    this.hemi.color.set(0xdde9f2).lerp(new THREE.Color(0x6a7fb8), dk);
     this.winMat.emissiveIntensity = dk * 1.6;
     this.lampMat.emissiveIntensity = dk * 2.2;
   }

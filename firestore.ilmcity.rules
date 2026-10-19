@@ -167,6 +167,11 @@
             || (request.auth.uid == resource.data.from && request.resource.data.status == 'left'));
     }
 
+    // ---- each player's saved progress and money (an admin can read and correct it) ----
+    match /city_saves/{uid} {
+      allow read, write: if (signedIn() && request.auth.uid == uid) || isAdmin();
+    }
+
     // ---- sending money to another player ----
     match /city_transfers/{id} {
       allow read: if signedIn()

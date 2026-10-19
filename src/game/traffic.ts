@@ -1,5 +1,13 @@
 import * as THREE from "three";
-import { DISTRICTS, districtById, halfOf, type District } from "./content";
+import {
+  CITY_CENTER,
+  DISTRICTS,
+  centerOf,
+  cityOf,
+  districtById,
+  halfOf,
+  type District,
+} from "./content";
 import { VEHICLE_INFO, randomCarColor, vehicleMesh, type VehicleKind } from "./vehicles";
 
 /* Traffic: cars, keke, danfos and the Hisbah van drive on the right along the city's
@@ -88,7 +96,7 @@ function lane(center: [number, number][], off: number, v: number): P[] {
   return out;
 }
 
-const sideOf = (d: District) => (d.origin.x > 0 ? -1 : 1);
+const sideOf = (d: District) => (d.origin.x > centerOf(d).x ? -1 : 1);
 export const roadEndOf = (d: District): [number, number] => [
   d.origin.x + sideOf(d) * (halfOf(d).x - 6),
   d.origin.z,
@@ -98,9 +106,10 @@ const RING = 23;
 /** A tour through the whole city: out of the City Junction to each area and back. */
 function tourPath(order: string[]) {
   const pts: P[] = [];
+  const C = centerOf(districtById(order[0]));
   const angleOf = (d: District) => {
     const [x, z] = roadEndOf(d);
-    return Math.atan2(z, x);
+    return Math.atan2(z - C.z, x - C.x);
   };
   let prevAngle: number | null = null;
   for (const id of order) {
@@ -112,9 +121,9 @@ function tourPath(order: string[]) {
       let to = a;
       while (to <= b) to += Math.PI * 2;
       for (b += 0.2; b < to; b += 0.2)
-        pts.push({ x: Math.cos(b) * RING, z: Math.sin(b) * RING, v: 9 });
+        pts.push({ x: C.x + Math.cos(b) * RING, z: C.z + Math.sin(b) * RING, v: 9 });
     }
-    const ring: [number, number] = [Math.cos(a) * 30, Math.sin(a) * 30];
+    const ring: [number, number] = [C.x + Math.cos(a) * 30, C.z + Math.sin(a) * 30];
     const near = roadEndOf(d);
     const far: [number, number] = [d.origin.x - sideOf(d) * (halfOf(d).x - 20), d.origin.z];
     const inArea = (q: P) =>
@@ -130,7 +139,8 @@ function tourPath(order: string[]) {
   let b = prevAngle!;
   let to = angleOf(first);
   while (to <= b) to += Math.PI * 2;
-  for (b += 0.2; b < to; b += 0.2) pts.push({ x: Math.cos(b) * RING, z: Math.sin(b) * RING, v: 9 });
+  for (b += 0.2; b < to; b += 0.2)
+    pts.push({ x: C.x + Math.cos(b) * RING, z: C.z + Math.sin(b) * RING, v: 9 });
   pts.push({ ...pts[0] });
   return new Path(pts);
 }
@@ -193,6 +203,8 @@ export type BusStop = {
 export class Traffic {
   vehicles: Vehicle[] = [];
   tour: Path;
+  /** every city's danfo loop */
+  tours: Path[] = [];
   shuttle!: Path;
   shuttles: Path[] = [];
   stops: BusStop[] = [];
@@ -212,15 +224,25 @@ export class Traffic {
   ) {
     this.rnd = rnd;
     // the danfo loop visits every main area in turn round the City Junction
-    const roots = DISTRICTS.filter((d) => !d.parent)
-      .map((d) => {
-        const [x, z] = roadEndOf(d);
-        return { id: d.id, a: Math.atan2(z, x) };
-      })
-      .sort((a, b) => a.a - b.a)
-      .map((r) => r.id);
-    this.tour = tourPath(roots);
-    const tour2 = tourPath([...roots.slice(2), ...roots.slice(0, 2)].filter((_, i) => i % 2 === 0));
+    // one danfo loop per city
+    const tours = new Map<string, Path>();
+    const tours2: Path[] = [];
+    for (const city of Object.keys(CITY_CENTER)) {
+      const C = CITY_CENTER[city];
+      const roots = DISTRICTS.filter((d) => !d.parent && cityOf(d) === city)
+        .map((d) => {
+          const [x, z] = roadEndOf(d);
+          return { id: d.id, a: Math.atan2(z - C.z, x - C.x) };
+        })
+        .sort((a, b) => a.a - b.a)
+        .map((r) => r.id);
+      if (!roots.length) continue;
+      tours.set(city, tourPath(roots));
+      const half = [...roots.slice(2), ...roots.slice(0, 2)].filter((_, i) => i % 2 === 0);
+      if (half.length > 1) tours2.push(tourPath(half));
+    }
+    this.tour = tours.get("lagos")!;
+    this.tours = [...tours.values()];
 
     // two bus stops per area, one on each side of the main street
     for (const d of DISTRICTS) {
@@ -231,10 +253,11 @@ export class Traffic {
         const x = d.origin.x + sd * 70;
         const travel = dir === 1 ? -sd : sd; // +1 = going east
         const z = d.origin.z + travel * 8.6; // the right-hand pavement
-        const near = this.tour.nearest(x, d.origin.z + travel * 3);
+        const tour = tours.get(cityOf(d))!;
+        const near = tour.nearest(x, d.origin.z + travel * 3);
         this.stops.push({
           id: `${d.id}-${dir > 0 ? "in" : "out"}`,
-          path: this.tour,
+          path: tour,
           rot: z > d.origin.z ? 0 : Math.PI,
           district: d.id,
           name: `${d.busStop ?? d.name} Bus Stop`,
@@ -344,7 +367,9 @@ export class Traffic {
     this.stops.sort((a, b) => a.s - b.s);
 
     const add = (kind: VehicleKind, path: Path, s: number, color?: number) => {
-      const mesh = vehicleMesh(kind, color ?? randomCarColor(rnd));
+      // Makkah and Madinah (far west on the world map) have city buses and taxis
+      const saudi = path.at(0).x < -3000;
+      const mesh = vehicleMesh(kind, color ?? randomCarColor(rnd), saudi);
       scene.add(mesh);
       const vmax = VEHICLE_INFO[kind].top * (0.75 + rnd() * 0.25);
       this.vehicles.push({
@@ -360,9 +385,11 @@ export class Traffic {
         half: VEHICLE_INFO[kind].length / 2,
       });
     };
-    const L = this.tour.length;
-    for (let i = 0; i < 4; i++) add("danfo", this.tour, (L / 4) * i + 40);
-    add("hisbah", this.tour, L * 0.6);
+    for (const tour of this.tours) {
+      const L = tour.length;
+      for (let i = 0; i < 4; i++) add("danfo", tour, (L / 4) * i + 40);
+      add("hisbah", tour, L * 0.6);
+    }
     const kinds: VehicleKind[] = [
       "sedan",
       "small",
@@ -373,8 +400,10 @@ export class Traffic {
       "small",
       "sedan",
     ];
-    for (let i = 0; i < 10; i++) add(kinds[i % kinds.length], this.tour, (L / 10) * i + 120);
-    for (let i = 0; i < 8; i++) add(kinds[(i + 3) % kinds.length], tour2, (tour2.length / 8) * i);
+    for (const tour of this.tours)
+      for (let i = 0; i < 10; i++) add(kinds[i % kinds.length], tour, (tour.length / 10) * i + 120);
+    for (const tour2 of tours2)
+      for (let i = 0; i < 8; i++) add(kinds[(i + 3) % kinds.length], tour2, (tour2.length / 8) * i);
     for (const sh of this.shuttles) {
       const SL = sh.length;
       add("danfo", sh, 30);

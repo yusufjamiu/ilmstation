@@ -9,7 +9,9 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
    neck and every piece of clothing are our own, built here and stitched onto the
    skeleton so they bend and swing as the person walks. */
 
-export type Outfit = "thobe" | "kaftan" | "abaya" | "hisbah";
+/** agbada: a wide flowing outer robe over a long kaftan, with a tall fila cap.
+    lace: a premium abaya with bell sleeves, a long khimar and gold trim. */
+export type Outfit = "thobe" | "kaftan" | "abaya" | "hisbah" | "agbada" | "lace";
 export type Look = {
   outfit: Outfit;
   robe: number;
@@ -20,6 +22,8 @@ export type Look = {
   hijab?: number;
   beard?: boolean;
   shoe?: number;
+  /** embroidery on premium clothes (default gold) */
+  trim?: number;
 };
 
 type Rig = {
@@ -34,7 +38,10 @@ type Rig = {
   once: THREE.AnimationAction | null;
   /** a table tennis bat in the right hand, and how far through a swing (1 = still) */
   bat?: { mesh: THREE.Object3D; t: number } | null;
+  /** something carried for work: a load on the head, a parcel in both hands or a broom */
+  carry?: { mesh: THREE.Object3D; how: Carry; sweep: number } | null;
 };
+export type Carry = "head" | "hands" | "broom";
 
 let base: { scene: THREE.Group; clips: THREE.AnimationClip[] } | null = null;
 let loading: Promise<boolean> | null = null;
@@ -375,8 +382,10 @@ function buildTemplate(look: Look) {
     (n: string): Weigher =>
     () => [[bi[n], 1]];
 
-  const female = look.outfit === "abaya";
-  const long = look.outfit === "thobe" || female;
+  const lace = look.outfit === "lace",
+    agbada = look.outfit === "agbada";
+  const female = look.outfit === "abaya" || lace;
+  const long = look.outfit === "thobe" || female || agbada;
   const hipY = P.LeftUpLeg.y,
     kneeY = P.LeftLeg.y;
   /** Torso near the body bones; below the hips a robe follows hips and both legs. */
@@ -412,7 +421,7 @@ function buildTemplate(look: Look) {
     parts.push({ geo: skin(geo, weigh), role, double });
 
   // --- robe / top ---
-  const flare = female ? 1.12 : 1;
+  const flare = lace ? 1.28 : female ? 1.12 : 1;
   const torso = [
     hring(1.53, 0.062, 0.06, -0.025),
     hring(1.5, 0.12, 0.085, -0.02),
@@ -440,7 +449,9 @@ function buildTemplate(look: Look) {
     const side = s > 0 ? "Left" : "Right";
     const y = P[side + "Arm"].y,
       z = P[side + "Arm"].z;
-    const w = female ? 1.25 : 1;
+    const w = lace ? 1.25 : female ? 1.25 : 1;
+    // bell sleeves: wider towards the wrist
+    const bell = lace ? 1.9 : agbada ? 2.4 : 1;
     const ring = (x: number, r: number): Ring => ({
       c: V(x * s, y, z),
       u: AZ,
@@ -454,10 +465,10 @@ function buildTemplate(look: Look) {
           ring(0.1, 0.07 * w),
           ring(0.18, 0.068 * w),
           ring(0.3, 0.064 * w),
-          ring(0.43, 0.058 * w),
-          ring(0.56, 0.053 * w),
-          ring(0.66, 0.05 * w),
-          ring(0.705, 0.052 * w),
+          ring(0.43, 0.058 * w * (1 + (bell - 1) * 0.35)),
+          ring(0.56, 0.053 * w * (1 + (bell - 1) * 0.7)),
+          ring(0.66, 0.05 * w * bell),
+          ring(0.705, 0.052 * w * bell),
         ],
         14,
       ),
@@ -466,6 +477,69 @@ function buildTemplate(look: Look) {
       true,
     );
   }
+
+  // --- premium: the agbada's outer robe, and gold embroidery ---
+  const torsoWeigh: Weigher = (p) =>
+    p.y > hipY + 0.02
+      ? near(["Spine", "Spine1", "Spine2", "Neck", "LeftShoulder", "RightShoulder"])(p)
+      : robeWeigh(p);
+  if (agbada) {
+    add(
+      loft(
+        [
+          hring(1.53, 0.07, 0.065, -0.025),
+          hring(1.5, 0.2, 0.12, -0.02),
+          hring(1.46, 0.33, 0.15, -0.015),
+          hring(1.38, 0.38, 0.17, -0.01),
+          hring(1.2, 0.39, 0.18, 0),
+          hring(1.0, 0.39, 0.19, 0.005),
+          hring(0.75, 0.395, 0.2, 0.01),
+          hring(0.5, 0.4, 0.21, 0.01),
+          hring(0.34, 0.4, 0.21, 0.01),
+        ],
+        28,
+      ),
+      torsoWeigh,
+      "outer",
+      true,
+    );
+    // embroidery on the chest and along the hem
+    add(
+      loft([hring(1.47, 0.346, 0.165, -0.015), hring(1.3, 0.396, 0.187, -0.006)], 28),
+      torsoWeigh,
+      "trim",
+      true,
+    );
+    add(
+      loft([hring(0.42, 0.402, 0.212, 0.01), hring(0.34, 0.402, 0.212, 0.01)], 28),
+      torsoWeigh,
+      "trim",
+      true,
+    );
+  }
+  if (lace) {
+    add(
+      loft(
+        [
+          hring(0.12, 0.25 * flare, 0.19 * flare, 0.01),
+          hring(0.04, 0.252 * flare, 0.19 * flare, 0.01),
+        ],
+        24,
+      ),
+      robeWeigh,
+      "trim",
+      true,
+    );
+  }
+  if (lace || agbada)
+    for (const s of [1, -1]) {
+      const side = s > 0 ? "Left" : "Right";
+      const y = P[side + "Arm"].y,
+        z = P[side + "Arm"].z;
+      const r = 0.052 * (lace ? 1.25 * 1.9 : 2.4) + 0.004;
+      const ring = (x: number): Ring => ({ c: V(x * s, y, z), u: AZ, v: AY, ru: r, rv: r });
+      add(loft([ring(0.665), ring(0.71)], 14), near([side + "ForeArm"], 5), "trim", true);
+    }
 
   // --- trousers (kaftan and uniform) ---
   if (!long)
@@ -568,6 +642,7 @@ function buildTemplate(look: Look) {
           hring(1.48, 0.195, 0.135, -0.015),
           hring(1.4, 0.222, 0.152, -0.005),
           hring(1.31, 0.226, 0.158, 0.0),
+          ...(lace ? [hring(1.18, 0.232, 0.162, 0.0), hring(1.08, 0.236, 0.165, 0.0)] : []),
         ],
         24,
       ),
@@ -579,12 +654,14 @@ function buildTemplate(look: Look) {
       true,
     );
   } else if (look.cap !== null) {
-    const k = new THREE.CylinderGeometry(0.098, 0.106, 0.075, 28, 1, true);
-    k.translate(0, hc.y + 0.085, -0.004);
+    // the agbada comes with a tall fila
+    const tall = agbada ? 0.13 : 0.075;
+    const k = new THREE.CylinderGeometry(0.098, 0.106, tall, 28, 1, true);
+    k.translate(0, hc.y + 0.0475 + tall / 2, -0.004);
     add(k, only("Head"), "kufi", true);
     const top = new THREE.CircleGeometry(0.098, 28);
     top.rotateX(-Math.PI / 2);
-    top.translate(0, hc.y + 0.1225, -0.004);
+    top.translate(0, hc.y + 0.0475 + tall, -0.004);
     add(top, only("Head"), "kufiTop");
   }
 
@@ -609,7 +686,7 @@ function buildTemplate(look: Look) {
 
 const matCache = new Map<string, THREE.Material>();
 function material(role: string, look: Look, double: boolean) {
-  const hair = look.outfit !== "abaya" && look.cap === null;
+  const hair = look.outfit !== "abaya" && look.outfit !== "lace" && look.cap === null;
   let key = role + double;
   let make: () => THREE.MeshStandardMaterial;
   const std = (color: number, extra: THREE.MeshStandardMaterialParameters = {}) =>
@@ -635,6 +712,16 @@ function material(role: string, look: Look, double: boolean) {
     case "robe":
       key += look.robe;
       make = () => std(look.robe, { map: clothTex() });
+      break;
+    case "outer":
+      // the agbada a shade deeper than the kaftan under it
+      key += look.robe;
+      make = () =>
+        std(new THREE.Color(look.robe).multiplyScalar(0.82).getHex(), { map: clothTex() });
+      break;
+    case "trim":
+      key += look.trim ?? 0xd4af37;
+      make = () => std(look.trim ?? 0xd4af37, { roughness: 0.35, metalness: 0.45 });
       break;
     case "trousers":
       key += look.trousers ?? 0x2d3138;
@@ -842,6 +929,70 @@ export function tickHumans(dt: number, camera: THREE.Camera, radius = 70) {
     if (r.once && !r.once.isRunning()) r.once = null;
     r.mixer.update(dt);
     if (r.bat) poseBat(r, dt);
+    if (r.carry) poseCarry(r, dt);
+  }
+}
+
+/** Carry something (or put it down with null). */
+export function rigCarry(o: THREE.Object3D, mesh: THREE.Object3D | null, how: Carry = "head") {
+  const r = rigOf(o);
+  if (!r) return false;
+  r.carry?.mesh.removeFromParent();
+  r.carry = null;
+  if (mesh && r.bones.Head) {
+    o.add(mesh);
+    r.carry = { mesh, how, sweep: 0 };
+  }
+  return true;
+}
+/** Sweep with the broom for a moment. */
+export function rigSweep(o: THREE.Object3D, seconds: number) {
+  const r = rigOf(o);
+  if (r?.carry) r.carry.sweep = seconds;
+}
+const cq = new THREE.Quaternion(),
+  cx = new THREE.Vector3(),
+  cy = new THREE.Vector3(0, 1, 0),
+  cp = new THREE.Vector3(),
+  cp2 = new THREE.Vector3();
+function poseCarry(r: Rig, dt: number) {
+  const c = r.carry!;
+  const b = r.bones;
+  r.root.updateWorldMatrix(true, false);
+  r.root.getWorldQuaternion(cq);
+  cx.set(1, 0, 0).applyQuaternion(cq);
+  const o = c.mesh.parent!;
+  if (c.how === "head") {
+    // one hand up holding the load steady on the head
+    turn(b.RightArm, cx, -2.5);
+    turn(b.RightForeArm, cx, -0.5);
+    b.Head.updateWorldMatrix(true, false);
+    b.Head.getWorldPosition(cp);
+    o.worldToLocal(cp);
+    c.mesh.position.set(cp.x, cp.y + 0.32, cp.z);
+  } else if (c.how === "hands") {
+    turn(b.LeftArm, cx, -0.75);
+    turn(b.RightArm, cx, -0.75);
+    turn(b.LeftForeArm, cx, -0.7);
+    turn(b.RightForeArm, cx, -0.7);
+    b.LeftHand.updateWorldMatrix(true, false);
+    b.LeftHand.getWorldPosition(cp);
+    b.RightHand.getWorldPosition(cp2);
+    cp.add(cp2).multiplyScalar(0.5);
+    o.worldToLocal(cp);
+    c.mesh.position.copy(cp);
+  } else {
+    // a broom in the right hand; while sweeping it brushes side to side
+    c.sweep = Math.max(0, c.sweep - dt);
+    const k = c.sweep > 0 ? Math.sin(performance.now() / 110) : 0;
+    turn(b.RightArm, cx, -0.45);
+    turn(b.RightArm, cy, 0.25 * k);
+    turn(b.RightForeArm, cx, -0.35);
+    b.RightHand.updateWorldMatrix(true, false);
+    b.RightHand.getWorldPosition(cp);
+    o.worldToLocal(cp);
+    c.mesh.position.copy(cp);
+    c.mesh.rotation.set(0.5, 0, 0.5 * k);
   }
 }
 

@@ -4,7 +4,13 @@
    connects browser tabs on the same computer, so the whole flow can be tried
    without Firebase. */
 
-export type PlayerLook = { female: boolean; skin: number; robe: number; accent: number };
+export type PlayerLook = {
+  female: boolean;
+  skin: number;
+  robe: number;
+  accent: number;
+  style?: "agbada" | "lace";
+};
 export type Presence = {
   uid: string;
   name: string;
@@ -15,6 +21,8 @@ export type Presence = {
   moving: boolean;
   area: string;
   t: number;
+  /** ✨ blessed with wealth, 💚 a generous giver */
+  badge?: string;
 };
 export type ChatMsg = { id: string; from: string; text: string; at: number };
 export type ChatInfo = {

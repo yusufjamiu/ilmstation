@@ -58,6 +58,10 @@ import {
   BILLBOARDS,
   BUS_FARE,
   WORLD_CITIES,
+  INTERCITY,
+  TRAIN_LOCAL,
+  TRAIN_STATIONS,
+  cityOf,
   DISTRICTS,
   QUESTIONS,
   STREETS,
@@ -132,6 +136,8 @@ import {
 
 /* ---------- saved progress (moves to Firebase with accounts) ---------- */
 type Save = {
+  /** when this save was last changed (to pick the newest copy between phone and cloud) */
+  savedAt?: number;
   coins: number;
   ilm: number;
   day: string;
@@ -200,8 +206,25 @@ type Save = {
   wardrobe?: string[];
   /** rent for your flat is paid up to this time */
   lease?: { until: number };
+  /** sadaqah given at the masjid, in all (game units) */
+  sadaqah?: number;
+  /** Umrah: the step you are on, and how many you have completed */
+  umrah?: {
+    stage?: "ihram" | "enter" | "tawaf" | "maqam" | "zamzam" | "sai" | "halq";
+    done: number;
+  };
+  /** Hajj practice: where you are in the days of Hajj */
+  hajj?: { stage?: HajjStage; done: number; stoned?: string[] };
 };
-type Look = { name: string; female: boolean; skin: number; robe: number; accent: number };
+type Look = {
+  name: string;
+  female: boolean;
+  skin: number;
+  robe: number;
+  accent: number;
+  /** premium clothes: an agbada for brothers, a lace abaya for sisters */
+  style?: "agbada" | "lace";
+};
 
 /* ---------- money ----------
    Everything is priced in IlmWorld naira (₦). The save keeps whole units of ₦10. */
@@ -214,9 +237,155 @@ const MIN_WITHDRAW = 1000;
 /** New clothes cost ₦500 each. */
 const CLOTHES_PRICE = 50;
 
+/** What to do next in Umrah. */
+const UMRAH_NEXT: Record<string, string> = {
+  ihram: "put on ihram and make the intention",
+  enter: "enter Al-Masjid Al-Haram with your right foot",
+  tawaf: "tawaf, 7 rounds round the Kaaba",
+  maqam: "two rak'ahs behind Maqam Ibrahim",
+  zamzam: "drink Zamzam",
+  sai: "sa'i, from Safa to Marwah 7 times",
+  halq: "shave or shorten your hair at the barber on Ajyad Street",
+};
+const UMRAH_ZONE: Record<string, string> = {
+  ihram: "",
+  enter: "door:masjid:masjid-al-haram",
+  tawaf: "kaaba:tawaf",
+  maqam: "maqam",
+  zamzam: "zamzam",
+  sai: "safa:sai",
+  halq: "office:haram-barber",
+};
+/** The days of Hajj, in order, for Hajj practice. */
+type HajjStage =
+  | "ihram"
+  | "mina"
+  | "arafat"
+  | "muzdalifah"
+  | "aqabah"
+  | "halq"
+  | "ifadah"
+  | "hajjsai"
+  | "tashriq"
+  | "wada";
+const HAJJ: Record<HajjStage, { day: string; text: string; area: string; zone: string }> = {
+  ihram: {
+    day: "8th Dhul Hijjah",
+    text: "put on ihram and make the intention for Hajj",
+    area: "",
+    zone: "",
+  },
+  mina: {
+    day: "8th Dhul Hijjah · Yawm at-Tarwiyah",
+    text: "go to Mina and stay there for the day and night",
+    area: "mina",
+    zone: "door:masjid:masjid-al-khayf",
+  },
+  arafat: {
+    day: "9th Dhul Hijjah · the Day of Arafah",
+    text: "stand at Arafat and make du'a until sunset",
+    area: "arafat",
+    zone: "arafat:wuquf",
+  },
+  muzdalifah: {
+    day: "The night of the 10th",
+    text: "spend the night at Muzdalifah and pick up pebbles",
+    area: "arafat",
+    zone: "muzdalifah:pebbles",
+  },
+  aqabah: {
+    day: "10th Dhul Hijjah · Eid al-Adha",
+    text: "stone Jamrat al-Aqabah with 7 pebbles",
+    area: "mina",
+    zone: "jamarat:aqabah",
+  },
+  halq: {
+    day: "10th Dhul Hijjah",
+    text: "shave or shorten your hair at the barber by the Haram",
+    area: "haram",
+    zone: "office:haram-barber",
+  },
+  ifadah: {
+    day: "10th Dhul Hijjah",
+    text: "Tawaf al-Ifadah: 7 rounds round the Kaaba",
+    area: "haram",
+    zone: "kaaba:tawaf",
+  },
+  hajjsai: {
+    day: "10th Dhul Hijjah",
+    text: "the sa'i of Hajj, from Safa to Marwah",
+    area: "haram",
+    zone: "safa:sai",
+  },
+  tashriq: {
+    day: "11th–13th Dhul Hijjah · the days of Tashriq",
+    text: "stone all three Jamarat in order: Al-Ula, Al-Wusta, then Al-Aqabah",
+    area: "mina",
+    zone: "jamarat:ula",
+  },
+  wada: {
+    day: "Before you leave Makkah",
+    text: "Tawaf al-Wada', the farewell tawaf",
+    area: "haram",
+    zone: "kaaba:tawaf",
+  },
+};
+const HAJJ_ORDER = Object.keys(HAJJ) as HajjStage[];
+/** Still in ihram during Hajj practice (until the hair is shaved on the 10th). */
+const hajjIhram = (st?: HajjStage) => !!st && HAJJ_ORDER.indexOf(st) < HAJJ_ORDER.indexOf("ifadah");
+
+const countryOf = (d: District) =>
+  WORLD_CITIES.find((w) => w.id === cityOf(d))?.country ?? "Nigeria";
+
+/** Badges others see on your name: ✨ when Allah has blessed you with wealth (₦100,000 or a
+    house of your own), 💚 when you have given ₦5,000 or more in sadaqah. */
+const BLESSED_MONEY = 10000;
+const GENEROUS_GIVING = 500;
+function badgeOf(s: Save) {
+  const owns = Object.values(s.plots ?? {}).some((o) => o.kind === "bought" || o.kind === "built");
+  return `${(s.sadaqah ?? 0) >= GENEROUS_GIVING ? "💚" : ""}${s.coins >= BLESSED_MONEY || owns ? "✨" : ""}${(s.umrah?.done ?? 0) > 0 ? "🕋" : ""}`;
+}
+/** Premium clothes for those who can afford them: ₦20,000 each. */
+const PREMIUM_PRICE = 2000;
+const PREMIUM_THOBES = [0xc9a227, 0x5a1f6a, 0x0f2a5a, 0xf7f3e8, 0x7a1f1f];
+const PREMIUM_ABAYAS = [0xc9a227, 0x3a1f4a, 0x0f2a5a, 0x101014, 0x6a1f3a];
+const PREMIUM_CAPS = [0xc9a227, 0xe6d3a0, 0x5a1f6a];
+const PREMIUM_HIJABS = [0xc9a227, 0xe6d3a0, 0xf2e6f0, 0x5a1f6a];
+
 /** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
 const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
 const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
+/** A house's rent: by its area and size. The best areas are for players of a higher Ilm
+    level; anyone below it can still rent there by paying half as much again. */
+const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
+const FLOOR_RENT: Record<number, number> = { 1: 1, 2: 1.5, 3: 2 };
+const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
+const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
+function houseRent(area: string, floors: number, ilm: number) {
+  const t = districtById(area).tier ?? 2;
+  const base = r10(150 * (TIER_RENT[t] ?? 1) * (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1));
+  const need = TIER_LEVEL[t] ?? 0;
+  const premium = ilmLevel(ilm).i < need;
+  const week = premium ? r10(base * 1.5) : base;
+  const buy = r10(
+    (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * (TIER_RENT[t] ?? 1),
+  );
+  return { week, month: r10(week * 3.4), base, premium, need: ILM_LEVELS[need], buy };
+}
+/** Building on your land, one stage at a time. */
+const BUILD_STAGES = [
+  { name: "Foundation", share: 0.2, text: "Digging, the concrete footings and the floor slab" },
+  {
+    name: "Walls",
+    share: 0.35,
+    text: "Blocks laid up to the roof, with lintels over doors and windows",
+  },
+  { name: "Roofing", share: 0.25, text: "Roof timbers and the roof sheets" },
+  { name: "Finishing", share: 0.2, text: "Plaster, paint, doors, windows, tiles and wiring" },
+];
+const stageCost = (floors: number, st: number) =>
+  r10(ECONOMY.build[floors].points * BUILD_STAGES[st - 1].share);
+const stageMinutes = (floors: number) => Math.max(1, Math.round(ECONOMY.build[floors].minutes / 2));
 const WEEK = 7 * 86400000;
 /** A home's colours: painted by its owner, or its own starting colours, so no two look alike. */
 function homePaint(uid: string | undefined, p?: { wall: number; floor: number }) {
@@ -292,6 +461,7 @@ let KEY = GUEST_KEY;
     first time they log in on this phone. */
 function useAccountSave(uid: string | null) {
   KEY = uid ? `${GUEST_KEY}-${uid}` : GUEST_KEY;
+  cloud.uid = uid && !uid.startsWith("local-") ? uid : null;
   if (uid && typeof localStorage !== "undefined") {
     try {
       if (!localStorage.getItem(KEY) && localStorage.getItem(GUEST_KEY))
@@ -314,10 +484,123 @@ function loadSave(): Save {
   return { coins: POINTS.start, ilm: 0, day: "", prayed: {}, asked: [], world: true };
 }
 function writeSave(s: Save) {
+  s.savedAt = Date.now();
   try {
     localStorage.setItem(KEY, JSON.stringify(s));
   } catch {
     /* storage blocked */
+  }
+  cloud.queue(s);
+}
+
+/* Every logged-in player's progress and money is kept in Firestore (city_saves/{uid}), so it
+   follows them to any phone or computer and is not lost if the browser is cleared. The
+   phone keeps a copy too, for speed and for playing offline. `naira` is shown on the
+   document so an admin can read or change a player's balance in the Firebase console. */
+const cloud = {
+  uid: null as string | null,
+  /** the game shows a message when saving to the account fails */
+  onError: null as ((msg: string) => void) | null,
+  failed: false,
+  timer: 0 as ReturnType<typeof setTimeout> | 0,
+  pending: null as Save | null,
+  queue(s: Save) {
+    if (!this.uid) return;
+    this.pending = s;
+    if (!this.timer) this.timer = setTimeout(() => void this.flush(), 4000);
+  },
+  async flush() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = 0;
+    const s = this.pending,
+      uid = this.uid;
+    this.pending = null;
+    if (!s || !uid) return;
+    try {
+      const { db } = await import("@/lib/firebase");
+      const { doc, setDoc } = await import("firebase/firestore");
+      await setDoc(doc(db, "city_saves", uid), {
+        data: JSON.stringify(s),
+        naira: s.coins * NAIRA_UNIT,
+        savedAt: s.savedAt ?? Date.now(),
+        name: s.profile?.name ?? "",
+      });
+      if (this.failed) this.onError?.("Saved to your account ✓");
+      this.failed = false;
+    } catch (err) {
+      console.warn("IlmWorld: could not save to city_saves", err);
+      if (!this.failed) {
+        this.failed = true;
+        const code = (err as { code?: string })?.code ?? String(err);
+        this.onError?.(
+          `Could not save to your account (${code}). Your progress is kept on this device.`,
+        );
+      }
+      /* offline: the next change will try again */
+      this.pending = this.pending ?? s;
+    }
+  },
+};
+const NAIRA_UNIT = 10;
+if (typeof window !== "undefined") {
+  const out = () => void cloud.flush();
+  window.addEventListener("pagehide", out);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") out();
+  });
+}
+/** Before the game starts: bring this account's save down from the cloud if it is newer
+    than the one on this phone (or the phone has none). */
+async function pullCloudSave(uid: string) {
+  cloud.uid = uid;
+  const key = `${GUEST_KEY}-${uid}`;
+  try {
+    const { db } = await import("@/lib/firebase");
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await Promise.race([
+      getDoc(doc(db, "city_saves", uid)),
+      new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+    ]);
+    if (!snap) return;
+    let local: Save | null = null;
+    try {
+      local = JSON.parse(localStorage.getItem(key) ?? "null") as Save | null;
+      if (!local && localStorage.getItem(GUEST_KEY))
+        local = JSON.parse(localStorage.getItem(GUEST_KEY)!) as Save;
+    } catch {
+      local = null;
+    }
+    if (!snap.exists()) {
+      // first time with the cloud: send up what this phone has
+      if (local) {
+        cloud.pending = local;
+        await cloud.flush();
+      }
+      return;
+    }
+    const d = snap.data() as { data?: string; naira?: number; savedAt?: number };
+    let remote: Save | null = null;
+    try {
+      remote = d.data ? (JSON.parse(d.data) as Save) : null;
+    } catch {
+      remote = null;
+    }
+    if (!remote) return;
+    let pick = !local || (remote.savedAt ?? 0) >= (local.savedAt ?? 0) ? remote : local;
+    // an admin changed the balance in the console: apply the difference
+    if (typeof d.naira === "number" && d.naira !== remote.coins * NAIRA_UNIT) {
+      const diff = Math.round(d.naira / NAIRA_UNIT) - remote.coins;
+      pick = { ...pick, coins: Math.max(0, pick.coins + diff) };
+      cloud.pending = { ...pick, savedAt: Date.now() };
+      await cloud.flush();
+    } else if (pick === local) {
+      cloud.pending = local;
+      await cloud.flush();
+    }
+    localStorage.setItem(key, JSON.stringify(pick));
+  } catch (err) {
+    console.warn("IlmWorld: could not load city_saves", err);
+    /* offline or not allowed: play with what this phone has */
   }
 }
 
@@ -330,8 +613,10 @@ function plotStateFn(o?: PlotOwn) {
   if (o.kind === "rented") return o.until > Date.now() ? { kind: "rented" as const } : undefined;
   if (o.kind === "owned") return { kind: "owned" as const };
   if (o.kind === "bought") return { kind: "rented" as const };
-  if (o.kind === "building" && o.done <= Date.now())
+  if (o.kind === "building" && o.done <= Date.now() && (o.stage ?? 4) >= 4)
     return { kind: "built" as const, floors: o.floors };
+  if (o.kind === "building")
+    return { kind: "building" as const, floors: o.floors, stage: o.stage ?? 4 };
   return { kind: o.kind, floors: o.floors };
 }
 
@@ -392,7 +677,7 @@ function useCityAuth(): Who {
       }
     }
     const guest = { uid: null, firstName: "", female: false, adult: false };
-    const t = setTimeout(() => finish(guest), 4000);
+    const t = setTimeout(() => finish(guest), 12000);
     (async () => {
       try {
         const { auth, db } = await import("@/lib/firebase");
@@ -400,6 +685,8 @@ function useCityAuth(): Who {
         const { doc, getDoc } = await import("firebase/firestore");
         onAuthStateChanged(auth, async (u) => {
           if (!u) return finish(guest);
+          // logged in: wait for the account and its save instead of starting as a guest
+          clearTimeout(t);
           let name = u.displayName ?? "",
             female = false,
             adult = false;
@@ -422,6 +709,7 @@ function useCityAuth(): Who {
           } catch {
             /* profile unavailable */
           }
+          await pullCloudSave(u.uid);
           finish({ uid: u.uid, firstName: name.split(/\s+/)[0] ?? "", female, adult });
         });
       } catch {
@@ -443,6 +731,9 @@ export default function IlmCityGame() {
         </div>
       </div>
     );
+  // you need an IlmStation account to play: your money and progress live in your account
+  if (!uid && (!import.meta.env.DEV || new URLSearchParams(window.location.search).has("gate")))
+    return <SignInGate />;
   return (
     <CityGame
       key={uid ?? "guest"}
@@ -500,9 +791,10 @@ function CityGame({
   const clockRef = useRef(clock);
   clockRef.current = clock;
   const [ctx, setCtx] = useState<Context>(null);
-  const [place, setPlace] = useState(
-    () => `${districtById(save.district ?? "lekki").name} · Lagos`,
-  );
+  const [place, setPlace] = useState(() => {
+    const d = districtById(save.district ?? "lekki");
+    return `${d.name}, ${d.state}`;
+  });
   const [panel, setPanel] = useState<Panel | null>(null);
   const [bigClock, setBigClock] = useState(false);
   const panelRef = useRef<Panel | null>(null);
@@ -510,6 +802,14 @@ function CityGame({
   const [toasts, setToasts] = useState<{ id: number; text: string; tone?: "good" | "warn" }[]>([]);
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
+  /** the area's name shows for a moment when you come outside or walk into a new area */
+  const [placeShown, setPlaceShown] = useState(false);
+  useEffect(() => {
+    if (inside) return setPlaceShown(false);
+    setPlaceShown(true);
+    const t = setTimeout(() => setPlaceShown(false), 6000);
+    return () => clearTimeout(t);
+  }, [place, inside]);
   const [webgl, setWebgl] = useState(true);
   const [speed, setSpeed] = useState<number | null>(null);
   const [ride, setRide] = useState<{
@@ -521,6 +821,9 @@ function CityGame({
   const arriveRef = useRef<(() => void) | null>(null);
   const talkingRef = useRef<number | null>(null);
   const workSkip = useRef(false);
+  const hajjDone = useRef(new Set<string>());
+  const askedIntention = useRef(false);
+  const stageTold = useRef(new Set<string>());
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
   const lastSent = useRef({ x: 0, z: 0, area: "" });
@@ -542,9 +845,15 @@ function CityGame({
     speedAt: 0,
   });
   const [arriving, setArriving] = useState<string | null>(null);
-  const [travelling, setTravelling] = useState<{ from: string; to: string; byCar: boolean } | null>(
-    null,
-  );
+  const [travelling, setTravelling] = useState<{
+    from: string;
+    to: string;
+    byCar: boolean;
+    plane?: boolean;
+    train?: boolean;
+  } | null>(null);
+  const travellingRef = useRef(travelling);
+  travellingRef.current = travelling;
 
   const toast = useCallback((text: string, tone?: "good" | "warn") => {
     const id = Math.random();
@@ -554,6 +863,57 @@ function CityGame({
       Math.min(7500, 2600 + text.length * 45),
     );
   }, []);
+  // an admin changed this player's naira in the Firebase console while they are playing:
+  // add the difference to the game straight away (the game's own saves always match)
+  useEffect(() => {
+    const uid = cloud.uid;
+    if (!uid) return;
+    let off: (() => void) | null = null;
+    let live = true;
+    void (async () => {
+      try {
+        const { db } = await import("@/lib/firebase");
+        const { doc, onSnapshot } = await import("firebase/firestore");
+        if (!live) return;
+        off = onSnapshot(doc(db, "city_saves", uid), (snap) => {
+          if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+          const d = snap.data() as { data?: string; naira?: number };
+          if (typeof d.naira !== "number" || !d.data) return;
+          let saved: Save;
+          try {
+            saved = JSON.parse(d.data) as Save;
+          } catch {
+            return;
+          }
+          const diff = Math.round(d.naira / NAIRA_UNIT) - saved.coins;
+          if (!diff) return;
+          setSave((x) => {
+            const n = { ...x, coins: Math.max(0, x.coins + diff) };
+            writeSave(n);
+            return n;
+          });
+          toast(
+            `${diff > 0 ? "+" : "−"}₦${Math.abs(diff * NAIRA_UNIT).toLocaleString()} from IlmWorld admin`,
+            "good",
+          );
+        });
+      } catch {
+        /* offline */
+      }
+    })();
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [toast]);
+  useEffect(() => {
+    cloud.onError = (m) => toast(m, m.includes("✓") ? "good" : "warn");
+    // the first save after loading tells us at once if the account can be saved to
+    cloud.queue(saveRef.current);
+    return () => {
+      cloud.onError = null;
+    };
+  }, [toast]);
   const update = useCallback(
     (fn: (s: Save) => Save) =>
       setSave((s) => {
@@ -566,8 +926,9 @@ function CityGame({
 
   /** Finish a step of the guided start: +₦100. */
   const advance = useCallback(
-    (step: number) => {
-      if (saveRef.current.guide !== step) return;
+    (which: number | string) => {
+      const step = typeof which === "number" ? which : GUIDE.findIndex((g) => g.id === which) + 1;
+      if (step < 1 || saveRef.current.guide !== step) return;
       saveRef.current = { ...saveRef.current, guide: step + 1 };
       update((x) => ({ ...x, guide: step + 1, coins: x.coins + 10 }));
       toast(
@@ -579,6 +940,19 @@ function CityGame({
     },
     [toast, update],
   );
+  const advanceRef = useRef(advance);
+  advanceRef.current = advance;
+  // skip steps already done (a job taken before the guide reached it, a flat-less home)
+  useEffect(() => {
+    const g = GUIDE[(save.guide ?? 99) - 1];
+    if (!g) return;
+    if (
+      (g.id === "job" && save.job) ||
+      (g.id === "rent" && save.homePlot) ||
+      (g.id === "wudu" && save.wudu)
+    )
+      advance(g.id);
+  }, [save.guide, save.job, save.homePlot, save.wudu, advance]);
   /** Tick off a task in My Day. */
   const doTask = useCallback(
     (id: string) => {
@@ -770,6 +1144,9 @@ function CityGame({
   /* ---------- food: order on the phone or eat at the eatery ---------- */
   const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
   const openPhoneRef = useRef<() => void>(() => {});
+  const openHotelRef = useRef<() => void>(() => {});
+  const openWalletRef = useRef<() => void>(() => {});
+  const profileBtn = useRef<HTMLButtonElement | null>(null);
   const eat = useCallback(
     (d: Dish) => {
       setPanel(null);
@@ -901,26 +1278,13 @@ function CityGame({
           onCalls={() => openCallsRef.current("calls")}
           onHomes={() => openHomesRef.current()}
           onRooms={() => openRoomsRef.current()}
-          onWallet={() =>
-            setPanel({
-              kind: "info",
-              title: "💰 Wallet",
-              phone: { home: () => openPhoneRef.current() },
-              body: (
-                <WalletView
-                  points={saveRef.current.coins}
-                  txns={saveRef.current.txns ?? []}
-                  online={!!onlineRef.current}
-                  onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
-                />
-              ),
-            })
-          }
+          onWallet={() => openWalletRef.current()}
           onContacts={() => openCallsRef.current("contacts")}
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
           onTravel={() => openOutingsRef.current(true, "travel")}
           onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki", true)}
+          onHotel={() => openHotelRef.current()}
         />
       ),
     });
@@ -1581,25 +1945,41 @@ function CityGame({
 
   /** Ride to another area (bus fare, or free in your car); optionally walk to a place on arrival. */
   const startTrip = useCallback(
-    (to: string, byCar: boolean, then?: string) => {
+    (to: string, byCar: boolean, then?: string, byTrain = false) => {
       const e = engine.current;
       if (!e) return;
-      if (!byCar && saveRef.current.coins < BUS_FARE) {
-        toast(`The bus fare is ${N(BUS_FARE)}. Earn money at a mosque lecture or quiz.`, "warn");
+      const here = e.districtId();
+      // to another city: the inter-city bus from the motor park
+      const far = cityOf(districtById(here)) !== cityOf(districtById(to));
+      if (countryOf(districtById(here)) !== countryOf(districtById(to))) {
+        toast(
+          "To travel abroad, fly from the airport (📱 Phone → OutingStation → Travel).",
+          "warn",
+        );
         return;
       }
-      const here = e.districtId();
+      const train = (far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain;
+      const fare = far ? (train ? INTERCITY.train : INTERCITY.bus) : train ? TRAIN_LOCAL : BUS_FARE;
+      if (!byCar && saveRef.current.coins < fare) {
+        toast(
+          `The ${train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
+          "warn",
+        );
+        return;
+      }
       setPanel(null);
       const d = districtById(to);
+      const station = train && !byCar ? d.landmarks.find((l) => l.kind === "station") : undefined;
       arriveRef.current = () => {
-        e.travel(to, byCar);
-        advance(4);
-        advance(3);
+        // by train you step off at the station; otherwise the bus or car drives in
+        if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar);
+        advance("ride");
+        advance("learn");
         setDriving(false);
         setInside(false);
         update((x) => ({
           ...x,
-          coins: byCar ? x.coins : x.coins - BUS_FARE,
+          coins: byCar ? x.coins : x.coins - fare,
           district: to,
           car: byCar ? e.carPos() : x.car,
           pos: undefined,
@@ -1608,7 +1988,7 @@ function CityGame({
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
       };
-      setTravelling({ from: here, to, byCar });
+      setTravelling({ from: here, to, byCar, train: train && !byCar });
     },
     [toast, advance, update],
   );
@@ -1667,7 +2047,7 @@ function CityGame({
 
   const openLecture = useCallback(
     (lec: Lecture, live: boolean) => {
-      advance(3);
+      advance("learn");
       doTask("learn");
       setPanel({
         kind: "info",
@@ -1771,6 +2151,7 @@ function CityGame({
                 : "House to let or buy",
           body: (
             <PlotView
+              rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm)}
               plot={p}
               own={own}
               points={saveRef.current.coins}
@@ -2018,7 +2399,7 @@ function CityGame({
                 needs: { ...(x.needs ?? freshNeeds()), clean: 100 },
               }));
               doTask("wudu");
-              advance(1);
+              advance("wudu");
               setPanel(null);
               if (then) setTimeout(then, 50);
             }}
@@ -2029,6 +2410,8 @@ function CityGame({
   );
 
   /** Pray in the masjid: the obligatory prayer if it is due, or two voluntary rak'ahs. */
+  /** something to do when this prayer is finished (two rak'ahs behind Maqam Ibrahim) */
+  const afterPrayerRef = useRef<(() => void) | null>(null);
   const startPrayer = useCallback(
     (voluntary: boolean) => {
       const e = engine.current;
@@ -2072,7 +2455,7 @@ function CityGame({
             onFinish={() => {
               setPanel(null);
               engine.current?.prayPose(null);
-              advance(3);
+              advance("learn");
               need({ iman: 15 });
               if (fard) {
                 if (Object.keys(saveRef.current.prayed).length + 1 >= 5) doTask("salah");
@@ -2090,6 +2473,9 @@ function CityGame({
                 update((x) => ({ ...x, ilm: x.ilm + 2 }));
                 toast("May Allah accept your prayer. +2 Ilm", "good");
               }
+              const then = afterPrayerRef.current;
+              afterPrayerRef.current = null;
+              if (then) setTimeout(then, 600);
             }}
           />
         ),
@@ -2099,6 +2485,460 @@ function CityGame({
   );
   const startPrayerRef = useRef(startPrayer);
   startPrayerRef.current = startPrayer;
+
+  /* ---------- Makkah: guided Umrah, Hajj practice and tawaf ---------- */
+  const female = () => !!saveRef.current.profile?.female;
+  const wearIhram = useCallback((on: boolean) => {
+    const p = saveRef.current.profile;
+    if (p) engine.current?.setPlayerLook({ ...p, ihram: on && !p.female });
+  }, []);
+  /** Walk to a place for the rites, travelling to its area first if needed. */
+  const goRite = useCallback((area: string, zone: string) => {
+    const here = engine.current?.districtId();
+    if (area && here !== area) {
+      const d = districtById(area);
+      setPanel({
+        kind: "info",
+        title: `To ${d.name}`,
+        body: (
+          <div className="space-y-2">
+            <p className="text-[14px]">The next step is in {fullName(d)}.</p>
+            <button
+              onClick={() =>
+                tripRef.current(
+                  area,
+                  false,
+                  zone || undefined,
+                  TRAIN_STATIONS.includes(area) && TRAIN_STATIONS.includes(here ?? ""),
+                )
+              }
+              className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+            >
+              {districtById(here ?? "haram").holy ? "🚌 Take the bus" : "Travel"} to {d.name}
+            </button>
+          </div>
+        ),
+      });
+      return;
+    }
+    if (zone) setTimeout(() => engine.current?.guideTo(zone), 300);
+  }, []);
+  /** Every house to let in this city, cheapest first, with what your Ilm level opens. */
+  const openToLet = useCallback(() => {
+    const e = engine.current;
+    if (!e) return;
+    const here = e.districtId();
+    const city = cityOf(districtById(here));
+    const ilm = saveRef.current.ilm;
+    const lv = ilmLevel(ilm);
+    const list = e.plots
+      .filter(
+        (q) =>
+          q.kind === "house" &&
+          q.toLet &&
+          cityOf(districtById(q.district)) === city &&
+          !takenRef.current.has(q.id) &&
+          !saveRef.current.plots?.[q.id],
+      )
+      .map((q) => ({ q, r: houseRent(q.district, q.floors ?? 1, ilm) }))
+      .sort(
+        (a, b) =>
+          a.r.week - b.r.week || Number(a.q.district !== here) - Number(b.q.district !== here),
+      );
+    const areas = [...new Set(list.map((x) => x.q.district))];
+    setPanel({
+      kind: "info",
+      title: "🏠 Houses to let",
+      body: (
+        <div className="space-y-3">
+          <p className="text-[13px] opacity-75">
+            You are a <b>{saveRef.current.profile?.female ? lv.sister : lv.brother}</b> ({ilm} Ilm).
+            The best areas open up as your Ilm grows; you can still rent there now by paying half as
+            much again.
+          </p>
+          {areas.map((a) => {
+            const D = districtById(a);
+            const items = list.filter((x) => x.q.district === a).slice(0, 8);
+            return (
+              <div key={a}>
+                <div className="mb-1 text-[13px] font-bold">
+                  {D.name}{" "}
+                  {a === here && <span className="font-normal opacity-60">· you are here</span>}
+                </div>
+                <div className="space-y-1.5">
+                  {items.map(({ q, r }) => (
+                    <button
+                      key={q.id}
+                      onClick={() => {
+                        setPanel(null);
+                        if (a === here) {
+                          if (!engine.current?.guideTo("plot:" + q.id)) openPlot(q.id);
+                          else toast("Follow the gold arrow to the house. Tap its TO LET sign.");
+                        } else goRite(a, "plot:" + q.id);
+                      }}
+                      className="flex w-full items-center justify-between gap-2 rounded-xl bg-white p-2.5 text-left shadow-sm"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13.5px] font-semibold">
+                          {floorsName(q.floors ?? 1)} · No. {q.number}, {q.street}
+                        </span>
+                        <span className="text-[11.5px] opacity-70">
+                          {(q.floors ?? 1) * 2 + 1} bedrooms
+                          {r.premium ? ` · for ${r.need.brother}s, or pay more` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right text-[13px] font-bold text-[#1f6f63]">
+                        {N(r.week)}
+                        <span className="block text-[10.5px] font-normal opacity-70">a week</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {!list.length && <p>No houses free to let in this city right now.</p>}
+        </div>
+      ),
+    });
+  }, [toast, goRite, openPlot]);
+  const openToLetRef = useRef(openToLet);
+  openToLetRef.current = openToLet;
+  /** Tawaf with a guide: what to do and say at each part of every round. */
+  const guidedTawaf = useCallback(
+    (kind: "umrah" | "voluntary" | "ifadah" | "wada", onDone: () => void) => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      const name =
+        kind === "umrah"
+          ? "Tawaf of Umrah"
+          : kind === "ifadah"
+            ? "Tawaf al-Ifadah"
+            : kind === "wada"
+              ? "Tawaf al-Wada'"
+              : "Voluntary tawaf";
+      const brisk = (kind === "umrah" || kind === "ifadah") && !female();
+      if (kind === "umrah") toast("Stop the Talbiyah now: tawaf begins.", "good");
+      const ok = e.startTawaf(
+        (n) => {
+          if (n === 7) return;
+          toast(`Round ${n} done · Allahu Akbar. Round ${n + 1} of 7`, "good");
+        },
+        () => {
+          setRite(null);
+          need({ iman: 20 });
+          onDone();
+        },
+        (k, round) => {
+          const head = `🕋 ${name} · round ${round} of 7`;
+          const step = (text: string) => setRite({ title: head, text });
+          if (k === 0) {
+            step(
+              `Black Stone line (green light): face the Black Stone, raise your right hand and say "Bismillahi wallahu akbar".${
+                brisk && round <= 3
+                  ? " Brothers: walk briskly with short steps (raml) in rounds 1 to 3, right shoulder uncovered."
+                  : brisk
+                    ? " Walk normally now."
+                    : ""
+              }`,
+            );
+            if (round === 1) sayDhikr("blackStone");
+          } else if (k === 2)
+            step("The Multazam, between the Black Stone and the door. Make any du'a you wish.");
+          else if (k === 6) step("The Iraqi corner. Keep making dhikr and du'a in your own words.");
+          else if (k === 9)
+            step(
+              "Hijr Ismail: the curved wall is part of the Kaaba. Walk outside it, not through it.",
+            );
+          else if (k === 12) step("The Shami corner. Keep the Kaaba on your left.");
+          else if (k === 18)
+            step(
+              "The Yemeni corner: touch it with your right hand if it is easy. Do not kiss it or point to it.",
+            );
+          else if (k === 19) {
+            step(
+              "Between the Yemeni corner and the Black Stone say: Rabbana atina fid-dunya hasanah, wa fil-akhirati hasanah, wa qina 'adhaban-nar.",
+            );
+            if (round === 1) sayDhikr("tawafDua");
+          }
+        },
+      );
+      if (!ok) toast("Go to the Kaaba in Al-Masjid Al-Haram first.");
+    },
+    [toast, need, sayDhikr],
+  );
+  /** Sa'i with a guide: Safa, the green lights and Marwah, seven times. */
+  const guidedSai = useCallback(
+    (onDone: () => void) => {
+      const e = engine.current;
+      if (!e) return;
+      setPanel(null);
+      const ok = e.startSai(
+        (n) => {
+          if (n < 7) toast(`Walk ${n} of 7 done. Allahu Akbar.`, "good");
+        },
+        () => {
+          setRite(null);
+          need({ iman: 20, energy: -10 });
+          onDone();
+        },
+        (ev, leg) => {
+          const head = `⛰️ Sa'i · walk ${Math.min(7, Math.max(1, ev === "safa" || ev === "marwah" ? leg + 1 : leg))} of 7`;
+          if (ev === "safa") {
+            if (leg === 0) {
+              setRite({
+                title: "⛰️ Sa'i begins at Safa",
+                text: "Climb Safa and recite \"Innas-Safa wal-Marwata min sha'a'irillah\", then say \"Abda'u bima bada'allahu bih\" (I begin with what Allah began with). Face the Kaaba, raise your hands, and say the dhikr three times with du'a in between.",
+              });
+              sayDhikr("safa", () => sayDhikr("safaDhikr"));
+            } else
+              setRite({
+                title: head,
+                text: "On Safa: face the Kaaba, raise your hands, say the dhikr of Safa and make du'a. Then walk to Marwah.",
+              });
+          } else if (ev === "marwah")
+            setRite({
+              title: head,
+              text: "On Marwah: face the Kaaba and say the same dhikr as on Safa, with du'a.",
+            });
+          else if (ev === "green") {
+            setRite({
+              title: head,
+              text: `Green lights: ${female() ? "sisters walk at a normal pace" : "brothers hasten here, as Hajar ran for water"}. Say: Rabbighfir warham, innaka antal-a'azzul-akram.`,
+            });
+            if (leg === 1) sayDhikr("greenLights");
+          } else
+            setRite({
+              title: head,
+              text: "Past the green lights: walk normally and keep making du'a.",
+            });
+        },
+      );
+      if (!ok) toast("Sa'i is in the Mas'a of Al-Masjid Al-Haram.");
+    },
+    [toast, need, sayDhikr],
+  );
+  /** The Hajj practice moves on a step. */
+  const hajjNext = useCallback(
+    (to: HajjStage | null, msg: string) => {
+      update((x) => ({
+        ...x,
+        ilm: x.ilm + (to ? 10 : 200),
+        hajj: to
+          ? { ...(x.hajj ?? { done: 0 }), stage: to, stoned: [] }
+          : { done: (x.hajj?.done ?? 0) + 1 },
+      }));
+      toast(msg, "good");
+      if (to && !hajjIhram(to)) wearIhram(false);
+      if (to) {
+        const h = HAJJ[to];
+        setTimeout(() => goRite(h.area, h.zone), 1600);
+      }
+    },
+    [update, toast, wearIhram, goRite],
+  );
+  const beginUmrah = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🤍 Umrah · step 1: ihram",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>Before the miqat (on the plane before Jeddah, or at Masjid Aisha in Makkah):</p>
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>
+              Make ghusl, and{" "}
+              {female()
+                ? "wear your normal modest clothes"
+                : "put on the two white sheets of ihram"}
+              .
+            </li>
+            <li>
+              Make the intention: <b>Labbayk Allahumma 'Umrah</b>.
+            </li>
+            <li>Say the Talbiyah often until you begin tawaf.</li>
+          </ol>
+          <p className="rounded-xl bg-[#fdf3dc] p-3 text-[13px]">
+            In ihram: no perfume, no cutting hair or nails, no arguing.{" "}
+            {female()
+              ? "Sisters do not cover the face with a niqab or wear gloves."
+              : "Brothers do not cover the head or wear sewn clothes."}
+          </p>
+          <button
+            onClick={() => {
+              setPanel(null);
+              update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "enter" } }));
+              wearIhram(true);
+              sayDhikr("niyyahUmrah", () =>
+                sayDhikr("talbiyah", () => {
+                  toast(
+                    "You are in ihram. Now enter Al-Masjid Al-Haram with your right foot.",
+                    "good",
+                  );
+                  goRite("haram", "door:masjid:masjid-al-haram");
+                }),
+              );
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            I am in ihram: Labbayk Allahumma 'Umrah
+          </button>
+        </div>
+      ),
+    });
+  }, [update, wearIhram, sayDhikr, toast, goRite]);
+  const beginHajj = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🕋 Hajj practice",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>Practise the days of Hajj, step by step, in the real places:</p>
+          <ol className="list-decimal space-y-1 pl-5 text-[13px]">
+            <li>
+              <b>8th:</b> ihram in Makkah, then the day and night in Mina
+            </li>
+            <li>
+              <b>9th:</b> standing at Arafat until sunset
+            </li>
+            <li>
+              <b>Night of the 10th:</b> Muzdalifah, and pebbles
+            </li>
+            <li>
+              <b>10th:</b> stone Al-Aqabah, shave, Tawaf al-Ifadah and sa'i
+            </li>
+            <li>
+              <b>11th–13th:</b> stone all three Jamarat in Mina
+            </li>
+            <li>
+              <b>Last:</b> the farewell tawaf
+            </li>
+          </ol>
+          <button
+            onClick={() => {
+              setPanel(null);
+              update((x) => ({
+                ...x,
+                hajj: { done: x.hajj?.done ?? 0, stage: "mina", stoned: [] },
+              }));
+              wearIhram(true);
+              sayDhikr("niyyahHajj", () =>
+                sayDhikr("talbiyah", () => {
+                  toast("8th Dhul Hijjah: you are in ihram. Now go to Mina.", "good");
+                  goRite("mina", "");
+                }),
+              );
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Put on ihram: Labbayk Allahumma Hajjan
+          </button>
+        </div>
+      ),
+    });
+  }, [update, wearIhram, sayDhikr, toast, goRite]);
+  const openIntention = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "Welcome to Makkah al-Mukarramah",
+      body: (
+        <div className="space-y-2">
+          <p className="text-[14px] opacity-80">What is your intention in Makkah?</p>
+          <button
+            onClick={beginUmrah}
+            className="w-full rounded-xl bg-[#1f6f63] p-3 text-left text-[#fdf8ec]"
+          >
+            <div className="font-bold">🤍 Umrah</div>
+            <div className="text-[12.5px] opacity-85">
+              Guided: ihram, tawaf, Maqam, Zamzam, sa'i and shaving, with what to say at each place
+            </div>
+          </button>
+          <button
+            onClick={beginHajj}
+            className="w-full rounded-xl bg-[#9a7a3a] p-3 text-left text-white"
+          >
+            <div className="font-bold">🕋 Hajj practice</div>
+            <div className="text-[12.5px] opacity-90">
+              Mina, Arafat, Muzdalifah, the Jamarat and the tawafs, day by day
+            </div>
+          </button>
+          <button
+            onClick={() => {
+              setPanel(null);
+              toast("Walk in through the King Abdulaziz Gate and tap the Kaaba to begin tawaf.");
+              goRite("haram", "door:masjid:masjid-al-haram");
+            }}
+            className="w-full rounded-xl border border-[#1f6f63]/30 bg-white p-3 text-left"
+          >
+            <div className="font-bold">🔄 Visit and voluntary tawaf</div>
+            <div className="text-[12.5px] opacity-75">
+              No ihram needed. Pray in the Haram and make tawaf
+            </div>
+          </button>
+          <button onClick={() => setPanel(null)} className="w-full py-2 text-[13px] opacity-70">
+            Later
+          </button>
+        </div>
+      ),
+    });
+  }, [beginUmrah, beginHajj, toast, goRite]);
+  const openIntentionRef = useRef(openIntention);
+  openIntentionRef.current = openIntention;
+  // reaching Makkah from another city: ask what the visit is for
+  const lastCity = useRef<string | null>(null);
+  useEffect(() => {
+    // Jeddah counts as its own place: you are asked when you reach Makkah itself
+    const c =
+      save.district === "jeddahairport" ? "jeddah" : cityOf(districtById(save.district ?? "lekki"));
+    const prev = lastCity.current;
+    lastCity.current = c;
+    if (prev && prev !== c && c === "makkah" && !save.umrah?.stage && !save.hajj?.stage) {
+      // ask once nothing else is open on screen
+      let tries = 0;
+      const t = setInterval(() => {
+        if (++tries > 30) return clearInterval(t);
+        if (panelRef.current || travellingRef.current) return;
+        clearInterval(t);
+        openIntentionRef.current();
+      }, 2600);
+      return () => clearInterval(t);
+    }
+    return undefined;
+  }, [save.district, save.umrah?.stage, save.hajj?.stage]);
+  // Hajj practice: arriving in Mina on the 8th
+  useEffect(() => {
+    if (save.district !== "mina" || save.hajj?.stage !== "mina") return;
+    const t = setTimeout(
+      () =>
+        setPanel({
+          kind: "info",
+          title: "⛺ Mina · Yawm at-Tarwiyah",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                Stay in Mina today and tonight, as the Prophet ﷺ did. Pray Dhuhr, Asr, Maghrib, Isha
+                and Fajr here, each on time, shortening the four-rak'ah prayers to two.
+              </p>
+              <p className="text-[13px] opacity-75">Keep saying the Talbiyah. Rest in your tent.</p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  hajjNext(
+                    "arafat",
+                    "Morning of the 9th: after sunrise, set off for Arafat. +10 Ilm",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                Spend the day and night in Mina
+              </button>
+            </div>
+          ),
+        }),
+      2200,
+    );
+    return () => clearTimeout(t);
+  }, [save.district, save.hajj?.stage, hajjNext]);
 
   /* ---------- other real players ---------- */
   const onlineRef = useRef<Online | null>(null);
@@ -2530,6 +3370,32 @@ function CityGame({
       off?.();
     };
   }, [onlineReady]);
+  /* ---------- the IlmStation team can top themselves up to test ---------- */
+  const [isAdmin, setIsAdmin] = useState(false);
+  const isAdminRef = useRef(false);
+  isAdminRef.current = isAdmin;
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o) return;
+    if (
+      import.meta.env.DEV &&
+      new URLSearchParams(window.location.search).get("online") === "local"
+    ) {
+      setIsAdmin(true);
+      return;
+    }
+    void (async () => {
+      try {
+        const { db } = await import("@/lib/firebase");
+        const f = await import("firebase/firestore");
+        const s = await f.getDoc(f.doc(db, "admins", o.uid));
+        setIsAdmin(s.exists());
+      } catch {
+        /* not an admin */
+      }
+    })();
+  }, [onlineReady]);
+
   /* ---------- money between players ---------- */
   const transfers = useRef<Transfers | null>(null);
   useEffect(() => {
@@ -2624,6 +3490,22 @@ function CityGame({
   );
   const sendMoneyRef = useRef(sendMoney);
   sendMoneyRef.current = sendMoney;
+  openWalletRef.current = () => {
+    advance("wallet");
+    setPanel({
+      kind: "info",
+      title: "💰 Wallet",
+      phone: { home: () => openPhoneRef.current() },
+      body: (
+        <WalletView
+          points={saveRef.current.coins}
+          txns={saveRef.current.txns ?? []}
+          online={!!onlineRef.current}
+          onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
+        />
+      ),
+    });
+  };
 
   /* ---------- houses are shared: one player per house ---------- */
   const claimsNet = useRef<Claims | null>(null);
@@ -2747,38 +3629,84 @@ function CityGame({
   }, [update, toast]);
   const payRentRef = useRef(payRent);
   payRentRef.current = payRent;
-  const openWardrobe = useCallback(() => {
-    const look = saveRef.current.profile;
-    if (!look) return;
-    setPanel({
-      kind: "info",
-      title: "👕 Clothes",
-      body: (
-        <WardrobeView
-          look={look}
-          owned={saveRef.current.wardrobe ?? []}
-          coins={saveRef.current.coins}
-          onWear={(p) => {
-            const next = { ...saveRef.current.profile!, ...p };
-            update((x) => ({ ...x, profile: next }));
-            engine.current?.setPlayerLook(next);
-          }}
-          onBuy={(key, p) => {
-            if (saveRef.current.coins < CLOTHES_PRICE) return;
-            const next = { ...saveRef.current.profile!, ...p };
-            update((x) => ({
-              ...x,
-              coins: x.coins - CLOTHES_PRICE,
-              profile: next,
-              wardrobe: [...(x.wardrobe ?? []), key],
-            }));
-            engine.current?.setPlayerLook(next);
-            toast(`New clothes! −${N(CLOTHES_PRICE)}. They look good on you, Masha Allah.`, "good");
-          }}
-        />
-      ),
-    });
-  }, [update, toast]);
+  /** Sadaqah into the masjid box. */
+  const giveSadaqah = useCallback(
+    (units: number, where: string) => {
+      const sv = saveRef.current;
+      if (sv.coins < units) {
+        toast(`You have ${N(sv.coins)}. Give what you can, even a little.`, "warn");
+        return;
+      }
+      const before = sv.sadaqah ?? 0;
+      update((x) => ({
+        ...x,
+        coins: x.coins - units,
+        sadaqah: (x.sadaqah ?? 0) + units,
+        ilm: x.ilm + 2,
+      }));
+      need({ iman: 10 });
+      toast(
+        `${N(units)} in the ${where} sadaqah box. "Charity does not decrease wealth." May Allah accept it and replace it with better.`,
+        "good",
+      );
+      if (before < GENEROUS_GIVING && before + units >= GENEROUS_GIVING)
+        setTimeout(
+          () =>
+            toast(
+              "💚 You are now a Generous giver. Other players see the green heart by your name.",
+              "good",
+            ),
+          2200,
+        );
+    },
+    [update, need, toast],
+  );
+  const giveSadaqahRef = useRef(giveSadaqah);
+  giveSadaqahRef.current = giveSadaqah;
+  const openWardrobe = useCallback(
+    (shop = false) => {
+      const look = saveRef.current.profile;
+      if (!look) return;
+      advance("clothes");
+      setPanel({
+        kind: "info",
+        title: shop ? "🛍️ IlmWorld Fashion" : "👕 My clothes",
+        body: (
+          <WardrobeView
+            shop={shop}
+            onShop={() => {
+              setPanel(null);
+              if (!engine.current?.goToZone("door:boutique:"))
+                toast(
+                  "IlmWorld Fashion is in Lekki, Ikeja, Akoka, Agege, Igbe Laara, Fate, Ilorin Central and Tanke.",
+                );
+            }}
+            look={look}
+            owned={saveRef.current.wardrobe ?? []}
+            coins={saveRef.current.coins}
+            onWear={(p) => {
+              const next = { ...saveRef.current.profile!, ...p };
+              update((x) => ({ ...x, profile: next }));
+              engine.current?.setPlayerLook(next);
+            }}
+            onBuy={(key, p, price) => {
+              if (saveRef.current.coins < price) return;
+              const next = { ...saveRef.current.profile!, ...p };
+              update((x) => ({
+                ...x,
+                coins: x.coins - price,
+                profile: next,
+                wardrobe: [...(x.wardrobe ?? []), key],
+              }));
+              engine.current?.setPlayerLook(next);
+              toast(`New clothes! −${N(price)}. They look good on you, Masha Allah.`, "good");
+            }}
+          />
+        ),
+      });
+    },
+    [update, toast, advance],
+  );
   const openWardrobeRef = useRef(openWardrobe);
   openWardrobeRef.current = openWardrobe;
   /** Rent due: what the landlord says when you come home. */
@@ -3062,8 +3990,53 @@ function CityGame({
   inboxRef.current = inbox;
 
   /* ---------- work ---------- */
+  /** the guide bar during tawaf and sa'i: where you are and what to say */
+  const [rite, setRite] = useState<{ title: string; text: string } | null>(null);
+  const [shift, setShift] = useState<{
+    name: string;
+    done: number;
+    total: number;
+    text: string;
+  } | null>(null);
+  const payShift = useCallback(
+    (job: Job, quality: number) => {
+      const pay = Math.round(
+        job.pay * (0.5 + 0.5 * quality) * (1 + ilmLevel(saveRef.current.ilm).bonus),
+      );
+      update((x) => ({
+        ...x,
+        coins: x.coins + pay,
+        ilm: x.ilm + 2,
+        worked: clockRef.current.key,
+      }));
+      need({ energy: -15, social: 10 });
+      toast(`Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`, "good");
+    },
+    [update, need, toast],
+  );
   const startWork = useCallback(
-    (job: Job) =>
+    (job: Job) => {
+      if (job.play) {
+        setPanel(null);
+        const e = engine.current;
+        const ok = e?.startJob(job.play, (done, total, next) => {
+          if (next) setShift({ name: job.name, done, total, text: next });
+          else {
+            setShift(null);
+            payShift(job, 1);
+          }
+        });
+        if (!ok) {
+          toast(
+            job.play === "caretaker"
+              ? "Stand near the masjid door to start sweeping."
+              : job.play === "porter"
+                ? "Go to a market with stalls to start carrying."
+                : "Go to a shop on a street with houses to start deliveries.",
+          );
+        }
+        return;
+      }
       setPanel({
         kind: "info",
         title: `Work · ${job.place}`,
@@ -3071,26 +4044,14 @@ function CityGame({
           <WorkView
             job={job}
             onDone={(right, total) => {
-              const pay = Math.round(
-                job.pay * (0.5 + (0.5 * right) / total) * (1 + ilmLevel(saveRef.current.ilm).bonus),
-              );
-              update((x) => ({
-                ...x,
-                coins: x.coins + pay,
-                ilm: x.ilm + 2,
-                worked: clockRef.current.key,
-              }));
-              need({ energy: -15, social: 10 });
               setPanel(null);
-              toast(
-                `Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`,
-                "good",
-              );
+              payShift(job, right / total);
             }}
           />
         ),
-      }),
-    [update, need, toast],
+      });
+    },
+    [payShift, toast],
   );
   const openJobs = useCallback(
     () =>
@@ -3104,6 +4065,7 @@ function CityGame({
               update((x) => ({ ...x, job: j.id }));
               saveRef.current = { ...saveRef.current, job: j.id };
               setPanel(null);
+              setTimeout(() => advanceRef.current("job"), 0);
               toast(
                 `You are now a ${j.name.toLowerCase()} at ${j.place}. Shift: ${hoursText(j)}. Pay: ${N(j.pay)} a day.`,
                 "good",
@@ -3584,6 +4546,338 @@ function CityGame({
         });
         return;
       }
+      /* ---------- Umrah in Makkah, and the Prophet's Mosque in Madinah ---------- */
+      if (id === "kaaba:tawaf") {
+        const st = saveRef.current.umrah?.stage;
+        const hj = saveRef.current.hajj?.stage;
+        if (hj === "ifadah" || hj === "wada") {
+          guidedTawaf(hj, () => {
+            if (hj === "ifadah")
+              hajjNext(
+                "hajjsai",
+                "Tawaf al-Ifadah complete. Now the sa'i of Hajj, beginning at Safa. +10 Ilm",
+              );
+            else {
+              hajjNext(
+                null,
+                "Your farewell tawaf is done and your Hajj practice is complete! Hajjan mabruran wa sa'yan mashkuran. +200 Ilm 🕋",
+              );
+              need({ iman: 100 });
+            }
+          });
+          return;
+        }
+        if (st === "tawaf") {
+          guidedTawaf("umrah", () => {
+            update((x) => ({
+              ...x,
+              ilm: x.ilm + 10,
+              umrah: { ...(x.umrah ?? { done: 0 }), stage: "maqam" },
+            }));
+            toast(
+              "Tawaf complete. Cover your right shoulder, and go to Maqam Ibrahim. +10 Ilm",
+              "good",
+            );
+            setTimeout(() => engine.current?.guideTo("maqam"), 400);
+          });
+          return;
+        }
+        if (st) {
+          toast(`You are in the middle of your Umrah: ${UMRAH_NEXT[st]}`);
+          return;
+        }
+        if (hj) {
+          toast(`Hajj practice · ${HAJJ[hj].day}: ${HAJJ[hj].text}`);
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "🕋 The Kaaba",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[14px]">The House of Allah. What would you like to do?</p>
+              <button
+                onClick={beginUmrah}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+              >
+                🤍 Make Umrah (guided)
+              </button>
+              <button
+                onClick={beginHajj}
+                className="w-full rounded-xl bg-[#9a7a3a] py-3 font-bold text-white"
+              >
+                🕋 Hajj practice
+              </button>
+              <button
+                onClick={() =>
+                  guidedTawaf("voluntary", () => {
+                    update((x) => ({ ...x, ilm: x.ilm + 10 }));
+                    toast("Tawaf complete. May Allah accept it from you. +10 Ilm", "good");
+                  })
+                }
+                className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+              >
+                🔄 Voluntary tawaf (7 rounds)
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "maqam") {
+        if (saveRef.current.umrah?.stage !== "maqam") {
+          toast("Maqam Ibrahim: the stone Ibrahim stood on while building the Kaaba.");
+          return;
+        }
+        afterPrayerRef.current = () => {
+          update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "zamzam" } }));
+          toast("Now drink Zamzam, at the taps on the west side.", "good");
+          setTimeout(() => engine.current?.guideTo("zamzam"), 400);
+        };
+        sayDhikr("maqamAyah", () => startPrayer(true));
+        return;
+      }
+      if (id === "zamzam") {
+        need({ hunger: 10, iman: 8 });
+        const umrah = saveRef.current.umrah?.stage === "zamzam";
+        if (umrah) {
+          sayDhikr("zamzamDrink", () => {
+            update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "sai" } }));
+            toast(
+              "Alhamdulillah. Now go to Safa, at the north end of the Mas'a, for sa'i.",
+              "good",
+            );
+            setTimeout(() => engine.current?.guideTo("safa:sai"), 400);
+          });
+          return;
+        }
+        toast("Bismillah. You drank Zamzam, in three sips. Alhamdulillah.", "good");
+        return;
+      }
+      // the sites of Hajj
+      if (id.startsWith("jamarat:")) {
+        const pillar = id.slice(8);
+        const which =
+          pillar === "ula"
+            ? "Al-Jamrah Al-Ula"
+            : pillar === "wusta"
+              ? "Al-Jamrah Al-Wusta"
+              : "Al-Jamrah Al-Aqabah";
+        const hj = saveRef.current.hajj?.stage;
+        if (hj === "aqabah" && pillar !== "aqabah") {
+          toast("On the 10th, stone only Jamrat al-Aqabah, the big one at the far (Makkah) end.");
+          return;
+        }
+        if (hj === "tashriq") {
+          const done = saveRef.current.hajj?.stoned ?? [];
+          const order = ["ula", "wusta", "aqabah"];
+          const want = order[done.length];
+          if (pillar !== want) {
+            toast(
+              `In order: first Al-Ula, then Al-Wusta, then Al-Aqabah. Next: ${want === "ula" ? "Al-Ula" : want === "wusta" ? "Al-Wusta" : "Al-Aqabah"}.`,
+            );
+            return;
+          }
+        }
+        sayDhikr("jamrah", () => {
+          need({ iman: 8, energy: -4 });
+          if (hj === "aqabah") {
+            hajjNext(
+              "halq",
+              "Jamrat al-Aqabah stoned. Stop the Talbiyah. Next: shave or shorten your hair by the Haram. +10 Ilm",
+            );
+            return;
+          }
+          if (hj === "tashriq") {
+            const done = [...(saveRef.current.hajj?.stoned ?? []), pillar];
+            if (done.length < 3) {
+              update((x) => ({ ...x, hajj: { ...(x.hajj ?? { done: 0 }), stoned: done } }));
+              toast(
+                `${which} done. Step aside, face the qibla, raise your hands and make a long du'a. Then go to ${done.length === 1 ? "Al-Wusta" : "Al-Aqabah"}.`,
+                "good",
+              );
+              setTimeout(
+                () => engine.current?.guideTo(`jamarat:${done.length === 1 ? "wusta" : "aqabah"}`),
+                1500,
+              );
+            } else
+              hajjNext(
+                "wada",
+                "All three Jamarat stoned for the days of Tashriq. Last: the farewell tawaf in Makkah. +10 Ilm",
+              );
+            return;
+          }
+          const key = clockRef.current.key + id;
+          const first = !hajjDone.current.has(key);
+          hajjDone.current.add(key);
+          if (first) update((x) => ({ ...x, ilm: x.ilm + 3 }));
+          toast(
+            `You threw 7 pebbles at ${which}, saying "Allahu Akbar" with each one.${first ? " +3 Ilm" : ""}`,
+            "good",
+          );
+        });
+        return;
+      }
+      if (id === "arafat:wuquf") {
+        sayDhikr("arafahDua", () => {
+          need({ iman: 25 });
+          if (saveRef.current.hajj?.stage === "arafat") {
+            hajjNext(
+              "muzdalifah",
+              "You stood at Arafat until sunset. Now go to Muzdalifah, calmly, saying the Talbiyah. +10 Ilm",
+            );
+            return;
+          }
+          const key = clockRef.current.key + id;
+          if (!hajjDone.current.has(key)) {
+            hajjDone.current.add(key);
+            update((x) => ({ ...x, ilm: x.ilm + 10 }));
+            toast("May Allah accept your du'a. +10 Ilm", "good");
+          }
+        });
+        return;
+      }
+      if (id === "muzdalifah:pebbles") {
+        need({ iman: 4 });
+        if (saveRef.current.hajj?.stage === "muzdalifah") {
+          setPanel({
+            kind: "info",
+            title: "🌙 Muzdalifah",
+            body: (
+              <div className="space-y-3 text-[14px]">
+                <p>
+                  Pray Maghrib and Isha together here (Isha shortened to two), then sleep. After
+                  Fajr, stand facing the qibla at Al-Mash'ar Al-Haram making dhikr and du'a until it
+                  is bright.
+                </p>
+                <p>
+                  Pick up small pebbles, a little bigger than a chickpea: 7 for tomorrow, and more
+                  for the days after.
+                </p>
+                <button
+                  onClick={() => {
+                    setPanel(null);
+                    hajjNext(
+                      "aqabah",
+                      "10th Dhul Hijjah, Eid al-Adha! Before sunrise, go back to Mina to stone Jamrat al-Aqabah. +10 Ilm",
+                    );
+                  }}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  I spent the night and picked up pebbles
+                </button>
+              </div>
+            ),
+          });
+          return;
+        }
+        toast(
+          "You picked up small pebbles, a little bigger than a chickpea, for the Jamarat in Mina.",
+          "good",
+        );
+        return;
+      }
+      if (id === "safa:sai") {
+        if (saveRef.current.hajj?.stage === "hajjsai") {
+          guidedSai(() =>
+            hajjNext(
+              "tashriq",
+              "The sa'i of Hajj is done. Go back to Mina for the days of Tashriq. +10 Ilm",
+            ),
+          );
+          return;
+        }
+        if (saveRef.current.umrah?.stage !== "sai") {
+          toast("Sa'i is done after the tawaf of Umrah or Hajj. Begin at the Kaaba.");
+          return;
+        }
+        guidedSai(() => {
+          update((x) => ({
+            ...x,
+            ilm: x.ilm + 10,
+            umrah: { ...(x.umrah ?? { done: 0 }), stage: "halq" },
+          }));
+          toast("Sa'i complete at Marwah. Last step: the barber on Ajyad Street. +10 Ilm", "good");
+          setTimeout(() => engine.current?.guideTo("office:haram-barber"), 400);
+        });
+        return;
+      }
+      if (id === "office:haram-barber") {
+        const hajjHalq = saveRef.current.hajj?.stage === "halq";
+        if (saveRef.current.umrah?.stage !== "halq" && !hajjHalq) {
+          toast(
+            "The barber shaves and shortens hair for pilgrims who have finished Umrah or stoned on the 10th.",
+          );
+          return;
+        }
+        const finish = (how: string) => {
+          setPanel(null);
+          if (hajjHalq) {
+            hajjNext(
+              "ifadah",
+              `${how}. You may now leave ihram (all but marital relations, until Tawaf al-Ifadah). Next: Tawaf al-Ifadah. +10 Ilm`,
+            );
+            return;
+          }
+          update((x) => ({
+            ...x,
+            ilm: x.ilm + 100,
+            umrah: { done: (x.umrah?.done ?? 0) + 1 },
+          }));
+          need({ iman: 100 });
+          const p = saveRef.current.profile;
+          if (p) engine.current?.setPlayerLook(p);
+          toast(
+            `${how}. Your Umrah is complete! Taqabbal Allahu minna wa minkum. +100 Ilm 🕋`,
+            "good",
+          );
+        };
+        setPanel({
+          kind: "info",
+          title: "💈 Barber",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[14px]">
+                {saveRef.current.profile?.female
+                  ? "Sisters cut a fingertip's length from the end of their hair."
+                  : "Shaving the whole head is best; shortening it all over is also allowed."}
+              </p>
+              {saveRef.current.profile?.female ? (
+                <button
+                  onClick={() => finish("Your hair is shortened")}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  ✂️ Shorten (taqsir)
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => finish("Your head is shaved")}
+                    className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                  >
+                    🪒 Shave (halq) · best
+                  </button>
+                  <button
+                    onClick={() => finish("Your hair is shortened")}
+                    className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+                  >
+                    ✂️ Shorten (taqsir)
+                  </button>
+                </>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "nabawi:salam") {
+        sayDhikr("salamProphet", () => {
+          update((x) => ({ ...x, ilm: x.ilm + 5 }));
+          need({ iman: 15 });
+          toast("Allahumma salli 'ala Muhammad. +5 Ilm", "good");
+        });
+        return;
+      }
       if (id.startsWith("mansion:")) {
         const L = landmarkById(id.slice(8));
         if (!L) return;
@@ -3702,11 +4996,40 @@ function CityGame({
         openPlot(id.slice(5));
         return;
       }
+      if (id.startsWith("station:")) {
+        const here = e.districtId();
+        setPanel({
+          kind: "info",
+          title: "🚄 Haramain High Speed Railway",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Fast trains between Jeddah Airport, Makkah and Madinah. Choose where to go.
+              </p>
+              {TRAIN_STATIONS.filter((t) => t !== here).map((t) => {
+                const d = districtById(t);
+                const far = cityOf(d) !== cityOf(districtById(here));
+                return (
+                  <button
+                    key={t}
+                    onClick={() => tripRef.current(t, false, undefined, true)}
+                    className="flex w-full items-center justify-between rounded-xl bg-[#9a7a3a] px-3 py-3 text-left font-bold text-white"
+                  >
+                    <span>{fullName(d)}</span>
+                    <span className="text-[13px]">{N(far ? INTERCITY.train : TRAIN_LOCAL)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ),
+        });
+        return;
+      }
       if (id === "keke") {
         const area = e.districtId();
         setPanel({
           kind: "info",
-          title: "Where to? · Keke",
+          title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Keke",
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
@@ -3716,7 +5039,10 @@ function CityGame({
                 area={area}
                 onGo={(prefix) => {
                   if (saveRef.current.coins < 3) {
-                    toast("The keke fare is ₦30. Earn money at a mosque or school.", "warn");
+                    toast(
+                      `The ${districtById(area).holy ? "taxi" : "keke"} fare is ₦30. Earn money at a mosque or school.`,
+                      "warn",
+                    );
                     return;
                   }
                   setPanel(null);
@@ -3724,9 +5050,12 @@ function CityGame({
                     tuneRef.current();
                     sayDhikr("ride");
                     update((x) => ({ ...x, coins: x.coins - 3 }));
-                    advance(4);
+                    advance("ride");
                     toast("Off we go! Hold on tight.", "good");
-                  } else toast("The keke can't go there from here.");
+                  } else
+                    toast(
+                      `The ${districtById(area).holy ? "taxi" : "keke"} can't go there from here.`,
+                    );
                 }}
               />
             </div>
@@ -3735,7 +5064,12 @@ function CityGame({
         return;
       }
       if (id === "keke-done") {
-        toast('Keke driver: "We don reach! Safe journey."', "good");
+        toast(
+          districtById(e.districtId()).holy
+            ? 'Taxi driver: "Wasalna, alhamdulillah! Ma\'a salamah."'
+            : 'Keke driver: "We don reach! Safe journey."',
+          "good",
+        );
         return;
       }
       if (id.startsWith("player:")) {
@@ -3770,7 +5104,11 @@ function CityGame({
       }
       if (id.startsWith("busstop:")) {
         e.waitForBus(id.slice(8));
-        toast("Waiting for a danfo… it's coming down the road.");
+        toast(
+          districtById(e.districtId()).holy
+            ? "Waiting for the bus… it's coming down the road."
+            : "Waiting for a danfo… it's coming down the road.",
+        );
         return;
       }
       if (id === "board") {
@@ -3781,7 +5119,7 @@ function CityGame({
         if (e.boardBus()) {
           tuneRef.current();
           sayDhikr("ride");
-          advance(4);
+          advance("ride");
           update((x) => ({ ...x, coins: x.coins - BUS_FARE }));
           toast(`Bismillah! You paid ${N(BUS_FARE)}. Tap "Get off" before your stop.`, "good");
         }
@@ -3792,13 +5130,40 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:masjid:")) {
-        advance(2);
+        advance("masjid");
         const lid = id.slice(12);
         const name = landmarkName(lid);
-        e.enterInterior("masjid", name);
-        setInside(true);
+        // the two Holy Mosques: you walk into the real courtyard, not a small prayer hall
+        const holyMosque = lid === "masjid-al-haram" || lid === "masjid-an-nabawi";
+        if (holyMosque && e.enterHolyCourt(lid)) {
+          if (lid === "masjid-al-haram") {
+            const st = saveRef.current.umrah?.stage;
+            if (st === "enter" || st === "ihram") {
+              sayDhikr("enterHaram", () =>
+                sayDhikr("seeKaaba", () => {
+                  update((x) => ({ ...x, umrah: { ...(x.umrah ?? { done: 0 }), stage: "tawaf" } }));
+                  toast(
+                    `Now tawaf. ${saveRef.current.profile?.female ? "" : "Brothers: uncover your right shoulder (idtiba'). "}Go to the Black Stone line by the green light and tap the Kaaba.`,
+                    "good",
+                  );
+                  setTimeout(() => engine.current?.guideTo("kaaba:tawaf"), 400);
+                }),
+              );
+              return;
+            }
+            if (!st && !saveRef.current.hajj?.stage && !askedIntention.current) {
+              askedIntention.current = true;
+              sayDhikr("enterHaram", () => openIntentionRef.current());
+              return;
+            }
+            sayDhikr("enterHaram");
+          } else sayDhikr("enterMasjid");
+        } else {
+          e.enterInterior("masjid", name);
+          setInside(true);
+          sayDhikr("enterMasjid");
+        }
         tuneRef.current();
-        sayDhikr("enterMasjid");
         const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
         if (ms.open && ms.prayer) {
@@ -3813,6 +5178,24 @@ function CityGame({
             );
           }
         }
+        if (jumuahTime(c) && !s.prayed.dhuhr) {
+          setPanel({
+            kind: "info",
+            title: `Jumu'ah at ${name}`,
+            body: (
+              <JumuahView
+                clock={c}
+                onHeard={() => {
+                  update((x) => ({ ...x, ilm: x.ilm + 10 }));
+                  need({ iman: 15 });
+                  toast("You listened to the khutbah. +10 Ilm", "good");
+                }}
+                onPray={() => startPrayer(false)}
+              />
+            ),
+          });
+          return;
+        }
         if (lec) openLecture(lec, true);
         else {
           const cp = currentPrayer(c);
@@ -3821,26 +5204,46 @@ function CityGame({
             kind: "info",
             title: `Welcome to ${name}`,
             body: (
-              <LearnChoice
-                mosque={lid}
-                clock={c}
-                onLecture={(l) => openLecture(l, false)}
-                onQuiz={() => {
-                  setPanel(null);
-                  setTimeout(() => onActionRef.current("quiz"), 50);
-                }}
-                pray={
-                  due
-                    ? {
-                        label: ms.open ? `Pray ${cp!.name} in jama'ah` : `Pray ${cp!.name}`,
-                        run: () => startPrayer(false),
-                      }
-                    : {
-                        label: "Pray two rak'ahs (greeting the masjid)",
-                        run: () => startPrayer(true),
-                      }
-                }
-              />
+              <>
+                <LearnChoice
+                  mosque={lid}
+                  clock={c}
+                  onLecture={(l) => openLecture(l, false)}
+                  onQuiz={() => {
+                    setPanel(null);
+                    setTimeout(() => onActionRef.current("quiz"), 50);
+                  }}
+                  pray={
+                    due
+                      ? {
+                          label: ms.open ? `Pray ${cp!.name} in jama'ah` : `Pray ${cp!.name}`,
+                          run: () => startPrayer(false),
+                        }
+                      : {
+                          label: "Pray two rak'ahs (greeting the masjid)",
+                          run: () => startPrayer(true),
+                        }
+                  }
+                />
+                <div className="mt-3 rounded-xl border border-[#1d6b3a]/25 bg-[#eef6ef] p-3">
+                  <div className="text-[13px] font-bold">💚 Sadaqah box</div>
+                  <div className="mb-2 text-[12px] opacity-75">
+                    For the upkeep of the masjid and the needy. Give ₦5,000 in all to become a
+                    Generous giver.
+                  </div>
+                  <div className="flex gap-2">
+                    {[50, 100, 500].map((u) => (
+                      <button
+                        key={u}
+                        onClick={() => giveSadaqahRef.current(u, name)}
+                        className="flex-1 rounded-lg bg-[#1d6b3a] py-2 text-[13px] font-bold text-white"
+                      >
+                        {N(u)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             ),
           });
         }
@@ -3962,6 +5365,19 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("door:boutique:")) {
+        e.enterInterior("boutique", "IlmWorld Fashion");
+        setInside(true);
+        tuneRef.current();
+        toast(
+          "Assalamu alaikum! Look round the racks. Tap a rack or the mirror to try clothes on.",
+        );
+        return;
+      }
+      if (id.startsWith("rack:") || id === "mirror") {
+        openWardrobeRef.current(true);
+        return;
+      }
       if (id.startsWith("door:mall:")) {
         e.enterInterior("mall", "IlmWorld Mall");
         setInside(true);
@@ -4021,6 +5437,94 @@ function CityGame({
         setDriving(false);
         return;
       }
+      if (id.startsWith("airport:")) {
+        const city = id.slice(8);
+        const here = e.districtId();
+        const homeCountry = WORLD_CITIES.find((w) => w.id === city)?.country ?? "Nigeria";
+        const priceTo = (dest: string, business: boolean) => {
+          const abroad =
+            (WORLD_CITIES.find((w) => w.id === dest)?.country ?? "Nigeria") !== homeCountry;
+          return abroad
+            ? business
+              ? INTERCITY.abroadBusiness
+              : INTERCITY.abroad
+            : business
+              ? INTERCITY.business
+              : INTERCITY.fly;
+        };
+        const fly = (dest: string, business: boolean) => {
+          const price = priceTo(dest, business);
+          if (saveRef.current.coins < price) {
+            setPanel({
+              kind: "info",
+              title: "Not enough money",
+              body: <NoPointsView price={price} points={saveRef.current.coins} />,
+            });
+            return;
+          }
+          const port = DISTRICTS.find(
+            (d) => cityOf(d) === dest && d.landmarks.some((l) => l.kind === "airport"),
+          );
+          if (!port) return;
+          setPanel(null);
+          update((x) => ({ ...x, coins: x.coins - price }));
+          toast(
+            `${business ? "Business class" : "Economy"} ticket: −${N(price)}. Say the du'a for travelling. Bismillah!`,
+            "good",
+          );
+          sayDhikr("ride");
+          arriveRef.current = () => {
+            engine.current?.arriveAt("airport:" + dest);
+            setTravelling(null);
+            setDriving(false);
+            setInside(false);
+            update((x) => ({ ...x, district: port.id, pos: undefined }));
+            setArriving(
+              `${WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name} · ${port.name}`,
+            );
+            setTimeout(() => setArriving(null), 4500);
+          };
+          setTravelling({ from: here, to: port.id, byCar: false, plane: true });
+        };
+        setPanel({
+          kind: "info",
+          title: "✈️ Flights",
+          body: (
+            <div className="space-y-3">
+              <p className="text-[13px] opacity-75">
+                Fly to another city. You have {N(saveRef.current.coins)}.
+              </p>
+              {WORLD_CITIES.filter((c) => c.live && c.id !== city).map((c) => (
+                <div key={c.id} className="rounded-xl bg-white p-3 shadow-sm">
+                  <div className="font-bold">
+                    {c.name}, {c.country === "Nigeria" ? `${c.state} State` : c.country}
+                  </div>
+                  <div className="text-[12.5px] opacity-70">{c.blurb}</div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => fly(c.id, false)}
+                      className="flex-1 rounded-lg bg-[#2f4a7a] px-3 py-2 text-[13px] font-bold text-white"
+                    >
+                      Economy · {N(priceTo(c.id, false))}
+                    </button>
+                    <button
+                      onClick={() => fly(c.id, true)}
+                      className="flex-1 rounded-lg bg-[#e6b84a] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
+                    >
+                      Business · {N(priceTo(c.id, true))}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <p className="text-[12px] opacity-70">
+                Cheaper: the inter-city bus from any bus stop ({N(INTERCITY.bus)}), or drive your
+                own car.
+              </p>
+            </div>
+          ),
+        });
+        return;
+      }
       if (id === "bus") {
         const here = e.districtId();
         const carHere = e.carHere();
@@ -4033,7 +5537,7 @@ function CityGame({
           title: inCar ? "Where are you driving?" : "Where are you going?",
           body: (
             <div className="grid gap-2">
-              {travelOptions(here).map(({ d, title, sub, local }) => (
+              {travelOptions(here).map(({ d, title, sub, local, far }) => (
                 <div
                   key={d.id}
                   className={`rounded-xl border p-3 ${local ? "border-[#1f6f63]/40 bg-[#1f6f63]/5" : "border-[#10201e]/15"}`}
@@ -4046,9 +5550,32 @@ function CityGame({
                         onClick={() => go(d.id, false)}
                         className="flex-1 rounded-lg bg-[#f2c230] px-3 py-2 text-[13px] font-bold text-[#2a1c05]"
                       >
-                        Bus · {N(BUS_FARE)}
+                        {far
+                          ? countryOf(d) === "Saudi Arabia"
+                            ? "Haramain train"
+                            : "Inter-city bus"
+                          : "Bus"}{" "}
+                        ·{" "}
+                        {N(
+                          far
+                            ? countryOf(d) === "Saudi Arabia"
+                              ? INTERCITY.train
+                              : INTERCITY.bus
+                            : BUS_FARE,
+                        )}
                       </button>
                     )}
+                    {!inCar &&
+                      !far &&
+                      TRAIN_STATIONS.includes(here) &&
+                      TRAIN_STATIONS.includes(d.id) && (
+                        <button
+                          onClick={() => tripRef.current(d.id, false, undefined, true)}
+                          className="flex-1 rounded-lg bg-[#9a7a3a] px-3 py-2 text-[13px] font-bold text-white"
+                        >
+                          🚄 Train · {N(TRAIN_LOCAL)}
+                        </button>
+                      )}
                     {carHere && (
                       <button
                         onClick={() => go(d.id, true)}
@@ -4273,7 +5800,10 @@ function CityGame({
   );
 
   /* ---------- engine lifecycle ---------- */
+  const areaBuiltRef = useRef(() => {});
   const [peopleReady, setPeopleReady] = useState(false);
+  /** the first picture of the city is on screen: until then only the loading screen shows */
+  const [shown, setShown] = useState(false);
   useEffect(() => {
     let live = true;
     loadHumans().then(() => live && setPeopleReady(true));
@@ -4295,13 +5825,21 @@ function CityGame({
           onCinematic: (on) => {
             if (!on) setArriving(null);
           },
+          // an area of another city was just built: put its plots, shops and adverts right
+          onAreaBuilt: () => areaBuiltRef.current(),
         },
-        {
-          district: saveRef.current.district,
-          car: saveRef.current.car,
-          x: saveRef.current.pos?.x,
-          z: saveRef.current.pos?.z,
-        },
+        // with a profile every visit starts in your house, so build your home area first
+        saveRef.current.profile
+          ? {
+              district: saveRef.current.homeArea ?? saveRef.current.district,
+              car: saveRef.current.car,
+            }
+          : {
+              district: saveRef.current.district,
+              car: saveRef.current.car,
+              x: saveRef.current.pos?.x,
+              z: saveRef.current.pos?.z,
+            },
       );
     } catch (err) {
       console.error("IlmCity could not start", err);
@@ -4309,10 +5847,15 @@ function CityGame({
       return;
     }
     engine.current = e;
-    if (import.meta.env.DEV) (window as unknown as { __ilmcity?: IlmCityEngine }).__ilmcity = e;
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => setShown(true), 250)));
+    if (import.meta.env.DEV) Object.assign(window, { __ilmcity: e, __districts: DISTRICTS });
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
-    if (saveRef.current.profile) e.setPlayerLook(saveRef.current.profile);
+    if (saveRef.current.profile)
+      e.setPlayerLook({
+        ...saveRef.current.profile,
+        ihram: !!saveRef.current.umrah?.stage || hajjIhram(saveRef.current.hajj?.stage),
+      });
     e.setHomeItems(saveRef.current.items ?? []);
     {
       const pt = homePaint(onlineRef.current?.uid, saveRef.current.paint);
@@ -4323,10 +5866,7 @@ function CityGame({
       const q = readQuality();
       if (q === "auto") e.setQuality(weakPhone() ? "low" : "high", true);
       else e.setQuality(q);
-      e.onSlowPhone = () =>
-        toast(
-          "Switched to Smooth graphics so the game runs better. Change it in 👤 Profile → Graphics.",
-        );
+      e.onSlowPhone = () => {};
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
     if (saveRef.current.impound) e.setImpounded(true);
@@ -4365,7 +5905,7 @@ function CityGame({
     {
       const st: Record<
         string,
-        { kind: "rented" | "owned" | "building" | "built"; floors?: number }
+        { kind: "rented" | "owned" | "building" | "built"; floors?: number; stage?: number }
       > = {};
       for (const [pid, o] of Object.entries(saveRef.current.plots ?? {})) {
         const k = plotStateFn(o);
@@ -4373,15 +5913,30 @@ function CityGame({
       }
       e.initPlots(st);
       for (const sid of e.shopIds()) paintShop(e, sid);
+      areaBuiltRef.current = () => {
+        const now: typeof st = {};
+        for (const [pid, o] of Object.entries(saveRef.current.plots ?? {})) {
+          const k = plotStateFn(o);
+          if (k) now[pid] = k;
+        }
+        e.initPlots(now);
+        for (const [pid, by] of takenRef.current)
+          if (!saveRef.current.plots?.[pid]) e.setPlot(pid, { kind: "taken", by });
+        for (const sid of e.shopIds()) paintShop(e, sid);
+        e.setAds(adsRef.current);
+      };
     }
     const iv = setInterval(() => {
-      const c = clockFor(city, Date.now() + offset);
+      // prayer times follow the city you are in
+      const here = cityOf(districtById(e.districtId()));
+      const c = clockFor(CITIES[here] ?? city, Date.now() + offset);
       const prev = clockRef.current;
       for (const p of c.prayers)
         if (prev.min < p.start && c.min >= p.start && prev.key === c.key)
           toast(`Adhan for ${p.name}. The masjid is open.`, "good");
       setClock(c);
       e.setClock(c);
+      e.setJumuah(jumuahTime(c));
       const pp = e.playerPos();
       if (pp.where === "out" && !e.isDriving())
         update((s) => ({
@@ -4430,6 +5985,7 @@ function CityGame({
         o.setPresence({
           name: prof.name,
           look: prof,
+          badge: badgeOf(saveRef.current),
           x: pr.x,
           z: pr.z,
           h: pr.h,
@@ -4528,7 +6084,17 @@ function CityGame({
         }
       }
       for (const [pid, o] of Object.entries(saveRef.current.plots ?? {}))
-        if (o.kind === "building" && o.done <= Date.now()) {
+        if (o.kind === "building" && o.done <= Date.now() && (o.stage ?? 4) < 4) {
+          // a stage is finished: tell the owner once, and wait for them to pay for the next
+          const k = `${pid}:${o.stage}`;
+          if (!stageTold.current.has(k)) {
+            stageTold.current.add(k);
+            toast(
+              `🏗️ The ${BUILD_STAGES[(o.stage ?? 1) - 1].name.toLowerCase()} of your house is done. Visit your land to start the ${BUILD_STAGES[o.stage ?? 1].name.toLowerCase()}.`,
+              "good",
+            );
+          }
+        } else if (o.kind === "building" && o.done <= Date.now()) {
           const next: PlotOwn = { kind: "built", floors: o.floors };
           update((x) => ({ ...x, plots: { ...x.plots, [pid]: next } }));
           e.setPlot(pid, { kind: "built", floors: o.floors });
@@ -4563,6 +6129,7 @@ function CityGame({
   const runGoal = (g: Goal) => {
     if (g.act === "jobs") return openJobs();
     if (g.act === "travel") return travelNow();
+    if (g.act === "rest") return openHotel();
     if (g.act === "adhkarM" || g.act === "adhkarE") {
       const k = g.act === "adhkarM" ? "morning" : "evening";
       setPanel({
@@ -4581,6 +6148,7 @@ function CityGame({
       });
       return;
     }
+    if (g.to && engine.current?.districtId() !== g.to) return goRite(g.to, g.prefix ?? "");
     if (g.prefix && !engine.current?.goToZone(g.prefix))
       toast(
         inside
@@ -4588,6 +6156,66 @@ function CityGame({
           : "That place isn't in this area. Use 📱 Phone → Travel.",
       );
   };
+  /** Away from your home city: a night in a hotel, or the way home. */
+  const openHotel = () => {
+    const here = engine.current?.districtId() ?? save.district ?? "lekki";
+    const D = districtById(here);
+    const home = save.homeArea ?? "lekki";
+    const price = hotelPrice(here);
+    const atHome = cityOf(D) === cityOf(districtById(home));
+    setPanel({
+      kind: "info",
+      title: "🏨 Rest for the night",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          {atHome ? (
+            <p>You are in your home city: go home to sleep, it's free.</p>
+          ) : (
+            <p>
+              You are in {D.name}, {D.state}, far from home. Book a hotel room here to sleep, or
+              travel back home.
+            </p>
+          )}
+          <div className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
+            <div className="font-bold">
+              {D.holy ? "Pilgrims' hotel" : "Guest house"} · {D.name}
+            </div>
+            <div className="text-[13px] opacity-75">
+              A clean room for one night: sleep, wake fully rested.
+            </div>
+            <button
+              disabled={saveRef.current.coins < price}
+              onClick={() => {
+                if (saveRef.current.coins < price) return;
+                update((x) => ({ ...x, coins: x.coins - price }));
+                saveRef.current = { ...saveRef.current, coins: saveRef.current.coins - price };
+                toast(`Room booked: ${N(price)}.`, "good");
+                onActionRef.current("sleep");
+              }}
+              className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
+            >
+              Book a room · {N(price)}
+            </button>
+            {saveRef.current.coins < price && (
+              <p className="mt-1 text-[12px] text-[#b8573a]">Not enough money for a room.</p>
+            )}
+          </div>
+          {!atHome && (
+            <button
+              onClick={() => {
+                setPanel(null);
+                travelNow();
+              }}
+              className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-2.5 font-bold"
+            >
+              🚌 Travel home to {districtById(home).name}
+            </button>
+          )}
+        </div>
+      ),
+    });
+  };
+  openHotelRef.current = openHotel;
   const travelNow = () =>
     (() => {
       const e = engine.current;
@@ -4681,13 +6309,17 @@ function CityGame({
   return (
     <div className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]">
       <div ref={host} className="absolute inset-0" />
-      {!peopleReady && (
-        <div className="absolute inset-0 grid place-items-center text-center text-[#fdf8ec]">
+      {!shown && (
+        <div className="absolute inset-0 z-[100] grid place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
           <div>
             <div className="font-serif text-4xl">
               Ilm<span className="text-[#45b8a8]">World</span>
             </div>
             <p className="mt-2 text-sm opacity-70">{cityGreeting()}</p>
+            <div className="mx-auto mt-5 h-1.5 w-40 overflow-hidden rounded-full bg-white/20">
+              <div className="h-full w-1/3 animate-[ilmload_1.2s_ease-in-out_infinite] rounded-full bg-[#45b8a8]" />
+            </div>
+            <style>{`@keyframes ilmload{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}`}</style>
           </div>
         </div>
       )}
@@ -4774,7 +6406,9 @@ function CityGame({
             )}
           </button>
           <button
-            onClick={() =>
+            ref={profileBtn}
+            onClick={() => {
+              advance("profile");
               setPanel({
                 kind: "info",
                 title: "👤 Profile",
@@ -4784,6 +6418,7 @@ function CityGame({
                     number={callNet.current ? numberFor(callNet.current.uid) : undefined}
                     coins={saveRef.current.coins}
                     ilm={saveRef.current.ilm}
+                    badge={badgeOf(saveRef.current)}
                     home={
                       saveRef.current.homePlot
                         ? `Family house · ${districtById(saveRef.current.homeArea ?? "lekki").name}`
@@ -4799,6 +6434,20 @@ function CityGame({
                           }
                     }
                     items={[
+                      ...(isAdminRef.current
+                        ? [
+                            {
+                              icon: "🛠️",
+                              label: "Test ₦50,000",
+                              run: () => {
+                                update((x) => ({ ...x, coins: x.coins + 5000 }));
+                                setPanel(null);
+                                toast("Admin test money: +₦50,000", "good");
+                              },
+                            },
+                          ]
+                        : []),
+                      { icon: "🏠", label: "Houses to let", run: () => openToLetRef.current() },
                       { icon: "👕", label: "Clothes", run: () => openWardrobeRef.current() },
                       ...(saveRef.current.homePlot
                         ? []
@@ -4878,8 +6527,8 @@ function CityGame({
                     ]}
                   />
                 ),
-              })
-            }
+              });
+            }}
             className="pointer-events-auto relative rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
           >
             👤 Profile
@@ -5170,6 +6819,14 @@ function CityGame({
           </button>
         </div>
       )}
+      <div
+        data-game-ui
+        className={`pointer-events-none absolute inset-x-0 bottom-[22%] z-20 flex justify-center transition-opacity duration-700 ${placeShown ? "opacity-100" : "opacity-0"}`}
+      >
+        <span className="rounded-full bg-[#10201e]/75 px-4 py-1.5 text-[14px] font-semibold tracking-wide text-[#fdf8ec] shadow-lg">
+          {place}
+        </span>
+      </div>
       {dhikr && PLACE_DHIKR[dhikr.id] && (
         <DhikrCard
           d={PLACE_DHIKR[dhikr.id]}
@@ -5189,11 +6846,11 @@ function CityGame({
       )}
       <div
         data-game-ui
-        className="pointer-events-none absolute left-3 top-[118px] flex flex-col items-start gap-1.5"
+        className="pointer-events-none absolute left-3 flex flex-col items-start gap-1.5"
+        style={{
+          top: `calc(max(12px, env(safe-area-inset-top)) + ${bigClock ? 124 : 52}px)`,
+        }}
       >
-        <span className="rounded-full bg-[#10201e]/80 px-3 py-1 text-[12px] font-semibold text-[#fdf8ec]">
-          {place}
-        </span>
         {speed !== null && (
           <span className="rounded-full bg-[#f2c230] px-3 py-1 text-[12px] font-bold tabular-nums text-[#2a1c05]">
             {speed} km/h
@@ -5213,7 +6870,35 @@ function CityGame({
                   : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
             </span>
           )}
-        {goal && (
+        {rite && (
+          <div className="pointer-events-auto max-w-[min(92vw,520px)] rounded-xl border-2 border-[#2bd47a] bg-[#0e2a1c]/92 px-3 py-2 text-[#fdf8ec] shadow-lg">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-[#7ee8a8]">
+              {rite.title}
+            </div>
+            <div className="text-[13.5px] font-semibold leading-snug">{rite.text}</div>
+          </div>
+        )}
+        {shift && (
+          <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
+            <div className="leading-tight">
+              <div className="text-[10.5px] font-bold uppercase tracking-wide text-[#e6b84a]">
+                💼 {shift.name} · {shift.done}/{shift.total}
+              </div>
+              <div className="text-[12.5px] font-semibold">{shift.text}</div>
+            </div>
+            <button
+              onClick={() => {
+                engine.current?.stopJob();
+                setShift(null);
+                toast("Shift stopped. You can start again any time today.");
+              }}
+              className="shrink-0 rounded-lg border border-[#e6b84a]/60 px-2 py-1 text-[11.5px] font-bold"
+            >
+              Stop
+            </button>
+          </div>
+        )}
+        {goal && !shift && !rite && (
           <div className="pointer-events-auto flex max-w-[78vw] items-center gap-2 rounded-xl border-2 border-[#e6b84a] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[#fdf8ec] shadow-lg">
             <span className="text-[12.5px] font-semibold leading-tight">🎯 {goal.text}</span>
             {(goal.prefix || goal.act) && (
@@ -5360,7 +7045,13 @@ function CityGame({
               if (!e?.goToZone(prefix)) toast("Go outside first.");
               else e.guideTo(prefix);
             }}
-            onNext={() => advance(GUIDE.length)}
+            onOpen={(what) => {
+              if (what === "jobs") openJobsRef.current();
+              else if (what === "clothes") openWardrobeRef.current();
+              else if (what === "wallet") openWalletRef.current();
+              else profileBtn.current?.click();
+            }}
+            onNext={() => advance(save.guide ?? 1)}
             onSkip={() => update((x) => ({ ...x, guide: GUIDE.length + 1 }))}
           />
         )}
@@ -5400,7 +7091,10 @@ function CityGame({
               🚌
             </div>
             <div className="min-w-0 leading-tight">
-              <div className="text-[15px] font-bold">On the danfo · {ride.kmh} km/h</div>
+              <div className="text-[15px] font-bold">
+                {districtById(save.district ?? "lekki").holy ? "On the bus" : "On the danfo"} ·{" "}
+                {ride.kmh} km/h
+              </div>
               <div className="truncate text-[12.5px] opacity-80">Next stop: {ride.next}</div>
             </div>
           </div>
@@ -5454,7 +7148,9 @@ function CityGame({
         >
           <div className="rounded-2xl border-2 border-[#e6b84a] bg-[#1f6f63]/95 px-6 py-4 text-center text-[#fdf8ec] shadow-2xl">
             <div className="text-[12px] font-semibold uppercase tracking-[0.15em] text-[#e6b84a]">
-              Lagos State
+              {countryOf(districtById(save.district ?? "lekki")) === "Nigeria"
+                ? `${districtById(save.district ?? "lekki").state} State`
+                : countryOf(districtById(save.district ?? "lekki"))}
             </div>
             <div className="font-serif text-3xl leading-tight">Welcome to {arriving}</div>
           </div>
@@ -5470,7 +7166,7 @@ function CityGame({
             talkingRef.current = null;
           }}
           onQuizPick={(i) => {
-            advance(3);
+            advance("learn");
             doTask("learn");
             if (panel.kind !== "quiz" || panel.picked !== undefined) return;
             const ok = i === panel.q.a;
@@ -6290,7 +7986,7 @@ type Room = { tenant: string; until: number } | null;
 type PlotOwn =
   | { kind: "rented"; until: number }
   | { kind: "owned" }
-  | { kind: "building"; floors: number; done: number }
+  | { kind: "building"; floors: number; done: number; stage?: number }
   | { kind: "built"; floors: number; tenant?: string; since?: number; rooms?: Room[] }
   | { kind: "bought"; floors: number; rooms?: Room[] };
 const roomsIn = (floors: number) => floors * 2 + 1;
@@ -6309,7 +8005,9 @@ function PlotView({
   onEnter,
   onCollect,
   onRooms,
+  rent,
 }: {
+  rent: ReturnType<typeof houseRent>;
   plot: {
     id: string;
     kind: "house" | "land" | "shops";
@@ -6333,9 +8031,19 @@ function PlotView({
   const primary = `${btn} bg-[#1f6f63] text-[#fdf8ec] disabled:opacity-50`;
   const secondary = `${btn} border border-[#1f6f63]/30 bg-white text-[#10201e]`;
   const now = Date.now();
-  const R = ECONOMY.rent;
+  const R = {
+    week: { days: 7, points: rent.week },
+    month: { days: 30, points: rent.month },
+  };
   const rentButtons = (extend: boolean) => (
     <>
+      {rent.premium && !extend && (
+        <p className="rounded-xl bg-[#fdf3dc] p-3 text-[13px]">
+          Houses in {districtById(plot.district).name} are for players who have reached{" "}
+          <b>{rent.need.brother}</b> ({rent.need.min} Ilm). You can still rent this one by paying
+          half as much again: {N(rent.week)} a week instead of {N(rent.base)}.
+        </p>
+      )}
       {(["week", "month"] as const).map((k) => (
         <button
           key={k}
@@ -6355,11 +8063,8 @@ function PlotView({
           {extend ? "Extend" : "Rent"} {k === "week" ? "7 days" : "1 month"} · {N(R[k].points)}
         </button>
       ))}
-      <button className={secondary} onClick={() => onPaystack(R.week.naira, "7 days rent")}>
-        Pay {naira(R.week.naira)} (7 days) with Paystack
-      </button>
-      <button className={secondary} onClick={() => onPaystack(R.month.naira, "1 month rent")}>
-        Pay {naira(R.month.naira)} (1 month) with Paystack
+      <button className={secondary} onClick={() => onPaystack(R.week.points * 10, "7 days rent")}>
+        Pay {naira(R.week.points * 10)} (7 days) with Paystack
       </button>
     </>
   );
@@ -6383,7 +8088,7 @@ function PlotView({
           />
         </div>
       );
-    const price = HOUSE_PRICE[plot.floors] ?? HOUSE_PRICE[1];
+    const price = rent.buy;
     const buyButton = (
       <button
         disabled={points < price}
@@ -6459,25 +8164,35 @@ function PlotView({
   if (own.kind === "owned")
     return (
       <div className="space-y-2">
-        <p>Your land at {where}. What will you build?</p>
+        <p>
+          Your land at {where}. What will you build? You build in four stages, paying for each as
+          you go: foundation, walls, roof, then finishing.
+        </p>
         {[1, 2, 3].map((f) => {
           const b = ECONOMY.build[f];
+          const c1 = stageCost(f, 1);
           return (
             <button
               key={f}
-              disabled={points < b.points}
+              disabled={points < c1}
               className={primary}
               onClick={() =>
                 onPay(
-                  b.points,
-                  { kind: "building", floors: f, done: Date.now() + b.minutes * 60000 },
-                  `The builders have started your ${b.name.toLowerCase()}. Ready in ${b.minutes} minutes.`,
+                  c1,
+                  {
+                    kind: "building",
+                    floors: f,
+                    stage: 1,
+                    done: Date.now() + stageMinutes(f) * 60000,
+                  },
+                  `Bismillah! The builders are laying the foundation of your ${b.name.toLowerCase()}.`,
                 )
               }
             >
-              {b.name} · {N(b.points)} · {b.minutes} min
+              {b.name} · {N(b.points)} in all
               <span className="block text-[12px] font-medium opacity-80">
-                Tenants pay {N(b.tenantPerDay)} a day
+                Start with the foundation: {N(c1)} · {stageMinutes(f)} min. Tenants will pay{" "}
+                {N(b.tenantPerDay)} a day
               </span>
             </button>
           );
@@ -6485,13 +8200,65 @@ function PlotView({
       </div>
     );
   if (own.kind === "building") {
+    const stage = own.stage ?? 4;
     const m = Math.max(0, Math.ceil((own.done - now) / 60000));
+    const name = ECONOMY.build[own.floors].name.toLowerCase();
+    const steps = (
+      <ol className="space-y-1 rounded-xl bg-white p-3 text-[13px]">
+        {BUILD_STAGES.map((st, i) => {
+          const n = i + 1;
+          const done = n < stage || (n === stage && own.done <= now);
+          return (
+            <li
+              key={st.name}
+              className={done ? "text-[#1f6f63]" : n === stage ? "font-bold" : "opacity-60"}
+            >
+              {done ? "✅" : n === stage ? "🏗️" : "⬜"} {n}. {st.name}
+              <span className="block pl-6 text-[11.5px] font-normal opacity-75">{st.text}</span>
+            </li>
+          );
+        })}
+      </ol>
+    );
+    if (own.done > now)
+      return (
+        <div className="space-y-2">
+          <p>
+            Your {name}: the builders are on stage {stage},{" "}
+            {BUILD_STAGES[stage - 1].name.toLowerCase()}. Ready in about {m} minute
+            {m === 1 ? "" : "s"}, in shaa Allah.
+          </p>
+          {steps}
+        </div>
+      );
+    const next = stage + 1;
+    const cost = stageCost(own.floors, next);
     return (
-      <p>
-        The builders are working on your {ECONOMY.build[own.floors].name.toLowerCase()}. Ready in
-        about {m} minute
-        {m === 1 ? "" : "s"}, in shaa Allah.
-      </p>
+      <div className="space-y-2">
+        <p>
+          Stage {stage} ({BUILD_STAGES[stage - 1].name.toLowerCase()}) of your {name} is done.
+          Alhamdulillah!
+        </p>
+        {steps}
+        <button
+          disabled={points < cost}
+          className={primary}
+          onClick={() =>
+            onPay(
+              cost,
+              {
+                kind: "building",
+                floors: own.floors,
+                stage: next,
+                done: Date.now() + stageMinutes(own.floors) * 60000,
+              },
+              `The builders have started the ${BUILD_STAGES[next - 1].name.toLowerCase()}.`,
+            )
+          }
+        >
+          Next: {BUILD_STAGES[next - 1].name} · {N(cost)} · {stageMinutes(own.floors)} min
+        </button>
+      </div>
     );
   }
   if (own.kind !== "built") return null;
@@ -7264,6 +9031,37 @@ const SHOP_HIJABS = [
   0xc58b5c,
 ];
 const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+/** Shown to anyone who is not logged in: IlmWorld needs an account. */
+function SignInGate() {
+  return (
+    <div className="grid h-full place-items-center bg-[#10201e] p-6 text-center text-[#fdf8ec]">
+      <div className="w-full max-w-sm">
+        <div className="font-serif text-5xl">
+          Ilm<span className="text-[#45b8a8]">World</span>
+        </div>
+        <p className="mt-3 text-[15px] opacity-85">
+          Live, pray, learn and travel in a 3D Muslim world that runs on real salah times.
+        </p>
+        <p className="mt-5 rounded-xl bg-white/5 p-3 text-[13.5px] opacity-80">
+          Log in with your IlmStation account to play. Your money, house and progress are kept safe
+          in your account, on any phone or computer.
+        </p>
+        <button
+          onClick={() => goToLogin("/login")}
+          className="mt-5 w-full rounded-xl bg-[#e6b84a] py-3 text-[15px] font-bold text-[#2a1c05]"
+        >
+          Log in
+        </button>
+        <button
+          onClick={() => goToLogin("/signup")}
+          className="mt-2 w-full rounded-xl border border-[#fdf8ec]/30 py-3 text-[15px] font-bold"
+        >
+          Create a free account
+        </button>
+      </div>
+    </div>
+  );
+}
 const goToLogin = (to: "/login" | "/signup") => {
   try {
     sessionStorage.setItem("ilmcity-return", "1");
@@ -7443,27 +9241,36 @@ function Onboarding({
           <h2 className="font-serif text-2xl">Where do you want to start?</h2>
           <p className="text-[13px] opacity-75">You can travel anywhere later by danfo or car.</p>
           <div className="mt-3 space-y-2 overflow-y-auto">
-            {DISTRICTS.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => {
-                  setArea(d.id);
-                  setStep("life");
-                }}
-                className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
-              >
-                <div className="text-[15px] font-bold">{fullName(d)}</div>
-                <div className="text-[12px] opacity-75">
-                  {[
-                    STREETS[d.streets[0].id]?.name,
-                    ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
-                  ]
-                    .filter(Boolean)
-                    .slice(0, 3)
-                    .join(" · ")}
+            {DISTRICTS.filter((d) => !d.holy && !d.landmarks.some((l) => l.kind === "airport")).map(
+              (d, i, all) => (
+                <div key={d.id}>
+                  {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
+                    <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
+                      {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}, {d.state}{" "}
+                      State
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setArea(d.id);
+                      setStep("life");
+                    }}
+                    className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
+                  >
+                    <div className="text-[15px] font-bold">{fullName(d)}</div>
+                    <div className="text-[12px] opacity-75">
+                      {[
+                        STREETS[d.streets[0].id]?.name,
+                        ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
+                      ]
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .join(" · ")}
+                    </div>
+                  </button>
                 </div>
-              </button>
-            ))}
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -7480,8 +9287,8 @@ function Onboarding({
             Ilm<span className="text-[#45b8a8]">World</span>
           </div>
           <p className="mt-3 text-[16px] leading-snug opacity-90">
-            A Muslim city in Lagos that runs on real prayer times. Pray, learn, travel by danfo,
-            rent a home and run your own business.
+            A Muslim world in Lagos and Ilorin that runs on real prayer times. Pray, learn, travel
+            by danfo, rent a home and run your own business.
           </p>
           <ul className="mt-4 space-y-1.5 text-[14px] opacity-90">
             <li>🕌 Mosques with lectures, jama'ah and quizzes</li>
@@ -7612,53 +9419,91 @@ function Onboarding({
 }
 
 /* ---------------- guided first minutes ---------------- */
-const GUIDE: { title: string; text: string; go?: { prefix: string; label: string } }[] = [
+type GuideStep = {
+  id: string;
+  title: string;
+  text: string;
+  /** a button that shows the way to a place */
+  go?: { prefix: string; label: string };
+  /** a button that opens a screen */
+  open?: { what: "jobs" | "profile" | "wallet" | "clothes"; label: string };
+  /** nothing to do but read: a Next button */
+  next?: boolean;
+};
+/** The first ten minutes: each step is done by doing it (or by Next, for the ones to read). */
+const GUIDE: GuideStep[] = [
   {
+    id: "wudu",
     title: "Make wudu",
     text: "You are home. Walk to the bathroom and make wudu, step by step.",
     go: { prefix: "bath", label: "Show me the bathroom" },
   },
   {
+    id: "masjid",
     title: "Visit the masjid",
-    text: "Go outside and walk to the nearest mosque. Follow the marker on the ground.",
+    text: "Go outside and walk to the nearest mosque. Follow the gold arrow.",
     go: { prefix: "door:masjid:", label: "Show me the way" },
   },
   {
+    id: "learn",
     title: "Pray or learn",
-    text: "Inside, pray, listen to a lecture or take the quiz. It all earns money.",
+    text: "Inside, pray, listen to a lecture or take the quiz. You earn money and Ilm.",
   },
   {
+    id: "profile",
+    title: "Your profile",
+    text: "Tap 👤 Profile at the top: your money, your Ilm and title, your rent and everything you own.",
+    open: { what: "profile", label: "Open my profile" },
+  },
+  {
+    id: "job",
+    title: "Get a job",
+    text: "Choose a job that suits you. Work your shift each day to earn your salary. More Ilm means more pay.",
+    open: { what: "jobs", label: "Choose a job" },
+  },
+  {
+    id: "rent",
+    title: "Pay your rent",
+    text: "Your flat has weekly rent, set by the area. The first week is paid. After that, pay in 👤 Profile → Pay rent, or the landlord stops you at the door.",
+    next: true,
+  },
+  {
+    id: "clothes",
+    title: "Your clothes",
+    text: "👤 Profile → Clothes shows what you own. New thobes, abayas, caps and hijabs (₦500) are sold at IlmWorld Fashion shops.",
+    open: { what: "clothes", label: "Open my clothes" },
+  },
+  {
+    id: "wallet",
+    title: "Your wallet",
+    text: "Open 📱 Phone → Wallet: see your naira and send money to a friend with their IlmWorld number.",
+    open: { what: "wallet", label: "Open my wallet" },
+  },
+  {
+    id: "ride",
     title: "Ride a keke or danfo",
-    text: "Stand by the road and a keke will stop for you, or wait at a bus stop for a danfo.",
+    text: "Stand by the road and a keke will stop for you, or take a danfo from a bus stop to another area.",
     go: { prefix: "busstop:", label: "Show me a bus stop" },
   },
   {
-    title: "Your day",
-    text: "Tap 📋 My Day for today's tasks, and watch your needs under the clock: food, energy, iman, friends and clean. Buy furniture with 🛋️ Home.",
-  },
-  {
-    title: "Your phone",
-    text: "Tap 📱 Phone: order food, find where to go with OutingStation, travel, call friends, visit homes, rent a room and check your wallet.",
-  },
-  {
+    id: "play",
     title: "Play with others",
-    text: "Brothers play football at the pitch (buy your kit first). Sisters skip rope at the Sisters' Corner. Real players can join you.",
+    text: "Football at the pitch, skipping rope at the Sisters' Corner, and table tennis for brothers and sisters. Real players can join you.",
     go: { prefix: "field:", label: "Show me the pitch" },
-  },
-  {
-    title: "Earn and grow",
-    text: "Work a job (👤 Profile → Work), rent a market stall, buy a house and rent out its rooms, and furnish your home for the Saturday best-home award.",
+    next: true,
   },
 ];
 
 function Guide({
   step,
   onGo,
+  onOpen,
   onNext,
   onSkip,
 }: {
   step: number;
   onGo: (prefix: string) => void;
+  onOpen: (what: NonNullable<GuideStep["open"]>["what"]) => void;
   onNext: () => void;
   onSkip: () => void;
 }) {
@@ -7688,12 +9533,20 @@ function Guide({
             {g.go.label}
           </button>
         )}
-        {step === GUIDE.length && (
+        {g.open && (
           <button
-            onClick={onNext}
+            onClick={() => onOpen(g.open!.what)}
             className="mt-2 rounded-lg bg-[#e6b84a] px-3 py-1.5 text-[13px] font-bold text-[#2a1c05]"
           >
-            Got it
+            {g.open.label}
+          </button>
+        )}
+        {g.next && (
+          <button
+            onClick={onNext}
+            className="ml-2 mt-2 rounded-lg border border-[#e6b84a] px-3 py-1.5 text-[13px] font-bold text-[#e6b84a]"
+          >
+            {step === GUIDE.length ? "Got it" : "Next"}
           </button>
         )}
       </div>
@@ -8630,14 +10483,30 @@ const OUTING_TABS = [
 function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
   const out: Outing[] = [];
   if (tab === "travel")
-    return DISTRICTS.filter((D) => D.id !== here).map((D) => ({
-      icon: D.parent ? "🏘️" : "🌆",
-      name: fullName(D),
-      sub: `${D.busStop ?? D.name} Bus Stop`,
-      prefix: "",
-      area: D.id,
-    }));
-  for (const D of DISTRICTS) {
+    return DISTRICTS.filter((D) => D.id !== here && countryOf(D) === countryOf(districtById(here)))
+      .sort(
+        (a, b) =>
+          Number(cityOf(a) !== cityOf(districtById(here))) -
+          Number(cityOf(b) !== cityOf(districtById(here))),
+      )
+      .map((D) => ({
+        icon: D.landmarks.some((l) => l.kind === "airport")
+          ? "✈️"
+          : cityOf(D) !== cityOf(districtById(here))
+            ? "🌍"
+            : D.parent
+              ? "🏘️"
+              : "🌆",
+        name: fullName(D),
+        sub:
+          cityOf(D) !== cityOf(districtById(here))
+            ? `Inter-city bus · ${N(INTERCITY.bus)}, or fly from the airport`
+            : `${D.busStop ?? D.name} Bus Stop`,
+        prefix: "",
+        area: D.id,
+      }));
+  const city = cityOf(districtById(here));
+  for (const D of DISTRICTS.filter((x) => cityOf(x) === city)) {
     const at = (p: Place, live?: boolean) => out.push({ ...p, area: D.id, live });
     if (tab === "now" || tab === "lectures")
       for (const l of D.landmarks.filter((x) => x.kind === "masjid")) {
@@ -9515,6 +11384,11 @@ function JobsView({
               {j.area ? `, ${fullName(districtById(j.area))}` : ""} · {hoursText(j)}
             </div>
             <div className="mt-1 text-[13px]">{j.about}</div>
+            {j.play && (
+              <div className="mt-1 inline-block rounded-full bg-[#e6b84a]/25 px-2 py-0.5 text-[11px] font-bold text-[#7a5a10]">
+                🙌 Hands-on: you do this work yourself in the city
+              </div>
+            )}
             <button
               onClick={() => (mine ? onGo(j) : onTake(j))}
               className="mt-2 rounded-lg bg-[#1f6f63] px-3 py-1.5 text-[13px] font-bold text-[#fdf8ec]"
@@ -9592,7 +11466,13 @@ function WorkView({ job, onDone }: { job: Job; onDone: (correct: number, total: 
 }
 
 /* ---------------- the next thing to do ---------------- */
-type Goal = { text: string; prefix?: string; act?: "adhkarM" | "adhkarE" | "jobs" | "travel" };
+type Goal = {
+  text: string;
+  prefix?: string;
+  act?: "adhkarM" | "adhkarE" | "jobs" | "travel" | "rest";
+  /** the area the place is in (travel there first if you are elsewhere) */
+  to?: string;
+};
 function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null {
   const t = s.tasks ?? {};
   const n = s.needs;
@@ -9613,6 +11493,20 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
       text: `Collect your car at the ${districtById(s.impound.area).name} police station`,
       prefix: "police:",
     };
+  if (s.umrah?.stage && !inside)
+    return {
+      text: `Umrah: ${UMRAH_NEXT[s.umrah.stage]}`,
+      prefix: UMRAH_ZONE[s.umrah.stage] || undefined,
+      to: "haram",
+    };
+  if (s.hajj?.stage && !inside) {
+    const h = HAJJ[s.hajj.stage];
+    return {
+      text: `Hajj · ${h.day}: ${h.text}`,
+      prefix: h.zone || undefined,
+      to: h.area || undefined,
+    };
+  }
   if (s.meal)
     return inside
       ? { text: "Your food is here: wash your hands at the table, then eat", prefix: "eat" }
@@ -9621,8 +11515,12 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
         : { text: "Take your food home: go inside, wash your hands, then eat", prefix: homeDoor };
   if (n && n.hunger < 30)
     return { text: "You're hungry: order food (📱) or eat at a restaurant", prefix: "eatery:" };
+  // away from your home city: sleep in a hotel, or travel home
+  const away = cityOf(districtById(area)) !== cityOf(districtById(home));
   if (n && n.energy < 25)
-    return { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
+    return away
+      ? { text: "You're tired: book a hotel or travel home", act: "rest" }
+      : { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
   const job = JOBS.find((j) => j.id === s.job);
   if (job && s.worked !== c.key && onShift(job, c))
     return { text: `Go to work: ${job.name}`, prefix: job.at };
@@ -9645,8 +11543,18 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
     };
   if ((s.salams ?? 0) < 3) return { text: "Greet 3 people with salam" };
   if (!t.sleep && (c.min >= c.times.isha || c.min < c.times.fajr))
-    return { text: "Sleep early after Isha", prefix: inside ? "sleep" : homeDoor };
-  return { text: "Explore another area of Lagos", act: "travel" };
+    return away
+      ? { text: "Sleep early after Isha: book a hotel or travel home", act: "rest" }
+      : { text: "Sleep early after Isha", prefix: inside ? "sleep" : homeDoor };
+  return {
+    text: `Explore another area of ${WORLD_CITIES.find((w) => w.id === cityOf(districtById(area)))?.name ?? "the city"}`,
+    act: "travel",
+  };
+}
+
+/** A night in a hotel, in ₦10 units: dearer in Makkah and Madinah. */
+function hotelPrice(area: string) {
+  return districtById(area).holy ? 1200 : 600;
 }
 
 /* ---------------- graphics setting ---------------- */
@@ -9714,6 +11622,7 @@ function ProfileView({
   ilm,
   home,
   rent,
+  badge,
   items,
 }: {
   look: Look | undefined;
@@ -9722,6 +11631,7 @@ function ProfileView({
   ilm: number;
   home: string;
   rent?: { area: string; until: number; weekly: number } | null;
+  badge: string;
   items: { icon: string; label: string; badge?: number; run: () => void }[];
 }) {
   const lv = ilmLevel(ilm);
@@ -9745,6 +11655,9 @@ function ProfileView({
           <div className="truncate text-[18px] font-black">{look?.name ?? "Player"}</div>
           <div className="text-[12.5px] text-[#e6b84a]">
             {title} · {look?.female ? "Sister" : "Brother"}
+            {badge.includes("💚") ? " · 💚 Generous giver" : ""}
+            {badge.includes("✨") ? " · ✨ Blessed" : ""}
+            {badge.includes("🕋") ? " · 🕋 Made Umrah" : ""}
           </div>
           <div className="truncate text-[12px] opacity-75">
             {home}
@@ -9792,6 +11705,19 @@ function ProfileView({
           <div>• It can pay your bail if you are ever arrested ({POLICE.bailIlm} Ilm).</div>
         </div>
       </details>
+      <details className="rounded-xl bg-white p-2.5 text-[12.5px] shadow-sm">
+        <summary className="cursor-pointer font-bold">Badges others see</summary>
+        <div className="mt-1.5 space-y-1 opacity-85">
+          <div>
+            • 💚 <b>Generous giver</b>: ₦5,000 or more given in the masjid sadaqah box.
+          </div>
+          <div>
+            • ✨ <b>Blessed</b>: ₦100,000 in the wallet, or a house of your own. Your name tag turns
+            gold.
+          </div>
+          <div>• Premium clothes, a big car and a duplex show it too. Be grateful, not proud.</div>
+        </div>
+      </details>
       <MenuView items={items} />
     </div>
   );
@@ -9804,27 +11730,43 @@ function WardrobeView({
   coins,
   onWear,
   onBuy,
+  shop,
+  onShop,
 }: {
+  shop: boolean;
+  onShop: () => void;
   look: Look;
   owned: string[];
   coins: number;
   onWear: (p: Partial<Look>) => void;
-  onBuy: (key: string, p: Partial<Look>) => void;
+  onBuy: (key: string, p: Partial<Look>, price: number) => void;
 }) {
   const [cur, setCur] = useState(look);
   const [have, setHave] = useState(owned);
   const [money, setMoney] = useState(coins);
-  const [pick, setPick] = useState<{ key: string; p: Partial<Look>; name: string } | null>(null);
-  const has = (k: string, c: number, which: "robe" | "accent") =>
-    have.includes(k) || cur[which] === c;
-  const row = (label: string, which: "robe" | "accent", list: number[]) => (
+  const [pick, setPick] = useState<{
+    key: string;
+    p: Partial<Look>;
+    name: string;
+    price: number;
+  } | null>(null);
+  const wearing = (c: number, which: "robe" | "accent", style?: Look["style"]) =>
+    cur[which] === c && (which === "accent" || cur.style === style);
+  const row = (
+    label: string,
+    which: "robe" | "accent",
+    list: number[],
+    price = CLOTHES_PRICE,
+    style?: Look["style"],
+  ) => (
     <div>
       <div className="mb-1 text-[12.5px] font-bold">{label}</div>
       <div className="flex flex-wrap gap-2">
         {list.map((c) => {
-          const key = `${which}:${hex(c)}`;
-          const mine = has(key, c, which);
-          const on = cur[which] === c;
+          const key = `${style ?? which}:${hex(c)}`;
+          const on = wearing(c, which, style);
+          const mine = have.includes(key) || on;
+          const p: Partial<Look> = which === "robe" ? { robe: c, style } : { accent: c };
           return (
             <button
               key={c}
@@ -9832,9 +11774,10 @@ function WardrobeView({
               onClick={() => {
                 if (mine) {
                   setPick(null);
-                  setCur({ ...cur, [which]: c });
-                  onWear({ [which]: c });
-                } else setPick({ key, p: { [which]: c }, name: label.toLowerCase() });
+                  setCur({ ...cur, ...p });
+                  onWear(p);
+                } else if (shop) setPick({ key, p, name: label.toLowerCase(), price });
+                else setPick({ key: "", p, name: label.toLowerCase(), price });
               }}
               className={`relative size-10 rounded-full border-2 ${on ? "border-[#e6b84a] ring-2 ring-[#e6b84a]/50" : pick?.key === key ? "border-[#1f6f63] ring-2 ring-[#1f6f63]/40" : "border-black/10"}`}
               style={{ background: hex(c) }}
@@ -9853,26 +11796,60 @@ function WardrobeView({
   return (
     <div className="space-y-3">
       <p className="text-[13px] opacity-75">
-        Tap something you own to wear it. New clothes cost {N(CLOTHES_PRICE)} each. You have{" "}
-        {N(money)}.
+        {shop
+          ? `Tap a colour to try it. New clothes cost ${N(CLOTHES_PRICE)} each, premium ${N(PREMIUM_PRICE)}. You have ${N(money)}.`
+          : "Tap something you own to wear it. Clothes marked ₦ are sold at IlmWorld Fashion."}
       </p>
       {row(cur.female ? "Abaya" : "Thobe", "robe", cur.female ? SHOP_ABAYAS : SHOP_THOBES)}
       {row(cur.female ? "Hijab" : "Cap", "accent", cur.female ? SHOP_HIJABS : SHOP_CAPS)}
-      {pick && (
+      <div className="rounded-xl border border-[#c9a227]/50 bg-[#fbf3d9] p-2.5">
+        <div className="text-[12.5px] font-bold text-[#8a6a10]">
+          ✨ Premium · {N(PREMIUM_PRICE)} each
+        </div>
+        <div className="mb-2 text-[11.5px] opacity-75">
+          {cur.female
+            ? "A lace abaya with bell sleeves, a long khimar and gold trim."
+            : "A flowing agbada over the kaftan, with gold embroidery and a tall fila."}{" "}
+          For those Allah has blessed. Be grateful, not proud.
+        </div>
+        {row(
+          cur.female ? "Lace abaya" : "Agbada",
+          "robe",
+          cur.female ? PREMIUM_ABAYAS : PREMIUM_THOBES,
+          PREMIUM_PRICE,
+          cur.female ? "lace" : "agbada",
+        )}
+        <div className="h-2" />
+        {row(
+          cur.female ? "Silk hijab" : "Premium cap",
+          "accent",
+          cur.female ? PREMIUM_HIJABS : PREMIUM_CAPS,
+          PREMIUM_PRICE,
+        )}
+      </div>
+      {pick && !pick.key && (
         <button
-          disabled={money < CLOTHES_PRICE}
+          onClick={onShop}
+          className="w-full rounded-xl bg-[#d66bd0] py-3 font-bold text-white"
+        >
+          🛍️ Buy new clothes at IlmWorld Fashion · show me the way
+        </button>
+      )}
+      {pick && pick.key && (
+        <button
+          disabled={money < pick.price}
           onClick={() => {
-            onBuy(pick.key, pick.p);
+            onBuy(pick.key, pick.p, pick.price);
             setHave([...have, pick.key]);
             setCur({ ...cur, ...pick.p });
-            setMoney(money - CLOTHES_PRICE);
+            setMoney(money - pick.price);
             setPick(null);
           }}
           className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50"
         >
-          {money < CLOTHES_PRICE
-            ? `You need ${N(CLOTHES_PRICE)} for this ${pick.name}`
-            : `Buy and wear this ${pick.name} · ${N(CLOTHES_PRICE)}`}
+          {money < pick.price
+            ? `You need ${N(pick.price)} for this ${pick.name}`
+            : `Buy and wear this ${pick.name} · ${N(pick.price)}`}
         </button>
       )}
     </div>
@@ -10490,6 +12467,190 @@ function MssnView({
 
 const JERSEY_PRICE = 25;
 
+/* ---------------- Jumu'ah ---------------- */
+/** Friday: from 40 minutes before Dhuhr until Jumu'ah has been prayed (or 50 minutes after). */
+function jumuahTime(c: Clock) {
+  return c.friday && c.min >= c.times.dhuhr - 40 && c.min < c.times.dhuhr + 50;
+}
+const KHUTBAH_TOPICS: { title: string; parts: [string[], string[]] }[] = [
+  {
+    title: "Taqwa: being mindful of Allah",
+    parts: [
+      [
+        'Allah says: "O you who believe, fear Allah as He should be feared, and do not die except as Muslims." (Al \'Imran 3:102)',
+        "Taqwa is to guard yourself from what displeases Allah: in your salah, your trade, your words and your private moments.",
+      ],
+      [
+        '"Whoever is mindful of Allah, He will make a way out for him and provide for him from where he does not expect." (At-Talaq 65:2-3)',
+        "This week, choose one sin to leave and one good deed to keep, for the sake of Allah.",
+      ],
+    ],
+  },
+  {
+    title: "Guarding the salah",
+    parts: [
+      [
+        'Allah says: "Indeed, salah prevents immorality and wrongdoing." (Al-\'Ankabut 29:45)',
+        "Salah is the first deed we will be asked about. Pray on time, in the masjid when you can.",
+      ],
+      [
+        "Teach your children to pray, and remind your friends kindly.",
+        "Do not let work, games or the phone push salah out of its time.",
+      ],
+    ],
+  },
+  {
+    title: "Brotherhood and peace between people",
+    parts: [
+      [
+        'Allah says: "The believers are but brothers, so make peace between your brothers." (Al-Hujurat 49:10)',
+        "Greet one another with salam, visit the sick, and help those in need.",
+      ],
+      [
+        "Do not spy on one another or backbite (Al-Hujurat 49:12).",
+        "If you have quarrelled with someone, be the first to give salam this week.",
+      ],
+    ],
+  },
+  {
+    title: "Kindness to parents",
+    parts: [
+      [
+        'Allah says: "And your Lord has decreed that you worship none but Him, and that you be good to your parents." (Al-Isra 17:23)',
+        'Do not say "uff" to them, and speak to them with honour.',
+      ],
+      [
+        'Call your parents this week, help them at home, and make dua: "My Lord, have mercy on them as they raised me when I was small." (17:24)',
+      ],
+    ],
+  },
+  {
+    title: "Seeking knowledge",
+    parts: [
+      [
+        'Allah says: "Say: are those who know equal to those who do not know?" (Az-Zumar 39:9)',
+        'The Prophet ﷺ said: "Whoever takes a path to seek knowledge, Allah makes easy for him a path to Paradise." (Muslim)',
+      ],
+      [
+        "Give some time every day to the Qur'an and to learning your deen, and share what you learn.",
+      ],
+    ],
+  },
+  {
+    title: "Honesty in trade and work",
+    parts: [
+      [
+        'Allah says: "Woe to those who give less in measure and weight." (Al-Mutaffifin 83:1)',
+        "Allah has permitted trade and forbidden riba (Al-Baqarah 2:275).",
+      ],
+      [
+        "Be honest in your market stall, your shop and your job. Halal earnings bring barakah to your home.",
+      ],
+    ],
+  },
+];
+function JumuahView({
+  clock,
+  onPray,
+  onHeard,
+}: {
+  clock: Clock;
+  onPray: () => void;
+  onHeard: () => void;
+}) {
+  const week = Math.floor(new Date(clock.key + "T12:00:00Z").getTime() / (7 * 86400000));
+  const topic = KHUTBAH_TOPICS[week % KHUTBAH_TOPICS.length];
+  const [step, setStep] = useState(0);
+  const [secs, setSecs] = useState(0);
+  const started = clock.min >= clock.times.dhuhr;
+  useEffect(() => {
+    if (step !== 1 && step !== 3) return;
+    setSecs(0);
+    const t0 = Date.now();
+    const iv = setInterval(() => setSecs(Math.floor((Date.now() - t0) / 1000)), 500);
+    return () => clearInterval(iv);
+  }, [step]);
+  const wait = 12;
+  const btn = "w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-50";
+  if (step === 0)
+    return (
+      <div className="space-y-3">
+        <p className="text-[14px]">
+          Jumu&apos;ah Mubarak! The imam gives the khutbah, then everyone prays two rak&apos;ahs
+          together in place of Dhuhr.
+        </p>
+        <div className="space-y-1 rounded-xl bg-white p-3 text-[12.5px] shadow-sm">
+          <div className="font-bold">Sunnah of Friday</div>
+          <div>• Ghusl, clean clothes and perfume (brothers), and come early.</div>
+          <div>• Read Surah Al-Kahf and send many salawat on the Prophet ﷺ.</div>
+          <div>
+            • Listen in silence: talking during the khutbah, even to say &quot;be quiet&quot;,
+            spoils it (Bukhari, Muslim).
+          </div>
+          <div>• Make dua in the last hour before Maghrib.</div>
+        </div>
+        <button onClick={() => setStep(1)} className={btn}>
+          🕌 Sit and listen to the khutbah
+        </button>
+      </div>
+    );
+  if (step === 1 || step === 3) {
+    const part = topic.parts[step === 1 ? 0 : 1];
+    return (
+      <div className="space-y-3">
+        <div className="text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
+          Khutbah · part {step === 1 ? 1 : 2} · {topic.title}
+        </div>
+        {step === 1 && (
+          <p dir="rtl" lang="ar" className="text-center font-[Amiri] text-[19px] leading-[1.9]">
+            إِنَّ الْحَمْدَ لِلَّهِ، نَحْمَدُهُ وَنَسْتَعِينُهُ وَنَسْتَغْفِرُهُ
+          </p>
+        )}
+        {part.map((t, i) => (
+          <p key={i} className="text-[14px]">
+            {t}
+          </p>
+        ))}
+        <button
+          disabled={secs < wait}
+          onClick={() => {
+            if (step === 3) onHeard();
+            setStep(step + 1);
+          }}
+          className={btn}
+        >
+          {secs < wait
+            ? `Listening… ${wait - secs}`
+            : step === 1
+              ? "The imam sits briefly"
+              : "The khutbah ends"}
+        </button>
+      </div>
+    );
+  }
+  if (step === 2)
+    return (
+      <div className="space-y-3">
+        <p className="text-[14px]">
+          The imam sits for a moment between the two khutbahs. Make a short dua in your heart.
+        </p>
+        <button onClick={() => setStep(3)} className={btn}>
+          He stands for the second khutbah
+        </button>
+      </div>
+    );
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px]">The iqamah is called. Stand in the rows, shoulder to shoulder.</p>
+      <button disabled={!started} onClick={onPray} className={btn}>
+        {started
+          ? "🤲 Pray Jumu'ah · 2 rak'ahs"
+          : `Jumu'ah begins at ${fmtTime(clock.times.dhuhr)}`}
+      </button>
+    </div>
+  );
+}
+
 /* ---------------- tennis ---------------- */
 function TennisHud({
   t,
@@ -10810,19 +12971,25 @@ function travelOptions(here: string) {
       sub: places(d),
       local: true,
     }));
-  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot).map((d) => {
-    const stops = stopsOf(d.id);
-    return {
-      d,
-      title: `${regionOf(d)}, ${d.state}`,
-      sub:
-        stops.length > 1
-          ? `Arrive at ${d.busStop ?? d.name}. Bus stops: ${stops.map((x) => x.busStop ?? x.name).join(" · ")}`
-          : places(d),
-      local: false,
-    };
-  });
-  return [...local, ...away];
+  const city = cityOf(districtById(here));
+  const country = countryOf(districtById(here));
+  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot && countryOf(d) === country)
+    .sort((a, b) => Number(cityOf(a) !== city) - Number(cityOf(b) !== city))
+    .map((d) => {
+      const stops = stopsOf(d.id);
+      const far = cityOf(d) !== city;
+      return {
+        d,
+        far,
+        title: `${far ? "🌍 " : ""}${regionOf(d)}, ${d.state}`,
+        sub:
+          stops.length > 1
+            ? `Arrive at ${d.busStop ?? d.name}. Bus stops: ${stops.map((x) => x.busStop ?? x.name).join(" · ")}`
+            : places(d),
+        local: false,
+      };
+    });
+  return [...local.map((x) => ({ ...x, far: false })), ...away];
 }
 
 /* ---------------- live football: teams and the bench ---------------- */
@@ -11050,8 +13217,10 @@ function PhoneView({
   onOutings,
   onTravel,
   onPlaces,
+  onHotel,
 }: {
   myNumber?: string;
+  onHotel: () => void;
   onWallet: () => void;
   onRooms: () => void;
   onHomes: () => void;
@@ -11109,6 +13278,7 @@ function PhoneView({
         {icon("#c77d2a", "🏠", "Homes", onHomes)}
         {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
         {icon("#1d6b3a", "💰", "Wallet", onWallet)}
+        {icon("#7a5a2a", "🏨", "Hotel", onHotel)}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">
