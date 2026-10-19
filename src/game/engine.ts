@@ -645,6 +645,15 @@ export class IlmCityEngine {
     this.renderer.domElement.style.display = "block";
     this.renderer.domElement.style.touchAction = "none";
     host.appendChild(this.renderer.domElement);
+    // the phone ran out of graphics memory: go to smooth graphics so it doesn't happen again
+    this.renderer.domElement.addEventListener("webglcontextlost", () => {
+      if (this.low) return;
+      setTimeout(() => {
+        if (this.disposed) return;
+        this.setQuality("low", true);
+        this.onSlowPhone?.();
+      }, 0);
+    });
 
     this.scene.background = new THREE.Color(0x9fd3e8);
     this.scene.fog = new THREE.Fog(0x9fd3e8, 70, 260);
@@ -816,12 +825,19 @@ export class IlmCityEngine {
     if (this.disposed) return;
     // the nearest waiting area to you first
     const p = this.player.position;
-    const next = [...this.placeholders.keys()].sort((a, b) => {
-      const A = districtById(a).origin,
-        B = districtById(b).origin;
-      return Math.hypot(A.x - p.x, A.z - p.z) - Math.hypot(B.x - p.x, B.z - p.z);
-    })[0];
-    if (!next) return;
+    const here = cityOf(this.district);
+    const next = [...this.placeholders.keys()]
+      .filter((id) => cityOf(districtById(id)) === here)
+      .sort((a, b) => {
+        const A = districtById(a).origin,
+          B = districtById(b).origin;
+        return Math.hypot(A.x - p.x, A.z - p.z) - Math.hypot(B.x - p.x, B.z - p.z);
+      })[0];
+    if (!next) {
+      // nothing left in this city: look again later (you may have travelled)
+      setTimeout(() => this.buildInBackground(), 4000);
+      return;
+    }
     setTimeout(
       () => {
         if (this.disposed) return;
@@ -1887,7 +1903,23 @@ export class IlmCityEngine {
 
   private reserved: Box[] = [];
   private worldBatch = new Batch();
-  private areaGroups: { g: THREE.Group; x: number; z: number }[] = [];
+  private areaGroups: { g: THREE.Group; x: number; z: number; onGpu?: boolean }[] = [];
+  /** Let the graphics card forget a far-away area (it is sent again when you come back),
+   *  so phones don't run out of graphics memory as you travel. */
+  private freeArea(a: { g: THREE.Group; onGpu?: boolean }) {
+    a.onGpu = false;
+    const keep = new Set<THREE.BufferGeometry>();
+    for (const b of this.areaGroups)
+      if (b.g.visible)
+        b.g.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.geometry) keep.add(m.geometry);
+        });
+    a.g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry && !keep.has(m.geometry)) m.geometry.dispose();
+    });
+  }
   /** Every compound in the city (for rent, sale and visits). */
   plots: (Compound & {
     id: string;
@@ -8400,9 +8432,12 @@ export class IlmCityEngine {
     tickHumans(dt, this.camera);
     // only draw areas near the camera
     if (this.where === "out")
-      for (const a of this.areaGroups)
-        a.g.visible =
-          Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z) < this.viewDist;
+      for (const a of this.areaGroups) {
+        const d = Math.hypot(this.camera.position.x - a.x, this.camera.position.z - a.z);
+        a.g.visible = d < this.viewDist;
+        if (a.g.visible) a.onGpu = true;
+        else if (a.onGpu && d > this.viewDist + 400) this.freeArea(a);
+      }
 
     // neighbours
     for (const w of this.walkers) {
