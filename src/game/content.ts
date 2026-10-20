@@ -3082,14 +3082,24 @@ export const JOBS: Job[] = [
         "Leave it on the road",
         "Keep the parcel",
       ),
-      J("Riding through traffic, you…", "Wear a helmet and ride carefully", "Speed between cars", "Ride on the walkway"),
+      J(
+        "Riding through traffic, you…",
+        "Wear a helmet and ride carefully",
+        "Speed between cars",
+        "Ride on the walkway",
+      ),
       J(
         "A parcel was damaged on the way. You…",
         "Tell the shop and the customer honestly",
         "Hide it",
         "Blame the customer",
       ),
-      J("Before starting deliveries you check…", "Fuel, brakes and lights", "Your music", "Nothing"),
+      J(
+        "Before starting deliveries you check…",
+        "Fuel, brakes and lights",
+        "Your music",
+        "Nothing",
+      ),
       J(
         "The customer gives you extra money by mistake. You…",
         "Return it",
