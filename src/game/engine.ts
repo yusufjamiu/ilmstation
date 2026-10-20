@@ -6820,18 +6820,30 @@ export class IlmCityEngine {
     twin.userData.tap = mesh.userData.tap;
     faces[1].add(twin);
     this.tappables.push(twin);
+    // the same advert on the back of both panels, so it shows from either side of the road
+    const backs = faces.map((f) => {
+      const m = new THREE.Mesh(mesh.geometry, mesh.material);
+      m.position.set(mesh.position.x, mesh.position.y, -0.7);
+      m.rotation.y = Math.PI;
+      m.userData.tap = mesh.userData.tap;
+      f.add(m);
+      this.tappables.push(m);
+      return m;
+    });
+    const all = [mesh, twin, ...backs];
+    const setMat = (m: THREE.Material) => all.forEach((x) => (x.material = m));
     let own: THREE.MeshBasicMaterial | null = null;
     const paint = () => {
       if (!b.ad) {
         own?.map?.dispose();
         own?.dispose();
         own = null;
-        mesh.material = twin.material = emptyMat;
+        setMat(emptyMat);
         return;
       }
       if (!own) {
         own = canvasPlane(PW, PW * 0.4, draw, 640).mesh.material as THREE.MeshBasicMaterial;
-        mesh.material = twin.material = own;
+        setMat(own);
       }
       const tex = own.map as THREE.CanvasTexture;
       const canvas = tex.image as HTMLCanvasElement;
