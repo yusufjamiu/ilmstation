@@ -21,6 +21,7 @@ import {
   type PhoneEntry,
 } from "./calls";
 import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
+import { connectShops, connectShopsLocal, type SharedShop, type Shops } from "./shops";
 import { connectTransfers, connectTransfersLocal, MAX_TRANSFER, type Transfers } from "./transfers";
 import {
   connectPitch,
@@ -2339,6 +2340,24 @@ function CityGame({
   );
 
   /** Paint every shop and stall: yours, the market's traders, or "for rent". */
+  /** stalls and shops other players rent right now */
+  const sharedShops = useRef(new Map<string, SharedShop>());
+  const shopsNet = useRef<Shops | null>(null);
+  /** Put my shop on record so everyone sees it (and nobody else can take it). */
+  const publishShop = useCallback(async (sid: string) => {
+    const own = saveRef.current.shops?.[sid];
+    const net = shopsNet.current;
+    const o = onlineRef.current;
+    if (!own || !net || !o) return true;
+    return net.claim({
+      sid,
+      owner: o.uid,
+      ownerName: shownName(saveRef.current) ?? "Player",
+      name: own.name,
+      products: own.products,
+      until: own.until,
+    });
+  }, []);
   const paintShop = useCallback((e: IlmCityEngine, sid: string) => {
     const own = saveRef.current.shops?.[sid];
     const info = e.shopInfo(sid);
@@ -2350,7 +2369,15 @@ function CityGame({
         open: true,
         label: `Your shop · ${own.name || "My shop"}`,
       });
-    else if (trader && info?.kind === "stall")
+    else if (sharedShops.current.has(sid)) {
+      const o = sharedShops.current.get(sid)!;
+      e.setShop(sid, {
+        name: o.name || (info?.kind === "shop" ? "Shop" : "Stall"),
+        imgs: o.products.map((p) => p.img),
+        open: true,
+        label: `${o.name || "Shop"} · ${o.ownerName}`,
+      });
+    } else if (trader && info?.kind === "stall")
       e.setShop(sid, {
         name: trader.name,
         imgs: trader.items.map(([em]) => emojiPic(em)),
@@ -2364,6 +2391,45 @@ function CityGame({
       const e = engine.current;
       const info = e?.shopInfo(sid);
       if (!e || !info) return;
+      const other = sharedShops.current.get(sid);
+      if (other && other.owner !== onlineRef.current?.uid) {
+        if (info.kind === "stall") doTask("market");
+        setPanel({
+          kind: "info",
+          title: other.name || "Shop",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-80">
+                {info.street}, {fullName(districtById(info.district))} · run by {other.ownerName}
+              </p>
+              {other.products.length ? (
+                other.products.map((p, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-xl bg-white p-2">
+                    {p.img && (
+                      <img src={p.img} alt="" className="size-14 rounded-lg object-cover" />
+                    )}
+                    <div>
+                      <div className="font-bold">{p.name}</div>
+                      <div className="text-[13px] text-[#1f6f63]">{p.price}</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-[13px] opacity-70">The owner is still setting up.</p>
+              )}
+              {loggedInRef.current && (
+                <button
+                  onClick={() => openChatRef.current({ uid: other.owner, name: other.ownerName })}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  💬 Message {other.ownerName}
+                </button>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
       if (!loggedInRef.current && !(info.kind === "stall" && traderAt(sid))) {
         setPanel({
           kind: "info",
@@ -2409,8 +2475,28 @@ function CityGame({
                 toast(`Sales collected: +${N(due)}. May Allah bless your trade.`, "good");
                 setTimeout(render, 0);
               }}
-              onRent={(days, pts) => {
+              onRent={async (days, pts) => {
                 if (saveRef.current.coins < pts) return;
+                const net = shopsNet.current,
+                  o = onlineRef.current;
+                if (net && o) {
+                  const prev0 = saveRef.current.shops?.[sid];
+                  const ok = await net
+                    .claim({
+                      sid,
+                      owner: o.uid,
+                      ownerName: shownName(saveRef.current) ?? "Player",
+                      name: prev0?.name ?? "",
+                      products: prev0?.products ?? [],
+                      until: Math.max(Date.now(), prev0?.until ?? 0) + days * 86400000,
+                    })
+                    .catch(() => true);
+                  if (!ok) {
+                    toast("Another player has just rented this space. Try another one.", "warn");
+                    setPanel(null);
+                    return;
+                  }
+                }
                 const prev = saveRef.current.shops?.[sid];
                 const next: ShopOwn = {
                   until: Math.max(Date.now(), prev?.until ?? 0) + days * 86400000,
@@ -2440,6 +2526,7 @@ function CityGame({
                   shops: { ...saveRef.current.shops, [sid]: o },
                 };
                 paintShop(e, sid);
+                void publishShop(sid);
                 toast(`${o.name} is open for business!`, "good");
                 setPanel(null);
               }}
@@ -3601,6 +3688,29 @@ function CityGame({
     }, 3000);
     return () => clearInterval(iv);
   }, []);
+  // shared stalls and shops: see other players' shops, and put yours on record
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || shopsNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    (local ? Promise.resolve(connectShopsLocal()) : connectShops())
+      .then((net) => {
+        shopsNet.current = net;
+        for (const [sid, own] of Object.entries(saveRef.current.shops ?? {}))
+          if (own.until > Date.now()) void publishShop(sid).catch(() => {});
+        off = net.watch((list) => {
+          const m = new Map<string, SharedShop>();
+          for (const x of list) if (x.owner !== o.uid) m.set(x.sid, x);
+          sharedShops.current = m;
+          const e = engine.current;
+          if (e) for (const sid of e.shopIds()) paintShop(e, sid);
+        });
+      })
+      .catch(() => {});
+    return () => off?.();
+  }, [onlineReady, paintShop, publishShop]);
   useEffect(() => {
     const o = onlineRef.current;
     if (!o || claimsNet.current) return;
@@ -8877,12 +8987,10 @@ function emojiPic(e: string) {
   emojiCache.set(e, url);
   return url;
 }
-/** The market's own traders sit at every third stall. */
-const traderAt = (id: string) => {
-  const m = /-m(\d+)$/.exec(id);
-  if (!m || Number(m[1]) % 3 !== 0) return null;
-  const n = Number(m[1]) + id.length;
-  return MARKET_TRADERS[n % MARKET_TRADERS.length];
+/** No made-up traders: every stall is free for real players to rent. */
+const traderAt = (id: string): (typeof MARKET_TRADERS)[number] | null => {
+  void id;
+  return null;
 };
 
 function ShopView({
@@ -11889,7 +11997,7 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   if (!t.eat)
     return {
       text: "Eat a halal meal",
-      prefix: (s.items ?? []).includes("kitchen") && inside ? "eat" : `stall:${area}-m`,
+      prefix: (s.items ?? []).includes("kitchen") && inside ? "eat" : "eatery:",
     };
   if (!t.learn) return { text: "Learn something at the masjid", prefix: "door:masjid:" };
   if (!t.market) return { text: "Visit the market", prefix: `stall:${area}-m` };
@@ -12104,25 +12212,16 @@ function QuranReader({ start, onPage }: { start: number; onPage: (page: number) 
     let live = true;
     setAyahs(null);
     setFailed(false);
-    fetch(`https://api.alquran.cloud/v1/page/${page}/editions/quran-uthmani,en.sahih`)
-      .then((r) => r.json())
-      .then((j) => {
+    // the Qur'an ships with the game: one small file per mushaf page
+    fetch(`/quran/${page}.json`)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((rows: { name: string; n: number; ar: string; en: string }[]) => {
         if (!live) return;
-        const [ar, tr] = j.data as {
-          ayahs: {
-            numberInSurah: number;
-            text: string;
-            surah: { englishName: string; name: string };
-          }[];
-        }[];
         setAyahs(
-          ar.ayahs.map((a, i) => ({
-            n: a.numberInSurah,
-            text: a.text,
-            surah: `${a.surah.englishName} · ${a.surah.name}`,
-            en: tr.ayahs[i]?.text ?? "",
-            first: a.numberInSurah === 1,
-          })),
+          rows.map((a) => ({ n: a.n, text: a.ar, surah: a.name, en: a.en, first: a.n === 1 })),
         );
       })
       .catch(() => live && setFailed(true));
@@ -12166,6 +12265,9 @@ function QuranReader({ start, onPage }: { start: number; onPage: (page: number) 
           ))
         )}
       </div>
+      <p className="text-[10.5px] opacity-50">
+        Uthmani text: The Noble Qur'an Encyclopedia (quranenc.com) · meaning: Sahih International
+      </p>
       <div className="grid grid-cols-2 gap-2">
         <button
           disabled={page <= 1}

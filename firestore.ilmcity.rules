@@ -220,3 +220,14 @@
     match /city_sponsored_keys/{quiz} {
       allow read, write: if isAdmin();
     }
+
+    // ---- market stalls and shops: one player rents each, everyone sees it ----
+    match /city_shops/{sid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.sid == sid;
+      // keep your own, or take one whose rent has run out
+      allow update: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.sid == sid
+        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+    }
