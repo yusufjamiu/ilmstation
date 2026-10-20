@@ -9931,6 +9931,13 @@ function placesIn(id: string): Place[] {
                   ? `stall:${D.id}-m`
                   : `${l.kind}:${l.id}`,
   }));
+  if (D.id === "ikorodu")
+    out.push({
+      icon: "🏗️",
+      name: "Manaar University College (being built)",
+      sub: "West end of Sheikh Habeeb Adewuyi Street",
+      prefix: "construction:manaar-uni",
+    });
   if (!D.landmarks.some((l) => l.kind === "market"))
     out.push({
       icon: "🛒",

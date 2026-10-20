@@ -2214,8 +2214,9 @@ export class IlmCityEngine {
     sub.position.set(cx + 18, 3.6, fz + 0.42);
     this.dg.add(sub);
     // the concrete frame: three floors cast, the fourth's columns rising
+    const fzc0 = zN + 24;
     const fx = cx - 8,
-      fzc = zN + 24,
+      fzc = fzc0,
       FW = 40,
       FD = 22,
       FH = 3.6,
@@ -2313,9 +2314,25 @@ export class IlmCityEngine {
       r: 4,
       scene: "out",
     });
-    const t = label("🏗️ Manaar University College", { size: 1.1, bg: "rgba(31,111,99,0.92)" });
-    t.position.set(cx, 9, fz);
+    // a tall label over the site, seen from down the street
+    const t = label("🏗️ Manaar University College · being built", {
+      size: 1.6,
+      bg: "rgba(31,111,99,0.92)",
+    });
+    t.position.set(cx, 34, fzc0);
     this.dg.add(t);
+    // signposts along the street pointing to the site
+    for (const px of [-20, -70]) {
+      const post = this.signBoard("◀ Manaar University College", 7, 0.9, "#1f6f63", "#ffffff");
+      post.position.set(px, 3.2, sz - 6.2);
+      this.dg.add(post);
+      const back = this.signBoard("◀ Manaar University College", 7, 0.9, "#1f6f63", "#ffffff");
+      back.position.set(px, 3.2, sz - 6.3);
+      back.rotation.y = Math.PI;
+      this.dg.add(back);
+      b.box(0.15, 3.6, 0.15, MAT.plain(0x5a5f66, 0.5), px - 3.6, 0, sz - 6.25);
+      b.box(0.15, 3.6, 0.15, MAT.plain(0x5a5f66, 0.5), px + 3.6, 0, sz - 6.25);
+    }
   }
 
   /** Narrow tarred closes in the space between the main streets, with compounds on both
