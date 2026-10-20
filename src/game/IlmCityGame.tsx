@@ -75,7 +75,6 @@ import {
   REMINDERS,
   SMALL_TALK,
   ECONOMY,
-  TENANTS,
   HOUSE_PRICE,
   ROOM_RENT_WEEK,
   HOME_ITEMS,
@@ -8387,7 +8386,7 @@ function PlotView({
       >
         Buy this house · {N(price)}
         <span className="block text-[12px] font-medium opacity-80">
-          Rent out its {beds} rooms for {N(ROOM_RENT_WEEK)} a week each
+          Live in one flat and let the other {beds - 1} to players
         </span>
       </button>
     );
@@ -8603,22 +8602,8 @@ function RoomsView({
 }) {
   const now = Date.now();
   const list = Array.from({ length: count }, (_, i) => rooms[i] ?? null);
-  const used = new Set(list.filter((r) => r).map((r) => r!.tenant));
   const day = (t: number) =>
     new Date(t).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-  const rentOut = (i: number) => {
-    const free = TENANTS.filter((t) => !used.has(t));
-    const tenant = free[Math.floor(Math.random() * free.length)] ?? TENANTS[0];
-    const next = [...list];
-    next[i] = { tenant, from: now, until: now + 7 * 86400000 };
-    onRooms(next, ROOM_RENT_WEEK);
-  };
-  const renew = (i: number) => {
-    const r = list[i]!;
-    const next = [...list];
-    next[i] = { ...r, from: now, until: now + 7 * 86400000 };
-    onRooms(next, ROOM_RENT_WEEK);
-  };
   const evict = (i: number) => {
     const next = [...list];
     next[i] = null;
@@ -8665,19 +8650,15 @@ function RoomsView({
                   </span>
                 ) : (
                   <span className="flex shrink-0 gap-1.5">
-                    <button
-                      onClick={() => rentOut(i)}
-                      className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
-                    >
-                      Let · +{N(ROOM_RENT_WEEK)}
-                    </button>
-                    {players && (
+                    {players ? (
                       <button
                         onClick={() => players.onList(i)}
-                        className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold"
+                        className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
                       >
-                        To players
+                        List for players to rent
                       </button>
+                    ) : (
+                      <span className="text-[11.5px] opacity-60">Sign in to let it</span>
                     )}
                   </span>
                 ))}
@@ -8694,14 +8675,6 @@ function RoomsView({
                   Rent ended {day(r.until)}: still living here
                 </span>
                 <span className="flex shrink-0 gap-1.5">
-                  {!r.tenant.endsWith("(player)") && (
-                    <button
-                      onClick={() => renew(i)}
-                      className="rounded-lg bg-[#1f6f63] px-2 py-1 text-[11.5px] font-bold text-[#fdf8ec]"
-                    >
-                      Renew · +{N(ROOM_RENT_WEEK)}
-                    </button>
-                  )}
                   <button
                     onClick={() => evict(i)}
                     className="rounded-lg bg-[#b8573a] px-2 py-1 text-[11.5px] font-bold text-white"
@@ -8715,8 +8688,9 @@ function RoomsView({
         );
       })}
       <p className="text-[11.5px] opacity-65">
-        Tenants pay a week in advance. When their rent ends, renew it or evict them. You can't evict
-        before the rent is over.
+        Your flats are rented by real players: list a flat and a player pays a week in advance. When
+        their rent ends you can evict them, or they rent again. You can't evict before the rent is
+        over.
       </p>
     </div>
   );

@@ -1283,68 +1283,8 @@ export class IlmCityEngine {
     // welcome gate where the expressway meets the main street
     this.welcomeGate(D, side);
 
-    // neighbours walking the pavements
-    const names = [
-      "Brother Bilal",
-      "Sister Khadijah",
-      "Uncle Abdullahi",
-      "Sister Maryam",
-      "Brother Zayd",
-      "Brother Hamzah",
-      "Sister Aminah",
-      "Alhaja Sekinat",
-      "Brother Tajudeen",
-      "Sister Rukayat",
-    ];
-    const robes = [
-      0x4f7fc4, 0x5a3f6a, 0x3d8a5a, 0x2f4a7a, 0xb36a3a, 0x8a5fb0, 0x3f8f6a, 0x7d2f3a, 0xcdb38a,
-      0x1f6f63,
-    ];
-    const start = Math.floor(rnd() * names.length);
-    const routes: [number, number][][] = [];
-    zs.forEach((sz) => {
-      routes.push([
-        [-(XR - 6), sz + 9],
-        [XR - 6, sz + 9],
-      ]);
-      routes.push([
-        [XR - 6, sz - 9],
-        [-(XR - 6), sz - 9],
-      ]);
-    });
-    routes.push([
-      [9, (D.holy ? -8 : north) + 1],
-      [9, crossEnd],
-    ]);
-    routes.push([
-      [-9, crossEnd],
-      [-9, (D.holy ? -8 : north) + 1],
-    ]);
-    routes.forEach((route, i) => {
-      const k = (start + i) % names.length;
-      const female = names[k].startsWith("Sister") || names[k].startsWith("Alhaja");
-      const g = person(
-        robes[k],
-        female
-          ? { hijab: [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0x3d5a4a, 0x1d1d26][i % 6], seed: i }
-          : { cap: 0xffffff, seed: i },
-      );
-      const tag = label(names[k], { size: 0.7, bold: false });
-      tag.position.y = 2.65;
-      g.add(tag);
-      g.position.set(route[0][0], 0, route[0][1]);
-      S.add(g);
-      this.walkers.push({
-        g,
-        route,
-        k: 1,
-        wait: i * 0.8,
-        t: 0,
-        name: names[k],
-        female,
-        district: D.id,
-      });
-    });
+    // (no made-up neighbours on the pavements: the people you meet outside are real players)
+    rnd(); // keeps the rest of the area's random layout as it was
 
     // the Hisbah officer on patrol
     {
