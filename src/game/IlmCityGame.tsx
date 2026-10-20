@@ -4388,6 +4388,12 @@ function CityGame({
           const cls = l.classes?.[Number(idx)];
           if (!cls) return;
           e.enterInterior("madrasah", `${cls} · ${l.name}`);
+          // a madrasah or Qur'an class has an Ustadh; a school class has a teacher
+          e.setTeacher(
+            /madrasah|qur'an|quran|arabic|memoris/i.test(l.name) || l.kind === "office"
+              ? "Ustadh"
+              : "Teacher",
+          );
           setInside(true);
           setPanel({
             kind: "info",
@@ -4430,6 +4436,7 @@ function CityGame({
         const [room, uni] = L.l.name.split(" · ");
         sayDhikr("study", () => {
           e.enterInterior("madrasah", L.l.name);
+          e.setTeacher(L.l.id.endsWith("-library") ? "Librarian" : "Lecturer");
           setInside(true);
           tuneRef.current();
           const today = clockRef.current.key;
@@ -5606,8 +5613,8 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:madrasah:")) {
-        quizHost.current = hostOf(id.slice(14));
-        e.setTeacher(quizHost.current);
+        quizHost.current = "Ustadh";
+        e.setTeacher("Ustadh");
         e.enterInterior("madrasah", landmarkName(id.slice(14)));
         setInside(true);
         return;
