@@ -685,8 +685,8 @@ export function compound(
   };
   const pick = <T>(a: T[]) => a[Math.floor(r2() * a.length)];
 
-  // the yard: a lawn, with a stone path from the gate to the porch
-  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT2.lawn(), 0, 0.035, 0, 0, false);
+  // the yard: paved, with a stone path from the gate to the porch
+  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT.paving(), 0, 0.035, 0, 0, false);
 
   // a low white wall with rails on top, and a gate between two pillars
   const FH = 1.3,
@@ -1053,6 +1053,9 @@ const shutterTex = () =>
       c.fillRect(0, y, w, 1);
     }
   });
+/** Tarred ground between the buildings: like the road, a little lighter. */
+export const TARRED = () =>
+  M("tarred", () => std({ map: asphaltTex(), color: 0xb4b6b8, roughness: 0.95 }));
 export const MAT2 = {
   glass: () => M("glass", () => std({ map: glassTex(), roughness: 0.15, metalness: 0.6 })),
   shutter: () => M("shutter", () => std({ map: shutterTex(), metalness: 0.5, roughness: 0.4 })),
@@ -1141,7 +1144,7 @@ export function campus(
     cream = MAT.plain(0xf7f5ef);
   const front = D / 2;
   b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.03, 0, 0, false);
-  b.add(groundGeo(W - 2 * T - 4, D - 2 * T - 4, 4), MAT2.lawn(), 0, 0.05, 0, 0, false);
+  b.add(groundGeo(W - 2 * T - 4, D - 2 * T - 4, 4), MAT.paving(), 0, 0.05, 0, 0, false);
   const gate = 7;
   const wing = (cx: number, cz: number, w: number, d: number) => {
     b.box(w, H, d, wallM, cx, 0, cz);
@@ -2673,8 +2676,8 @@ function styledHouse(
       ])
         b.box(0.1, 2.6, 0.1, dark, cx + px, 0, cz + pz);
     }
-    // a strip of lawn, fan palms and sometimes a small pool
-    b.add(groundGeo(PW - 1, 2.2, 2), MAT2.lawn(), 0, 0.05, front - 1.4, 0, false);
+    // a paved strip, fan palms and sometimes a small pool
+    b.add(groundGeo(PW - 1, 2.2, 2), MAT.paving(), 0, 0.05, front - 1.4, 0, false);
     for (const px of [-PW / 2 + 1.4, PW / 2 - 1.4]) {
       if (Math.abs(px - gx) < 3) continue;
       fanPalm(b, px, front - 1.5, 0.9);

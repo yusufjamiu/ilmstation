@@ -12727,7 +12727,7 @@ function InClassView({
                 onCorrect();
               }
             }}
-            className={`w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left text-[14px] ${picked === null ? "" : k === q.a ? "bg-[#1f6f63] text-[#fdf8ec]" : k === picked ? "bg-[#b8573a] text-white" : "opacity-60"}`}
+            className={`w-full rounded-xl border border-[#1f6f63]/25 px-4 py-2.5 text-left text-[14px] ${picked === null ? "bg-white" : k === q.a ? "bg-[#1f6f63] text-[#fdf8ec]" : k === picked ? "bg-[#b8573a] text-white" : "bg-white opacity-60"}`}
           >
             {o}
           </button>

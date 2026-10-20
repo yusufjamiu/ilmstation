@@ -25,6 +25,7 @@ import {
   Batch,
   MAT,
   MAT2,
+  TARRED,
   campus,
   compound,
   faculty,
@@ -1379,7 +1380,8 @@ export class IlmCityEngine {
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
   private buildWorld() {
     const S = this.scene;
-    const ground = new THREE.Mesh(groundGeo(2300, 2700, 10), MAT.grass());
+    // the city floor is tarred everywhere (land for sale shows its own sand)
+    const ground = new THREE.Mesh(groundGeo(2300, 2700, 10), TARRED());
     ground.position.set(150, -0.01, -480);
     ground.receiveShadow = true;
     S.add(ground);
@@ -1421,7 +1423,7 @@ export class IlmCityEngine {
       const holyCity = il.some((d) => d.holy);
       const g2 = new THREE.Mesh(
         groundGeo(x1 - x0, z1 - z0, 10),
-        holyCity ? mat(0xd9c49a) : MAT.grass(),
+        holyCity ? mat(0xd9c49a) : TARRED(),
       );
       g2.position.set((x0 + x1) / 2, -0.01, (z0 + z1) / 2);
       g2.receiveShadow = true;
@@ -1801,7 +1803,7 @@ export class IlmCityEngine {
             const h = 6 + rnd() * 5;
             b.box(11, h, 10, MAT.plaster(pick(paints)), lx, 0, lz);
             b.box(11.6, 0.5, 10.6, MAT.plain(0xfdfbf5), lx, h, lz);
-            b.box(13, 0.15, 12, MAT2.lawn(), lx, 0.02, lz);
+            b.box(13, 0.15, 12, MAT.paving(), lx, 0.02, lz);
           }
         } else if (tier === 2) {
           const h = 3.4 * (1 + Math.floor(rnd() * 3));
