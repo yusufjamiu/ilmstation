@@ -200,3 +200,23 @@
         && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
+
+    // ---- sponsored quizzes with cash prizes: the admin sets them, players enter once ----
+    match /city_sponsored/{quiz} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+      // one entry per player, written once and never changed by them; the admin marks paid
+      match /entries/{uid} {
+        allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.picks is list
+          && request.resource.data.picks.size() <= 50
+          && !('paid' in request.resource.data);
+        allow update: if isAdmin();
+      }
+    }
+    // the right answers: only the admin can see them
+    match /city_sponsored_keys/{quiz} {
+      allow read, write: if isAdmin();
+    }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { User } from "firebase/auth";
-import type { AdRequest, Award, Enquiry, Nasheed } from "./live";
+import type { AdRequest, Award, Enquiry, Nasheed, SponsoredEntry, SponsoredQuiz } from "./live";
+import { DISTRICTS } from "./content";
 import { connectHomes, weekKey, type ShownHome } from "./homes";
 import { AD_PRICES } from "./live";
 
@@ -45,7 +46,9 @@ const when = (t: number) =>
 export default function Admin() {
   const [state, setState] = useState<"loading" | "out" | "no" | "yes">("loading");
   const [user, setUser] = useState<User | null>(null);
-  const [tab, setTab] = useState<"reports" | "ads" | "award" | "mssn" | "nasheeds">("reports");
+  const [tab, setTab] = useState<"reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored">(
+    "reports",
+  );
   useEffect(() => {
     let off = () => {};
     fb()
@@ -94,6 +97,7 @@ export default function Admin() {
     ["award", "🏆 Award"],
     ["mssn", "❓ MSSN"],
     ["nasheeds", "🎵 Nasheeds"],
+    ["sponsored", "💵 Sponsored quizzes"],
   ];
   return (
     <Shell wide>
@@ -113,6 +117,7 @@ export default function Admin() {
       {tab === "award" && <AwardTab />}
       {tab === "mssn" && <Mssn />}
       {tab === "nasheeds" && <Nasheeds />}
+      {tab === "sponsored" && <Sponsored />}
     </Shell>
   );
 }
@@ -554,6 +559,254 @@ function Nasheeds() {
           <button onClick={() => remove(n)} className={`${btn} bg-[#e9e4d8]`}>
             Delete
           </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- sponsored quizzes ---------------- */
+
+/** Masjids and schools where a sponsored quiz can be set. */
+const QUIZ_PLACES = DISTRICTS.flatMap((d) =>
+  d.landmarks
+    .filter((l) => l.kind === "masjid" || l.kind === "school" || l.kind === "campus")
+    .map((l) => ({ id: l.id, name: `${l.name} · ${d.name}`, classes: l.classes ?? [] })),
+);
+
+/** "Question?" then its options, one per line; mark the right one with *. Blank line between. */
+function parseQuestions(text: string) {
+  const out: { q: string; o: string[]; a: number }[] = [];
+  for (const block of text.split(/\n\s*\n/)) {
+    const lines = block
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length < 3) continue;
+    const [q, ...rest] = lines;
+    const a = rest.findIndex((l) => l.startsWith("*"));
+    if (a < 0) continue;
+    out.push({ q, o: rest.map((l) => l.replace(/^\*\s*/, "")), a });
+  }
+  return out;
+}
+
+function Sponsored() {
+  const items = useList<SponsoredQuiz>("city_sponsored");
+  const [f, setF] = useState({
+    title: "",
+    sponsor: "",
+    place: QUIZ_PLACES[0]?.id ?? "",
+    cls: "",
+    prize: 5000,
+    winners: 3,
+    days: 7,
+    text: "",
+  });
+  const [msg, setMsg] = useState("");
+  const qs = parseQuestions(f.text);
+  const place = QUIZ_PLACES.find((p) => p.id === f.place);
+  const create = async () => {
+    const { db, collection, doc, addDoc, setDoc } = await fb();
+    const now = Date.now();
+    const ref = await addDoc(collection(db, "city_sponsored"), {
+      title: f.title.trim(),
+      sponsor: f.sponsor.trim(),
+      place: f.place,
+      placeName: place?.name ?? "",
+      cls: f.cls,
+      prize: Number(f.prize),
+      winners: Number(f.winners),
+      questions: qs.map(({ q, o }) => ({ q, o })),
+      until: now + Number(f.days) * 86400000,
+      at: now,
+      status: "open",
+    });
+    await setDoc(doc(db, "city_sponsored_keys", ref.id), { answers: qs.map((x) => x.a) });
+    setMsg("Quiz is live!");
+    setF({ ...f, title: "", text: "" });
+  };
+  const input =
+    "mt-1 w-full rounded-lg border border-[#10201e]/15 bg-white px-2.5 py-2 text-[14px]";
+  return (
+    <div className="space-y-4">
+      <div className={card + " space-y-2"}>
+        <h2 className="text-lg font-bold">New sponsored quiz</h2>
+        <p className="text-[13px] opacity-70">
+          Entry is free and each player answers once. Players never see the answers: you rank the
+          entries here and pay the winners yourself.
+        </p>
+        <label className="block text-[13px] font-semibold">
+          Title
+          <input
+            className={input}
+            value={f.title}
+            onChange={(e) => setF({ ...f, title: e.target.value })}
+          />
+        </label>
+        <label className="block text-[13px] font-semibold">
+          Sponsor
+          <input
+            className={input}
+            value={f.sponsor}
+            onChange={(e) => setF({ ...f, sponsor: e.target.value })}
+          />
+        </label>
+        <label className="block text-[13px] font-semibold">
+          Masjid or school
+          <select
+            className={input}
+            value={f.place}
+            onChange={(e) => setF({ ...f, place: e.target.value, cls: "" })}
+          >
+            {QUIZ_PLACES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!!place?.classes.length && (
+          <label className="block text-[13px] font-semibold">
+            Class
+            <select
+              className={input}
+              value={f.cls}
+              onChange={(e) => setF({ ...f, cls: e.target.value })}
+            >
+              <option value="">Every class</option>
+              {place.classes.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block text-[13px] font-semibold">
+            Prize each (₦)
+            <input
+              type="number"
+              className={input}
+              value={f.prize}
+              onChange={(e) => setF({ ...f, prize: +e.target.value })}
+            />
+          </label>
+          <label className="block text-[13px] font-semibold">
+            Winners
+            <input
+              type="number"
+              className={input}
+              value={f.winners}
+              onChange={(e) => setF({ ...f, winners: +e.target.value })}
+            />
+          </label>
+          <label className="block text-[13px] font-semibold">
+            Days open
+            <input
+              type="number"
+              className={input}
+              value={f.days}
+              onChange={(e) => setF({ ...f, days: +e.target.value })}
+            />
+          </label>
+        </div>
+        <label className="block text-[13px] font-semibold">
+          Questions: the question, then its options one per line. Put * before the right answer.
+          Leave a blank line between questions.
+          <textarea
+            rows={10}
+            className={input + " font-mono text-[13px]"}
+            placeholder={
+              "How many pillars of Islam are there?\n* Five\nFour\nSix\n\nWho was the first caliph?\n* Abu Bakr\nUmar\nUthman"
+            }
+            value={f.text}
+            onChange={(e) => setF({ ...f, text: e.target.value })}
+          />
+        </label>
+        <p className="text-[13px]">
+          {qs.length} question{qs.length === 1 ? "" : "s"} ready.
+        </p>
+        <button
+          disabled={
+            !f.title.trim() || !f.sponsor.trim() || qs.length < 1 || f.prize < 1 || f.winners < 1
+          }
+          onClick={() => create().catch((e) => setMsg("Could not save: " + e.message))}
+          className={btn + " bg-[#1f6f63] text-white disabled:opacity-40"}
+        >
+          Put the quiz live
+        </button>
+        {msg && <p className="text-[13px] font-semibold">{msg}</p>}
+      </div>
+      <Empty items={items} text="No sponsored quizzes yet." />
+      {items?.map((q) => (
+        <SponsoredCard key={q.id} q={q} />
+      ))}
+    </div>
+  );
+}
+
+function SponsoredCard({ q }: { q: SponsoredQuiz }) {
+  const [entries, setEntries] = useState<(SponsoredEntry & { score: number })[] | null>(null);
+  const load = async () => {
+    const { db, collection, doc, getDoc, getDocs } = await fb();
+    const key = ((await getDoc(doc(db, "city_sponsored_keys", q.id))).data()?.answers ??
+      []) as number[];
+    const snap = await getDocs(collection(db, "city_sponsored", q.id, "entries"));
+    const list = snap.docs.map((d) => {
+      const e = d.data() as SponsoredEntry;
+      return { ...e, score: e.picks.filter((p, i) => p === key[i]).length };
+    });
+    list.sort((a, b) => b.score - a.score || a.at - b.at);
+    setEntries(list);
+  };
+  const paid = async (uid: string) => {
+    const { db, doc, updateDoc } = await fb();
+    await updateDoc(doc(db, "city_sponsored", q.id, "entries", uid), { paid: true });
+    await load();
+  };
+  const close = async () => {
+    const { db, doc, updateDoc } = await fb();
+    await updateDoc(doc(db, "city_sponsored", q.id), { status: "closed" });
+  };
+  const ended = q.status === "closed" || q.until < Date.now();
+  return (
+    <div className={card + " space-y-2"}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="font-bold">{q.title}</div>
+          <div className="text-[12.5px] opacity-75">
+            {q.placeName}
+            {q.cls ? ` · ${q.cls}` : ""} · by {q.sponsor} · {naira(q.prize)} × {q.winners} ·{" "}
+            {ended ? "ended" : `ends ${when(q.until)}`}
+          </div>
+        </div>
+        {!ended && (
+          <button onClick={() => void close()} className={btn + " bg-[#e9e4d8]"}>
+            Close
+          </button>
+        )}
+      </div>
+      <button onClick={() => void load()} className={btn + " bg-[#10201e] text-white"}>
+        {entries ? "Refresh entries" : "See entries and winners"}
+      </button>
+      {entries && !entries.length && <p className="text-[13px] opacity-60">No entries yet.</p>}
+      {entries?.map((e, i) => (
+        <div
+          key={e.uid}
+          className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[13px] ${i < q.winners ? "bg-[#fff7df]" : ""}`}
+        >
+          <span>
+            {i < q.winners ? "🏆 " : `${i + 1}. `}
+            <b>{e.name}</b> · {e.score}/{q.questions.length} · {e.phone} · {when(e.at)}
+          </span>
+          {i < q.winners &&
+            (e.paid ? (
+              <span className="font-bold text-[#1f6f63]">Paid ✓</span>
+            ) : (
+              <button onClick={() => void paid(e.uid)} className={btn + " bg-[#1f6f63] text-white"}>
+                Mark paid
+              </button>
+            ))}
         </div>
       ))}
     </div>

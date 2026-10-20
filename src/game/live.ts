@@ -160,3 +160,73 @@ export function watchMyEnquiries(uid: string, cb: (e: Enquiry[]) => void) {
     off();
   };
 }
+
+/* ---------------- sponsored quizzes with real prizes ----------------
+   The admin sets a quiz at a masjid or a school class, with a cash prize from a sponsor.
+   Players see the questions but never the answers: the answers are kept in an admin-only
+   document, and the admin ranks the entries and pays the winners. */
+export type SponsoredQuiz = {
+  id: string;
+  title: string;
+  sponsor: string;
+  /** the masjid or school (landmark id) */
+  place: string;
+  placeName: string;
+  /** for a school: one class only (empty = every class) */
+  cls?: string;
+  /** naira for each winner */
+  prize: number;
+  winners: number;
+  questions: { q: string; o: string[] }[];
+  until: number;
+  at: number;
+  status: "open" | "closed";
+};
+export type SponsoredEntry = {
+  uid: string;
+  name: string;
+  phone: string;
+  picks: number[];
+  at: number;
+  paid?: boolean;
+};
+
+/** Open sponsored quizzes (still running). */
+export function watchSponsored(cb: (q: SponsoredQuiz[]) => void) {
+  let off = () => {};
+  let live = true;
+  fs()
+    .then(({ db, collection, query, where, onSnapshot }) => {
+      if (!live) return;
+      off = onSnapshot(
+        query(collection(db, "city_sponsored"), where("status", "==", "open")),
+        (snap) => {
+          const now = Date.now();
+          cb(
+            snap.docs
+              .map((d) => ({ ...(d.data() as SponsoredQuiz), id: d.id }))
+              .filter((q) => q.until > now),
+          );
+        },
+        () => cb([]),
+      );
+    })
+    .catch(() => {});
+  return () => {
+    live = false;
+    off();
+  };
+}
+
+/** Have I already entered this quiz? */
+export async function myEntry(quiz: string, uid: string) {
+  const { db, doc, getDoc } = await fs();
+  const d = await getDoc(doc(db, "city_sponsored", quiz, "entries", uid));
+  return d.exists() ? (d.data() as SponsoredEntry) : null;
+}
+
+/** Send my answers (once only). */
+export async function enterSponsored(quiz: string, e: SponsoredEntry) {
+  const { db, doc, setDoc } = await fs();
+  await setDoc(doc(db, "city_sponsored", quiz, "entries", e.uid), e);
+}

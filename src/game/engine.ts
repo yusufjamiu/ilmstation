@@ -725,6 +725,17 @@ export class IlmCityEngine {
   isDriving() {
     return this.driving;
   }
+  private teacherTag: { g: THREE.Object3D; tag: THREE.Object3D } | null = null;
+  /** The madrasah teacher is the sheikh of that madrasah's street. */
+  setTeacher(name: string) {
+    const t = this.teacherTag;
+    if (!t) return;
+    t.g.remove(t.tag);
+    const tt = label(name, { size: 0.7, bold: false });
+    tt.position.copy(t.tag.position);
+    t.g.add(tt);
+    t.tag = tt;
+  }
   scenePlace() {
     return this.where;
   }
@@ -1151,6 +1162,8 @@ export class IlmCityEngine {
     if (!D.holy) this.buildCourt(D);
     // quiet residential closes behind the main streets, lined with houses ready to let
     if (!D.campus) this.buildCloses(D, zs, D.holy ? -8 : north, southEdge, batch);
+    // Manaar University College, going up at the end of Sheikh Habeeb Adewuyi Street
+    if (D.id === "ikorodu") this.buildManaarSite(batch, -110);
     const wires = new THREE.Group();
     if (!D.holy) zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
@@ -1743,6 +1756,8 @@ export class IlmCityEngine {
       if (Math.hypot(x, z) < 50) return true;
       if (x > L.x0 - r && x < L.x1 + r && z > L.z0 - r && z < L.z1 + r) return true;
       if (Math.hypot(x - 540, z - 20) < 85) return true; // the small lagoon
+      // Manaar University College's building site, west of Igbe Laara
+      if (x > 340 && x < 462 && z > -610 && z < -512) return true;
       for (const s of segs) if (IlmCityEngine.distToSeg(x, z, s) < 15 + CELL / 2) return true;
       for (const d of DISTRICTS) {
         const H = halfOf(d);
@@ -2141,6 +2156,167 @@ export class IlmCityEngine {
     }
   }
   private curBatch = new Batch();
+
+  /** A building site at the west end of a street (just past the area's last houses):
+      the hoarding, a concrete frame going up with scaffolding, a tower crane, sand,
+      blocks, a site office and workers in hard hats. */
+  private buildManaarSite(b: Batch, sz: number) {
+    const x0 = -128,
+      x1 = -214,
+      zN = sz - 58,
+      zS = sz + 8;
+    // the street carries on to the site gate
+    const road = new THREE.Mesh(groundGeo(x0 - x1 + 4, 9, 4), MAT.asphalt());
+    road.position.set((x0 + x1) / 2, 0.04, sz);
+    road.receiveShadow = true;
+    this.dg.add(road);
+    const cx = (x0 + x1) / 2,
+      cz = (zN + sz - 6) / 2;
+    // the ground inside: red earth
+    const dirt = new THREE.Mesh(groundGeo(x0 - x1 - 6, sz - 6 - zN, 3), mat(0xb07a4e));
+    dirt.position.set(cx - 2, 0.03, cz);
+    dirt.receiveShadow = true;
+    this.dg.add(dirt);
+    // the hoarding: blue zinc sheets with a gap for the gate
+    const zinc = MAT.plain(0x2a5a8a, 0.6);
+    const fence = (ax: number, az: number, bx: number, bz: number) => {
+      const along = Math.abs(bx - ax) > Math.abs(bz - az);
+      const len = Math.hypot(bx - ax, bz - az);
+      b.box(along ? len : 0.2, 2.6, along ? 0.2 : len, zinc, (ax + bx) / 2, 0, (az + bz) / 2);
+      this.addCollider(
+        "out",
+        Math.min(ax, bx) - 0.2,
+        Math.max(ax, bx) + 0.2,
+        Math.min(az, bz) - 0.2,
+        Math.max(az, bz) + 0.2,
+      );
+    };
+    const fz = sz - 6;
+    fence(x0 - 2, fz, cx + 6, fz);
+    fence(cx - 6, fz, x1 + 2, fz);
+    fence(x0 - 2, zN, x1 + 2, zN);
+    fence(x0 - 2, zN, x0 - 2, fz);
+    fence(x1 + 2, zN, x1 + 2, fz);
+    // the big signboard over the hoarding
+    const sign = this.signBoard("MANAAR UNIVERSITY COLLEGE", 22, 2.2, "#1f6f63", "#ffffff");
+    sign.position.set(cx + 18, 5.2, fz + 0.4);
+    this.dg.add(sign);
+    for (const px of [cx + 8, cx + 28]) {
+      b.box(0.3, 4.2, 0.3, MAT.plain(0x5a5f66, 0.5), px, 0, fz + 0.4);
+    }
+    const sub = this.signBoard(
+      "Under construction · coming soon, in shaa Allah",
+      22,
+      1,
+      "#e6b84a",
+      "#2a1c05",
+    );
+    sub.position.set(cx + 18, 3.6, fz + 0.42);
+    this.dg.add(sub);
+    // the concrete frame: three floors cast, the fourth's columns rising
+    const fx = cx - 8,
+      fzc = zN + 24,
+      FW = 40,
+      FD = 22,
+      FH = 3.6,
+      grey = MAT.plain(0xa9a49a, 0.95),
+      wet = MAT.plain(0x8e897f, 0.95);
+    for (let f = 0; f <= 3; f++) b.box(FW, 0.35, FD, f === 3 ? wet : grey, fx, f * FH, fzc);
+    for (let f = 0; f < 4; f++)
+      for (let ix = 0; ix <= 5; ix++)
+        for (let iz = 0; iz <= 2; iz++) {
+          if (f === 3 && (ix + iz) % 2) continue; // the top floor's columns half done
+          const x = fx - FW / 2 + 0.4 + (ix * (FW - 0.8)) / 5,
+            z = fzc - FD / 2 + 0.4 + (iz * (FD - 0.8)) / 2;
+          b.box(0.55, f === 3 ? FH * 0.6 : FH, 0.55, grey, x, f * FH + 0.35, z);
+          if (f === 3) b.box(0.08, 1.6, 0.08, MAT.plain(0x6a4a3a), x, f * FH + 0.35 + FH * 0.6, z);
+        }
+    // block walls started on the ground floor
+    b.box(FW * 0.6, 2.2, 0.2, MAT.plain(0xc9c2b2), fx - FW * 0.2, 0.35, fzc + FD / 2 - 0.3);
+    this.addCollider("out", fx - FW / 2, fx + FW / 2, fzc - FD / 2, fzc + FD / 2);
+    // scaffolding up the front: poles and boards
+    const pole = MAT.plain(0x8a8f96, 0.4),
+      plank = MAT.plain(0x9a6a3a);
+    for (let x = fx - FW / 2; x <= fx + FW / 2; x += 2.5)
+      b.box(0.08, FH * 4, 0.08, pole, x, 0, fzc + FD / 2 + 1.1);
+    for (let f = 1; f <= 3; f++) b.box(FW, 0.08, 1, plank, fx, f * FH, fzc + FD / 2 + 0.7);
+    // the tower crane: a lattice mast, the jib, the counterweight and a hook
+    const kx = fx + FW / 2 + 6,
+      kz = fzc - 4,
+      KH = 26,
+      yellow = MAT.plain(0xf2c230, 0.5);
+    for (const [ax, az] of [
+      [-0.7, -0.7],
+      [0.7, -0.7],
+      [-0.7, 0.7],
+      [0.7, 0.7],
+    ])
+      b.box(0.18, KH, 0.18, yellow, kx + ax, 0, kz + az);
+    for (let y = 1.5; y < KH; y += 3) {
+      b.box(1.6, 0.12, 0.12, yellow, kx, y, kz - 0.7);
+      b.box(1.6, 0.12, 0.12, yellow, kx, y, kz + 0.7);
+      b.box(0.12, 0.12, 1.6, yellow, kx - 0.7, y, kz);
+      b.box(0.12, 0.12, 1.6, yellow, kx + 0.7, y, kz);
+    }
+    b.box(2.4, 2, 2.4, MAT.plain(0x2a2f36, 0.5), kx, KH, kz); // the cab
+    b.box(34, 0.9, 1.1, yellow, kx - 17 + 1, KH + 2, kz); // the jib over the building
+    b.box(10, 0.9, 1.1, yellow, kx + 6, KH + 2, kz); // the counter-jib
+    b.box(2.6, 2, 1.6, MAT.plain(0x7a7a7a), kx + 10, KH + 0.6, kz); // counterweight
+    b.box(0.6, 4, 0.6, yellow, kx, KH + 2.9, kz);
+    b.box(0.04, 14, 0.04, MAT.plain(0x222222), kx - 22, KH - 12, kz);
+    b.box(1.4, 0.8, 1.4, MAT.plain(0x9a958a), kx - 22, KH - 13, kz); // a load of blocks
+    this.addCollider("out", kx - 1, kx + 1, kz - 1, kz + 1);
+    // sand, gravel, stacked blocks, a cement mixer and the site office
+    const heap = (x: number, z: number, r: number, c: number) => {
+      const m = new THREE.Mesh(new THREE.ConeGeometry(r, r * 0.8, 14), mat(c));
+      m.position.set(x, (r * 0.8) / 2, z);
+      m.castShadow = true;
+      this.dg.add(m);
+      this.addCollider("out", x - r * 0.7, x + r * 0.7, z - r * 0.7, z + r * 0.7);
+    };
+    heap(x0 - 10, fz - 8, 3.2, 0xd9b77a);
+    heap(x0 - 17, fz - 6, 2.4, 0x8a8a84);
+    for (let i = 0; i < 3; i++) {
+      b.box(2.6, 1.2, 1.4, MAT.plain(0xbcb5a5), x1 + 12 + i * 3.2, 0, fz - 6);
+      this.addCollider("out", x1 + 10.7 + i * 3.2, x1 + 13.3 + i * 3.2, fz - 6.8, fz - 5.2);
+    }
+    const mixer = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 1.6, 12), mat(0xe67e22));
+    mixer.rotation.z = 0.6;
+    mixer.position.set(x0 - 24, 1.3, fz - 9);
+    this.dg.add(mixer);
+    b.box(6, 2.8, 2.6, MAT.plain(0xf4efe4), x1 + 8, 0, zN + 5); // the site office
+    b.box(1, 2, 0.05, MAT.door(0x5a3a22), x1 + 8, 0, zN + 6.33);
+    this.addCollider("out", x1 + 5, x1 + 11, zN + 3.7, zN + 6.3);
+    // workers in hard hats
+    const spots: [number, number, number][] = [
+      [x0 - 12, fz - 12, 2.2],
+      [fx - 6, fzc + FD / 2 + 3, 3.1],
+      [fx + 10, fzc + FD / 2 + 3.4, 0.3],
+      [x1 + 15, fz - 9, 1.2],
+    ];
+    spots.forEach(([x, z, h], i) => {
+      const w = person(i % 2 ? 0x2a4a7a : 0xe67e22, {
+        cap: 0xf2c230,
+        seed: 70 + i,
+        outfit: "kaftan",
+      });
+      w.position.set(x, 0, z);
+      w.rotation.y = h;
+      this.dg.add(w);
+    });
+    // what's being built, at the gate
+    this.zones.push({
+      id: "construction:manaar-uni",
+      label: "Manaar University College (being built)",
+      x: this.ox + cx,
+      z: this.oz + fz + 2,
+      r: 4,
+      scene: "out",
+    });
+    const t = label("🏗️ Manaar University College", { size: 1.1, bg: "rgba(31,111,99,0.92)" });
+    t.position.set(cx, 9, fz);
+    this.dg.add(t);
+  }
 
   /** Narrow tarred closes in the space between the main streets, with compounds on both
       sides wall to wall, the way Lagos neighbourhoods are packed. Most houses are to let. */
@@ -5885,7 +6061,7 @@ export class IlmCityEngine {
   }) {
     const fresh =
       o.ihram && !o.female
-        ? person(0xf8f8f4, { cap: null, skin: o.skin, seed: 1, outfit: "thobe", beard: true })
+        ? person(0xf8f8f4, { cap: null, skin: o.skin, seed: 1, outfit: "ihram", beard: true })
         : o.female
           ? person(o.robe, {
               hijab: o.accent,
@@ -6253,7 +6429,7 @@ export class IlmCityEngine {
         const blessed = p.badge?.includes("✨"),
           generous = p.badge?.includes("💚");
         const tag = label(
-          `${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}${p.badge?.includes("🕋") ? " 🕋" : ""}`,
+          `${generous ? "💚 " : "● "}${p.name}${blessed ? " ✨" : ""}${p.badge?.includes("🕋") ? " 🕋" : ""}${["👑", "💎", "💰"].find((i) => p.badge?.includes(i)) ? " " + ["👑", "💎", "💰"].find((i) => p.badge?.includes(i)) : ""}`,
           {
             size: 0.75,
             bg: blessed
@@ -7729,9 +7905,10 @@ export class IlmCityEngine {
       const teacher = person(0xece6d6, { cap: 0x2f4c46 });
       teacher.position.set(0, 0, -6);
       g.add(teacher);
-      const tt = label("Ustadh Ibrahim", { size: 0.7, bold: false });
+      const tt = label("Ustadh", { size: 0.7, bold: false });
       tt.position.set(0, 2.5, -6);
       g.add(tt);
+      this.teacherTag = { g, tag: tt };
       for (let r = 0; r < 2; r++)
         for (let c = 0; c < 4; c++) {
           const d = box(2, 0.9, 1, 0xa8834f, -6 + c * 4, 0, -0.5 + r * 3.2);

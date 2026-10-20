@@ -11,7 +11,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 
 /** agbada: a wide flowing outer robe over a long kaftan, with a tall fila cap.
     lace: a premium abaya with bell sleeves, a long khimar and gold trim. */
-export type Outfit = "thobe" | "kaftan" | "abaya" | "hisbah" | "agbada" | "lace";
+export type Outfit = "thobe" | "kaftan" | "abaya" | "hisbah" | "agbada" | "lace" | "ihram";
 export type Look = {
   outfit: Outfit;
   robe: number;
@@ -385,7 +385,9 @@ function buildTemplate(look: Look) {
   const lace = look.outfit === "lace",
     agbada = look.outfit === "agbada";
   const female = look.outfit === "abaya" || lace;
-  const long = look.outfit === "thobe" || female || agbada;
+  /** ihram: two white sheets, the right shoulder and arm left bare (idtiba') */
+  const ihram = look.outfit === "ihram";
+  const long = look.outfit === "thobe" || female || agbada || ihram;
   const hipY = P.LeftUpLeg.y,
     kneeY = P.LeftLeg.y;
   /** Torso near the body bones; below the hips a robe follows hips and both legs. */
@@ -473,9 +475,17 @@ function buildTemplate(look: Look) {
         14,
       ),
       near([side + "Shoulder", side + "Arm", side + "ForeArm"], 5),
-      "robe",
-      true,
+      ihram && s < 0 ? "skin" : "robe",
+      ihram && s < 0 ? false : true,
     );
+  }
+  if (ihram) {
+    // the bare right shoulder, over the top of the sheet
+    const sh = P.RightShoulder.clone().lerp(P.RightArm, 0.75);
+    const cap = new THREE.SphereGeometry(0.095, 14, 10);
+    cap.scale(1, 0.8, 1.05);
+    cap.translate(sh.x, sh.y - 0.01, sh.z);
+    add(cap, near(["RightShoulder", "RightArm", "Spine2"], 4), "skin");
   }
 
   // --- premium: the agbada's outer robe, and gold embroidery ---
