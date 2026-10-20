@@ -685,8 +685,8 @@ export function compound(
   };
   const pick = <T>(a: T[]) => a[Math.floor(r2() * a.length)];
 
-  // the yard: a lawn, with a stone path from the gate to the porch
-  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT2.lawn(), 0, 0.035, 0, 0, false);
+  // the yard: paved, with a stone path from the gate to the porch
+  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT.paving(), 0, 0.035, 0, 0, false);
 
   // a low white wall with rails on top, and a gate between two pillars
   const FH = 1.3,
@@ -1053,6 +1053,9 @@ const shutterTex = () =>
       c.fillRect(0, y, w, 1);
     }
   });
+/** Tarred ground between the buildings: like the road, a little lighter. */
+export const TARRED = () =>
+  M("tarred", () => std({ map: asphaltTex(), color: 0xb4b6b8, roughness: 0.95 }));
 export const MAT2 = {
   glass: () => M("glass", () => std({ map: glassTex(), roughness: 0.15, metalness: 0.6 })),
   shutter: () => M("shutter", () => std({ map: shutterTex(), metalness: 0.5, roughness: 0.4 })),
@@ -1141,7 +1144,7 @@ export function campus(
     cream = MAT.plain(0xf7f5ef);
   const front = D / 2;
   b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.03, 0, 0, false);
-  b.add(groundGeo(W - 2 * T - 4, D - 2 * T - 4, 4), MAT2.lawn(), 0, 0.05, 0, 0, false);
+  b.add(groundGeo(W - 2 * T - 4, D - 2 * T - 4, 4), MAT.paving(), 0, 0.05, 0, 0, false);
   const gate = 7;
   const wing = (cx: number, cz: number, w: number, d: number) => {
     b.box(w, H, d, wallM, cx, 0, cz);
@@ -1541,6 +1544,18 @@ export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn:
 }
 
 /** A university lecture building: brick and cream, a columned porch and a name band. */
+/** How each university's buildings look. */
+export type CampusStyle = "modern" | "brick" | "classic" | "islamic";
+export function campusStyleOf(name: string): CampusStyle {
+  if (/UNILAG|LASUSTECH/.test(name)) return "modern";
+  if (/LASU\b/.test(name)) return "brick";
+  if (/Hikmah|Manaar/.test(name)) return "islamic";
+  return "classic";
+}
+/** A grand faculty building: a wide stair to a raised plaza, a tall main block, and a
+    centrepiece that differs by university — a glass tower (UNILAG, LASUSTECH), red brick
+    with white columns (LASU), a temple front with a pediment (Unilorin), or pointed arches
+    and a dome (Al-Hikmah). */
 export function faculty(
   b: Batch,
   o: {
@@ -1554,61 +1569,162 @@ export function faculty(
   },
 ): Built {
   const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const style = campusStyleOf(o.name);
   const W = o.width,
     D = o.depth,
     front = D / 2;
-  b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.035, 0, 0, false);
-  const BW = W - 4,
-    BD = D - 9,
-    bz = -front + 1 + BD / 2;
-  const FH = 3.5,
-    H = 0.6 + o.floors * FH;
-  const brick = MAT.block(0xb8644a),
-    cream = MAT.plaster(0xf2ead6),
-    green = MAT.plain(0x1f6f63);
-  b.box(BW + 0.6, 0.6, BD + 0.6, MAT.plain(0x9a958a), 0, 0, bz);
-  b.box(BW, H - 0.6, BD, brick, 0, 0.6, bz);
-  for (let f = 1; f <= o.floors; f++)
-    b.box(BW + 0.3, 0.3, BD + 0.3, cream, 0, 0.6 + f * FH - 0.3, bz);
-  b.box(BW + 0.8, 0.7, BD + 0.8, cream, 0, H, bz);
-  // windows on every floor, front and back
-  for (let f = 0; f < o.floors; f++) {
-    const y = 0.6 + f * FH + 1.7;
-    for (let x = -BW / 2 + 2.2; x < BW / 2 - 1.5; x += 3.2) {
-      if (f === 0 && Math.abs(x) < 3.5) continue;
-      b.plane(1.6, 1.7, MAT.window(0x2a4a6a), x, y, bz + BD / 2 + 0.02);
-      b.plane(1.6, 1.7, MAT.window(0x2a4a6a), x, y, bz - BD / 2 - 0.02, Math.PI);
+  b.add(groundGeo(W, D, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  const floors = Math.max(4, o.floors + 1);
+  const FH = 3.6,
+    P = 0.9, // the raised plinth
+    H = P + floors * FH;
+  const BW = W - 3,
+    BD = D - 11,
+    bz = -front + 1 + BD / 2,
+    fz = bz + BD / 2; // the front face
+  const pal = {
+    modern: { wall: 0xeef1f4, trim: 0x2a4a7a, accent: 0x3a7bd5, sign: "#14325a" },
+    brick: { wall: 0xa8503a, trim: 0xf4efe4, accent: 0x7a2e22, sign: "#7a2e22" },
+    classic: { wall: 0xe8dcc0, trim: 0xf8f3e6, accent: 0x6a2a2a, sign: "#5a1f2a" },
+    islamic: { wall: 0xf6f2e8, trim: 0x1f6f63, accent: 0xc9a227, sign: "#1f6f63" },
+  }[style];
+  const wall = style === "brick" ? MAT.block(pal.wall) : MAT.plaster(pal.wall),
+    trim = MAT.plaster(pal.trim),
+    stone = MAT.plain(0xcfc8b6);
+  // plinth and the wide steps across the front
+  b.box(BW + 1.2, P, BD + 1.2, stone, 0, 0, bz);
+  for (let i = 0; i < 3; i++)
+    b.box(BW * 0.7 - i * 1.2, (P / 3) * (i + 1), 1.1, stone, 0, 0, fz + 2.7 - i * 1.0);
+  // two side wings and the taller middle block
+  const wingW = BW * 0.3,
+    midW = BW - wingW * 2;
+  for (const s of [-1, 1]) {
+    const cx = s * (midW / 2 + wingW / 2);
+    b.box(wingW, (floors - 1) * FH, BD, wall, cx, P, bz);
+    b.box(wingW + 0.4, 0.5, BD + 0.4, trim, cx, P + (floors - 1) * FH, bz);
+    for (let f = 0; f < floors - 1; f++) {
+      const y = P + f * FH + 1.8;
+      for (let x = -wingW / 2 + 1.6; x < wingW / 2 - 1; x += 2.4) {
+        const win = style === "islamic" ? MAT3.archWin(pal.wall, pal.trim) : MAT.window(0x2a4a6a);
+        b.plane(1.5, 2.1, win, cx + x, y, fz + 0.02);
+        b.plane(1.5, 2.1, win, cx + x, y, bz - BD / 2 - 0.02, Math.PI);
+      }
+      // a band between floors
+      b.box(wingW + 0.15, 0.18, BD + 0.15, trim, cx, P + (f + 1) * FH - 0.2, bz);
     }
   }
-  // columned porch with the faculty's name above
-  const pz = bz + BD / 2 + 2;
-  for (const x of [-4.5, -1.5, 1.5, 4.5]) {
-    b.add(new THREE.CylinderGeometry(0.32, 0.36, 4.2, 10), cream, x, 0.6 + 2.1, pz + 1.4);
-    solid(x - 0.4, x + 0.4, pz + 1, pz + 1.8);
+  b.box(midW, floors * FH, BD + 1.2, wall, 0, P, bz + 0.6);
+  const mz = fz + 1.2;
+  if (style === "modern") {
+    // a full-height glass curtain wall, a floating roof blade and a glass crown
+    b.plane(midW - 1.4, floors * FH - 1, MAT2.glass(), 0, P + (floors * FH) / 2, mz + 0.03);
+    for (let f = 1; f < floors; f++) b.box(midW - 1.2, 0.2, 0.25, trim, 0, P + f * FH, mz + 0.1);
+    for (let x = -midW / 2 + 0.7; x <= midW / 2 - 0.6; x += (midW - 1.4) / 4)
+      b.box(0.2, floors * FH - 1, 0.3, trim, x, P + 0.5, mz + 0.1);
+    b.box(midW + 6, 0.5, BD + 5, MAT.plain(0xf4f6f8, 0.4), 0, H + 0.4, bz + 1.5);
+    b.box(midW * 0.6, 4.5, BD * 0.6, MAT2.glass(), 0, H + 0.9, bz);
+    b.box(midW * 0.6 + 0.4, 0.4, BD * 0.6 + 0.4, trim, 0, H + 5.4, bz);
+    // a slim canopy over the entrance on two steel legs
+    b.box(midW + 2, 0.25, 4, MAT.plain(0x9aa3ad, 0.4), 0, 4.4, mz + 2);
+    for (const x of [-midW / 2 - 0.6, midW / 2 + 0.6]) {
+      b.box(0.25, 3.6, 0.25, MAT.plain(0x9aa3ad, 0.4), x, P, mz + 3.6);
+      solid(x - 0.3, x + 0.3, mz + 3.3, mz + 3.9);
+    }
+  } else if (style === "islamic") {
+    // tall pointed arches on slender columns, a green dome and two slim towers
+    for (let f = 0; f < floors - 1; f++)
+      for (let x = -midW / 2 + 1.7; x < midW / 2 - 1; x += 2.6)
+        b.plane(1.8, 2.4, MAT3.archWin(pal.wall, pal.trim), x, P + f * FH + 1.9, mz + 0.03);
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const x = -midW / 2 + 1 + (i * (midW - 2)) / (n - 1);
+      b.add(new THREE.CylinderGeometry(0.28, 0.3, 6, 10), trim, x, P + 3, mz + 2.6);
+      solid(x - 0.35, x + 0.35, mz + 2.25, mz + 2.95);
+    }
+    b.box(midW, 1.2, 3.2, MAT.plaster(pal.wall), 0, P + 6, mz + 1.6);
+    b.plane(midW - 1, 1.1, MAT3.lattice(), 0, P + 6.6, mz + 3.22);
+    const dome = new THREE.SphereGeometry(midW * 0.32, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    b.box(midW * 0.62, 1.6, midW * 0.62, trim, 0, H, bz);
+    b.add(dome, MAT.plain(0x1f6f63, 0.5), 0, H + 1.6, bz);
+    b.add(
+      new THREE.SphereGeometry(0.45, 10, 8),
+      MAT.plain(pal.accent, 0.3),
+      0,
+      H + 1.6 + midW * 0.32 + 0.3,
+      bz,
+    );
+    for (const s of [-1, 1]) {
+      const tx = s * (BW / 2 - 0.9);
+      b.add(new THREE.CylinderGeometry(0.75, 0.85, H + 7, 10), trim, tx, (H + 7) / 2, fz - 0.5);
+      b.add(new THREE.ConeGeometry(0.9, 2.6, 10), MAT.plain(0x1f6f63, 0.5), tx, H + 8.3, fz - 0.5);
+    }
+  } else {
+    // a temple front: tall columns up two floors under a pediment (classic), or white
+    // columns against red brick with a square clock turret (brick)
+    const n = style === "classic" ? 6 : 4;
+    const colH = FH * 2 + 0.6;
+    for (let i = 0; i < n; i++) {
+      const x = -midW / 2 + 1 + (i * (midW - 2)) / (n - 1);
+      b.add(new THREE.CylinderGeometry(0.42, 0.48, colH, 14), trim, x, P + colH / 2, mz + 2.6);
+      b.box(1.1, 0.4, 1.1, trim, x, P, mz + 2.6);
+      solid(x - 0.55, x + 0.55, mz + 2.05, mz + 3.15);
+    }
+    b.box(midW + 0.6, 0.9, 3.6, trim, 0, P + colH, mz + 1.6);
+    if (style === "classic") {
+      const ped = new THREE.CylinderGeometry(midW / 2 + 0.4, midW / 2 + 0.4, 3.6, 3, 1);
+      ped.rotateX(Math.PI / 2);
+      ped.rotateZ(Math.PI / 2);
+      ped.scale(1, 0.32, 1);
+      b.add(ped, trim, 0, P + colH + 0.9 + 1.0, mz + 1.6);
+    }
+    for (let f = 2; f < floors; f++)
+      for (let x = -midW / 2 + 1.6; x < midW / 2 - 1; x += 2.4)
+        b.plane(1.5, 2.1, MAT.window(0x2a4a6a), x, P + f * FH + 1.8, mz + 0.03);
+    b.box(midW + 0.6, 0.6, BD + 1.8, trim, 0, H, bz + 0.6);
+    if (style === "brick") {
+      // a clock turret over the middle
+      b.box(4.4, 6, 4.4, wall, 0, H + 0.6, bz);
+      b.box(4.8, 0.5, 4.8, trim, 0, H + 6.6, bz);
+      b.add(
+        new THREE.ConeGeometry(3.4, 3.4, 4),
+        MAT.plain(0x3a3f44, 0.6),
+        0,
+        H + 8.8,
+        bz,
+        Math.PI / 4,
+      );
+      b.add(new THREE.CircleGeometry(1.3, 24), MAT.plain(0xfaf6ea, 0.5), 0, H + 4, bz + 2.22);
+      b.box(0.12, 1.0, 0.05, MAT.plain(0x1a1a1a), 0, H + 3.9, bz + 2.26);
+      b.box(0.8, 0.12, 0.05, MAT.plain(0x1a1a1a), 0.35, H + 4, bz + 2.26);
+    }
   }
-  b.box(11, 0.5, 4, cream, 0, 4.8, pz);
-  b.box(11, 0.6, 4.4, cream, 0, 0, pz - 0.2);
+  // the faculty's name in big letters over the entrance
   b.plane(
-    Math.min(BW * 0.9, 18),
-    1.6,
-    textMat(o.name, { bg: "#7a2e22", fg: "#fdf8ec", border: "#e6b84a" }),
+    Math.min(midW + 2, 20),
+    1.5,
+    textMat(o.name, { bg: pal.sign, fg: "#fdf8ec", border: "#e6b84a" }),
     0,
-    H - 1.4,
-    bz + BD / 2 + 0.06,
+    style === "modern" ? 5.6 : P + FH * 2 + 1.0 + (style === "islamic" ? 0.6 : 0.2),
+    mz + (style === "modern" ? 0.12 : style === "islamic" ? 3.24 : 3.45),
   );
-  b.plane(2.6, 2.8, MAT.door(0x5a3a22), 0, 2.0, bz + BD / 2 + 0.03);
-  b.box(BW * 0.5, 0.3, 0.6, green, 0, H + 0.7, bz + BD / 2);
-  solid(-BW / 2 - 0.4, BW / 2 + 0.4, bz - BD / 2, bz + BD / 2 + 0.4);
-  // benches and notice board in front
-  for (const bx of [-W / 2 + 3, W / 2 - 3]) {
-    b.box(2, 0.45, 0.6, MAT.plain(0x8a5a3a), bx, 0, front - 2);
-    solid(bx - 1, bx + 1, front - 2.3, front - 1.7);
+  b.plane(3.2, 3.3, MAT.door(0x3a2a1a), 0, P + 1.65, mz + 0.05);
+  solid(-BW / 2 - 0.6, BW / 2 + 0.6, bz - BD / 2 - 0.6, fz + 1.4);
+  // the forecourt: flower beds, lamps and two flag poles
+  for (const s of [-1, 1]) {
+    const bx = s * (W / 2 - 3.2);
+    b.box(4, 0.45, 2.2, MAT.plain(0x8a7a5a), bx, 0, front - 2.2);
+    b.box(3.6, 0.2, 1.8, MAT2.lawn(), bx, 0.45, front - 2.2);
+    solid(bx - 2, bx + 2, front - 3.3, front - 1.1);
+    const fx = s * (BW * 0.36);
+    b.add(new THREE.CylinderGeometry(0.08, 0.1, 9, 6), MAT.plain(0xd0d0d0, 0.3), fx, 4.5, fz + 4.4);
+    b.box(1.6, 1, 0.05, MAT.plain(s < 0 ? 0x008751 : pal.accent), fx + 0.85, 7.7, fz + 4.4);
+    solid(fx - 0.2, fx + 0.2, fz + 4.2, fz + 4.6);
   }
-  const door = to(0, pz + 3.2);
+  const door = to(0, Math.min(front - 0.6, fz + 4.2));
   b.base.identity();
   return {
     colliders,
-    spots: [{ key: "door", x: door.x, z: door.z, label: o.name, labelY: H + 2.2 }],
+    spots: [{ key: "door", x: door.x, z: door.z, label: o.name, labelY: H + 3 }],
   };
 }
 
@@ -2560,8 +2676,8 @@ function styledHouse(
       ])
         b.box(0.1, 2.6, 0.1, dark, cx + px, 0, cz + pz);
     }
-    // a strip of lawn, fan palms and sometimes a small pool
-    b.add(groundGeo(PW - 1, 2.2, 2), MAT2.lawn(), 0, 0.05, front - 1.4, 0, false);
+    // a paved strip, fan palms and sometimes a small pool
+    b.add(groundGeo(PW - 1, 2.2, 2), MAT.paving(), 0, 0.05, front - 1.4, 0, false);
     for (const px of [-PW / 2 + 1.4, PW / 2 - 1.4]) {
       if (Math.abs(px - gx) < 3) continue;
       fanPalm(b, px, front - 1.5, 0.9);

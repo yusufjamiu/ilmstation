@@ -168,6 +168,17 @@ export const STREETS: Record<string, Street> = {
     bio: "The road out to Ilorin International Airport.",
   },
   adewoleroad: { id: "adewoleroad", name: "Adewole Road", bio: ILORIN_ST },
+  hikmahuniroad: {
+    id: "hikmahuniroad",
+    name: "Al-Hikmah University Road",
+    bio: "The road into Al-Hikmah University, Adewole, Ilorin: a university with Islamic values.",
+  },
+  mssnhikmah: { id: "mssnhikmah", name: "MSSN Avenue (Al-Hikmah)", bio: MSSN_ST },
+  hikmahlodge: {
+    id: "hikmahlodge",
+    name: "Hikmah Lodge Street",
+    bio: "Student lodges, eateries and bookshops outside Al-Hikmah University.",
+  },
   hikmahroad: {
     id: "hikmahroad",
     name: "Al-Hikmah Road",
@@ -396,6 +407,7 @@ function universityArea(o: {
   gate?: string;
   /** more places in the area */
   extra?: Landmark[];
+  link?: "north" | "east";
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
   const fx = [-112, -24, 26, 70];
@@ -409,6 +421,7 @@ function universityArea(o: {
     highway: o.highway,
     busStop: o.busStop,
     parent: o.parent,
+    link: o.link,
     half: { x: 140, z: 140 },
     tier: 2,
     toLet: 0.5,
@@ -1469,6 +1482,32 @@ export const DISTRICTS: District[] = [
     about:
       "Where Unilorin Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
+  universityArea({
+    id: "alhikmah",
+    gate: "Al-Hikmah University, Ilorin",
+    name: "Al-Hikmah University",
+    uni: "Al-Hikmah University, Adewole, Ilorin",
+    short: "Al-Hikmah",
+    origin: { x: 4830, z: -170 },
+    highway: "Al-Hikmah Road",
+    parent: "adewole",
+    link: "east",
+    busStop: "Al-Hikmah Gate",
+    road: "hikmahuniroad",
+    avenue: "mssnhikmah",
+    homes: "hikmahlodge",
+    state: "Kwara",
+    city: "ilorin",
+    region: "Ilorin",
+    faculties: [
+      "Faculty of Natural and Applied Sciences",
+      "Faculty of Humanities",
+      "Faculty of Law",
+      "Faculty of Education",
+    ],
+    about:
+      "Where Al-Hikmah Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
   {
     id: "fate",
     city: "ilorin",
@@ -1538,19 +1577,6 @@ export const DISTRICTS: District[] = [
         name: "Adewole Central Mosque",
         street: "adewoleroad",
         x: -40,
-      },
-      {
-        id: "al-hikmah",
-        kind: "campus",
-        name: "Al-Hikmah University",
-        street: "hikmahroad",
-        x: 40,
-        width: 58,
-        depth: 30,
-        floors: 2,
-        classes: ["100 Level", "200 Level", "300 Level", "400 Level"],
-        about:
-          "Al-Hikmah University, Adewole: a university with Islamic values, for brothers and sisters.",
       },
     ],
   },
@@ -3049,7 +3075,38 @@ export const JOBS: Job[] = [
     hours: null,
     about: "Collect parcels at a shop and deliver them to houses on your street.",
     play: "rider",
-    tasks: [],
+    tasks: [
+      J(
+        "A customer isn't home when you deliver. You…",
+        "Call them and wait a little, or bring it back",
+        "Leave it on the road",
+        "Keep the parcel",
+      ),
+      J(
+        "Riding through traffic, you…",
+        "Wear a helmet and ride carefully",
+        "Speed between cars",
+        "Ride on the walkway",
+      ),
+      J(
+        "A parcel was damaged on the way. You…",
+        "Tell the shop and the customer honestly",
+        "Hide it",
+        "Blame the customer",
+      ),
+      J(
+        "Before starting deliveries you check…",
+        "Fuel, brakes and lights",
+        "Your music",
+        "Nothing",
+      ),
+      J(
+        "The customer gives you extra money by mistake. You…",
+        "Return it",
+        "Keep it quietly",
+        "Ask for more",
+      ),
+    ],
   },
 ];
 export const STREAK_REWARDS: Record<number, number> = { 3: 20, 7: 50, 14: 100, 30: 200 };
@@ -3353,7 +3410,7 @@ export const facultiesOf = (area: string) =>
     .landmarks.filter((l) => l.kind === "faculty" && !l.id.endsWith("-library"))
     .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] }));
 
-type FQ = { q: string; o: string[]; a: number };
+export type FQ = { q: string; o: string[]; a: number };
 const fq = (q: string, a: string, ...w: string[]): FQ => {
   const o = [a, ...w];
   // put the answer in a fixed but varied place
