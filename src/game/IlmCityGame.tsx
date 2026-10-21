@@ -30,6 +30,15 @@ import {
   type WalletNet,
 } from "./wallet";
 import { PACKS } from "./packs";
+import {
+  MIN_LAP_MS,
+  fmtTime as raceTime,
+  sendTime,
+  watchEntries,
+  watchRaces,
+  type Race,
+  type RaceEntry,
+} from "./races";
 import type { HomeType } from "./buildings";
 import {
   connectHouseSales,
@@ -195,6 +204,9 @@ type Save = {
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
   fuel?: number;
+  /** your bicycle, and whether you are riding it */
+  bike?: { kind: BikeKind; color: number };
+  cycling?: boolean;
   path?: LifePath;
   job?: string;
   /** the day you last worked a shift */
@@ -4168,6 +4180,157 @@ function CityGame({
     });
   };
 
+  /* ---------- bicycles and races ---------- */
+  const toggleBike = useCallback(() => {
+    const e = engine.current;
+    const b = saveRef.current.bike;
+    if (!e || !b) return;
+    const on = !saveRef.current.cycling;
+    if (raceRef.current && !on && raceRef.current.kind === "bike") {
+      toast("Finish the cycling race first, or cancel it.", "warn");
+      return;
+    }
+    e.setBike(on ? b.kind : null, b.color);
+    saveRef.current = { ...saveRef.current, cycling: on };
+    update((x) => ({ ...x, cycling: on }));
+  }, [toast, update]);
+  /** The race being run now: which, how many laps, where the runner is up to. */
+  type Running = {
+    race: Race | null;
+    kind: "run" | "bike";
+    laps: number;
+    lap: number;
+    next: number;
+    start: number;
+    go: boolean;
+  };
+  const raceRef = useRef<Running | null>(null);
+  const [raceNow, setRaceNow] = useState<{ text: string; ms: number } | null>(null);
+  const stopRace = useCallback(
+    (msg?: string) => {
+      raceRef.current = null;
+      setRaceNow(null);
+      if (msg) toast(msg, "warn");
+    },
+    [toast],
+  );
+  const startRace = useCallback(
+    (race: Race | null, kind: "run" | "bike", laps: number) => {
+      const e = engine.current;
+      const cp = e?.arenaCheckpoints();
+      if (!e || !cp) return;
+      const s = saveRef.current;
+      if (kind === "bike" && !s.bike) {
+        toast("You need a bicycle for a cycling race. Buy one at IlmMotors.", "warn");
+        return;
+      }
+      if (kind === "bike" && !s.cycling) {
+        e.setBike(s.bike!.kind, s.bike!.color);
+        saveRef.current = { ...s, cycling: true };
+        update((x) => ({ ...x, cycling: true }));
+      }
+      if (kind === "run" && s.cycling) {
+        e.setBike(null);
+        saveRef.current = { ...s, cycling: false };
+        update((x) => ({ ...x, cycling: false }));
+      }
+      setPanel(null);
+      // on the start line, facing along the front straight
+      const f = cp.pts[0];
+      e.placePlayer(f.x - 3, f.z, Math.PI / 2);
+      raceRef.current = { race, kind, laps, lap: 0, next: 1, start: 0, go: false };
+      let n = 3;
+      setRaceNow({ text: "3", ms: 0 });
+      const tick = setInterval(() => {
+        if (!raceRef.current) return clearInterval(tick);
+        n--;
+        if (n > 0) setRaceNow({ text: String(n), ms: 0 });
+        else {
+          clearInterval(tick);
+          raceRef.current.go = true;
+          raceRef.current.start = performance.now();
+          setRaceNow({ text: "GO!", ms: 0 });
+        }
+      }, 1000);
+    },
+    [toast, update],
+  );
+  // follow the runner round the track: checkpoints in order, laps, the finish
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const r = raceRef.current;
+      const e = engine.current;
+      if (!r || !e) return;
+      const cp = e.arenaCheckpoints();
+      const p = e.playerPos();
+      if (!cp) return;
+      if (p.where !== "out" || e.isDriving()) return stopRace("Race stopped.");
+      if (!r.go) {
+        // no early start: stay near the line during the countdown
+        if (Math.hypot(p.x - cp.pts[0].x, p.z - cp.pts[0].z) > 12)
+          stopRace("False start: the race is stopped.");
+        return;
+      }
+      if (r.kind === "bike" && !e.isCycling())
+        return stopRace("You got off your bicycle: race stopped.");
+      if (r.kind === "run" && e.isCycling()) return stopRace("No bicycles in a running race.");
+      const ms = performance.now() - r.start;
+      const target = cp.pts[r.next];
+      if (Math.hypot(p.x - target.x, p.z - target.z) < cp.r) {
+        if (r.next === 0) {
+          r.lap++;
+          if (r.lap >= r.laps) {
+            raceRef.current = null;
+            setRaceNow(null);
+            const fair = ms >= MIN_LAP_MS[r.kind] * r.laps;
+            if (!fair) {
+              toast("That time is too fast to be real: it doesn't count.", "warn");
+              return;
+            }
+            const race = r.race;
+            const o = onlineRef.current;
+            if (!race || !o) {
+              toast(`Finished! Your time: ${raceTime(ms)}`, "good");
+              return;
+            }
+            void sendTime(race.id, o.uid, shownName(saveRef.current) ?? "Player", Math.round(ms))
+              .then((res) =>
+                toast(
+                  res.improved
+                    ? `Finished in ${raceTime(ms)}: your best time in ${race.title}!`
+                    : `Finished in ${raceTime(ms)}. Your best is still ${raceTime(res.best)}.`,
+                  "good",
+                ),
+              )
+              .catch(() =>
+                toast(`Finished in ${raceTime(ms)}, but the time couldn't be sent.`, "warn"),
+              );
+            return;
+          }
+        }
+        r.next = (r.next + 1) % cp.pts.length;
+      }
+      setRaceNow({
+        text: `${r.kind === "bike" ? "🚲" : "🏃"} Lap ${Math.min(r.lap + 1, r.laps)}/${r.laps}`,
+        ms,
+      });
+    }, 100);
+    return () => clearInterval(iv);
+  }, [toast, stopRace]);
+  const openRacesRef = useRef(() => {});
+  openRacesRef.current = () =>
+    setPanel({
+      kind: "info",
+      title: "🏁 IlmWorld Sports Arena",
+      body: (
+        <RacesView
+          me={onlineRef.current?.uid ?? null}
+          hasBike={!!saveRef.current.bike}
+          onStart={(race, kind, laps) => startRace(race, kind, laps)}
+        />
+      ),
+    });
+
   /* ---------- houses are shared: one player per house ---------- */
   const claimsNet = useRef<Claims | null>(null);
   const [claimsReady, setClaimsReady] = useState(0);
@@ -5976,6 +6139,10 @@ function CityGame({
         openShop(id.slice(id.indexOf(":") + 1));
         return;
       }
+      if (id === "arena") {
+        openRacesRef.current();
+        return;
+      }
       if (id.startsWith("fuel:")) {
         const name = districtById(id.slice(5))?.name ?? "";
         const render = () =>
@@ -6365,33 +6532,64 @@ function CityGame({
           kind: "info",
           title: "🚗 IlmMotors",
           body: (
-            <DealerView
-              points={saveRef.current.coins}
-              mine={saveRef.current.ride}
-              onBuy={(kind, color, price) => {
-                if (saveRef.current.coins < price) {
-                  setPanel({
-                    kind: "info",
-                    title: "Not enough money",
-                    body: (
-                      <NoPointsView
-                        price={price}
-                        points={saveRef.current.coins}
-                        onTopUp={() => openWalletRef.current("buy")}
-                      />
-                    ),
-                  });
-                  return;
-                }
-                update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
-                e.setCar(kind, color);
-                setPanel(null);
-                toast(
-                  `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
-                  "good",
-                );
-              }}
-            />
+            <>
+              <BikeShop
+                points={saveRef.current.coins}
+                mine={saveRef.current.bike}
+                onBuy={(kind, color, price) => {
+                  if (saveRef.current.coins < price) {
+                    setPanel({
+                      kind: "info",
+                      title: "Not enough money",
+                      body: (
+                        <NoPointsView
+                          price={price}
+                          points={saveRef.current.coins}
+                          onTopUp={() => openWalletRef.current("buy")}
+                        />
+                      ),
+                    });
+                    return;
+                  }
+                  const bike = { kind, color };
+                  saveRef.current = { ...saveRef.current, bike, cycling: true };
+                  update((x) => ({ ...x, coins: x.coins - price, bike, cycling: true }));
+                  e.setBike(kind, color);
+                  setPanel(null);
+                  toast(
+                    `Your ${BIKES.find((b) => b.kind === kind)?.name} is ready. You're riding it now: tap 🚶 Walk to get off.`,
+                    "good",
+                  );
+                }}
+              />
+              <DealerView
+                points={saveRef.current.coins}
+                mine={saveRef.current.ride}
+                onBuy={(kind, color, price) => {
+                  if (saveRef.current.coins < price) {
+                    setPanel({
+                      kind: "info",
+                      title: "Not enough money",
+                      body: (
+                        <NoPointsView
+                          price={price}
+                          points={saveRef.current.coins}
+                          onTopUp={() => openWalletRef.current("buy")}
+                        />
+                      ),
+                    });
+                    return;
+                  }
+                  update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
+                  e.setCar(kind, color);
+                  setPanel(null);
+                  toast(
+                    `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
+                    "good",
+                  );
+                }}
+              />
+            </>
           ),
         });
         return;
@@ -6896,6 +7094,8 @@ function CityGame({
       e.onSlowPhone = () => {};
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
+    if (saveRef.current.bike && saveRef.current.cycling)
+      e.setBike(saveRef.current.bike.kind, saveRef.current.bike.color);
     if (saveRef.current.impound) e.setImpounded(true);
     e.onIncident = (kind, who) => incidentRef.current(kind, who);
     // every visit starts at home: you are only out in the city while you are playing
@@ -7653,6 +7853,14 @@ function CityGame({
               📱 Phone
             </button>
           )}
+          {save.bike && !driving && !inside && (
+            <button
+              onClick={() => toggleBike()}
+              className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+            >
+              {save.cycling ? "🚶 Walk" : "🚲 Ride"}
+            </button>
+          )}
           {save.profile && (
             <div className="pointer-events-auto flex max-w-[170px] items-center gap-1 rounded-xl bg-[#10201e]/85 py-1 pl-2.5 pr-1 text-[11.5px] font-semibold text-[#fdf8ec] shadow">
               <button
@@ -7690,6 +7898,24 @@ function CityGame({
           )}
         </div>
       </div>
+      {raceNow && (
+        <div className="pointer-events-none fixed inset-x-0 top-24 z-30 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#10201e]/90 px-4 py-2 text-[#fdf8ec] shadow-lg">
+            <span className="text-[15px] font-black">{raceNow.text}</span>
+            {raceNow.ms > 0 && (
+              <span className="font-mono text-[18px] font-bold text-[#e6b84a]">
+                {raceTime(raceNow.ms)}
+              </span>
+            )}
+            <button
+              onClick={() => stopRace()}
+              className="rounded-lg bg-[#fdf8ec]/15 px-2 py-1 text-[12px] font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {pitchRoom && !match && pitch.current && (
         <PitchLobby
           r={pitchRoom}
@@ -10907,8 +11133,22 @@ function placesIn(id: string): Place[] {
     out.push({
       icon: "🚗",
       name: "IlmMotors",
-      sub: "Buy a car",
+      sub: "Buy a car or a bicycle",
       prefix: `dealer:${D.id}`,
+    });
+  if (!D.parent && !D.holy)
+    out.push({
+      icon: "⛽",
+      name: "Barakah Oil filling station",
+      sub: `By ${D.highway}, at the edge of ${D.name}`,
+      prefix: `fuel:${D.id}`,
+    });
+  if (cityOf(D) === "lagos")
+    out.push({
+      icon: "🏁",
+      name: "IlmWorld Sports Arena",
+      sub: "Running and cycling races · between Agege and Ikeja",
+      prefix: "arena",
     });
   out.push({
     icon: "🏓",
@@ -11011,6 +11251,78 @@ const CARS: { kind: CarKind; price: number }[] = [
   { kind: "luxury", price: 2500 },
 ];
 const PAINT = [0xf4f4f2, 0x1d1d26, 0xc0392b, 0x1f6f63, 0x2f4a7a, 0xb8bcc2, 0xe6b84a, 0x6d4a2b];
+type BikeKind = "city" | "mountain" | "racing";
+const BIKES: { kind: BikeKind; name: string; price: number; text: string }[] = [
+  {
+    kind: "city",
+    name: "City bike",
+    price: 1500,
+    text: "Easy to ride round town. Twice as fast as walking.",
+  },
+  {
+    kind: "mountain",
+    name: "Mountain bike",
+    price: 3500,
+    text: "Thick tyres, strong frame, a bit faster.",
+  },
+  {
+    kind: "racing",
+    name: "Racing bike",
+    price: 6000,
+    text: "Light and very fast: made for cycling races.",
+  },
+];
+function BikeShop({
+  points,
+  mine,
+  onBuy,
+}: {
+  points: number;
+  mine?: { kind: BikeKind; color: number };
+  onBuy: (kind: BikeKind, color: number, price: number) => void;
+}) {
+  const [color, setColor] = useState<number>(mine?.color ?? 0x1f6f63);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  return (
+    <div className="mb-4 space-y-2 rounded-2xl bg-[#e8f3ef] p-3">
+      <div className="text-[15px] font-bold">🚲 Bicycles</div>
+      <p className="text-[12.5px] opacity-75">
+        Ride anywhere outside, no fuel needed, and enter cycling races at the IlmWorld Sports Arena.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {PAINT.map((c) => (
+          <button
+            key={c}
+            onClick={() => setColor(c)}
+            className={`size-7 rounded-full border-2 ${color === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/20"}`}
+            style={{ background: hex(c) }}
+            aria-label="Colour"
+          />
+        ))}
+      </div>
+      {BIKES.map((b) => {
+        const owned = mine?.kind === b.kind;
+        return (
+          <button
+            key={b.kind}
+            disabled={owned && mine?.color === color}
+            onClick={() => onBuy(b.kind, color, b.price)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-3 py-2.5 text-left shadow-sm disabled:opacity-50"
+          >
+            <span>
+              <span className="block text-[14px] font-bold">{b.name}</span>
+              <span className="block text-[12px] opacity-70">{b.text}</span>
+            </span>
+            <span className="shrink-0 text-[13px] font-bold text-[#1f6f63]">
+              {owned ? "Yours" : N(b.price)}
+            </span>
+          </button>
+        );
+      })}
+      {points < 1500 && <p className="text-[12px] opacity-70">You have {N(points)}.</p>}
+    </div>
+  );
+}
 const REPAINT = 60;
 function DealerView({
   points,
@@ -11474,6 +11786,124 @@ function CallScreen({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ---------------- races at the sports arena ---------------- */
+function RacesView({
+  me,
+  hasBike,
+  onStart,
+}: {
+  me: string | null;
+  hasBike: boolean;
+  onStart: (race: Race | null, kind: "run" | "bike", laps: number) => void;
+}) {
+  const [races, setRaces] = useState<Race[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [board, setBoard] = useState<RaceEntry[]>([]);
+  useEffect(() => (me ? watchRaces(setRaces) : setRaces([])), [me]);
+  useEffect(() => (open ? watchEntries(open, setBoard) : undefined), [open]);
+  const now = Date.now();
+  const day = (t: number) =>
+    new Date(t).toLocaleString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  const btn = "rounded-lg px-3 py-2 text-[13px] font-bold";
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Races are set by the IlmWorld team. While a race is open, run or ride it as many times as
+        you like: your best time counts on the leaderboard.
+      </p>
+      {races === null ? (
+        <p>Loading races…</p>
+      ) : !races.length ? (
+        <p className="rounded-xl bg-white p-3 text-[14px]">
+          No race is open right now. Watch this space: the team announces races here.
+        </p>
+      ) : (
+        races.map((r) => {
+          const started = r.from <= now;
+          const mine = board.find((b) => b.uid === me);
+          return (
+            <div key={r.id} className="space-y-2 rounded-xl bg-white p-3 shadow-sm">
+              <div className="text-[15px] font-bold">
+                {r.kind === "bike" ? "🚲" : "🏃"} {r.title}
+              </div>
+              <div className="text-[12.5px] opacity-75">
+                {r.laps} lap{r.laps > 1 ? "s" : ""} · {r.kind === "bike" ? "cycling" : "running"} ·{" "}
+                {started ? `open until ${day(r.until)}` : `starts ${day(r.from)}`}
+              </div>
+              {r.prize && (
+                <div className="text-[13px] font-bold text-[#1d6b3a]">
+                  🏆 Top {r.winners}: {r.prize}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  disabled={!started || !me || (r.kind === "bike" && !hasBike)}
+                  onClick={() => onStart(r, r.kind, r.laps)}
+                  className={`${btn} flex-1 bg-[#1f6f63] text-white disabled:opacity-40`}
+                >
+                  {r.kind === "bike" && !hasBike ? "Needs a bicycle" : "Start my run"}
+                </button>
+                <button
+                  onClick={() => setOpen(open === r.id ? null : r.id)}
+                  className={`${btn} border border-[#1f6f63]/30 bg-white`}
+                >
+                  {open === r.id ? "Hide" : "Leaderboard"}
+                </button>
+              </div>
+              {open === r.id && (
+                <div className="space-y-1 text-[13px]">
+                  {!board.length && <p className="opacity-70">No times yet. Be the first!</p>}
+                  {board.slice(0, 10).map((b, i) => (
+                    <div
+                      key={b.uid}
+                      className={`flex justify-between ${b.uid === me ? "font-bold text-[#1f6f63]" : ""}`}
+                    >
+                      <span>
+                        {i + 1}. {b.name}
+                      </span>
+                      <span className="font-mono">{raceTime(b.ms)}</span>
+                    </div>
+                  ))}
+                  {mine && board.indexOf(mine) >= 10 && (
+                    <div className="flex justify-between font-bold text-[#1f6f63]">
+                      <span>
+                        {board.indexOf(mine) + 1}. {mine.name}
+                      </span>
+                      <span className="font-mono">{raceTime(mine.ms)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+      <div className="space-y-2 rounded-xl bg-[#e8f3ef] p-3">
+        <div className="text-[14px] font-bold">Practise</div>
+        <div className="flex gap-2">
+          <button onClick={() => onStart(null, "run", 1)} className={`${btn} flex-1 bg-white`}>
+            🏃 Run a lap
+          </button>
+          <button
+            disabled={!hasBike}
+            onClick={() => onStart(null, "bike", 1)}
+            className={`${btn} flex-1 bg-white disabled:opacity-40`}
+          >
+            🚲 Ride a lap
+          </button>
+        </div>
+      </div>
+      {!me && <p className="text-[12.5px] opacity-75">Log in to IlmStation to enter races.</p>}
     </div>
   );
 }

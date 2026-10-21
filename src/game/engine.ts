@@ -734,6 +734,105 @@ export class IlmCityEngine {
   isDriving() {
     return this.driving;
   }
+  private bikeKind: "city" | "mountain" | "racing" | null = null;
+  /** how far the rider is lifted onto the saddle now */
+  private bikeLift = 0;
+  private bikeObj: THREE.Object3D | null = null;
+  private bikeWheels: THREE.Object3D[] = [];
+  private bikeMult = 1;
+  private bikeColor = 0x1f6f63;
+  /** Ride a bicycle (or get off it, with null): faster than walking, outside only. */
+  setBike(kind: "city" | "mountain" | "racing" | null, color = 0x1f6f63) {
+    if (this.bikeObj) {
+      this.bikeObj.removeFromParent();
+      this.bikeObj = null;
+    }
+    this.liftRider(0);
+    this.bikeWheels = [];
+    this.bikeKind = kind;
+    this.bikeColor = color;
+    if (!kind) return;
+    this.bikeMult = kind === "racing" ? 2.1 : kind === "mountain" ? 1.85 : 1.6;
+    const g = new THREE.Group();
+    const frame = mat(color, { roughness: 0.4, metalness: 0.4 });
+    const dark = mat(0x1a1b1d, { roughness: 0.6 });
+    const steel = mat(0xc9cfd4, { roughness: 0.3, metalness: 0.6 });
+    const R = kind === "mountain" ? 0.36 : 0.34;
+    for (const z of [0.55, -0.55]) {
+      const w = new THREE.Group();
+      const tyre = new THREE.Mesh(
+        new THREE.TorusGeometry(R, kind === "mountain" ? 0.06 : 0.035, 8, 20),
+        dark,
+      );
+      tyre.rotation.y = Math.PI / 2;
+      w.add(tyre);
+      for (let k = 0; k < 3; k++) {
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.01, R * 2, 0.01), steel);
+        spoke.rotation.x = (k * Math.PI) / 3;
+        w.add(spoke);
+      }
+      w.position.set(0, R, z);
+      g.add(w);
+      this.bikeWheels.push(w);
+    }
+    const bar = (len: number, x0: number, y0: number, z0: number, ax: number, m = frame) => {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 6), m);
+      b.position.set(x0, y0, z0);
+      b.rotation.x = ax;
+      g.add(b);
+      return b;
+    };
+    // the frame: down tube, top tube, seat tube, forks and stays
+    bar(0.75, 0, R + 0.28, 0.12, 0.95);
+    bar(0.62, 0, R + 0.5, 0.05, Math.PI / 2 - 0.15);
+    bar(0.55, 0, R + 0.28, -0.12, -0.3);
+    bar(0.55, 0, R + 0.22, 0.5, 0.25);
+    bar(0.5, 0, R + 0.12, -0.35, Math.PI / 2 - 0.5);
+    // seat, handlebars, pedals
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.26), dark);
+    seat.position.set(0, R + 0.6, -0.22);
+    g.add(seat);
+    const hb = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, kind === "racing" ? 0.42 : 0.6, 6),
+      kind === "racing" ? dark : steel,
+    );
+    hb.rotation.z = Math.PI / 2;
+    hb.position.set(0, R + 0.62, 0.42);
+    g.add(hb);
+    for (const s of [1, -1]) {
+      const pedal = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.08), dark);
+      pedal.position.set(s * 0.16, R - 0.05, 0);
+      g.add(pedal);
+    }
+    g.traverse((o) => (o.castShadow = true));
+    this.player.add(g);
+    this.bikeObj = g;
+    this.syncBike();
+  }
+  private liftRider(y: number) {
+    if (y === this.bikeLift) return;
+    for (const c of this.player.children) if (c !== this.bikeObj) c.position.y += y - this.bikeLift;
+    this.bikeLift = y;
+  }
+  isCycling() {
+    return !!this.bikeKind;
+  }
+  /** Stand somewhere outside, facing a way (the start of a race). */
+  placePlayer(x: number, z: number, yaw: number) {
+    if (this.where !== "out") return;
+    this.player.position.set(x, 0, z);
+    this.player.rotation.y = yaw;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.camYaw = yaw + Math.PI;
+    this.snapCamera();
+  }
+  /** The bicycle stays outside: indoors you walk. */
+  private syncBike() {
+    const on = !!this.bikeObj && this.where === "out";
+    if (this.bikeObj) this.bikeObj.visible = on;
+    this.liftRider(on ? 0.62 : 0);
+  }
   private teacherTag: { g: THREE.Object3D; tag: THREE.Object3D } | null = null;
   /** The madrasah teacher is the sheikh of that madrasah's street. */
   setTeacher(name: string) {
@@ -1378,8 +1477,9 @@ export class IlmCityEngine {
     sand.position.set(50, 0, 534);
     S.add(sand);
     this.colliders.out.push({ x0: -1000, x1: 1100, z0: 541, z1: 1200 });
-    water(150, 105, 540, 20, true);
-    this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
+    // the small lagoon south of Manaar Gardens Estate
+    water(140, 38, 575, 130, true);
+    this.colliders.out.push({ x0: 445, x1: 705, z0: 98, z1: 162 });
     // world edges
     this.colliders.out.push({ x0: -1100, x1: -800, z0: -1900, z1: 900 });
     this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1900, z1: 900 });
@@ -1531,6 +1631,7 @@ export class IlmCityEngine {
       this.expressway(c.x + (dx / len0) * 24, c.z + (dz / len0) * 24, ax, az, d.highway);
     });
     this.buildFillingStations();
+    this.buildArena();
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
     this.buildCityFill();
@@ -1597,6 +1698,201 @@ export class IlmCityEngine {
     for (const m of this.worldBatch.build()) this.scene.add(m);
   }
 
+  /** The sports arena: its centre, half its width and depth, and the track's middle line. */
+  private arena: { x: number; z: number; hw: number; hd: number; S: number; rm: number } | null =
+    null;
+  /** The points a runner or rider must pass, in order, for one lap (the finish line first). */
+  arenaCheckpoints() {
+    const A = this.arena;
+    if (!A) return null;
+    const half = A.S / 2;
+    return {
+      r: 7,
+      pts: [
+        { x: A.x, z: A.z + A.rm },
+        { x: A.x + half + A.rm, z: A.z },
+        { x: A.x, z: A.z - A.rm },
+        { x: A.x - half - A.rm, z: A.z },
+      ],
+    };
+  }
+  /** IlmWorld Sports Arena: a running track round a football field, stands, floodlights and a
+      start and finish arch. Races (running and cycling) are held here. */
+  private buildArena() {
+    const S = 84,
+      r1 = 27,
+      r2 = 36,
+      rm = (r1 + r2) / 2;
+    const hw = S / 2 + r2 + 10,
+      hd = r2 + 22;
+    const segs = this.roadSegments();
+    const clear = (x: number, z: number) => {
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        if (Math.abs(x - d.origin.x) < H.x + hw + 12 && Math.abs(z - d.origin.z) < H.z + hd + 12)
+          return false;
+      }
+      for (let i = -4; i <= 4; i++)
+        for (let k = -2; k <= 2; k++) {
+          const px = x + (i / 4) * hw,
+            pz = z + (k / 2) * hd;
+          for (const sg of segs) if (IlmCityEngine.distToSeg(px, pz, sg) < 14) return false;
+        }
+      for (const f of this.fuelSpots)
+        if (Math.abs(f.x - x) < hw + 20 && Math.abs(f.z - z) < hd + 20) return false;
+      return true;
+    };
+    // the open land nearest the middle of the mainland, inside the city's edges
+    const L = IlmCityEngine.LAGOON;
+    let at: { x: number; z: number } | null = null;
+    let best = Infinity;
+    for (let x = -700; x <= 960; x += 10)
+      for (let z = -640; z <= 480; z += 10) {
+        if (x - hw < -780 || x + hw > 1040 || z + hd > 520 || z - hd < -660) continue;
+        if (x + hw > L.x0 && x - hw < L.x1 && z + hd > L.z0 - 10 && z - hd < L.z1 + 10) continue;
+        if (x + hw > 425 && x - hw < 725 && z + hd > 88 && z - hd < 172) continue;
+        if (Math.hypot(x, z) < 90) continue;
+        const d = Math.hypot(x + 60, z + 300);
+        if (d >= best || !clear(x, z)) continue;
+        best = d;
+        at = { x, z };
+      }
+    if (!at) return;
+    this.arena = { ...at, hw, hd, S, rm };
+    const g = new THREE.Group();
+    g.position.set(at.x, 0, at.z);
+    this.scene.add(g);
+    const stadium = (r: number) => {
+      const sh = new THREE.Shape();
+      sh.moveTo(-S / 2, -r);
+      sh.lineTo(S / 2, -r);
+      sh.absarc(S / 2, 0, r, -Math.PI / 2, Math.PI / 2, false);
+      sh.lineTo(-S / 2, r);
+      sh.absarc(-S / 2, 0, r, Math.PI / 2, (Math.PI * 3) / 2, false);
+      return sh;
+    };
+    const ring = (ro: number, ri: number, color: number, y: number) => {
+      const sh = stadium(ro);
+      sh.holes.push(stadium(ri) as unknown as THREE.Path);
+      const geo = new THREE.ShapeGeometry(sh, 24);
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat(color, { roughness: 0.9 }));
+      m.position.y = y;
+      m.receiveShadow = true;
+      g.add(m);
+    };
+    // the apron, the track, its white lane lines and the field inside
+    const apron = new THREE.Mesh(groundGeo(hw * 2, hd * 2, 3), mat(0xc9c6bd));
+    apron.position.y = 0.02;
+    apron.receiveShadow = true;
+    g.add(apron);
+    ring(r2 + 1.2, r1 - 1.2, 0x5f9e48, 0.03);
+    ring(r2, r1, 0xb5523b, 0.045);
+    for (let k = 0; k <= 8; k++) {
+      const rr = r1 + (k * (r2 - r1)) / 8;
+      ring(rr + 0.06, rr - 0.06, 0xf4f4f0, 0.055);
+    }
+    const field = new THREE.Mesh(
+      new THREE.ShapeGeometry(stadium(r1 - 1.2), 24).rotateX(-Math.PI / 2),
+      mat(0x5f9e48, { roughness: 0.95 }),
+    );
+    field.position.y = 0.035;
+    g.add(field);
+    // a football pitch marked inside
+    const lineM = mat(0xf4f4f0);
+    for (const [w, d, x, z] of [
+      [90, 0.15, 0, -22],
+      [90, 0.15, 0, 22],
+      [0.15, 44, -45, 0],
+      [0.15, 44, 45, 0],
+      [0.15, 44, 0, 0],
+    ]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineM);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, 0.06, z);
+      g.add(m);
+    }
+    for (const x of [-45, 45]) g.add(box(0.15, 2.4, 7.3, 0xf4f4f0, x, 0, 0));
+    // the start and finish line across the front straight, and its arch
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.5, r2 - r1), lineM);
+    fl.rotation.x = -Math.PI / 2;
+    fl.position.set(0, 0.07, rm);
+    g.add(fl);
+    for (const z of [r1 - 1.5, r2 + 1.5]) {
+      g.add(box(0.5, 6, 0.5, 0x1f6f63, 0, 0, z));
+      this.colliders.out.push({
+        x0: at.x - 0.3,
+        x1: at.x + 0.3,
+        z0: at.z + z - 0.3,
+        z1: at.z + z + 0.3,
+      });
+    }
+    const banner = this.signBoard("START · FINISH", r2 - r1 + 4, 1.4, "#1f6f63", "#ffffff");
+    banner.position.set(0, 6.2, rm);
+    g.add(banner);
+    const back = this.signBoard("START · FINISH", r2 - r1 + 4, 1.4, "#1f6f63", "#ffffff");
+    back.position.set(0, 6.2, rm - 0.05);
+    back.rotation.y = Math.PI;
+    g.add(back);
+    // the stand along the back straight, with a roof
+    const sz = -(r2 + 4);
+    for (let t = 0; t < 5; t++) {
+      g.add(box(S + 20, 0.6 + t * 0.6, 2, 0x9aa0a6, 0, 0, sz - t * 2));
+      g.add(
+        box(
+          S + 16,
+          0.35,
+          0.6,
+          [0x1f6f63, 0xe6b84a, 0x2a4a7a][t % 3],
+          0,
+          0.6 + t * 0.6,
+          sz - t * 2 + 0.3,
+        ),
+      );
+    }
+    g.add(box(S + 24, 0.4, 13, 0xf4f4f0, 0, 9, sz - 5));
+    for (const x of [-S / 2 - 10, 0, S / 2 + 10]) g.add(box(0.4, 9, 0.4, 0x5a5f66, x, 0, sz - 10));
+    this.colliders.out.push({
+      x0: at.x - S / 2 - 12,
+      x1: at.x + S / 2 + 12,
+      z0: at.z + sz - 11,
+      z1: at.z + sz + 1,
+    });
+    const name = this.signBoard("IlmWorld Sports Arena", 22, 2.2, "#10201e", "#e6b84a");
+    name.position.set(0, 10.8, sz + 1.6);
+    g.add(name);
+    // floodlights at the four corners
+    for (const [x, z] of [
+      [-hw + 4, -hd + 4],
+      [hw - 4, -hd + 4],
+      [-hw + 4, hd - 4],
+      [hw - 4, hd - 4],
+    ]) {
+      g.add(box(0.5, 18, 0.5, 0x5a5f66, x, 0, z));
+      g.add(box(3, 1.6, 0.6, 0xf4f4f0, x, 18, z));
+      this.colliders.out.push({
+        x0: at.x + x - 0.4,
+        x1: at.x + x + 0.4,
+        z0: at.z + z - 0.4,
+        z1: at.z + z + 0.4,
+      });
+    }
+    // where races are entered: by the finish line
+    this.zones.push({
+      id: "arena",
+      label: "🏁 Races",
+      x: at.x + 6,
+      z: at.z + r2 + 4,
+      r: 4,
+      scene: "out",
+    });
+    const t = label("🏁 IlmWorld Sports Arena · running and cycling races", {
+      size: 1.1,
+      bg: "rgba(16,32,30,0.9)",
+    });
+    t.position.set(at.x, 13, at.z + hd - 4);
+    this.scene.add(t);
+  }
   /** Where filling stations stand (kept clear of the city's other buildings). */
   private fuelSpots: { x: number; z: number }[] = [];
   /** A Barakah Oil filling station beside each expressway, where it reaches its area. */
@@ -1810,10 +2106,12 @@ export class IlmCityEngine {
       if (z < -1605) return true;
       if (Math.hypot(x, z) < 50) return true;
       if (x > L.x0 - r && x < L.x1 + r && z > L.z0 - r && z < L.z1 + r) return true;
-      if (Math.hypot(x - 540, z - 20) < 85) return true; // the small lagoon
+      if (x > 425 && x < 725 && z > 88 && z < 172) return true; // the small lagoon
       // Manaar University College's building site, west of Igbe Laara
       if (x > 340 && x < 462 && z > -610 && z < -512) return true;
       for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 26) return true;
+      const A = this.arena;
+      if (A && Math.abs(x - A.x) < A.hw + 14 && Math.abs(z - A.z) < A.hd + 14) return true;
       for (const s of segs) if (IlmCityEngine.distToSeg(x, z, s) < 15 + CELL / 2) return true;
       for (const d of DISTRICTS) {
         const H = halfOf(d);
@@ -6243,6 +6541,14 @@ export class IlmCityEngine {
     }
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
+    this.bikeLift = 0;
+    if (this.bikeKind) {
+      // the old bicycle went with the old clothes: put the rider back on it
+      const k = this.bikeKind;
+      this.bikeKind = null;
+      this.bikeObj = null;
+      this.setBike(k, this.bikeColor);
+    }
     if (this.carrying) {
       const { mesh, how } = this.carrying;
       mesh.removeFromParent();
@@ -9211,6 +9517,7 @@ export class IlmCityEngine {
   private followYaw: number | null = null;
 
   private walk(v: THREE.Vector2, dt: number, t: number) {
+    this.syncBike();
     // the stick moves you relative to where the camera looks
     const fx = -Math.sin(this.camYaw),
       fz = -Math.cos(this.camYaw);
@@ -9239,7 +9546,8 @@ export class IlmCityEngine {
     }
     const moving = dir.lengthSq() > 0.001;
     if (moving) {
-      const speed = 7.5 * Math.min(1, dir.length());
+      const onBike = !!this.bikeKind && this.where === "out";
+      const speed = 7.5 * (onBike ? this.bikeMult : 1) * Math.min(1, dir.length());
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
@@ -9261,7 +9569,11 @@ export class IlmCityEngine {
       if (this.where === "out" && (v.y > 0.4 || (v.lengthSq() === 0 && this.tapTarget)))
         this.followYaw = targetRot + Math.PI;
       this.walkT += dt;
-      animatePerson(this.player, this.walkT * 9, 1, speed);
+      // on a bicycle the legs go round slower and the wheels spin
+      if (onBike) {
+        animatePerson(this.player, this.walkT * 6, 0.6, 7.5);
+        for (const w of this.bikeWheels) w.rotation.x += (speed * dt) / 0.34;
+      } else animatePerson(this.player, this.walkT * 9, 1, speed);
     } else {
       animatePerson(this.player, 0, 0);
       void t;
