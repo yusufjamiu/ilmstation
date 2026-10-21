@@ -252,6 +252,11 @@
     }
 
     // ---- each player's naira: held by the server, which alone can change it ----
+    // the time of the last fresh start (set by the server when an admin asks)
+    match /city_config/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
     match /city_wallets/{uid} {
       allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
       allow write: if false;

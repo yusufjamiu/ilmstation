@@ -24,6 +24,7 @@ import { darkness, type Clock } from "./time";
 import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
 import {
   Batch,
+  fillingStation,
   MAT,
   MAT2,
   TARRED,
@@ -1529,6 +1530,7 @@ export class IlmCityEngine {
       const len0 = Math.hypot(dx, dz);
       this.expressway(c.x + (dx / len0) * 24, c.z + (dz / len0) * 24, ax, az, d.highway);
     });
+    this.buildFillingStations();
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
     this.buildCityFill();
@@ -1593,6 +1595,64 @@ export class IlmCityEngine {
     }
     this.dg = keepDg;
     for (const m of this.worldBatch.build()) this.scene.add(m);
+  }
+
+  /** Where filling stations stand (kept clear of the city's other buildings). */
+  private fuelSpots: { x: number; z: number }[] = [];
+  /** A Barakah Oil filling station beside each expressway, where it reaches its area. */
+  private buildFillingStations() {
+    const segs = this.roadSegments();
+    for (const d of DISTRICTS) {
+      if (d.parent || d.holy) continue;
+      const c = centerOf(d);
+      const [ex, ez] = this.roadEnd(d);
+      const L = Math.hypot(c.x - ex, c.z - ez);
+      if (L < 90) continue;
+      const ux = (c.x - ex) / L,
+        uz = (c.z - ez) / L;
+      // try either side of the road, a little way out of the area
+      let placed = false;
+      for (const along of [44, 64, 84])
+        for (const side of [1, -1]) {
+          if (placed) continue;
+          const nx = -uz * side,
+            nz = ux * side;
+          const x = ex + ux * along + nx * 26,
+            z = ez + uz * along + nz * 26;
+          const clearOfAreas = DISTRICTS.every(
+            (o) =>
+              Math.abs(x - o.origin.x) > halfOf(o).x + 18 ||
+              Math.abs(z - o.origin.z) > halfOf(o).z + 18,
+          );
+          const L2 = IlmCityEngine.LAGOON;
+          const inLagoon = x > L2.x0 - 20 && x < L2.x1 + 20 && z > L2.z0 - 20 && z < L2.z1 + 20;
+          // clear of every road except its own
+          const roadsOk = segs.every(
+            (sg) =>
+              IlmCityEngine.distToSeg(x, z, sg) > 20 ||
+              Math.abs(IlmCityEngine.distToSeg(x, z, sg) - 26) < 1,
+          );
+          if (!clearOfAreas || inLagoon || !roadsOk) continue;
+          // its front faces the road
+          const turn = Math.atan2(-nx, -nz);
+          const built = fillingStation(this.worldBatch, { x, z, turn });
+          for (const b of built.colliders) this.colliders.out.push(b);
+          for (const sp of built.spots)
+            this.zones.push({
+              id: "fuel:" + d.id,
+              label: sp.label,
+              x: sp.x,
+              z: sp.z,
+              r: 3.2,
+              scene: "out",
+            });
+          const t = label(`⛽ Barakah Oil · ${d.name}`, { size: 1, bg: "rgba(29,122,58,0.92)" });
+          t.position.set(x, 8, z);
+          this.scene.add(t);
+          this.fuelSpots.push({ x, z });
+          placed = true;
+        }
+    }
   }
 
   /* ---------------- the megacity ---------------- */
@@ -1753,6 +1813,7 @@ export class IlmCityEngine {
       if (Math.hypot(x - 540, z - 20) < 85) return true; // the small lagoon
       // Manaar University College's building site, west of Igbe Laara
       if (x > 340 && x < 462 && z > -610 && z < -512) return true;
+      for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 26) return true;
       for (const s of segs) if (IlmCityEngine.distToSeg(x, z, s) < 15 + CELL / 2) return true;
       for (const d of DISTRICTS) {
         const H = halfOf(d);

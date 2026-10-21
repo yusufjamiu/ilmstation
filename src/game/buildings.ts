@@ -2001,6 +2001,76 @@ export function sistersCorner(
   };
 }
 
+/** A filling station by the expressway: a white canopy with the green Barakah Oil band, two
+    pump islands, a little shop, the tall price sign by the road and air for tyres. Its
+    front (+z) faces the road. */
+export function fillingStation(b: Batch, o: { x: number; z: number; turn: number }): Built {
+  const { to, colliders, solid } = frame(b, o.x, o.z, o.turn);
+  const W = 28,
+    D = 22;
+  const white = MAT.plain(0xf4f4f0, 0.5);
+  const green = MAT.plain(0x1d7a3a, 0.5);
+  const gold = MAT.plain(0xe6b84a, 0.5);
+  const steel = MAT.plain(0x9aa0a6, 0.4);
+  // the forecourt: concrete with a kerb, open to the road
+  b.add(groundGeo(W, D, 3), MAT.plain(0xc9c6bd), 0, 0.03, 0, 0, false);
+  b.box(W, 0.2, 0.4, white, 0, 0, -D / 2 + 0.2);
+  // the canopy over the pumps on four pillars
+  const cz = 1.5;
+  for (const [px, pz] of [
+    [-6.5, cz - 3],
+    [6.5, cz - 3],
+    [-6.5, cz + 3],
+    [6.5, cz + 3],
+  ]) {
+    b.box(0.45, 5.2, 0.45, white, px, 0, pz);
+    solid(px - 0.25, px + 0.25, pz - 0.25, pz + 0.25);
+  }
+  b.box(17, 0.9, 10, white, 0, 5.2, cz);
+  for (const s of [1, -1]) {
+    b.box(17.1, 0.45, 0.06, green, 0, 5.4, cz + s * 5.01);
+    b.box(0.06, 0.45, 10.1, green, s * 8.52, 5.4, cz);
+  }
+  b.box(17.1, 0.1, 0.07, gold, 0, 5.92, cz + 5.02);
+  b.plane(6, 0.8, textMat("BARAKAH OIL", { bg: "#1d7a3a", fg: "#fdf8ec" }), 0, 5.65, cz + 5.06);
+  // two pump islands, two pumps each
+  for (const ix of [-3.2, 3.2]) {
+    b.box(1.4, 0.25, 6, MAT.plain(0xe0ddd4), ix, 0, cz);
+    for (const pz of [cz - 1.6, cz + 1.6]) {
+      b.box(0.8, 1.7, 0.6, white, ix, 0.25, pz);
+      b.box(0.82, 0.5, 0.62, green, ix, 1.3, pz);
+      b.box(0.5, 0.3, 0.05, MAT.plain(0x1a1b1d, 0.3), ix, 1.4, pz + 0.32);
+      b.box(0.1, 0.6, 0.1, MAT.plain(0x1a1b1d), ix + 0.45, 0.6, pz);
+    }
+    solid(ix - 0.7, ix + 0.7, cz - 3, cz + 3);
+  }
+  // the shop at the back: glass front, a flat roof and its own sign
+  const sz = -D / 2 + 3.2;
+  b.box(11, 3.4, 5.2, MAT.plaster(0xf2ead6), -5, 0, sz);
+  b.plane(8, 2.2, MAT2.glass(), -5, 1.4, sz + 2.62);
+  b.box(11.4, 0.4, 5.6, green, -5, 3.4, sz);
+  b.plane(4.5, 0.6, textMat("SHOP · FOOD", { bg: "#e6b84a", fg: "#2a1c05" }), -5, 3.2, sz + 2.85);
+  solid(-10.5, 0.5, sz - 2.6, sz + 2.6);
+  // the air and water point, and the vents of the tanks under the ground
+  b.box(0.5, 1.2, 0.5, MAT.plain(0x2a5fa8), 7, 0, sz);
+  for (const vx of [10, 10.6, 11.2]) b.box(0.12, 4.5, 0.12, steel, vx, 0, -D / 2 + 1);
+  // the price sign on a tall pole by the road
+  const px = W / 2 - 2,
+    pz = D / 2 - 1.2;
+  b.box(0.35, 7, 0.35, steel, px, 0, pz);
+  b.box(2.8, 3.2, 0.3, green, px, 6.5, pz);
+  b.plane(2.4, 0.8, textMat("BARAKAH", { bg: "#1d7a3a", fg: "#fdf8ec" }), px, 9.0, pz + 0.17);
+  b.plane(2.4, 0.7, textMat("PETROL ₦7/L", { bg: "#fdf8ec", fg: "#1a1a1a" }), px, 7.9, pz + 0.17);
+  b.plane(2.4, 0.7, textMat("DIESEL ₦8/L", { bg: "#fdf8ec", fg: "#1a1a1a" }), px, 7.1, pz + 0.17);
+  solid(px - 0.25, px + 0.25, pz - 0.25, pz + 0.25);
+  const spot = to(0, cz + 4.2);
+  b.base.identity();
+  return {
+    colliders,
+    spots: [{ key: "fuel", x: spot.x, z: spot.z, label: "⛽ Fill up", labelY: 3 }],
+  };
+}
+
 /** A police station: white and navy, a blue lamp, barred cell windows and a flag. */
 export function policeStation(
   b: Batch,

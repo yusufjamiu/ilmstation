@@ -106,6 +106,27 @@ export function admin(): Promise<Admin | null> {
   return adminP;
 }
 
+/** What a fresh start empties: every player's progress, houses, shops, money and messages.
+    Adverts, awards, nasheeds, sponsored quizzes, reports and payment records are kept. */
+export const FRESH_START_WIPES = [
+  "city_saves",
+  "city_wallets",
+  "city_plots",
+  "city_shops",
+  "city_house_sales",
+  "city_transfers",
+  "city_rooms",
+  "city_homes",
+  "city_home_likes",
+  "city_knocks",
+  "city_calls",
+  "city_chats",
+  "city_matches",
+  "city_enquiries",
+  "city_presence",
+  "city_players",
+];
+
 const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
     status,
@@ -113,7 +134,7 @@ const reply = (status: number, body: unknown) =>
   });
 
 type Body = {
-  op: "init" | "change" | "buyHouse" | "sellHouse" | "send";
+  op: "init" | "change" | "buyHouse" | "sellHouse" | "send" | "freshStart";
   to?: string;
   fromName?: string;
   toName?: string;
@@ -148,6 +169,19 @@ export async function handleMoney(request: Request): Promise<Response> {
   const walletRef = db.collection("city_wallets").doc(uid);
   const now = Date.now();
   try {
+    if (body.op === "freshStart") {
+      // admins only: everyone starts IlmWorld again from nothing (accounts are kept)
+      const isAdmin = (await db.collection("admins").doc(uid).get()).exists;
+      if (!isAdmin) return reply(403, { error: "admins-only" });
+      await db.collection("city_config").doc("reset").set({ at: now, by: uid });
+      const counts: Record<string, number> = {};
+      for (const name of FRESH_START_WIPES) {
+        const ref = db.collection(name);
+        counts[name] = (await ref.count().get()).data().count;
+        await db.recursiveDelete(ref);
+      }
+      return reply(200, { ok: true, at: now, counts });
+    }
     if (body.op === "init") {
       // a player who already started (their save is in the cloud) gets the welcome gift back
       const saved = await db
@@ -157,7 +191,12 @@ export async function handleMoney(request: Request): Promise<Response> {
         .catch(() => null);
       let existing = !!body.existing;
       let path = body.path;
-      if (saved?.exists) {
+      // a save from before the last fresh start doesn't count
+      const reset = Number(
+        ((await db.collection("city_config").doc("reset").get()).data() as { at?: number })?.at ??
+          0,
+      );
+      if (saved?.exists && Number((saved.data() as { savedAt?: number }).savedAt ?? 0) >= reset) {
         try {
           const d = JSON.parse(String((saved.data() as { data?: string }).data ?? "{}")) as {
             profile?: unknown;

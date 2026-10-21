@@ -193,6 +193,8 @@ type Save = {
   homePlot?: string;
   /** when the bought Rich family pack's house was handed over */
   richApplied?: number;
+  /** litres of petrol in your car's tank (filled at a filling station) */
+  fuel?: number;
   path?: LifePath;
   job?: string;
   /** the day you last worked a shift */
@@ -407,6 +409,8 @@ const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
 const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
 /** How full each area's original houses are (0 to 1): prices rise with demand. */
 const AREA_DEMAND: Record<string, number> = {};
+/** Petrol: litres a trip uses, the tank, and the pump price (₦10 units per litre). */
+const FUEL = { trip: 10, far: 25, tank: 50, start: 20, perLitre: 0.7 };
 /** A glass tower costs a fortune: you buy the whole tower and let its flats. */
 const TOWER_PRICE = 60000;
 function houseRent(area: string, floors: number, ilm: number, type?: HomeType) {
@@ -620,6 +624,68 @@ if (typeof window !== "undefined") {
     if (document.visibilityState === "hidden") out();
   });
 }
+/** When the admin last gave everyone a fresh start (0: never). */
+let resetAt = 0;
+/** Read the fresh-start time and remove every save on this phone made before it. */
+async function clearOldSaves() {
+  try {
+    const { db } = await import("@/lib/firebase");
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await Promise.race([
+      getDoc(doc(db, "city_config", "reset")),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    resetAt = Number((snap?.data() as { at?: number } | undefined)?.at ?? 0);
+    if (!resetAt) return;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(GUEST_KEY)) continue;
+      try {
+        const sv = JSON.parse(localStorage.getItem(k) ?? "null") as Save | null;
+        if (!sv || (sv.savedAt ?? 0) < resetAt) localStorage.removeItem(k);
+      } catch {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {
+    /* offline: try again next time */
+  }
+}
+/** If an admin starts everyone fresh while the game is open: stop saving the old game,
+    forget it on this phone and start again. */
+function watchFreshStart() {
+  void (async () => {
+    try {
+      const { db } = await import("@/lib/firebase");
+      const { doc, onSnapshot } = await import("firebase/firestore");
+      let first = true;
+      onSnapshot(
+        doc(db, "city_config", "reset"),
+        (snap) => {
+          const at = Number((snap.data() as { at?: number } | undefined)?.at ?? 0);
+          if (first) {
+            // the first answer only sets the starting point
+            first = false;
+            if (!resetAt) resetAt = at;
+            return;
+          }
+          if (!at || at <= resetAt) return;
+          resetAt = at;
+          cloud.uid = null;
+          cloud.pending = null;
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k?.startsWith(GUEST_KEY)) localStorage.removeItem(k);
+          }
+          window.location.reload();
+        },
+        () => {},
+      );
+    } catch {
+      /* offline */
+    }
+  })();
+}
 /** Before the game starts: bring this account's save down from the cloud if it is newer
     than the one on this phone (or the phone has none). */
 async function pullCloudSave(uid: string) {
@@ -656,7 +722,15 @@ async function pullCloudSave(uid: string) {
     } catch {
       remote = null;
     }
-    if (!remote) return;
+    // a save from before the fresh start is not brought back
+    if (remote && (remote.savedAt ?? 0) < resetAt) remote = null;
+    if (!remote) {
+      if (local) {
+        cloud.pending = local;
+        await cloud.flush();
+      }
+      return;
+    }
     let pick = !local || (remote.savedAt ?? 0) >= (local.savedAt ?? 0) ? remote : local;
     // an admin changed the balance in the console: apply the difference
     if (typeof d.naira === "number" && d.naira !== remote.coins * NAIRA_UNIT) {
@@ -754,6 +828,9 @@ function useCityAuth(): Who {
         const { auth, db } = await import("@/lib/firebase");
         const { onAuthStateChanged } = await import("firebase/auth");
         const { doc, getDoc } = await import("firebase/firestore");
+        // a fresh start for everyone (set by an admin): forget saves from before it
+        await clearOldSaves();
+        watchFreshStart();
         onAuthStateChanged(auth, async (u) => {
           if (!u) return finish(guest);
           // logged in: wait for the account and its save instead of starting as a guest
@@ -2143,11 +2220,17 @@ function CityGame({
         return;
       }
       const train = (far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain;
-      // in your own car you still pay for fuel
+      // in your own car the trip uses petrol from the tank; with too little in it you buy
+      // fuel on the way, which costs more than at a filling station
+      const litres = far ? FUEL.far : FUEL.trip;
+      const tank = saveRef.current.fuel ?? FUEL.start;
+      const fromTank = byCar && tank >= litres;
       const fare = byCar
-        ? far
-          ? Math.round(INTERCITY.bus * 0.6)
-          : 8
+        ? fromTank
+          ? 0
+          : far
+            ? Math.round(INTERCITY.bus * 0.6)
+            : 8
         : far
           ? train
             ? INTERCITY.train
@@ -2156,7 +2239,10 @@ function CityGame({
             ? TRAIN_LOCAL
             : BUS_FARE;
       if (byCar && saveRef.current.coins < fare) {
-        toast(`Fuel for this trip costs ${N(fare)}. You don't have enough.`, "warn");
+        toast(
+          `Your tank is nearly empty and fuel on the way costs ${N(fare)}. Fill up at a filling station.`,
+          "warn",
+        );
         return;
       }
       if (!byCar && saveRef.current.coins < fare) {
@@ -2182,7 +2268,10 @@ function CityGame({
           district: to,
           car: byCar ? e.carPos() : x.car,
           pos: undefined,
+          ...(fromTank ? { fuel: Math.max(0, (x.fuel ?? FUEL.start) - litres) } : {}),
         }));
+        if (fromTank && tank - litres < FUEL.trip)
+          setTimeout(() => toast("Your tank is low. Fill up at a filling station.", "warn"), 2500);
         setTravelling(null);
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
@@ -5887,6 +5976,32 @@ function CityGame({
         openShop(id.slice(id.indexOf(":") + 1));
         return;
       }
+      if (id.startsWith("fuel:")) {
+        const name = districtById(id.slice(5))?.name ?? "";
+        const render = () =>
+          setPanel({
+            kind: "info",
+            title: "⛽ Barakah Oil",
+            body: (
+              <FuelView
+                where={name}
+                fuel={saveRef.current.fuel ?? FUEL.start}
+                coins={saveRef.current.coins}
+                onBuy={(l) => {
+                  const cost = Math.ceil(l * FUEL.perLitre);
+                  if (saveRef.current.coins < cost) return;
+                  const fuel = Math.min(FUEL.tank, (saveRef.current.fuel ?? FUEL.start) + l);
+                  saveRef.current = { ...saveRef.current, fuel };
+                  update((x) => ({ ...x, coins: x.coins - cost, fuel }));
+                  toast(`${l} litres in your tank. −${N(cost)}`, "good");
+                  setTimeout(render, 0);
+                }}
+              />
+            ),
+          });
+        render();
+        return;
+      }
       if (id.startsWith("plot:")) {
         openPlot(id.slice(5));
         return;
@@ -6505,12 +6620,13 @@ function CityGame({
                         onClick={() => go(d.id, true)}
                         className="flex-1 rounded-lg bg-[#1f6f63] px-3 py-2 text-[13px] font-bold text-[#fdf8ec]"
                       >
-                        Drive · fuel{" "}
-                        {N(
-                          cityOf(districtById(d.id)) === cityOf(districtById(here))
-                            ? 8
-                            : Math.round(INTERCITY.bus * 0.6),
-                        )}
+                        {(() => {
+                          const same = cityOf(districtById(d.id)) === cityOf(districtById(here));
+                          const need = same ? FUEL.trip : FUEL.far;
+                          return (saveRef.current.fuel ?? FUEL.start) >= need
+                            ? `Drive · ${need} L from your tank`
+                            : `Drive · fuel ${N(same ? 8 : Math.round(INTERCITY.bus * 0.6))}`;
+                        })()}
                       </button>
                     )}
                   </div>
@@ -11362,6 +11478,69 @@ function CallScreen({
   );
 }
 
+/* ---------------- filling station ---------------- */
+function FuelView({
+  where,
+  fuel,
+  coins,
+  onBuy,
+}: {
+  where: string;
+  fuel: number;
+  coins: number;
+  onBuy: (litres: number) => void;
+}) {
+  const room = Math.max(0, FUEL.tank - fuel);
+  const cost = (l: number) => Math.ceil(l * FUEL.perLitre);
+  const btn =
+    "w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left text-[14px] font-bold text-[#fdf8ec] disabled:opacity-40";
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Barakah Oil filling station, {where}. Petrol is ₦{FUEL.perLitre * 10} a litre. A trip across
+        town uses {FUEL.trip} litres; to another city, {FUEL.far}.
+      </p>
+      <div className="rounded-xl bg-white p-3 shadow-sm">
+        <div className="flex justify-between text-[13px] font-bold">
+          <span>Your tank</span>
+          <span>
+            {fuel} / {FUEL.tank} litres
+          </span>
+        </div>
+        <div className="mt-2 h-3 overflow-hidden rounded-full bg-[#10201e]/10">
+          <div
+            className={`h-full rounded-full ${fuel < FUEL.trip ? "bg-[#b8573a]" : "bg-[#1d6b3a]"}`}
+            style={{ width: `${(fuel / FUEL.tank) * 100}%` }}
+          />
+        </div>
+      </div>
+      {room === 0 ? (
+        <p className="font-bold text-[#1d6b3a]">Your tank is full.</p>
+      ) : (
+        <>
+          <button disabled={coins < cost(room)} className={btn} onClick={() => onBuy(room)}>
+            Fill the tank ({room} litres) · {N(cost(room))}
+          </button>
+          {room > 10 && (
+            <button
+              disabled={coins < cost(10)}
+              className={btn
+                .replace("bg-[#1f6f63] ", "border border-[#1f6f63]/30 bg-white ")
+                .replace("text-[#fdf8ec]", "text-[#10201e]")}
+              onClick={() => onBuy(10)}
+            >
+              Buy 10 litres · {N(cost(10))}
+            </button>
+          )}
+        </>
+      )}
+      <p className="text-[12px] opacity-70">
+        With an empty tank you buy fuel on the way, which costs more ({N(8)} a trip).
+      </p>
+    </div>
+  );
+}
+
 /* ---------------- wallet ---------------- */
 function WalletView({
   points,
@@ -11852,7 +12031,7 @@ function OutingView({
           <div className="text-[17px] font-black">Where do you want to go?</div>
           <div className="text-[12px] opacity-80">
             Powered by OutingStation · rides{" "}
-            {driving ? `fuel ${N(8)} in your car` : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
+            {driving ? "petrol from your tank" : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
           </div>
         </div>
       </div>

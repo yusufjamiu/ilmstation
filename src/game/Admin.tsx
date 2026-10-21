@@ -46,9 +46,9 @@ const when = (t: number) =>
 export default function Admin() {
   const [state, setState] = useState<"loading" | "out" | "no" | "yes">("loading");
   const [user, setUser] = useState<User | null>(null);
-  const [tab, setTab] = useState<"reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored">(
-    "reports",
-  );
+  const [tab, setTab] = useState<
+    "reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored" | "fresh"
+  >("reports");
   useEffect(() => {
     let off = () => {};
     fb()
@@ -98,6 +98,7 @@ export default function Admin() {
     ["mssn", "❓ MSSN"],
     ["nasheeds", "🎵 Nasheeds"],
     ["sponsored", "💵 Sponsored quizzes"],
+    ["fresh", "🔄 Fresh start"],
   ];
   return (
     <Shell wide>
@@ -118,6 +119,7 @@ export default function Admin() {
       {tab === "mssn" && <Mssn />}
       {tab === "nasheeds" && <Nasheeds />}
       {tab === "sponsored" && <Sponsored />}
+      {tab === "fresh" && <FreshStart />}
     </Shell>
   );
 }
@@ -589,6 +591,69 @@ function parseQuestions(text: string) {
     out.push({ q, o: rest.map((l) => l.replace(/^\*\s*/, "")), a });
   }
   return out;
+}
+
+/** Start IlmWorld again for everyone: before launch, so all players begin equal. */
+function FreshStart() {
+  const [word, setWord] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const token = await auth.currentUser?.getIdToken();
+      const r = await fetch("/api/money", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ op: "freshStart" }),
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        counts?: Record<string, number>;
+      };
+      if (!r.ok || !j.ok) setMsg(`Not done: ${j.error ?? r.status}`);
+      else {
+        const n = Object.values(j.counts ?? {}).reduce((a, b) => a + b, 0);
+        setMsg(`Done. ${n} records removed. Everyone starts again as a new player.`);
+        setWord("");
+      }
+    } catch {
+      setMsg("Not done: no connection.");
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="max-w-xl space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="text-xl font-bold">Fresh start for everyone</h2>
+      <p className="text-[14px]">
+        Every player starts IlmWorld again as a new player with the ₦200 welcome money. All
+        characters, saves, wallets, houses, shops, house sales, flats, money transfers, chats, calls
+        and fines are removed, on every phone too. Every house in the world is free again.
+      </p>
+      <p className="text-[14px]">
+        Kept: IlmStation accounts and logins, adverts, awards, nasheeds, sponsored quizzes, reports
+        and Paystack payment records.
+      </p>
+      <p className="text-[14px] font-bold text-[#b3261e]">This cannot be undone.</p>
+      <input
+        value={word}
+        onChange={(e) => setWord(e.target.value)}
+        placeholder="Type FRESH START to confirm"
+        className="w-full rounded-xl border border-black/15 px-3 py-2.5"
+      />
+      <button
+        disabled={busy || word.trim() !== "FRESH START"}
+        onClick={() => void run()}
+        className="w-full rounded-xl bg-[#b3261e] py-3 font-bold text-white disabled:opacity-40"
+      >
+        {busy ? "Starting fresh…" : "Start everyone fresh"}
+      </button>
+      {msg && <p className="font-bold">{msg}</p>}
+    </div>
+  );
 }
 
 function Sponsored() {
