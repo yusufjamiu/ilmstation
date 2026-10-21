@@ -30,6 +30,7 @@ import {
   type WalletNet,
 } from "./wallet";
 import { PACKS } from "./packs";
+import type { HomeType } from "./buildings";
 import {
   connectHouseSales,
   connectHouseSalesLocal,
@@ -113,6 +114,7 @@ import {
   rootOf,
   regionOf,
   districtById,
+  isPrimeArea,
   type Lecture,
   type District,
   type Question,
@@ -405,18 +407,28 @@ const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
 const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
 /** How full each area's original houses are (0 to 1): prices rise with demand. */
 const AREA_DEMAND: Record<string, number> = {};
-function houseRent(area: string, floors: number, ilm: number) {
+/** A glass tower costs a fortune: you buy the whole tower and let its flats. */
+const TOWER_PRICE = 60000;
+function houseRent(area: string, floors: number, ilm: number, type?: HomeType) {
   const t = districtById(area).tier ?? 2;
+  // a face-me-I-face-you house is the cheapest home there is
+  const kindX = type === "faceme" ? 0.6 : 1;
   // up to half as much again when an area is in demand
   const demand = 1 + 0.5 * Math.min(1, AREA_DEMAND[area] ?? 0);
   const base = r10(
-    150 * (TIER_RENT[t] ?? 1) * (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1) * demand,
+    150 *
+      (TIER_RENT[t] ?? 1) *
+      (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1) *
+      demand *
+      kindX,
   );
   const need = TIER_LEVEL[t] ?? 0;
   const premium = ilmLevel(ilm).i < need;
   const week = premium ? r10(base * 1.5) : base;
   const buy = r10(
-    (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) *
+    (type === "tower"
+      ? TOWER_PRICE
+      : (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * kindX) *
       (TIER_RENT[t] ?? 1) *
       demand,
   );
@@ -2431,7 +2443,7 @@ function CityGame({
                 : "House to let or buy",
           body: (
             <PlotView
-              rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm)}
+              rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm, p.type)}
               sell={(() => {
                 if (own?.kind !== "bought" && own?.kind !== "built") return undefined;
                 const houses = Object.values(saveRef.current.plots ?? {}).filter(
@@ -2440,7 +2452,7 @@ function CityGame({
                 if (houses < 2) return undefined;
                 const worth =
                   own.kind === "bought"
-                    ? houseRent(p.district, own.floors, saveRef.current.ilm).buy
+                    ? houseRent(p.district, own.floors, saveRef.current.ilm, p.type).buy
                     : (ECONOMY.build[own.floors]?.points ?? 0) +
                       houseRent(p.district, own.floors, saveRef.current.ilm).buy / 2;
                 const price = Math.round((worth * 0.7) / 10) * 10;
@@ -2616,11 +2628,15 @@ function CityGame({
               onEnter={() => {
                 setPanel(null);
                 e.enterInterior("home", `No. ${p.number}, ${p.street}`);
-                // a house of two floors or more is a duplex: stairs to the family rooms
-                e.setDuplex((p.floors ?? 1) >= 2);
+                // a house of two floors or more is a duplex: stairs to the family rooms;
+                // a flat in a glass tower looks out over the city
+                const duplex = !p.type && (p.floors ?? 1) >= 2;
+                e.setDuplex(duplex);
+                e.setGlassFlat(p.type === "tower");
                 setInside(true);
-                if ((p.floors ?? 1) >= 2)
-                  toast("Your duplex: take the stairs up to the family rooms.", "good");
+                if (duplex) toast("Your duplex: take the stairs up to the family rooms.", "good");
+                else if (p.type === "tower")
+                  toast("Your penthouse flat, high over the city.", "good");
               }}
               onRooms={(rooms, earned) => {
                 const own2 = saveRef.current.plots?.[pid];
@@ -3022,10 +3038,12 @@ function CityGame({
           !takenRef.current.has(q.id) &&
           !saveRef.current.plots?.[q.id],
       )
-      .map((q) => ({ q, r: houseRent(q.district, q.floors ?? 1, ilm) }))
+      .map((q) => ({ q, r: houseRent(q.district, q.floors ?? 1, ilm, q.type) }))
       .sort(
         (a, b) =>
-          a.r.week - b.r.week || Number(a.q.district !== here) - Number(b.q.district !== here),
+          Number(a.q.type === "tower") - Number(b.q.type === "tower") ||
+          a.r.week - b.r.week ||
+          Number(a.q.district !== here) - Number(b.q.district !== here),
       );
     const areas = [...new Set(list.map((x) => x.q.district))];
     setPanel({
@@ -3080,16 +3098,18 @@ function CityGame({
                     >
                       <span className="min-w-0">
                         <span className="block truncate text-[13.5px] font-semibold">
-                          {floorsName(q.floors ?? 1)} · No. {q.number}, {q.street}
+                          {homeName(q.floors ?? 1, q.type)} · No. {q.number}, {q.street}
                         </span>
                         <span className="text-[11.5px] opacity-70">
-                          {(q.floors ?? 1) * 2 + 1} bedrooms
+                          {homeRooms(q.floors ?? 1, q.type)}
                           {r.premium ? ` · for ${r.need.brother}s, or pay more` : ""}
                         </span>
                       </span>
                       <span className="shrink-0 text-right text-[13px] font-bold text-[#1f6f63]">
-                        {N(r.week)}
-                        <span className="block text-[10.5px] font-normal opacity-70">a week</span>
+                        {N(q.type === "tower" ? r.buy : r.week)}
+                        <span className="block text-[10.5px] font-normal opacity-70">
+                          {q.type === "tower" ? "to buy" : "a week"}
+                        </span>
                       </span>
                     </button>
                   ))}
@@ -4367,7 +4387,7 @@ function CityGame({
   const flatName = useCallback((area: string) => {
     const o = onlineRef.current;
     const f = o ? flatFor(o.uid).label + " · " : "";
-    return `Your flat · ${f}${districtById(area).name} Towers`;
+    return `Your flat · ${f}${estateName(area)}`;
   }, []);
   const payRent = useCallback(() => {
     const sv = saveRef.current;
@@ -6145,9 +6165,7 @@ function CityGame({
         const which = id.slice(10) === "home" ? "lekki" : id.slice(10);
         const mine = saveRef.current.homeArea ?? "lekki";
         if (which !== mine) {
-          toast(
-            `Your flat is in ${districtById(mine).name} ${mine === "lekki" ? "(Your Home)" : "Towers"}. Take a danfo or keke there.`,
-          );
+          toast(`Your flat is in ${estateName(mine)}. Take a danfo or keke there.`);
           return;
         }
         const go = () => {
@@ -7916,7 +7934,7 @@ function CityGame({
             let plots = saveRef.current.plots ?? {};
             let shops = saveRef.current.shops ?? {};
             let homePlot: string | undefined;
-            let msg = `Welcome home, ${look.name}! Your flat in ${districtById(area).name} Towers has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
+            let msg = `Welcome home, ${look.name}! Your flat in ${estateName(area)} has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
             let lease: Save["lease"];
             if (path === "rich") {
               // the family house: a big house on the street that no other player has, furnished
@@ -8965,7 +8983,23 @@ type PlotOwn =
 const roomsIn = (floors: number) => floors * 2 + 1;
 
 const naira = (n: number) => "₦" + n.toLocaleString("en-NG");
+/** where newcomers' flats are: a glass tower in Lekki and Ikeja, an estate elsewhere */
+const estateName = (area: string) =>
+  area === "lekki"
+    ? "Your Home, Lekki"
+    : `${districtById(area).name} ${isPrimeArea(area) ? "Towers" : "Estate"}`;
 const floorsName = (f: number) => (f <= 1 ? "Bungalow" : f === 2 ? "Duplex" : "Storey building");
+const homeName = (f: number, type?: HomeType) =>
+  type === "tower" ? "Glass tower" : type === "faceme" ? "Face-me-I-face-you" : floorsName(f);
+/** how many flats or rooms a home has: a tower has two flats on every floor */
+const bedsOf = (f: number, type?: HomeType) =>
+  type === "tower" ? f * 2 : type === "faceme" ? 8 : f * 2 + 1;
+const homeRooms = (f: number, type?: HomeType) =>
+  type === "tower"
+    ? `${f} floors · ${bedsOf(f, type)} flats`
+    : type === "faceme"
+      ? "8 rooms off one corridor"
+      : `${bedsOf(f, type)} bedrooms`;
 
 function PlotView({
   plot,
@@ -8991,6 +9025,7 @@ function PlotView({
     street: string;
     district: string;
     floors: number;
+    type?: HomeType;
   };
   own?: PlotOwn;
   points: number;
@@ -9046,12 +9081,15 @@ function PlotView({
   );
 
   if (plot.kind === "house") {
-    const beds = plot.floors * 2 + 1;
+    const beds = bedsOf(plot.floors, plot.type);
+    const name = homeName(plot.floors, plot.type);
+    const tower = plot.type === "tower";
+    const unit = tower ? "flats" : plot.type === "faceme" ? "rooms" : "bedrooms";
     if (own?.kind === "bought")
       return (
         <div className="space-y-2">
           <p>
-            {where}. Your own {floorsName(plot.floors).toLowerCase()} with {beds} bedrooms.
+            {where}. Your own {name.toLowerCase()} with {beds} {unit}.
           </p>
           <button className={primary} onClick={onEnter}>
             Go inside
@@ -9078,9 +9116,10 @@ function PlotView({
           )
         }
       >
-        Buy this house · {N(price)}
+        Buy this {tower ? "tower" : "house"} · {N(price)}
         <span className="block text-[12px] font-medium opacity-80">
-          Live in one flat and let the other {beds - 1} to players
+          Live in one {tower ? "flat" : plot.type === "faceme" ? "room" : "flat"} and let the other{" "}
+          {beds - 1} to players
         </span>
       </button>
     );
@@ -9089,7 +9128,7 @@ function PlotView({
       return (
         <div className="space-y-2">
           <p>
-            {where}. Your {floorsName(plot.floors).toLowerCase()} with {beds} bedrooms.{" "}
+            {where}. Your {name.toLowerCase()} with {beds} {unit}.{" "}
             <b>
               {days} day{days === 1 ? "" : "s"} left.
             </b>
@@ -9105,12 +9144,21 @@ function PlotView({
     return (
       <div className="space-y-2">
         <p>
-          {where}. {floorsName(plot.floors)} with {beds} bedrooms, a kitchen, a parlour and a fenced
-          compound.
+          {where}.{" "}
+          {tower
+            ? `${name}: ${plot.floors} floors of glass, ${beds} flats with views over the city, a lit lobby and a fountain. Only for sale: buy the tower and let its flats to players.`
+            : plot.type === "faceme"
+              ? `${name}: ${beds} rooms facing each other down one corridor, a shared tap and washing line. Cheap to rent.`
+              : `${name} with ${beds} bedrooms, a kitchen, a parlour and a fenced compound.`}
         </p>
         <p className="text-[13px] opacity-75">You have {N(points)}.</p>
-        {rentButtons(false)}
+        {!tower && rentButtons(false)}
         {buyButton}
+        {tower && points < price && (
+          <button className={secondary} onClick={() => onPaystack(price * 10, "this tower")}>
+            Top up your wallet to buy it
+          </button>
+        )}
       </div>
     );
   }
@@ -9278,6 +9326,8 @@ function PlotView({
   );
 }
 
+/** the most the city pays for a house (the server's daily limit) */
+const CITY_BUYS_UP_TO = 20000;
 type SellOpts = {
   price: number;
   blocked?: string;
@@ -9344,7 +9394,12 @@ function SellBox({ sell }: { sell: SellOpts }) {
           ) : null}
           <div className="rounded-lg bg-white p-2.5">
             <div className="font-semibold">To the city, right now · {N(sell.price)}</div>
-            {sure ? (
+            {sell.price > CITY_BUYS_UP_TO ? (
+              <div className="mt-1 text-[12px] opacity-75">
+                The city only buys back homes worth up to {N(CITY_BUYS_UP_TO)}. List this one for
+                players to buy.
+              </div>
+            ) : sure ? (
               <div className="mt-1.5 flex gap-2">
                 <button
                   onClick={sell.run}

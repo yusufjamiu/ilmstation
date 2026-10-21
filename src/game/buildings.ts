@@ -566,6 +566,8 @@ export type Compound = {
   number: number;
   /** where the gate sits along the front (the compound's own x) */
   gx?: number;
+  /** a glass tower of flats, or a face-me-I-face-you rooming house */
+  type?: HomeType;
 };
 
 const WALLS = [
@@ -1045,6 +1047,31 @@ const glassTex = () =>
     c.fillRect(0, 0, 5, h);
     c.fillRect(w / 2 - 2, 0, 4, h);
   });
+/** A glass curtain wall: one floor per tile, sky reflections, slim mullions and a few lit flats. */
+const curtainTex = (tint: string) =>
+  tex("curtain" + tint, 128, 128, (c, w, h) => {
+    const g = c.createLinearGradient(0, 0, w * 0.4, h);
+    g.addColorStop(0, "#cfe6f2");
+    g.addColorStop(0.45, tint);
+    g.addColorStop(1, "#1d3a4e");
+    c.fillStyle = g;
+    c.fillRect(0, 0, w, h);
+    // a soft sky streak across the panes
+    c.fillStyle = "rgba(255,255,255,0.18)";
+    c.beginPath();
+    c.moveTo(0, h * 0.7);
+    c.lineTo(w * 0.6, 0);
+    c.lineTo(w * 0.85, 0);
+    c.lineTo(0, h * 0.95);
+    c.fill();
+    // the floor slab band and the mullions
+    c.fillStyle = "#e9eef2";
+    c.fillRect(0, h - 10, w, 10);
+    for (let x = 0; x <= w; x += w / 4) c.fillRect(x - 1.5, 0, 3, h);
+    // a lit flat now and then
+    c.fillStyle = "rgba(255,214,140,0.55)";
+    c.fillRect(w / 4 + 3, 8, w / 4 - 6, h - 22);
+  });
 const shutterTex = () =>
   tex("shutter", 64, 64, (c, w, h) => {
     for (let y = 0; y < h; y++) {
@@ -1058,6 +1085,12 @@ export const TARRED = () =>
   M("tarred", () => std({ map: asphaltTex(), color: 0xb4b6b8, roughness: 0.95 }));
 export const MAT2 = {
   glass: () => M("glass", () => std({ map: glassTex(), roughness: 0.15, metalness: 0.6 })),
+  curtain: (tint: string) =>
+    M("curtain" + tint, () =>
+      std({ map: curtainTex(tint), roughness: 0.25, metalness: 0.05, emissive: 0x0b1820 }),
+    ),
+  glow: (c: number) =>
+    M("glow" + c, () => std({ color: c, emissive: c, emissiveIntensity: 0.9, roughness: 0.4 })),
   shutter: () => M("shutter", () => std({ map: shutterTex(), metalness: 0.5, roughness: 0.4 })),
   water: () => M("pool", () => std({ color: 0x4fb3d0, roughness: 0.1, metalness: 0.2 })),
   lawn: () => M("lawn", () => std({ color: 0x6f9e48 })),
@@ -2033,7 +2066,22 @@ export function policeStation(
     - saudi: cream stone, high walls, mashrabiya window boxes, flat roofs with teeth
     - tower: Saudi hotel and apartment towers by the Haram
     - tents: the white tents of Mina (and Arafat, with neem trees) */
-export type HouseStyle = "cottage" | "modern" | "local" | "ilorin" | "saudi" | "tower" | "tents";
+export type HouseStyle =
+  | "cottage"
+  | "modern"
+  | "local"
+  | "ilorin"
+  | "saudi"
+  | "tower"
+  | "tents"
+  /** Lekki and Ikeja: glass towers, storey buildings and duplexes (no bungalows) */
+  | "prime"
+  /** Egbeda: Lagos bungalows, duplexes and taller storey buildings */
+  | "storey"
+  /** Ajegunle: Lagos houses and face-me-I-face-you rooming houses */
+  | "ajegunle";
+/** What kind of home a plot holds, when it isn't an ordinary house. */
+export type HomeType = "tower" | "faceme";
 
 function barsTex() {
   return tex(
@@ -2335,7 +2383,37 @@ function styledHouse(
   const front = PD / 2;
   const gx = ref.gx ?? PW / 2 - 4.5;
   const gw = 4.4;
-  const floorsIn = Math.max(1, ref.floors);
+  let floorsIn = Math.max(1, ref.floors);
+  let type: HomeType | undefined;
+  /** the most floors a Lagos house here can have */
+  let localMax = 2;
+  /** Lekki and Ikeja: a modern block of 3 or 4 floors */
+  let block = false;
+  if (style === "prime") {
+    // no bungalows: glass towers, storey buildings and duplexes
+    const k = r();
+    // a tower needs a full plot (the narrow closes get storey buildings instead)
+    if (k < 0.3 && (o.width ?? 22) >= 18 && (o.depth ?? 20) >= 16) {
+      b.base.identity();
+      return glassTower(b, o, ref, r);
+    }
+    style = "modern";
+    if (k < 0.5) {
+      block = true;
+      floorsIn = r() < 0.5 ? 3 : 4;
+    } else floorsIn = Math.max(2, Math.min(3, floorsIn));
+  } else if (style === "storey") {
+    // like Ikorodu, and taller: up to four floors
+    style = "local";
+    localMax = 4;
+    floorsIn = Math.min(4, floorsIn + (r() < 0.6 ? 1 : 0));
+  } else if (style === "ajegunle") {
+    style = "local";
+    if (r() < 0.4) {
+      type = "faceme";
+      floorsIn = 1;
+    }
+  }
 
   /* the yard and the wall round it */
   const yardM =
@@ -2478,9 +2556,76 @@ function styledHouse(
       solid(tx - 0.3, tx + 0.3, front - 1.9, front - 1.3);
     }
     door = toArea(gx, front - 2);
+  } else if (style === "local" && type === "faceme") {
+    /* face-me-I-face-you: a long rooming house, rooms facing each other across a corridor */
+    const BW = PW - 6,
+      BD = PD - 6;
+    const bz = -PD / 2 + 1 + BD / 2;
+    const FHt = 3.1;
+    const paint = pick([0xd9c7a2, 0xe4d2b0, 0xc9d3c0, 0xe8c9a6, 0xd6d0e2]);
+    const wallM = MAT.plaster(paint);
+    const skirt = MAT.plain(pick(LOCAL_SKIRT));
+    const winM = MAT.window(pick([0x6b4226, 0x2a2a2a, 0x1f6f63]));
+    b.box(BW + 0.3, 0.45, BD + 0.3, MAT.plain(0x8f8a80), 0, 0, bz);
+    b.box(BW, FHt, BD, wallM, 0, 0.45, bz);
+    b.box(BW + 0.06, 0.8, BD + 0.06, skirt, 0, 0.45, bz);
+    const dz = bz + BD / 2;
+    // the corridor door in the middle of the front, two windows each side
+    b.plane(1.3, 2.3, MAT.door(pick([0x6b4226, 0x3a2a1a, 0x2a4a7a])), 0, 0.45 + 1.15, dz + 0.02);
+    for (const wx of [-BW / 2 + 2, -BW / 4 - 0.5, BW / 4 + 0.5, BW / 2 - 2]) {
+      b.plane(1.2, 1.3, winM, wx, 0.45 + 1.7, dz + 0.02);
+      b.plane(1.3, 1.4, MAT3.bars(), wx, 0.45 + 1.7, dz + 0.08);
+    }
+    // the rooms down both sides: a window each, with louvres and burglar-proof
+    const rooms = 4;
+    for (const s of [1, -1])
+      for (let k = 0; k < rooms; k++) {
+        const wz = bz - BD / 2 + (BD / rooms) * (k + 0.5);
+        b.plane(1.1, 1.2, winM, s * (BW / 2 + 0.02), 0.45 + 1.7, wz, (s * Math.PI) / 2);
+        b.plane(1.2, 1.3, MAT3.bars(), s * (BW / 2 + 0.08), 0.45 + 1.7, wz, (s * Math.PI) / 2);
+      }
+    // a veranda on two pillars, a bench, and the long zinc roof
+    b.box(4.6, 0.2, 2.2, MAT.plain(0xcfc8b8), 0, 0.25, dz + 1.1);
+    for (const px of [-2.1, 2.1]) {
+      b.box(0.3, 2.9, 0.3, wallM, px, 0.45, dz + 2);
+      solid(px - 0.2, px + 0.2, dz + 1.8, dz + 2.2);
+    }
+    b.box(4.8, 0.2, 2.6, MAT.plain(0xe0d8c4), 0, 3.35, dz + 1.2);
+    b.box(2.2, 0.45, 0.5, MAT.plain(0x7a5234), -BW / 2 + 2.6, 0, dz + 0.9);
+    const tp = 0.45 + FHt;
+    top.y = tp;
+    hipRoof(b, BW + 1.4, BD + 1.4, 2.0, MAT.zinc(pick(ZINC)), 0, tp, bz);
+    solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2);
+    // water drums by the wall, washing on a long line, a shared tap
+    const sx = gx > 0 ? -1 : 1;
+    for (let k = 0; k < 3; k++)
+      b.add(
+        new THREE.CylinderGeometry(0.4, 0.4, 1.0, 12),
+        MAT.plain(pick([0x2a5fa8, 0x1f6f63, 0x2a5fa8]), 0.5),
+        sx * (PW / 2 - 1.1),
+        0.5,
+        front - 1.4 - k * 1.0,
+      );
+    solid(sx * (PW / 2 - 1.1) - 0.45, sx * (PW / 2 - 1.1) + 0.45, front - 3.9, front - 0.9);
+    const lz = front - 1.6;
+    const lx0 = -sx * (PW / 2 - 1.2),
+      lx1 = lx0 + sx * 5;
+    for (const x of [lx0, lx1]) b.box(0.06, 1.9, 0.06, MAT.plain(0x555a5f), x, 0, lz);
+    b.box(Math.abs(lx1 - lx0), 0.02, 0.02, MAT.plain(0x333333), (lx0 + lx1) / 2, 1.85, lz);
+    for (let k = 0; k < 5; k++)
+      b.plane(
+        0.6,
+        0.75,
+        MAT.plain(pick([0xe8445a, 0xf2c230, 0x2a5fa8, 0xffffff, 0x3d8a5a, 0xd66bd0]), 0.9),
+        Math.min(lx0, lx1) + 0.6 + k * 0.85,
+        1.42,
+        lz,
+        0,
+      );
+    door = toArea(0, dz + 2.8);
   } else if (style === "local") {
     /* the Lagos bungalow (or storey building) */
-    const floors = Math.min(2, floorsIn);
+    const floors = Math.min(localMax, floorsIn);
     const BW = Math.min(PW - 4, 12 + Math.floor(r() * 3)),
       BD = Math.min(PD - 9, 8 + Math.floor(r() * 2));
     const bz = -PD / 2 + 1.5 + BD / 2;
@@ -2523,7 +2668,7 @@ function styledHouse(
             bz - BD / 4,
           );
       }
-      if (f === 1) {
+      if (f >= 1) {
         // the upstairs veranda behind a burglar-proof
         b.box(BW * 0.6, 0.2, 1.6, MAT.plain(0xe9e4d6), 0, y - 0.1, bz + BD / 2 + 0.8);
         b.plane(BW * 0.6, 1.1, MAT3.bars(), 0, y + 0.65, bz + BD / 2 + 1.6);
@@ -2620,6 +2765,43 @@ function styledHouse(
         front + T / 2 + 0.02,
       );
     door = toArea(0, dz + 2.8);
+  } else if (style === "modern" && block) {
+    /* a modern block of flats: white floors with glass bands, balconies with glass rails */
+    const floors = floorsIn;
+    const BW = PW - 5,
+      BD = PD - 9;
+    const bz = -PD / 2 + 1.4 + BD / 2;
+    const FHt = 3.3;
+    const white = MAT.plaster(pick(MODERN_WALLS));
+    const accent = MAT.plain(pick(MODERN_ACCENT), 0.6);
+    const glass = MAT2.curtain(pick(["#5f93ad", "#4f8aa0", "#6a8fb0"]));
+    b.box(BW + 0.4, 0.3, BD + 0.4, MAT.plain(0xcfcfca), 0, 0, bz);
+    for (let f = 0; f < floors; f++) {
+      const y = 0.3 + f * FHt;
+      b.box(BW, FHt, BD, f % 2 ? white : white, 0, y, bz);
+      // a glass band on the front and back, and a charcoal frame round it
+      b.add(boxGeo(BW - 1.6, FHt - 0.9, 0.1, FHt), glass, 0, y + FHt / 2, bz + BD / 2 + 0.05);
+      b.add(boxGeo(BW - 1.6, FHt - 0.9, 0.1, FHt), glass, 0, y + FHt / 2, bz - BD / 2 - 0.05);
+      b.box(BW + 0.3, 0.22, BD + 0.3, accent, 0, y + FHt - 0.22, bz);
+      if (f > 0) {
+        b.box(BW * 0.7, 0.18, 1.4, MAT.plain(0xf4f4f0), 0, y - 0.05, bz + BD / 2 + 0.7);
+        b.plane(BW * 0.7, 1.0, MAT.sunroom(), 0, y + 0.6, bz + BD / 2 + 1.4);
+      }
+    }
+    const tp = 0.3 + floors * FHt;
+    top.y = tp;
+    b.box(BW + 0.5, 0.5, BD + 0.5, accent, 0, tp, bz);
+    b.box(BW * 0.35, 2.4, BD * 0.5, white, -BW * 0.2, tp + 0.5, bz);
+    const dz = bz + BD / 2;
+    b.box(4.4, 0.18, 2.6, accent, 0, 3.0, dz + 1.3);
+    b.plane(1.6, 2.5, MAT.door(0x2b2f33), 0, 0.3 + 1.25, dz + 0.12);
+    solid(-BW / 2, BW / 2, bz - BD / 2, bz + BD / 2);
+    for (const px of [-PW / 2 + 1.4, PW / 2 - 1.4]) {
+      if (Math.abs(px - gx) < 3) continue;
+      fanPalm(b, px, front - 1.5, 0.9);
+      solid(px - 0.3, px + 0.3, front - 1.8, front - 1.2);
+    }
+    door = toArea(0, dz + 1.6);
   } else if (style === "modern") {
     /* a Lekki villa: white and charcoal blocks, big glass, flat roofs */
     const BW = Math.min(PW - 4, 13 + Math.floor(r() * 3)),
@@ -2886,8 +3068,148 @@ function styledHouse(
     colliders,
     door,
     gate: toArea(gx, front + 1),
-    floors: ref.floors,
+    floors: floorsIn,
     number: o.number,
     gx,
+    type,
+  };
+}
+
+const TOWER_NAMES = [
+  "Lagoon Heights",
+  "Eko Pearl",
+  "Azure Towers",
+  "Atlantic Crest",
+  "Marina View",
+  "Crescent Towers",
+  "Palm Residence",
+  "Coral Point",
+  "Bluewater",
+  "The Meridian",
+];
+/** A glass tower of flats for Lekki and Ikeja: a lit podium, a blue-green curtain wall with
+    white floor bands and fins, a stepped crown with a glowing ring, palms and a fountain. */
+function glassTower(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width?: number; depth?: number; number: number },
+  ref: Compound,
+  r: () => number,
+): Compound {
+  const PW = o.width ?? 22,
+    PD = o.depth ?? 20;
+  b.base.makeRotationY(o.turn).setPosition(o.x, 0, o.z);
+  const cos = Math.cos(o.turn),
+    sin = Math.sin(o.turn);
+  const toArea = (lx: number, lz: number) => ({
+    x: o.x + lx * cos + lz * sin,
+    z: o.z - lx * sin + lz * cos,
+  });
+  const colliders: Box[] = [];
+  const solid = (lx0: number, lx1: number, lz0: number, lz1: number) => {
+    const a = toArea(lx0, lz0),
+      c = toArea(lx1, lz1);
+    colliders.push({
+      x0: Math.min(a.x, c.x),
+      x1: Math.max(a.x, c.x),
+      z0: Math.min(a.z, c.z),
+      z1: Math.max(a.z, c.z),
+    });
+  };
+  const pick = <T>(a: T[]) => a[Math.floor(r() * a.length)];
+  const front = PD / 2;
+  const gx = ref.gx ?? PW / 2 - 4.5;
+  const floors = 10 + Math.floor(r() * 7);
+  const FHt = 3.4;
+  const BW = Math.min(15, PW - 5),
+    BD = Math.min(11, PD - 6);
+  const bz = -PD / 2 + 1.2 + BD / 2;
+  const tint = pick(["#3f7f9a", "#2f6f86", "#4a86a8", "#3a7a78", "#5a7fa8"]);
+  const glass = MAT2.curtain(tint);
+  const white = MAT.plain(0xf2f4f5, 0.5);
+  const steel = MAT.plain(0xb9c2c8, 0.35);
+  const ring = MAT2.glow(pick([0x7fd3ff, 0xffd27a, 0x9cf0d0]));
+
+  // the plaza: polished paving, a low glass rail with planters, and a fountain
+  b.add(groundGeo(PW - 0.4, PD - 0.4, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  for (const [x0, x1] of [
+    [-PW / 2, gx - 2.6],
+    [gx + 2.6, PW / 2],
+  ]) {
+    if (x1 - x0 < 0.3) continue;
+    b.box(x1 - x0, 0.6, 0.6, MAT.plain(0x3a3d42, 0.5), (x0 + x1) / 2, 0, front - 0.3);
+    b.plane(x1 - x0, 0.9, MAT.sunroom(), (x0 + x1) / 2, 1.05, front - 0.3);
+    for (let x = x0 + 0.6; x < x1 - 0.3; x += 1.1)
+      b.add(new THREE.IcosahedronGeometry(0.3, 0), MAT.plain(0x4f8f45), x, 0.75, front - 0.3);
+    solid(x0, x1, front - 0.6, front);
+  }
+  // the podium: two floors of lit glass under a white canopy
+  const PHt = 7;
+  b.box(BW + 2, PHt, BD + 1, white, 0, 0, bz);
+  b.add(
+    boxGeo(BW + 1.2, PHt - 1.4, 0.1, PHt),
+    MAT2.glow(0xfff1d0),
+    0,
+    PHt / 2,
+    bz + (BD + 1) / 2 + 0.03,
+  );
+  for (let x = -(BW + 1.2) / 2; x <= (BW + 1.2) / 2 + 0.01; x += (BW + 1.2) / 6)
+    b.box(0.18, PHt - 1.4, 0.2, steel, x, 0.7, bz + (BD + 1) / 2 + 0.1);
+  b.box(BW + 2.6, 0.5, BD + 1.6, steel, 0, PHt, bz);
+  // the entrance canopy on two slim columns, and the tower's name
+  const dz = bz + (BD + 1) / 2;
+  b.box(6, 0.25, 3.6, white, 0, 3.6, dz + 1.8);
+  for (const px of [-2.6, 2.6]) b.box(0.18, 3.6, 0.18, steel, px, 0, dz + 3.4);
+  b.plane(1.8, 2.6, MAT.plain(0x1d2a33, 0.2), 0, 1.3, dz + 0.16);
+  b.plane(BW * 0.7, 1.1, MAT.plaque(pick(TOWER_NAMES)), 0, PHt - 0.8, dz + 0.2);
+  // the tower: curtain walls, a white band on every floor, fins up the front corners
+  const H = floors * FHt;
+  const y0 = PHt + 0.5;
+  b.add(boxGeo(BW, H, BD, FHt), glass, 0, y0 + H / 2, bz);
+  for (let f = 1; f < floors; f++)
+    b.box(BW + 0.2, 0.18, BD + 0.2, white, 0, y0 + f * FHt - 0.09, bz);
+  for (const fx of [-BW / 2, -BW / 6, BW / 6, BW / 2])
+    for (const fz of [BD / 2 + 0.25, -BD / 2 - 0.25]) b.box(0.3, H, 0.5, white, fx, y0, bz + fz);
+  // balconies with glass rails on every other floor, on the front
+  for (let f = 1; f < floors; f += 2) {
+    b.box(BW * 0.45, 0.16, 1.2, white, BW * 0.2, y0 + f * FHt, bz + BD / 2 + 0.6);
+    b.plane(BW * 0.45, 1.0, MAT.sunroom(), BW * 0.2, y0 + f * FHt + 0.6, bz + BD / 2 + 1.2);
+  }
+  // the crown: a stepped top, a glowing ring and a slim spire
+  const top = y0 + H;
+  b.box(BW + 0.6, 0.5, BD + 0.6, white, 0, top, bz);
+  b.add(boxGeo(BW - 4, FHt * 1.5, BD - 3, FHt), glass, 0, top + 0.5 + (FHt * 1.5) / 2, bz);
+  b.box(BW - 3.6, 0.35, BD - 2.6, ring, 0, top + 0.5 + FHt * 1.5, bz);
+  b.box(BW - 4.4, 0.4, BD - 3.4, white, 0, top + 0.85 + FHt * 1.5, bz);
+  b.add(
+    new THREE.CylinderGeometry(0.08, 0.22, 7, 6),
+    steel,
+    BW / 4,
+    top + 1.2 + FHt * 1.5 + 3.5,
+    bz,
+  );
+  solid(-BW / 2 - 1, BW / 2 + 1, bz - BD / 2 - 0.5, bz + BD / 2 + 0.5);
+  for (const px of [-2.6, 2.6]) solid(px - 0.15, px + 0.15, dz + 3.25, dz + 3.55);
+  // palms and a round fountain in front
+  for (const px of [-PW / 2 + 1.6, PW / 2 - 1.6]) {
+    if (Math.abs(px - gx) < 3) continue;
+    fanPalm(b, px, front - 2.2, 1.1);
+    solid(px - 0.3, px + 0.3, front - 2.5, front - 1.9);
+  }
+  const fx = gx > 0 ? -PW / 4 : PW / 4;
+  if (dz + 4 < front - 2) {
+    b.add(new THREE.CylinderGeometry(1.4, 1.5, 0.5, 20), white, fx, 0.25, front - 3);
+    b.add(new THREE.CylinderGeometry(1.2, 1.2, 0.1, 20), MAT2.water(), fx, 0.5, front - 3);
+    b.add(new THREE.CylinderGeometry(0.15, 0.25, 1.2, 8), white, fx, 0.9, front - 3);
+    solid(fx - 1.5, fx + 1.5, front - 4.5, front - 1.5);
+  }
+  b.base.identity();
+  return {
+    colliders,
+    door: toArea(0, dz + 2.4),
+    gate: toArea(gx, front + 1),
+    floors,
+    number: o.number,
+    gx,
+    type: "tower",
   };
 }

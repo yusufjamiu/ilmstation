@@ -2063,13 +2063,18 @@ export const INTERCITY = {
 export const districtById = (id: string) => DISTRICTS.find((d) => d.id === id) ?? DISTRICTS[0];
 export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** The look of an area's houses, so no two kinds of place look the same. */
+/** Lekki and Ikeja: glass towers, storey buildings and duplexes; the newcomers' flats are in
+    a tower too. */
+export const isPrimeArea = (id: string) => ["lekki", "badore", "ikeja"].includes(id);
 export function houseStyleOf(d: District): import("./buildings").HouseStyle {
   if (d.id === "mina" || d.id === "arafat") return "tents";
   if (d.holy) return d.id === "haram" || d.id === "nabawi" ? "tower" : "saudi";
-  if (["lekki", "badore", "ikeja", "fate", "lagosairport", "ilorinairport"].includes(d.id))
-    return "modern";
+  if (isPrimeArea(d.id)) return "prime";
+  if (["fate", "lagosairport", "ilorinairport"].includes(d.id)) return "modern";
   if (cityOf(d) === "ilorin") return "ilorin";
-  if (["egbeda", "agric", "okeeletu"].includes(d.id)) return "cottage";
+  if (d.id === "egbeda") return "storey";
+  if (d.id === "ajegunle") return "ajegunle";
+  if (["agric", "okeeletu"].includes(d.id)) return "cottage";
   return "local";
 }
 /** "Agric, Ikorodu" or "Badore, Lekki" for areas reached through another area. */

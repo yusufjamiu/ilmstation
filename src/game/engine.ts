@@ -10,6 +10,7 @@ import {
   centerOf,
   cityOf,
   houseStyleOf,
+  isPrimeArea,
   districtById,
   halfOf,
   fullName,
@@ -752,7 +753,11 @@ export class IlmCityEngine {
 
   enterInterior(kind: InteriorKind, name = "") {
     this.interiorName = name;
-    if (kind === "home") this.setDuplex(false);
+    if (kind === "home") {
+      this.setDuplex(false);
+      // the newcomers' flats in Lekki and Ikeja are in a glass tower
+      this.setGlassFlat(isPrimeArea(this.district.id) && this.district.id !== "lekki");
+    }
     this.outPos.copy(this.player.position);
     this.where = kind;
     const o = this.interiorOrigin[kind];
@@ -1050,7 +1055,13 @@ export class IlmCityEngine {
           const landShare = st.land ?? D.land ?? 0.13;
           const land = r1 < landShare;
           const shops = !land && r1 < landShare + (D.shops ?? 0.2);
-          const toLet = !land && !shops && rnd() < (st.toLet ?? D.toLet ?? 0.3);
+          // every house is open to players now (the dice is still rolled, so plots keep their
+          // numbers and looks)
+          let toLet = false;
+          if (!land && !shops) {
+            rnd();
+            toLet = true;
+          }
           if (
             play &&
             ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
@@ -5639,9 +5650,10 @@ export class IlmCityEngine {
         for (const cx of xs) {
           const cz = north ? st.z - 21.5 : st.z + 21.5;
           if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
-          // a dry run keeps the area's random layout as it was; the estate itself is now an
-          // apartment tower with as many flats as there are players
-          const c = compound(new Batch(true), {
+          // Lekki and Ikeja: an apartment tower with as many flats as there are players (the
+          // dry run keeps the area's random layout as it was); elsewhere a Lagos block of flats
+          const prime = isPrimeArea(D.id);
+          const c = compound(prime ? new Batch(true) : this.curBatch, {
             x: cx,
             z: cz,
             turn: north ? 0 : Math.PI,
@@ -5650,11 +5662,13 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: 0xe8dcb5,
-            style: houseStyleOf(D),
+            style: prime ? houseStyleOf(D) : "storey",
           });
-          this.buildTower(D, cx, cz, north);
-          if (north) this.addCollider("out", cx - 10.5, cx + 10.5, cz - 8.5, cz + 7);
-          else this.addCollider("out", cx - 10.5, cx + 10.5, cz - 7, cz + 8.5);
+          if (prime) {
+            this.buildTower(D, cx, cz, north);
+            if (north) this.addCollider("out", cx - 10.5, cx + 10.5, cz - 8.5, cz + 7);
+            else this.addCollider("out", cx - 10.5, cx + 10.5, cz - 7, cz + 8.5);
+          } else for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
           this.reserved.push({
             x0: this.ox + cx - 12,
             x1: this.ox + cx + 12,
@@ -5669,11 +5683,11 @@ export class IlmCityEngine {
             r: 3,
             scene: "out",
           });
-          const t = label(`${D.name} Towers · flats for every player`, {
+          const t = label(`${D.name} ${prime ? "Towers" : "Estate"} · flats for every player`, {
             size: 1.1,
             bg: "rgba(31,111,99,0.92)",
           });
-          t.position.set(c.gate.x, 6, c.gate.z);
+          t.position.set(c.gate.x, prime ? 6 : 5, c.gate.z);
           this.dg.add(t);
           return;
         }
@@ -5751,7 +5765,8 @@ export class IlmCityEngine {
     if (z) this.player.position.set(z.x, 0, z.z);
     if (p) this.district = districtById(p.district);
     this.enterInterior("home", name);
-    this.setDuplex((p?.floors ?? 1) >= 2);
+    this.setDuplex(!p?.type && (p?.floors ?? 1) >= 2);
+    this.setGlassFlat(p?.type === "tower");
   }
   /** Begin the day inside your flat; walking out puts you at the estate gate. */
   startAtHome(area: string, name: string) {
@@ -7057,6 +7072,80 @@ export class IlmCityEngine {
     this.homeWall?.color.setHex(wall);
     this.homeFloor?.color.setHex(floor);
   }
+  private homeBackWall: THREE.Object3D | null = null;
+  private glassView: THREE.Group | null = null;
+  /** A flat high up in a glass tower: the back wall is floor-to-ceiling glass over the city. */
+  setGlassFlat(on: boolean) {
+    if (this.homeBackWall) this.homeBackWall.visible = !on;
+    if (this.glassView) this.glassView.visible = on;
+  }
+  /** The glass wall of a tower flat: panes, slim frames, a balcony rail, and the city and the
+      lagoon far below, at dusk lights. */
+  private buildGlassView(W: number, D: number) {
+    const g = new THREE.Group();
+    g.visible = false;
+    const z = -D / 2;
+    // the view through the glass: the city and the lagoon at dusk, lights coming on
+    const cv = document.createElement("canvas");
+    cv.width = 1024;
+    cv.height = 256;
+    const c = cv.getContext("2d")!;
+    const sky = c.createLinearGradient(0, 0, 0, 256);
+    sky.addColorStop(0, "#4f7fb8");
+    sky.addColorStop(0.5, "#e9a982");
+    sky.addColorStop(0.68, "#f7d9a8");
+    c.fillStyle = sky;
+    c.fillRect(0, 0, 1024, 256);
+    c.fillStyle = "rgba(255,240,200,0.9)";
+    c.beginPath();
+    c.arc(780, 150, 18, 0, Math.PI * 2);
+    c.fill();
+    let seed = 7;
+    const rr = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let layer = 0; layer < 2; layer++)
+      for (let x = -10; x < 1024;) {
+        const w = 26 + rr() * 50,
+          h = (layer ? 50 : 30) + rr() * (layer ? 110 : 60);
+        const base = 196;
+        c.fillStyle = layer ? "#2c3f55" : "#7a8ca4";
+        c.fillRect(x, base - h, w, h);
+        if (layer)
+          for (let wy = base - h + 6; wy < base - 4; wy += 8)
+            for (let wx = x + 4; wx < x + w - 4; wx += 7)
+              if (rr() < 0.3) {
+                c.fillStyle = "rgba(255,214,140,0.9)";
+                c.fillRect(wx, wy, 3, 4);
+              }
+        x += w + (layer ? 8 : 3) + rr() * 18;
+      }
+    const sea = c.createLinearGradient(0, 196, 0, 256);
+    sea.addColorStop(0, "#3d6f8f");
+    sea.addColorStop(1, "#1f3f57");
+    c.fillStyle = sea;
+    c.fillRect(0, 196, 1024, 60);
+    c.fillStyle = "rgba(255,220,170,0.4)";
+    for (let k = 0; k < 40; k++) c.fillRect(rr() * 1024, 200 + rr() * 52, 16 + rr() * 40, 2);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    const view = new THREE.Mesh(
+      new THREE.PlaneGeometry(W - 0.4, 4.6),
+      new THREE.MeshBasicMaterial({ map: t, fog: false }),
+    );
+    view.position.set(0, 2.45, z - 0.05);
+    g.add(view);
+    // slim dark frames, a sill and a head
+    for (let x = -W / 2; x <= W / 2 + 0.01; x += W / 5) g.add(box(0.14, 5, 0.2, 0x2b2f33, x, 0, z));
+    g.add(box(W, 0.18, 0.3, 0x2b2f33, 0, 0, z), box(W, 0.3, 0.3, 0x2b2f33, 0, 4.7, z));
+    // a glass rail across the lower part, as on a balcony
+    const rail = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, 0.9),
+      new THREE.MeshStandardMaterial({ color: 0xcfe8f2, transparent: true, opacity: 0.35 }),
+    );
+    rail.position.set(0, 0.6, z + 0.12);
+    g.add(rail);
+    g.add(box(W, 0.06, 0.08, 0xc9cfd4, 0, 1.05, z + 0.12));
+    return g;
+  }
   /** A duplex has stairs to the family rooms upstairs. */
   setDuplex(on: boolean) {
     if (this.stairs) this.stairs.visible = on;
@@ -7469,6 +7558,9 @@ export class IlmCityEngine {
       (g.children[0] as THREE.Mesh).material = this.homeFloor;
       for (const c of g.children.slice(2, 7))
         if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = this.homeWall;
+      this.homeBackWall = g.children[2];
+      this.glassView = this.buildGlassView(20, 14);
+      g.add(this.glassView);
       const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
         box(w, h, d, c, x, y, z);
       // bed (always there)
