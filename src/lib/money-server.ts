@@ -149,11 +149,31 @@ export async function handleMoney(request: Request): Promise<Response> {
   const now = Date.now();
   try {
     if (body.op === "init") {
+      // a player who already started (their save is in the cloud) gets the welcome gift back
+      const saved = await db
+        .collection("city_saves")
+        .doc(uid)
+        .get()
+        .catch(() => null);
+      let existing = !!body.existing;
+      let path = body.path;
+      if (saved?.exists) {
+        try {
+          const d = JSON.parse(String((saved.data() as { data?: string }).data ?? "{}")) as {
+            profile?: unknown;
+            path?: string;
+          };
+          if (d.profile) existing = true;
+          path = path ?? d.path;
+        } catch {
+          /* an unreadable save: treat as new */
+        }
+      }
       const out = await db.runTransaction(async (tx) => {
         const s = await tx.get(walletRef);
         if (s.exists) return s.data() as Wallet;
         const w: Wallet = {
-          naira: startingMoney(body.path, !!body.existing),
+          naira: startingMoney(path, existing),
           day: today(now),
           earnedToday: 0,
           createdAt: now,

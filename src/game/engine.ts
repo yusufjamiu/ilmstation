@@ -144,15 +144,7 @@ function mat(color: number, extra: Partial<THREE.MeshStandardMaterialParameters>
   }
   return m;
 }
-type SignKind =
-  | "tolet"
-  | "land"
-  | "ownland"
-  | "sold"
-  | "building"
-  | "mine"
-  | "taken"
-  | "forsale";
+type SignKind = "tolet" | "land" | "ownland" | "sold" | "building" | "mine" | "taken" | "forsale";
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0, cast = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
   m.position.set(x, y + h / 2, z);
@@ -1019,6 +1011,22 @@ export class IlmCityEngine {
 
     // a football pitch and the sisters' corner take three plots in a row
     const play = this.choosePlayPlots(D, zs, H, southEdge);
+    // hold the pitch, sisters' corner and police station plots, so the shops built before
+    // them (eatery, dealer, mall, boutique) don't land on top of them
+    const playHold: Box[] = [];
+    if (play && !D.holy) {
+      const hold = (sz: number, north: boolean, x: number) => {
+        const cz = north ? sz - 21.5 : sz + 21.5;
+        playHold.push({
+          x0: this.ox + x - 12,
+          x1: this.ox + x + 12,
+          z0: this.oz + cz - 11,
+          z1: this.oz + cz + 11,
+        });
+      };
+      for (const x of play.xs) hold(play.sz, play.north, x);
+      if (play.police) hold(play.police.sz, play.police.north, play.police.x);
+    }
     const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
     zs.forEach((sz, si) => {
@@ -1156,6 +1164,7 @@ export class IlmCityEngine {
       }
     });
     this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
+    this.reserved.push(...playHold);
     this.buildEatery(D);
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
@@ -1166,6 +1175,7 @@ export class IlmCityEngine {
       )
     )
       this.buildBoutique(D);
+    this.reserved = this.reserved.filter((r) => !playHold.includes(r));
     if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
     if (!D.holy) this.buildCourt(D);
