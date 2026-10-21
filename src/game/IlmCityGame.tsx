@@ -204,6 +204,8 @@ type Save = {
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
   fuel?: number;
+  /** races already announced to you */
+  racesSeen?: string[];
   /** your bicycle, and whether you are riding it */
   bike?: { kind: BikeKind; color: number };
   cycling?: boolean;
@@ -4317,6 +4319,53 @@ function CityGame({
     }, 100);
     return () => clearInterval(iv);
   }, [toast, stopRace]);
+  /* races are announced: a card the first time a player sees each one, and a chip at the
+     top while one is on */
+  const [openRaces, setOpenRaces] = useState<Race[]>([]);
+  useEffect(() => (onlineReady ? watchRaces(setOpenRaces) : undefined), [onlineReady]);
+  const goToArena = useCallback(() => {
+    setPanel(null);
+    const e = engine.current;
+    if (!e) return;
+    if (e.isDriving() || !e.goToZone("arena")) {
+      // the arena is just north of Ikeja: travel there, then walk the last bit
+      if (e.districtId() === "ikeja" && e.isDriving())
+        toast("Drive north out of Ikeja: the arena is on the left of the road.");
+      else tripRef.current("ikeja", !!e.isDriving(), "arena");
+      return;
+    }
+    toast("Follow the marker to the IlmWorld Sports Arena.", "good");
+  }, [toast]);
+  const showRace = useCallback(
+    (r: Race) =>
+      setPanel({
+        kind: "info",
+        title: r.from > Date.now() ? "🏁 A race is coming" : "🏁 A race is on!",
+        body: (
+          <RaceNews
+            r={r}
+            hasBike={!!saveRef.current.bike}
+            onGo={goToArena}
+            onLater={() => setPanel(null)}
+          />
+        ),
+      }),
+    [goToArena],
+  );
+  useEffect(() => {
+    if (!save.profile || panelRef.current) return;
+    const seen = saveRef.current.racesSeen ?? [];
+    const fresh = openRaces.find((r) => !seen.includes(r.id));
+    if (!fresh) return;
+    const t = setTimeout(() => {
+      if (panelRef.current) return;
+      const racesSeen = [...seen, fresh.id].slice(-30);
+      saveRef.current = { ...saveRef.current, racesSeen };
+      update((x) => ({ ...x, racesSeen }));
+      showRace(fresh);
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [openRaces, save.profile, panel, showRace, update]);
   const openRacesRef = useRef(() => {});
   openRacesRef.current = () =>
     setPanel({
@@ -7859,6 +7908,14 @@ function CityGame({
               className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
             >
               {save.cycling ? "🚶 Walk" : "🚲 Ride"}
+            </button>
+          )}
+          {save.profile && openRaces.length > 0 && !raceNow && (
+            <button
+              onClick={() => showRace(openRaces[0])}
+              className="pointer-events-auto max-w-[170px] truncate rounded-xl bg-[#e6b84a] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
+            >
+              🏁 {openRaces[0].from > Date.now() ? "Race soon" : "Race on"}: {openRaces[0].title}
             </button>
           )}
           {save.profile && (
@@ -11791,6 +11848,65 @@ function CallScreen({
 }
 
 /* ---------------- races at the sports arena ---------------- */
+function RaceNews({
+  r,
+  hasBike,
+  onGo,
+  onLater,
+}: {
+  r: Race;
+  hasBike: boolean;
+  onGo: () => void;
+  onLater: () => void;
+}) {
+  const day = (t: number) =>
+    new Date(t).toLocaleString(undefined, {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  const soon = r.from > Date.now();
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-[#10201e] p-4 text-[#fdf8ec]">
+        <div className="text-[13px] opacity-80">
+          {r.kind === "bike" ? "🚲 Cycling race" : "🏃 Running race"} · {r.laps} lap
+          {r.laps > 1 ? "s" : ""}
+        </div>
+        <div className="text-[20px] font-black leading-tight">{r.title}</div>
+        {r.prize && (
+          <div className="mt-1 text-[15px] font-bold text-[#e6b84a]">
+            🏆 Top {r.winners}: {r.prize}
+          </div>
+        )}
+      </div>
+      <p className="text-[14px]">
+        {soon ? `Opens ${day(r.from)}. ` : ""}Closes {day(r.until)}. Go to the IlmWorld Sports Arena
+        (just north of Ikeja) and {r.kind === "bike" ? "ride" : "run"} the track against the clock
+        as many times as you like: your best time counts.
+      </p>
+      {r.kind === "bike" && !hasBike && (
+        <p className="rounded-xl bg-[#fff7df] p-3 text-[13px]">
+          You need a bicycle: buy one at IlmMotors in Ikeja or Lekki.
+        </p>
+      )}
+      <button
+        onClick={onGo}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        Take me to the arena
+      </button>
+      <button
+        onClick={onLater}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+      >
+        Later
+      </button>
+    </div>
+  );
+}
 function RacesView({
   me,
   hasBike,
