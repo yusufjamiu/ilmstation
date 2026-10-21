@@ -460,12 +460,6 @@ const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] =
     name: "Trader",
     text: "A flat and your first shop free for a week. Add products, then collect your sales.",
   },
-  {
-    id: "rich",
-    icon: "🏡",
-    name: "Rich family",
-    text: "A big furnished family house on the street and ₦6,000 to start.",
-  },
 ];
 /** Who teaches at a masjid or madrasah: the sheikh its street is named after. */
 const hostOf = (lid: string) => {
@@ -4195,7 +4189,7 @@ function CityGame({
   const flatName = useCallback((area: string) => {
     const o = onlineRef.current;
     const f = o ? flatFor(o.uid).label + " · " : "";
-    return `Your flat · ${f}${districtById(area).name}`;
+    return `Your flat · ${f}${districtById(area).name} Towers`;
   }, []);
   const payRent = useCallback(() => {
     const sv = saveRef.current;
@@ -5966,7 +5960,7 @@ function CityGame({
         const mine = saveRef.current.homeArea ?? "lekki";
         if (which !== mine) {
           toast(
-            `Your flat is in ${districtById(mine).name} ${mine === "lekki" ? "(Your Home)" : "Estate"}. Take a danfo or keke there.`,
+            `Your flat is in ${districtById(mine).name} ${mine === "lekki" ? "(Your Home)" : "Towers"}. Take a danfo or keke there.`,
           );
           return;
         }
@@ -7726,7 +7720,7 @@ function CityGame({
             let plots = saveRef.current.plots ?? {};
             let shops = saveRef.current.shops ?? {};
             let homePlot: string | undefined;
-            let msg = `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
+            let msg = `Welcome home, ${look.name}! Your flat in ${districtById(area).name} Towers has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
             let lease: Save["lease"];
             if (path === "rich") {
               // the family house: a big house on the street that no other player has, furnished
@@ -10064,6 +10058,15 @@ function Onboarding({
                 </span>
               </button>
             ))}
+            <div className="flex w-full items-start gap-3 rounded-xl border border-dashed border-[#c9a227]/60 bg-[#fff7df] px-4 py-3 text-left opacity-80">
+              <span className="text-[28px] leading-none">🏡</span>
+              <span>
+                <span className="block text-[16px] font-bold">Rich family · coming soon</span>
+                <span className="block text-[13px] opacity-75">
+                  A furnished family house and extra naira, as a pack you can buy.
+                </span>
+              </span>
+            </div>
           </div>
         </div>
       </div>

@@ -5632,7 +5632,9 @@ export class IlmCityEngine {
         for (const cx of xs) {
           const cz = north ? st.z - 21.5 : st.z + 21.5;
           if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
-          const c = compound(this.curBatch, {
+          // a dry run keeps the area's random layout as it was; the estate itself is now an
+          // apartment tower with as many flats as there are players
+          const c = compound(new Batch(true), {
             x: cx,
             z: cz,
             turn: north ? 0 : Math.PI,
@@ -5643,7 +5645,9 @@ export class IlmCityEngine {
             wall: 0xe8dcb5,
             style: houseStyleOf(D),
           });
-          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.buildTower(D, cx, cz, north);
+          if (north) this.addCollider("out", cx - 10.5, cx + 10.5, cz - 8.5, cz + 7);
+          else this.addCollider("out", cx - 10.5, cx + 10.5, cz - 7, cz + 8.5);
           this.reserved.push({
             x0: this.ox + cx - 12,
             x1: this.ox + cx + 12,
@@ -5658,12 +5662,71 @@ export class IlmCityEngine {
             r: 3,
             scene: "out",
           });
-          const t = label(`${D.name} Estate · flats`, { size: 1, bg: "rgba(31,111,99,0.92)" });
-          t.position.set(c.gate.x, 5, c.gate.z);
+          const t = label(`${D.name} Towers · flats for every player`, {
+            size: 1.1,
+            bg: "rgba(31,111,99,0.92)",
+          });
+          t.position.set(c.gate.x, 6, c.gate.z);
           this.dg.add(t);
           return;
         }
       }
+  }
+  /** An area's apartment tower: a podium with the entrance, then many floors of flats with
+      balconies, a roof crown and the area's name. Every player who rents a flat in the area
+      has their own flat in it. */
+  private buildTower(D: District, cx: number, cz: number, north: boolean) {
+    const g = new THREE.Group();
+    g.position.set(cx, 0, cz);
+    g.rotation.y = north ? 0 : Math.PI;
+    const tier = D.tier ?? 2;
+    const floors = tier === 1 ? 18 : tier === 2 ? 13 : 9;
+    const FH = 3.2,
+      W = 18,
+      Dp = 14,
+      bz = -1.5;
+    const wall = tier === 1 ? 0xeef1f4 : D.city === "ilorin" ? 0xe7c49a : 0xe9dcc0;
+    const trim = tier === 1 ? 0x2a4a7a : 0x1f6f63;
+    const body = mat(wall, { roughness: 0.8 });
+    const glass = MAT2.glass();
+    const dark = mat(0x2a3a4a, { roughness: 0.3, metalness: 0.2 });
+    // the podium: lobby glass and a canopy over the door
+    g.add(box(W + 3, 4, Dp + 2, trim, 0, 0, bz));
+    const lobby = new THREE.Mesh(new THREE.PlaneGeometry(W - 4, 3), glass);
+    lobby.position.set(0, 1.7, bz + (Dp + 2) / 2 + 0.02);
+    g.add(lobby);
+    g.add(box(8, 0.3, 3.2, 0xf4f4f0, 0, 3.4, bz + (Dp + 2) / 2 + 1.5));
+    // the tower
+    const H = floors * FH;
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(W, H, Dp), body);
+    tower.position.set(0, 4 + H / 2, bz);
+    tower.castShadow = true;
+    tower.receiveShadow = true;
+    g.add(tower);
+    // a window band on every floor, all four sides, and balconies on the front
+    for (let f = 0; f < floors; f++) {
+      const y = 4 + f * FH + 1.5;
+      const front = new THREE.Mesh(new THREE.BoxGeometry(W + 0.06, 1.4, Dp + 0.06), dark);
+      front.position.set(0, y, bz);
+      g.add(front);
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(W + 0.2, 0.25, Dp + 0.2), body);
+      slab.position.set(0, 4 + f * FH, bz);
+      g.add(slab);
+      if (f % 1 === 0)
+        for (const bx of [-5.5, 0, 5.5]) {
+          const bal = box(4, 0.2, 1.4, 0xf4f4f0, bx, 4 + f * FH + 0.05, bz + Dp / 2 + 0.7);
+          g.add(bal);
+          const rail = box(4, 0.9, 0.06, trim, bx, 4 + f * FH + 0.25, bz + Dp / 2 + 1.38, false);
+          g.add(rail);
+        }
+    }
+    // the crown on the roof
+    g.add(box(W + 0.6, 0.6, Dp + 0.6, trim, 0, 4 + H, bz));
+    g.add(box(W * 0.5, 3, Dp * 0.5, wall, 0, 4.6 + H, bz));
+    const sign = this.signBoard(`${D.name} Towers`, 12, 1.6, "#1f6f63", "#ffffff");
+    sign.position.set(0, 4.6 + H + 1.5, bz + Dp * 0.25 + 0.02);
+    g.add(sign);
+    this.dg.add(g);
   }
   /** Where the door of an area's estate (or Lekki's home) is. */
   homeDoor(area: string) {
