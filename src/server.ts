@@ -91,6 +91,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/api/turn") return turnServers();
     // IlmWorld money: every change to a player's naira goes through the server
+    // Paystack: buying IlmWorld naira
+    if (url.pathname.startsWith("/api/pay/"))
+      return import("./lib/pay-server").then((m) => m.handlePay(request, url.pathname));
     if (url.pathname === "/api/money")
       return import("./lib/money-server").then((m) => m.handleMoney(request));
     const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;

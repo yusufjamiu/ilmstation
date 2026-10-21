@@ -22,7 +22,14 @@ import {
 } from "./calls";
 import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
 import { connectShops, connectShopsLocal, type SharedShop, type Shops } from "./shops";
-import { connectWallet, type WalletNet } from "./wallet";
+import {
+  connectWallet,
+  confirmPayment,
+  startPayment,
+  type WalletDoc,
+  type WalletNet,
+} from "./wallet";
+import { PACKS } from "./packs";
 import {
   connectHouseSales,
   connectHouseSalesLocal,
@@ -182,6 +189,8 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** when the bought Rich family pack's house was handed over */
+  richApplied?: number;
   path?: LifePath;
   job?: string;
   /** the day you last worked a shift */
@@ -1014,6 +1023,32 @@ function CityGame({
     },
     [toast, syncCoins],
   );
+  const walletDoc = useRef<WalletDoc | null>(null);
+  /** hand over what a bought pack gives besides money (set further down) */
+  const applyPacksRef = useRef<() => void>(() => {});
+  // back from Paystack checkout: confirm the payment, then tidy the address bar
+  useEffect(() => {
+    if (!cloud.uid) return;
+    const q = new URLSearchParams(window.location.search);
+    const ref = q.get("reference") ?? q.get("trxref");
+    if (!ref) return;
+    q.delete("reference");
+    q.delete("trxref");
+    const rest = q.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : ""));
+    void confirmPayment(ref).then((r) =>
+      toast(
+        r.ok
+          ? r.pack === "rich"
+            ? "Payment received. Your family house and naira are on the way!"
+            : "Payment received. Your naira is in your wallet!"
+          : r.error === "not-paid"
+            ? "That payment didn't go through. No money was taken."
+            : "We couldn't confirm the payment yet. If you were charged, it will arrive shortly.",
+        r.ok ? "good" : "warn",
+      ),
+    );
+  }, [toast]);
   // connect the wallet once the account and its save are loaded
   useEffect(() => {
     const u = cloud.uid;
@@ -1022,9 +1057,11 @@ function CityGame({
     void connectWallet(
       u,
       { path: saveRef.current.path, existing: !!saveRef.current.profile },
-      (naira) => {
+      (naira, doc) => {
         walletServer.current = naira;
         syncCoins();
+        walletDoc.current = doc;
+        applyPacksRef.current();
       },
     ).then((w) => {
       if (!live) return w?.stop();
@@ -1263,7 +1300,7 @@ function CityGame({
   const quranNext = useRef(false);
   /** the sheikh of the masjid or madrasah you are in: he asks the quiz */
   const quizHost = useRef("The Imam");
-  const openWalletRef = useRef<() => void>(() => {});
+  const openWalletRef = useRef<(tab?: "wallet" | "send" | "buy", why?: string) => void>(() => {});
   const profileBtn = useRef<HTMLButtonElement | null>(null);
   const eat = useCallback(
     (d: Dish) => {
@@ -1314,7 +1351,13 @@ function CityGame({
         setPanel({
           kind: "info",
           title: "Not enough money",
-          body: <NoPointsView price={price} points={saveRef.current.coins} />,
+          body: (
+            <NoPointsView
+              price={price}
+              points={saveRef.current.coins}
+              onTopUp={() => openWalletRef.current("buy")}
+            />
+          ),
         });
         return;
       }
@@ -2563,9 +2606,7 @@ function CityGame({
                 setTimeout(render, 0);
               }}
               onPaystack={(amount, what) =>
-                toast(
-                  `Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next. For now, pay from your IlmWorld wallet.`,
-                )
+                openWalletRef.current("buy", `${what}: ₦${amount.toLocaleString()}`)
               }
               onSet={(next) => {
                 setOwn(next);
@@ -2790,7 +2831,7 @@ function CityGame({
                 setTimeout(render, 0);
               }}
               onPaystack={(amount, what) =>
-                toast(`Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next.`)
+                openWalletRef.current("buy", `${what}: ₦${amount.toLocaleString()}`)
               }
               onSave={(o) => {
                 update((x) => ({ ...x, shops: { ...x.shops, [sid]: o } }));
@@ -3985,7 +4026,7 @@ function CityGame({
   );
   const sendMoneyRef = useRef(sendMoney);
   sendMoneyRef.current = sendMoney;
-  openWalletRef.current = () => {
+  openWalletRef.current = (tab, why) => {
     advance("wallet");
     setPanel({
       kind: "info",
@@ -3997,6 +4038,22 @@ function CityGame({
           txns={saveRef.current.txns ?? []}
           online={!!onlineRef.current}
           onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
+          tab={tab}
+          why={why}
+          canBuy={!!walletNet.current}
+          richDone={!!saveRef.current.richApplied || !!walletDoc.current?.packs?.rich}
+          onBuy={async (pack) => {
+            const r = await startPayment(pack);
+            if (r.ok && r.url) {
+              window.location.href = r.url;
+              return null;
+            }
+            return r.error === "not-configured"
+              ? "Buying naira opens soon, in shaa Allah."
+              : r.error === "no-email"
+                ? "Your account needs an email address to pay."
+                : "Couldn't start the payment. Please try again.";
+          }}
         />
       ),
     });
@@ -4232,6 +4289,73 @@ function CityGame({
   const claimPlotRef = useRef(claimPlot);
   claimPlotRef.current = claimPlot;
 
+  /* ---------- the Rich family pack: a furnished family house, handed over once ---------- */
+  // try again once the game is ready (the wallet can arrive before the world)
+  useEffect(() => {
+    const t = setTimeout(() => applyPacksRef.current(), 4000);
+    return () => clearTimeout(t);
+  }, [save.profile, claimsReady, onlineReady]);
+  const applyingRich = useRef(false);
+  applyPacksRef.current = () => {
+    const e = engine.current;
+    const sv = saveRef.current;
+    if (!e || !sv.profile || sv.richApplied || applyingRich.current) return;
+    if (!walletDoc.current?.packs?.rich || !onlineRef.current) return;
+    applyingRich.current = true;
+    void (async () => {
+      const area = sv.homeArea ?? e.districtId();
+      const me = onlineRef.current?.uid ?? "";
+      const mix = (id: string) => flatFor(me + id).seed;
+      const houses = e.plots
+        .filter((q) => q.district === area && q.kind === "house" && q.toLet)
+        .sort((a, b) => (b.floors ?? 1) - (a.floors ?? 1) || mix(a.id) - mix(b.id));
+      let got: { id: string; floors: number } | null = null;
+      // the first phase with a free house; a few tries per phase, then the next phase
+      for (let n = 1; n <= 30 && !got; n++) {
+        let tries = 0;
+        for (const q of houses) {
+          const id = e.phasedId(q.id, n);
+          if (saveRef.current.plots?.[id] || takenRef.current.has(id)) continue;
+          if (++tries > 6) break;
+          if (await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 })) {
+            got = { id, floors: q.floors ?? 1 };
+            break;
+          }
+        }
+      }
+      applyingRich.current = false;
+      if (!got) {
+        toast("Your Rich family pack is paid. We'll hand over your house shortly.", "warn");
+        return;
+      }
+      const own: PlotOwn = { kind: "bought", floors: got.floors, rooms: [] };
+      const items = [
+        ...new Set([...(saveRef.current.items ?? []), ...HOME_ITEMS.map((i) => i.id)]),
+      ];
+      const pid = got.id;
+      saveRef.current = {
+        ...saveRef.current,
+        plots: { ...saveRef.current.plots, [pid]: own },
+        homePlot: pid,
+        items,
+        richApplied: Date.now(),
+      };
+      update((x) => ({
+        ...x,
+        plots: { ...x.plots, [pid]: own },
+        homePlot: pid,
+        items,
+        richApplied: Date.now(),
+      }));
+      e.setPlot(pid, plotStateFn(own) ?? { kind: "tolet" });
+      e.setHomeItems(items);
+      toast(
+        `Alhamdulillah! Your family house in ${districtById(area).name} is ready and furnished. Find it under My houses.`,
+        "good",
+      );
+    })();
+  };
+
   useEffect(() => {
     const o = onlineRef.current;
     if (!o || visitingRef.current || saveRef.current.paint) return;
@@ -4253,7 +4377,13 @@ function CityGame({
       setPanel({
         kind: "info",
         title: "Not enough money for rent",
-        body: <NoPointsView price={rent} points={sv.coins} />,
+        body: (
+          <NoPointsView
+            price={rent}
+            points={sv.coins}
+            onTopUp={() => openWalletRef.current("buy")}
+          />
+        ),
       });
       return false;
     }
@@ -4516,7 +4646,9 @@ function CityGame({
               fine={st.fine}
               reason={st.fineReason}
               points={saveRef.current.coins}
-              onNaira={() => toast("Paystack checkout is coming next.")}
+              onNaira={() =>
+                openWalletRef.current("buy", `the chat fine: ₦${st.fine.toLocaleString()}`)
+              }
               onPayPoints={async () => {
                 const pts = Math.round(st.fine / 10);
                 if (saveRef.current.coins < pts) return;
@@ -4553,7 +4685,7 @@ function CityGame({
                 void openChatWith(other);
               }}
               onNaira={(amount, what) =>
-                toast(`Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next.`)
+                openWalletRef.current("buy", `${what}: ₦${amount.toLocaleString()}`)
               }
             />
           ),
@@ -6108,7 +6240,13 @@ function CityGame({
                   setPanel({
                     kind: "info",
                     title: "Not enough money",
-                    body: <NoPointsView price={price} points={saveRef.current.coins} />,
+                    body: (
+                      <NoPointsView
+                        price={price}
+                        points={saveRef.current.coins}
+                        onTopUp={() => openWalletRef.current("buy")}
+                      />
+                    ),
                   });
                   return;
                 }
@@ -6220,7 +6358,13 @@ function CityGame({
             setPanel({
               kind: "info",
               title: "Not enough money",
-              body: <NoPointsView price={price} points={saveRef.current.coins} />,
+              body: (
+                <NoPointsView
+                  price={price}
+                  points={saveRef.current.coins}
+                  onTopUp={() => openWalletRef.current("buy")}
+                />
+              ),
             });
             return;
           }
@@ -7133,9 +7277,7 @@ function CityGame({
               );
             }}
             onNaira={(_ids, naira) =>
-              toast(
-                `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, pay from your IlmWorld wallet.`,
-              )
+              openWalletRef.current("buy", `your furniture: ₦${naira.toLocaleString()}`)
             }
           />
         ),
@@ -10115,9 +10257,10 @@ function Onboarding({
             <div className="flex w-full items-start gap-3 rounded-xl border border-dashed border-[#c9a227]/60 bg-[#fff7df] px-4 py-3 text-left opacity-80">
               <span className="text-[28px] leading-none">🏡</span>
               <span>
-                <span className="block text-[16px] font-bold">Rich family · coming soon</span>
+                <span className="block text-[16px] font-bold">Rich family pack</span>
                 <span className="block text-[13px] opacity-75">
-                  A furnished family house and extra naira, as a pack you can buy.
+                  A furnished family house and ₦20,000. Start any life, then buy it from Wallet →
+                  Buy naira.
                 </span>
               </span>
             </div>
@@ -11170,13 +11313,26 @@ function WalletView({
   txns,
   online,
   onSend,
+  tab: startTab,
+  why,
+  canBuy,
+  richDone,
+  onBuy,
 }: {
   points: number;
   txns: NonNullable<Save["txns"]>;
   online: boolean;
   onSend: (number: string, units: number, note: string) => Promise<string | null>;
+  tab?: "wallet" | "send" | "buy";
+  /** what the player was paying for when they came to top up */
+  why?: string;
+  canBuy: boolean;
+  richDone: boolean;
+  /** start a Paystack payment; an error message, or null when leaving for checkout */
+  onBuy: (pack: string) => Promise<string | null>;
 }) {
-  const [tab, setTab] = useState<"wallet" | "send">("wallet");
+  const [tab, setTab] = useState<"wallet" | "send" | "buy">(startTab ?? "wallet");
+  const [buying, setBuying] = useState<string | null>(null);
   const [num, setNum] = useState("");
   const [amt, setAmt] = useState("");
   const [note, setNote] = useState("");
@@ -11187,17 +11343,91 @@ function WalletView({
   const toGo = Math.max(0, MIN_WITHDRAW - bal);
   const tabs = (
     <div className="flex gap-1 rounded-xl bg-[#10201e]/6 p-1">
-      {(["wallet", "send"] as const).map((t) => (
+      {(["wallet", "buy", "send"] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
           className={`flex-1 rounded-lg py-1.5 text-[13px] font-bold ${tab === t ? "bg-white shadow-sm" : "opacity-60"}`}
         >
-          {t === "wallet" ? "💰 Wallet" : "📤 Send money"}
+          {t === "wallet" ? "💰 Wallet" : t === "buy" ? "➕ Buy naira" : "📤 Send"}
         </button>
       ))}
     </div>
   );
+  if (tab === "buy") {
+    const buy = async (id: string) => {
+      setBuying(id);
+      setErr(null);
+      const e = await onBuy(id);
+      if (e) {
+        setErr(e);
+        setBuying(null);
+      }
+    };
+    return (
+      <div className="space-y-3">
+        {tabs}
+        {why && (
+          <p className="rounded-xl bg-[#fff7df] p-3 text-[13px]">
+            For {why}. Top up below, then pay from your wallet. You have {N(bal)}.
+          </p>
+        )}
+        {!online || !canBuy ? (
+          <p className="text-[13px] opacity-75">Log in to IlmStation to buy IlmWorld naira.</p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {PACKS.filter((p) => !p.rich).map((p) => (
+                <button
+                  key={p.id}
+                  disabled={!!buying}
+                  onClick={() => void buy(p.id)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm disabled:opacity-50"
+                >
+                  <span>
+                    <span className="block text-[15px] font-bold">{N(p.units)}</span>
+                    {p.note && (
+                      <span className="block text-[12px] font-bold text-[#1d6b3a]">{p.note}</span>
+                    )}
+                  </span>
+                  <span className="rounded-lg bg-[#1d6b3a] px-3 py-1.5 text-[14px] font-bold text-white">
+                    {buying === p.id ? "Opening…" : `₦${p.price.toLocaleString()}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {PACKS.filter((p) => p.rich).map((p) => (
+              <div
+                key={p.id}
+                className="space-y-2 rounded-2xl border border-[#c9a227]/60 bg-[#fff7df] p-4"
+              >
+                <div className="text-[16px] font-bold">🏡 {p.name}</div>
+                <p className="text-[13px] opacity-80">
+                  {p.note}. The house is yours to live in, with flats to let to other players.
+                </p>
+                <button
+                  disabled={!!buying || richDone}
+                  onClick={() => void buy(p.id)}
+                  className="w-full rounded-xl bg-[#e6b84a] py-2.5 font-bold text-[#2a1c05] disabled:opacity-50"
+                >
+                  {richDone
+                    ? "You have this pack"
+                    : buying === p.id
+                      ? "Opening…"
+                      : `Buy for ₦${p.price.toLocaleString()}`}
+                </button>
+              </div>
+            ))}
+            {err && <p className="text-[13px] font-bold text-[#b3261e]">{err}</p>}
+            <p className="text-[12px] opacity-70">
+              Paid securely with Paystack (card, bank transfer or USSD). Naira you buy is for
+              spending in IlmWorld; only naira you earn can be cashed out.
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
   if (tab === "send") {
     const naira = Math.floor(Number(amt.replace(/[^0-9]/g, "")) || 0);
     const units = Math.floor(naira / NAIRA_PER_POINT);
@@ -14639,7 +14869,15 @@ function HungryView({ onOrder, onEatery }: { onOrder: () => void; onEatery: () =
   );
 }
 
-function NoPointsView({ price, points }: { price: number; points: number }) {
+function NoPointsView({
+  price,
+  points,
+  onTopUp,
+}: {
+  price: number;
+  points: number;
+  onTopUp: () => void;
+}) {
   return (
     <div className="space-y-3">
       <p>
@@ -14650,10 +14888,10 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
         quiz, or top up your wallet.
       </p>
       <button
-        disabled
-        className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05] opacity-60"
+        onClick={onTopUp}
+        className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05]"
       >
-        Top up · coming soon with Paystack
+        Top up with Paystack
       </button>
     </div>
   );

@@ -71,7 +71,7 @@ type Admin = {
   auth: import("firebase-admin/auth").Auth;
 };
 let adminP: Promise<Admin | null> | null = null;
-function admin(): Promise<Admin | null> {
+export function admin(): Promise<Admin | null> {
   if (adminP) return adminP;
   adminP = (async () => {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
