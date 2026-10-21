@@ -3852,9 +3852,13 @@ function CityGame({
           for (const x of list)
             void t.receive(x.id).then((ok) => {
               if (!ok) return;
+              // with the wallet, only money the server moved counts
+              const paid = (x as { serverPaid?: boolean }).serverPaid;
+              if (walletNet.current && !paid) return;
+              const add = walletNet.current ? 0 : x.amount;
               update((s2) => ({
                 ...s2,
-                coins: s2.coins + x.amount,
+                coins: s2.coins + add,
                 txns: [
                   {
                     dir: "in" as const,
@@ -3895,6 +3899,37 @@ function CityGame({
       if (!who) return "No player has that IlmWorld number.";
       if (who.uid === o.uid) return "That's your own number.";
       const name = shownName(saveRef.current) ?? "A player";
+      const w = walletNet.current;
+      if (w) {
+        // the server takes it from your wallet and puts it in theirs, in one step
+        const r = await w.send(who.uid, units, {
+          fromName: name,
+          toName: who.name,
+          note: note.trim().slice(0, 80) || undefined,
+        });
+        if (!r.ok)
+          return r.error === "not-enough"
+            ? "Your wallet doesn't have enough."
+            : r.error === "no-wallet"
+              ? "That player hasn't opened IlmWorld since money moved to wallets."
+              : "It didn't go through. Check your connection and try again.";
+        if (typeof r.naira === "number") walletServer.current = r.naira;
+        syncCoins();
+        update((x) => ({
+          ...x,
+          txns: [
+            {
+              dir: "out" as const,
+              name: who.name,
+              amount: units,
+              note: note.trim() || undefined,
+              at: Date.now(),
+            },
+            ...(x.txns ?? []),
+          ].slice(0, 40),
+        }));
+        return null;
+      }
       update((x) => ({ ...x, coins: x.coins - units }));
       try {
         await t.send({
@@ -7195,19 +7230,6 @@ function CityGame({
                           }
                     }
                     items={[
-                      ...(isAdminRef.current
-                        ? [
-                            {
-                              icon: "🛠️",
-                              label: "Test ₦50,000",
-                              run: () => {
-                                update((x) => ({ ...x, coins: x.coins + 5000 }));
-                                setPanel(null);
-                                toast("Admin test money: +₦50,000", "good");
-                              },
-                            },
-                          ]
-                        : []),
                       { icon: "🏠", label: "Houses to let", run: () => openToLetRef.current() },
                       { icon: "👕", label: "Clothes", run: () => openWardrobeRef.current() },
                       ...(saveRef.current.homePlot

@@ -16,6 +16,8 @@ export const LIMITS = {
   earnPerDay: 3000,
   /** the most a house sold to the city can pay, once a day */
   sellHousePerDay: 20000,
+  /** the most one player can send another at a time */
+  sendPerTransfer: 5000,
   /** biggest single change accepted at all */
   maxChange: 200000,
 };
@@ -111,7 +113,11 @@ const reply = (status: number, body: unknown) =>
   });
 
 type Body = {
-  op: "init" | "change" | "buyHouse" | "sellHouse";
+  op: "init" | "change" | "buyHouse" | "sellHouse" | "send";
+  to?: string;
+  fromName?: string;
+  toName?: string;
+  note?: string;
   delta?: number;
   reason?: string;
   path?: string;
@@ -247,6 +253,35 @@ export async function handleMoney(request: Request): Promise<Response> {
           updatedAt: now,
         });
         return { ok: true, naira: w.naira + amount };
+      });
+      return reply(out.ok ? 200 : 409, out);
+    }
+    if (body.op === "send" && body.to && body.to !== uid) {
+      const amount = Math.round(Number(body.amount));
+      if (!(amount > 0) || amount > LIMITS.sendPerTransfer)
+        return reply(409, { ok: false, error: "bad-amount" });
+      const theirRef = db.collection("city_wallets").doc(body.to);
+      const tRef = db.collection("city_transfers").doc();
+      const out = await db.runTransaction(async (tx) => {
+        const [mine, theirs] = await Promise.all([tx.get(walletRef), tx.get(theirRef)]);
+        if (!mine.exists || !theirs.exists) return { ok: false, error: "no-wallet" };
+        const w = mine.data() as Wallet,
+          t = theirs.data() as Wallet;
+        if (w.naira < amount) return { ok: false, error: "not-enough" };
+        tx.set(walletRef, { ...w, naira: w.naira - amount, updatedAt: now });
+        tx.set(theirRef, { ...t, naira: t.naira + amount, updatedAt: now });
+        tx.set(tRef, {
+          from: uid,
+          fromName: String(body.fromName ?? "A player").slice(0, 60),
+          to: body.to,
+          toName: String(body.toName ?? "").slice(0, 60),
+          amount,
+          ...(body.note ? { note: String(body.note).slice(0, 80) } : {}),
+          status: "sent",
+          serverPaid: true,
+          at: now,
+        });
+        return { ok: true, naira: w.naira - amount };
       });
       return reply(out.ok ? 200 : 409, out);
     }

@@ -9,6 +9,12 @@ export type WalletNet = {
   change(delta: number): Promise<MoneyResult>;
   buyHouse(plot: string, name: string): Promise<MoneyResult>;
   sellHouse(plot: string, amount: number): Promise<MoneyResult>;
+  /** send money to another player: out of your wallet and into theirs */
+  send(
+    to: string,
+    amount: number,
+    o: { fromName: string; toName: string; note?: string },
+  ): Promise<MoneyResult>;
   stop(): void;
 };
 
@@ -60,6 +66,7 @@ export async function connectWallet(
     change: (delta) => call({ op: "change", delta }),
     buyHouse: (plot, name) => call({ op: "buyHouse", plot, name }),
     sellHouse: (plot, amount) => call({ op: "sellHouse", plot, amount }),
+    send: (to, amount, o) => call({ op: "send", to, amount, ...o }),
     stop: off,
   };
 }
