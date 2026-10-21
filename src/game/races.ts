@@ -61,6 +61,40 @@ export function watchRaces(cb: (r: Race[]) => void) {
   };
 }
 
+/** Races that finished in the last week (closed or past their closing time): the results. */
+export function watchFinished(cb: (r: Race[]) => void) {
+  let off = () => {};
+  let live = true;
+  fs()
+    .then(({ db, collection, query, where, onSnapshot }) => {
+      if (!live) return;
+      off = onSnapshot(
+        query(collection(db, "city_races"), where("until", ">", Date.now() - 7 * 86400000)),
+        (snap) => {
+          const now = Date.now();
+          cb(
+            snap.docs
+              .map((d) => ({ ...(d.data() as Race), id: d.id }))
+              .filter((r) => r.status === "closed" || r.until <= now)
+              .sort((a, b) => b.until - a.until),
+          );
+        },
+        () => cb([]),
+      );
+    })
+    .catch(() => cb([]));
+  return () => {
+    live = false;
+    off();
+  };
+}
+/** The final leaderboard of a race, once. */
+export async function resultsOf(race: string) {
+  const { db, collection, getDocs } = await fs();
+  const snap = await getDocs(collection(db, "city_races", race, "entries"));
+  return snap.docs.map((d) => d.data() as RaceEntry).sort((a, b) => a.ms - b.ms);
+}
+
 /** The leaderboard: fastest first. */
 export function watchEntries(race: string, cb: (e: RaceEntry[]) => void) {
   let off = () => {};

@@ -33,8 +33,10 @@ import { PACKS } from "./packs";
 import {
   MIN_LAP_MS,
   fmtTime as raceTime,
+  resultsOf,
   sendTime,
   watchEntries,
+  watchFinished,
   watchRaces,
   type Race,
   type RaceEntry,
@@ -204,8 +206,9 @@ type Save = {
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
   fuel?: number;
-  /** races already announced to you */
+  /** races already announced to you, and races whose results you have seen */
   racesSeen?: string[];
+  resultsSeen?: string[];
   /** your bicycle, and whether you are riding it */
   bike?: { kind: BikeKind; color: number };
   cycling?: boolean;
@@ -4366,6 +4369,34 @@ function CityGame({
     }, 6000);
     return () => clearTimeout(t);
   }, [openRaces, save.profile, panel, showRace, update]);
+  // when a race ends, everyone sees the winners once (and winners are told they won)
+  const [doneRaces, setDoneRaces] = useState<Race[]>([]);
+  useEffect(() => (onlineReady ? watchFinished(setDoneRaces) : undefined), [onlineReady]);
+  useEffect(() => {
+    if (!save.profile || panelRef.current) return;
+    const seen = saveRef.current.resultsSeen ?? [];
+    const r = doneRaces.find((x) => !seen.includes(x.id));
+    if (!r) return;
+    const t = setTimeout(() => {
+      if (panelRef.current) return;
+      const resultsSeen = [...seen, r.id].slice(-30);
+      saveRef.current = { ...saveRef.current, resultsSeen };
+      update((x) => ({ ...x, resultsSeen }));
+      void resultsOf(r.id)
+        .then((board) => {
+          if (!board.length || panelRef.current) return;
+          const me = onlineRef.current?.uid;
+          const place = board.findIndex((b) => b.uid === me);
+          setPanel({
+            kind: "info",
+            title: place >= 0 && place < r.winners ? "🎉 You won!" : "🏁 Race results",
+            body: <RaceResults r={r} board={board} me={me ?? null} />,
+          });
+        })
+        .catch(() => {});
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [doneRaces, save.profile, panel, update]);
   const openRacesRef = useRef(() => {});
   openRacesRef.current = () =>
     setPanel({
@@ -4373,6 +4404,7 @@ function CityGame({
       title: "🏁 IlmWorld Sports Arena",
       body: (
         <RacesView
+          done={doneRaces}
           me={onlineRef.current?.uid ?? null}
           hasBike={!!saveRef.current.bike}
           onStart={(race, kind, laps) => startRace(race, kind, laps)}
@@ -11907,11 +11939,59 @@ function RaceNews({
     </div>
   );
 }
+function RaceResults({ r, board, me }: { r: Race; board: RaceEntry[]; me: string | null }) {
+  const place = board.findIndex((b) => b.uid === me);
+  const won = place >= 0 && place < r.winners;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-[#10201e] p-4 text-[#fdf8ec]">
+        <div className="text-[13px] opacity-80">
+          {r.kind === "bike" ? "🚲 Cycling race" : "🏃 Running race"} · finished
+        </div>
+        <div className="text-[20px] font-black leading-tight">{r.title}</div>
+        {r.prize && (
+          <div className="text-[14px] text-[#e6b84a]">
+            🏆 Top {r.winners}: {r.prize}
+          </div>
+        )}
+      </div>
+      {won && (
+        <p className="rounded-xl bg-[#e8f3ef] p-3 text-[14px] font-bold text-[#1d6b3a]">
+          Mabrook! You came {ordinal(place + 1)}. The IlmWorld team will send your prize to your
+          IlmStation account.
+        </p>
+      )}
+      {!won && place >= 0 && (
+        <p className="rounded-xl bg-white p-3 text-[14px]">
+          You came {ordinal(place + 1)} of {board.length}. Well done for taking part!
+        </p>
+      )}
+      <div className="space-y-1 rounded-xl bg-white p-3 text-[14px] shadow-sm">
+        {board.slice(0, Math.max(10, r.winners)).map((b, i) => (
+          <div
+            key={b.uid}
+            className={`flex justify-between ${i < r.winners ? "font-bold" : ""} ${b.uid === me ? "text-[#1f6f63]" : ""}`}
+          >
+            <span>
+              {i < r.winners ? (["🥇", "🥈", "🥉"][i] ?? "🏅") : `${i + 1}.`} {b.name}
+            </span>
+            <span className="font-mono">{raceTime(b.ms)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+const ordinal = (n: number) =>
+  n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th"));
+
 function RacesView({
+  done,
   me,
   hasBike,
   onStart,
 }: {
+  done: Race[];
   me: string | null;
   hasBike: boolean;
   onStart: (race: Race | null, kind: "run" | "bike", laps: number) => void;
@@ -12003,6 +12083,42 @@ function RacesView({
             </div>
           );
         })
+      )}
+      {done.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[14px] font-bold">Results</div>
+          {done.map((r) => (
+            <div key={r.id} className="rounded-xl bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[14px] font-bold">
+                  {r.kind === "bike" ? "🚲" : "🏃"} {r.title}
+                </span>
+                <button
+                  onClick={() => setOpen(open === r.id ? null : r.id)}
+                  className={`${btn} border border-[#1f6f63]/30 bg-white`}
+                >
+                  {open === r.id ? "Hide" : "Winners"}
+                </button>
+              </div>
+              {open === r.id && (
+                <div className="mt-2 space-y-1 text-[13px]">
+                  {!board.length && <p className="opacity-70">Nobody finished this race.</p>}
+                  {board.slice(0, 10).map((b, i) => (
+                    <div
+                      key={b.uid}
+                      className={`flex justify-between ${i < r.winners ? "font-bold" : ""} ${b.uid === me ? "text-[#1f6f63]" : ""}`}
+                    >
+                      <span>
+                        {i < r.winners ? (["🥇", "🥈", "🥉"][i] ?? "🏅") : `${i + 1}.`} {b.name}
+                      </span>
+                      <span className="font-mono">{raceTime(b.ms)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
       <div className="space-y-2 rounded-xl bg-[#e8f3ef] p-3">
         <div className="text-[14px] font-bold">Practise</div>

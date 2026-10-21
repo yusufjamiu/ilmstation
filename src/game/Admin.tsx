@@ -758,6 +758,11 @@ function RaceCard({ r }: { r: Race }) {
         <div key={b.uid} className="flex items-center justify-between gap-2 text-[13.5px]">
           <span className={i < r.winners ? "font-bold" : ""}>
             {i + 1}. {b.name} · {fmtTime(b.ms)} · {b.tries} tries
+            {i < r.winners && (
+              <span className="block text-[11px] font-normal opacity-60">
+                User ID (find them in profiles): {b.uid}
+              </span>
+            )}
           </span>
           {i < r.winners &&
             (b.paid ? (
