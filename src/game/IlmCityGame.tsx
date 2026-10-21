@@ -34,6 +34,7 @@ import {
   MIN_LAP_MS,
   fmtTime as raceTime,
   resultsOf,
+  sendPayout,
   sendTime,
   watchEntries,
   watchFinished,
@@ -11955,12 +11956,7 @@ function RaceResults({ r, board, me }: { r: Race; board: RaceEntry[]; me: string
           </div>
         )}
       </div>
-      {won && (
-        <p className="rounded-xl bg-[#e8f3ef] p-3 text-[14px] font-bold text-[#1d6b3a]">
-          Mabrook! You came {ordinal(place + 1)}. The IlmWorld team will send your prize to your
-          IlmStation account.
-        </p>
-      )}
+      {won && me && <PrizeForm r={r} me={me} name={board[place].name} place={place} />}
       {!won && place >= 0 && (
         <p className="rounded-xl bg-white p-3 text-[14px]">
           You came {ordinal(place + 1)} of {board.length}. Well done for taking part!
@@ -11979,6 +11975,82 @@ function RaceResults({ r, board, me }: { r: Race; board: RaceEntry[]; me: string
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+/** A winner says where to send their prize (only the IlmWorld team sees it). */
+function PrizeForm({ r, me, name, place }: { r: Race; me: string; name: string; place: number }) {
+  const [bank, setBank] = useState("");
+  const [account, setAccount] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [state, setState] = useState<"form" | "busy" | "sent" | "error">("form");
+  const input = "w-full rounded-xl border border-[#10201e]/15 bg-white px-3 py-2.5 text-[15px]";
+  if (state === "sent")
+    return (
+      <p className="rounded-xl bg-[#e8f3ef] p-3 text-[14px] font-bold text-[#1d6b3a]">
+        Received. The IlmWorld team will send your prize to that account, in shaa Allah.
+      </p>
+    );
+  const ok = bank.trim() && /^\d{10}$/.test(account.trim()) && accountName.trim();
+  return (
+    <div className="space-y-2 rounded-xl bg-[#e8f3ef] p-3">
+      <p className="text-[14px] font-bold text-[#1d6b3a]">
+        Mabrook! You came {ordinal(place + 1)}. Where should we send your prize?
+      </p>
+      <input
+        className={input}
+        placeholder="Bank, e.g. GTBank"
+        value={bank}
+        onChange={(e) => setBank(e.target.value)}
+      />
+      <input
+        className={input}
+        inputMode="numeric"
+        placeholder="Account number (10 digits)"
+        value={account}
+        onChange={(e) => setAccount(e.target.value.replace(/\D/g, "").slice(0, 10))}
+      />
+      <input
+        className={input}
+        placeholder="Account name"
+        value={accountName}
+        onChange={(e) => setAccountName(e.target.value)}
+      />
+      <input
+        className={input}
+        inputMode="tel"
+        placeholder="Phone number (optional)"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+      />
+      <button
+        disabled={!ok || state === "busy"}
+        onClick={async () => {
+          setState("busy");
+          try {
+            await sendPayout({
+              race: r.id,
+              uid: me,
+              name,
+              bank: bank.trim(),
+              account: account.trim(),
+              accountName: accountName.trim(),
+              phone: phone.trim(),
+            });
+            setState("sent");
+          } catch {
+            setState("error");
+          }
+        }}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-white disabled:opacity-40"
+      >
+        {state === "busy" ? "Sending…" : "Send my details"}
+      </button>
+      {state === "error" && (
+        <p className="text-[13px] font-bold text-[#b3261e]">Couldn't send. Try again.</p>
+      )}
+      <p className="text-[12px] opacity-70">Only the IlmWorld team can see these details.</p>
     </div>
   );
 }

@@ -95,6 +95,28 @@ export async function resultsOf(race: string) {
   return snap.docs.map((d) => d.data() as RaceEntry).sort((a, b) => a.ms - b.ms);
 }
 
+/** Where a winner wants their prize sent. Kept apart from the public leaderboard: only the
+    winner can write it and only admins can read it. */
+export type Payout = {
+  race: string;
+  uid: string;
+  name: string;
+  bank: string;
+  account: string;
+  accountName: string;
+  phone: string;
+  at: number;
+};
+export async function sendPayout(p: Omit<Payout, "at">) {
+  const { db, doc, setDoc } = await fs();
+  await setDoc(doc(db, "city_race_payouts", `${p.race}_${p.uid}`), { ...p, at: Date.now() });
+}
+export async function payoutOf(race: string, uid: string) {
+  const { db, doc, getDoc } = await fs();
+  const d = await getDoc(doc(db, "city_race_payouts", `${race}_${uid}`));
+  return d.exists() ? (d.data() as Payout) : null;
+}
+
 /** The leaderboard: fastest first. */
 export function watchEntries(race: string, cb: (e: RaceEntry[]) => void) {
   let off = () => {};

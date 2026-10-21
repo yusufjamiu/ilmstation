@@ -9,9 +9,11 @@ import {
   createRace,
   fmtTime,
   markRacePaid,
+  payoutOf,
   watchAllRaces,
   watchEntries,
   type Race,
+  type Payout,
   type RaceEntry,
 } from "./races";
 
@@ -727,6 +729,23 @@ function RacesAdmin() {
     </div>
   );
 }
+/** Where a winner asked for their prize to go. */
+function PayTo({ race, uid }: { race: string; uid: string }) {
+  const [p, setP] = useState<Payout | null | undefined>(undefined);
+  useEffect(() => {
+    void payoutOf(race, uid)
+      .then(setP)
+      .catch(() => setP(null));
+  }, [race, uid]);
+  if (p === undefined) return null;
+  return (
+    <span className="block text-[12px] font-normal">
+      {p
+        ? `Pay to: ${p.accountName} · ${p.bank} · ${p.account}${p.phone ? ` · ${p.phone}` : ""}`
+        : `No bank details yet (user ID ${uid})`}
+    </span>
+  );
+}
 function RaceCard({ r }: { r: Race }) {
   const [board, setBoard] = useState<RaceEntry[]>([]);
   useEffect(() => watchEntries(r.id, setBoard), [r.id]);
@@ -758,11 +777,7 @@ function RaceCard({ r }: { r: Race }) {
         <div key={b.uid} className="flex items-center justify-between gap-2 text-[13.5px]">
           <span className={i < r.winners ? "font-bold" : ""}>
             {i + 1}. {b.name} · {fmtTime(b.ms)} · {b.tries} tries
-            {i < r.winners && (
-              <span className="block text-[11px] font-normal opacity-60">
-                User ID (find them in profiles): {b.uid}
-              </span>
-            )}
+            {i < r.winners && <PayTo race={r.id} uid={b.uid} />}
           </span>
           {i < r.winners &&
             (b.paid ? (

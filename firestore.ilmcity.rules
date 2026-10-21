@@ -270,6 +270,14 @@
       }
     }
 
+    // where race winners want their prize sent: the winner writes it, only admins read it
+    match /city_race_payouts/{id} {
+      allow read: if isAdmin();
+      allow create, update: if signedIn() && request.resource.data.uid == request.auth.uid
+        && id == request.resource.data.race + "_" + request.auth.uid
+        && exists(/databases/$(database)/documents/city_races/$(request.resource.data.race)/entries/$(request.auth.uid));
+    }
+
     // the time of the last fresh start (set by the server when an admin asks)
     match /city_config/{id} {
       allow read: if true;
