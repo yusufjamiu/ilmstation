@@ -197,7 +197,10 @@
       // keep your own, or take one whose rent has run out
       allow update: if signedIn() && request.resource.data.owner == request.auth.uid
         && request.resource.data.plot == plot
-        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis()
+            // or you are buying it from its owner
+            || (get(/databases/$(database)/documents/city_house_sales/$(plot)).data.status == "listed"
+                && getAfter(/databases/$(database)/documents/city_house_sales/$(plot)).data.buyer == request.auth.uid));
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
 
@@ -230,4 +233,24 @@
       allow update: if signedIn() && request.resource.data.owner == request.auth.uid
         && request.resource.data.sid == sid
         && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+    }
+
+    // ---- houses players sell to each other ----
+    match /city_house_sales/{plot} {
+      allow read: if signedIn();
+      // only the house's owner can list it
+      allow create: if signedIn() && request.resource.data.seller == request.auth.uid
+        && request.resource.data.status == "listed"
+        && get(/databases/$(database)/documents/city_plots/$(plot)).data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.seller == request.auth.uid
+        && (resource.data.status == "listed" || resource.data.get('paid', false) == true);
+      allow update: if signedIn() && (
+        // a buyer takes a listed house
+        (resource.data.status == "listed" && request.resource.data.status == "sold"
+          && request.resource.data.buyer == request.auth.uid
+          && request.auth.uid != resource.data.seller
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'buyer', 'buyerName', 'soldAt']))
+        // the seller marks the money collected
+        || (request.auth.uid == resource.data.seller
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid'])));
     }

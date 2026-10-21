@@ -22,6 +22,12 @@ import {
 } from "./calls";
 import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
 import { connectShops, connectShopsLocal, type SharedShop, type Shops } from "./shops";
+import {
+  connectHouseSales,
+  connectHouseSalesLocal,
+  type HouseSale,
+  type HouseSales,
+} from "./housesales";
 import { connectTransfers, connectTransfersLocal, MAX_TRANSFER, type Transfers } from "./transfers";
 import {
   connectPitch,
@@ -2161,6 +2167,67 @@ function CityGame({
         });
         return;
       }
+      const sale = salesHere.current.get(pid);
+      if (sale && !saveRef.current.plots?.[pid]) {
+        const can = saveRef.current.coins >= sale.price;
+        setPanel({
+          kind: "info",
+          title: "House for sale",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                {sale.label}: a{" "}
+                {sale.kind === "built" ? floorsName(sale.floors).toLowerCase() : "house"} for sale
+                by <b>{sale.sellerName}</b>.
+              </p>
+              <div className="rounded-xl bg-white p-3 text-center">
+                <div className="text-[12px] opacity-70">Price</div>
+                <div className="text-2xl font-black">{N(sale.price)}</div>
+                <div className="text-[12px] opacity-70">You have {N(saveRef.current.coins)}</div>
+              </div>
+              <button
+                disabled={!can}
+                onClick={async () => {
+                  const net = salesNet.current,
+                    o = onlineRef.current;
+                  if (!net || !o || saveRef.current.coins < sale.price) return;
+                  const ok = await net
+                    .buy(pid, o.uid, shownName(saveRef.current) ?? "Player")
+                    .catch(() => false);
+                  if (!ok) {
+                    toast("This house is no longer for sale.", "warn");
+                    setPanel(null);
+                    return;
+                  }
+                  const own: PlotOwn =
+                    sale.kind === "built"
+                      ? { kind: "built", floors: sale.floors }
+                      : { kind: "bought", floors: sale.floors };
+                  saveRef.current = {
+                    ...saveRef.current,
+                    coins: saveRef.current.coins - sale.price,
+                    plots: { ...saveRef.current.plots, [pid]: own },
+                  };
+                  update((x) => ({
+                    ...x,
+                    coins: x.coins - sale.price,
+                    plots: { ...x.plots, [pid]: own },
+                  }));
+                  salesHere.current.delete(pid);
+                  takenRef.current.delete(pid);
+                  e.setPlot(pid, plotStateFn(own) ?? { kind: "tolet" });
+                  setPanel(null);
+                  toast(`Alhamdulillah, the house is yours! You paid ${N(sale.price)}.`, "good");
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+              >
+                {can ? `Buy it · ${N(sale.price)}` : "Not enough money"}
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       const by = takenRef.current.get(pid);
       if (by && !saveRef.current.plots?.[pid]) {
         setPanel({
@@ -2236,6 +2303,7 @@ function CityGame({
                     : (ECONOMY.build[own.floors]?.points ?? 0) +
                       houseRent(p.district, own.floors, saveRef.current.ilm).buy / 2;
                 const price = Math.round((worth * 0.7) / 10) * 10;
+                const listed = mySales.current.get(pid);
                 const now = Date.now();
                 const blocked =
                   saveRef.current.homePlot === pid
@@ -2249,6 +2317,36 @@ function CityGame({
                 return {
                   price,
                   blocked,
+                  worth,
+                  listed: listed?.price,
+                  list: salesNet.current
+                    ? async (amount: number) => {
+                        const o = onlineRef.current;
+                        if (!o) return;
+                        await salesNet
+                          .current!.list({
+                            plot: pid,
+                            area: p.district,
+                            seller: o.uid,
+                            sellerName: shownName(saveRef.current) ?? "Player",
+                            price: amount,
+                            kind: own.kind,
+                            floors: own.floors,
+                            label: `No. ${p.number}, ${p.street}, ${districtById(p.district).name}`,
+                          })
+                          .then(() => {
+                            mySales.current.set(pid, { price: amount } as HouseSale);
+                            toast(`Listed for ${N(amount)}. Players see a FOR SALE sign.`, "good");
+                            render();
+                          })
+                          .catch(() => toast("Couldn't list the house. Try again.", "warn"));
+                      }
+                    : undefined,
+                  unlist: async () => {
+                    await salesNet.current?.unlist(pid).catch(() => {});
+                    mySales.current.delete(pid);
+                    render();
+                  },
                   run: () => {
                     const o = onlineRef.current;
                     if (o) void claimsNet.current?.release(pid, o.uid).catch(() => {});
@@ -3805,11 +3903,80 @@ function CityGame({
       }
       for (const [pid, name] of now) {
         if (saveRef.current.plots?.[pid]) continue;
-        e.setPlot(pid, { kind: "taken", by: name });
+        const sale = salesHere.current.get(pid);
+        e.setPlot(
+          pid,
+          sale ? { kind: "forsale", by: sale.sellerName } : { kind: "taken", by: name },
+        );
         takenRef.current.set(pid, name);
       }
     });
   }, [areaNow, claimsReady]);
+  /* ---------- houses players sell to each other ---------- */
+  const salesNet = useRef<HouseSales | null>(null);
+  const salesHere = useRef(new Map<string, HouseSale>());
+  const mySales = useRef(new Map<string, HouseSale>());
+  const [salesReady, setSalesReady] = useState(0);
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || salesNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    (local ? Promise.resolve(connectHouseSalesLocal()) : connectHouseSales())
+      .then((net) => {
+        salesNet.current = net;
+        setSalesReady((n) => n + 1);
+        off = net.watchMine(o.uid, (list) => {
+          mySales.current = new Map(
+            list.filter((x) => x.status === "listed").map((x) => [x.plot, x]),
+          );
+          // a player bought one of your houses: the money is yours, the house is theirs
+          for (const x of list)
+            if (x.status === "sold" && !x.paid && saveRef.current.plots?.[x.plot]) {
+              void net.markPaid(x.plot).catch(() => {});
+              const plots = { ...saveRef.current.plots };
+              delete plots[x.plot];
+              saveRef.current = {
+                ...saveRef.current,
+                plots,
+                coins: saveRef.current.coins + x.price,
+              };
+              update((s2) => {
+                const p2 = { ...s2.plots };
+                delete p2[x.plot];
+                return { ...s2, plots: p2, coins: s2.coins + x.price };
+              });
+              engine.current?.setPlot(x.plot, { kind: "taken", by: x.buyerName });
+              toast(
+                `🔑 ${x.buyerName ?? "A player"} bought your house (${x.label}) for ${N(x.price)}!`,
+                "good",
+              );
+            } else if (x.status === "sold" && !x.paid) void net.markPaid(x.plot).catch(() => {});
+        });
+      })
+      .catch(() => {});
+    return () => off?.();
+  }, [onlineReady, update, toast]);
+  useEffect(() => {
+    const net = salesNet.current;
+    const o = onlineRef.current;
+    if (!net || !o || !areaNow) return;
+    return net.watchArea(areaNow, (list) => {
+      const e = engine.current;
+      const next = new Map(list.filter((x) => x.seller !== o.uid).map((x) => [x.plot, x]));
+      if (e) {
+        for (const pid of salesHere.current.keys())
+          if (!next.has(pid) && !saveRef.current.plots?.[pid]) {
+            const by = takenRef.current.get(pid);
+            if (by) e.setPlot(pid, { kind: "taken", by });
+          }
+        for (const [pid, x] of next)
+          if (!saveRef.current.plots?.[pid]) e.setPlot(pid, { kind: "forsale", by: x.sellerName });
+      }
+      salesHere.current = next;
+    });
+  }, [areaNow, salesReady, claimsReady]);
   /** Take a house or land for yourself; false if another player already has it. */
   const claimPlot = useCallback(async (pid: string, own: PlotOwn) => {
     const net = claimsNet.current;
@@ -8451,7 +8618,7 @@ function PlotView({
   sell,
 }: {
   /** selling a house you own (only when you own more than one) */
-  sell?: { price: number; blocked?: string; run: () => void };
+  sell?: SellOpts;
   rent: ReturnType<typeof houseRent>;
   plot: {
     id: string;
@@ -8747,40 +8914,96 @@ function PlotView({
   );
 }
 
-/** Sell a house you own: the city buys it back and it is free for other players. */
-function SellBox({ sell }: { sell: { price: number; blocked?: string; run: () => void } }) {
+type SellOpts = {
+  price: number;
+  blocked?: string;
+  run: () => void;
+  /** what the house is worth; players may ask 70% to 150% of it */
+  worth?: number;
+  listed?: number;
+  list?: (amount: number) => void;
+  unlist?: () => void;
+};
+/** Sell a house you own: to the city straight away, or to players at your own price. */
+function SellBox({ sell }: { sell: SellOpts }) {
   const [sure, setSure] = useState(false);
+  const min = Math.round(((sell.worth ?? 0) * 0.7) / 10) * 10,
+    max = Math.round(((sell.worth ?? 0) * 1.5) / 10) * 10;
+  const [ask, setAsk] = useState(String((sell.worth ?? 0) * 10));
+  const units = Math.round(Number(ask.replace(/[^\d]/g, "")) / 10);
+  const ok = units >= min && units <= max;
   return (
-    <div className="rounded-xl border border-[#b8573a]/25 bg-[#fdf3ee] p-3 text-[13px]">
-      <div className="font-bold">Sell this house · {N(sell.price)}</div>
+    <div className="space-y-2 rounded-xl border border-[#b8573a]/25 bg-[#fdf3ee] p-3 text-[13px]">
+      <div className="font-bold">Sell this house</div>
       {sell.blocked ? (
         <p className="opacity-75">{sell.blocked}</p>
-      ) : sure ? (
-        <div className="mt-2 flex gap-2">
-          <button
-            onClick={sell.run}
-            className="flex-1 rounded-lg bg-[#b8573a] py-2 font-bold text-white"
-          >
-            Yes, sell it
-          </button>
-          <button
-            onClick={() => setSure(false)}
-            className="flex-1 rounded-lg border border-[#10201e]/15 bg-white py-2 font-bold"
-          >
-            Keep it
-          </button>
-        </div>
-      ) : (
+      ) : sell.listed ? (
         <>
-          <p className="opacity-75">
-            You get 70% of what it is worth, straight away. Then it is free for other players.
+          <p>
+            Listed for players at <b>{N(sell.listed)}</b>. You get the money as soon as someone buys
+            it.
           </p>
           <button
-            onClick={() => setSure(true)}
-            className="mt-2 w-full rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+            onClick={sell.unlist}
+            className="w-full rounded-lg border border-[#10201e]/15 bg-white py-2 font-bold"
           >
-            Sell
+            Take it off the market
           </button>
+        </>
+      ) : (
+        <>
+          {sell.list && sell.worth ? (
+            <div className="rounded-lg bg-white p-2.5">
+              <div className="font-semibold">To players, at your price</div>
+              <div className="text-[12px] opacity-70">
+                Between {N(min)} and {N(max)}
+              </div>
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  value={ask}
+                  onChange={(e) => setAsk(e.target.value)}
+                  inputMode="numeric"
+                  className="min-w-0 flex-1 rounded-lg border border-[#10201e]/15 px-2.5 py-2"
+                />
+                <button
+                  disabled={!ok}
+                  onClick={() => sell.list!(units)}
+                  className="rounded-lg bg-[#1f6f63] px-3 py-2 font-bold text-white disabled:opacity-40"
+                >
+                  List
+                </button>
+              </div>
+              {!ok && (
+                <div className="mt-1 text-[11.5px] text-[#b8573a]">Price must be in range.</div>
+              )}
+            </div>
+          ) : null}
+          <div className="rounded-lg bg-white p-2.5">
+            <div className="font-semibold">To the city, right now · {N(sell.price)}</div>
+            {sure ? (
+              <div className="mt-1.5 flex gap-2">
+                <button
+                  onClick={sell.run}
+                  className="flex-1 rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+                >
+                  Yes, sell it
+                </button>
+                <button
+                  onClick={() => setSure(false)}
+                  className="flex-1 rounded-lg border border-[#10201e]/15 bg-white py-2 font-bold"
+                >
+                  Keep it
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSure(true)}
+                className="mt-1.5 w-full rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+              >
+                Sell to the city
+              </button>
+            )}
+          </div>
         </>
       )}
     </div>

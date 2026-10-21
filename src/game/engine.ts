@@ -144,7 +144,15 @@ function mat(color: number, extra: Partial<THREE.MeshStandardMaterialParameters>
   }
   return m;
 }
-type SignKind = "tolet" | "land" | "ownland" | "sold" | "building" | "mine" | "taken";
+type SignKind =
+  | "tolet"
+  | "land"
+  | "ownland"
+  | "sold"
+  | "building"
+  | "mine"
+  | "taken"
+  | "forsale";
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0, cast = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
   m.position.set(x, y + h / 2, z);
@@ -8166,6 +8174,7 @@ export class IlmCityEngine {
       mine: ["#1f6f63", "#fff", "YOURS", "Tap to manage"],
       taken: ["#5a5f66", "#fff", "OCCUPIED", "Not available"],
       sold: ["#7d2f3a", "#fff", "SOLD", "Not for sale"],
+      forsale: ["#e6b84a", "#2a1c05", "FOR SALE", "Tap to buy"],
     }[kind];
     c.fillStyle = bg;
     c.fillRect(0, 0, 256, 160);
@@ -8209,7 +8218,7 @@ export class IlmCityEngine {
   setPlot(
     id: string,
     state: {
-      kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken";
+      kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken" | "forsale";
       floors?: number;
       by?: string;
       /** while building: 1 foundation, 2 walls, 3 roof, 4 finishing */
@@ -8244,6 +8253,7 @@ export class IlmCityEngine {
       building: "Your building site",
       built: `Your property · No. ${p.number}`,
       taken: `No. ${p.number} · ${state.by ?? "a player"}'s ${p.kind === "land" ? "land" : "house"}`,
+      forsale: `For sale · No. ${p.number} · ${state.by ?? "a player"}`,
     };
     fx.zone.label = labels[state.kind];
     if (state.kind === "tolet") putSign("tolet", true);
@@ -8252,6 +8262,7 @@ export class IlmCityEngine {
     else if (state.kind === "owned") putSign("ownland");
     else if (state.kind === "taken")
       putSign(p.kind === "land" ? "sold" : "taken", p.kind !== "land");
+    else if (state.kind === "forsale") putSign("forsale", p.kind !== "land");
     else if (state.kind === "building") putSign("building");
     else if (state.kind === "built") putSign("mine", true);
     // the house on a land plot
