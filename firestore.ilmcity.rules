@@ -193,11 +193,16 @@
     match /city_plots/{plot} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid
-        && request.resource.data.plot == plot;
-      // keep your own, or take one whose rent has run out
+        && request.resource.data.plot == plot
+        && request.resource.data.at > request.time.toMillis() - 86400000
+        && request.resource.data.at < request.time.toMillis() + 86400000;
+      // keep your own (when it became yours stays the same), or take one whose rent has run out
       allow update: if signedIn() && request.resource.data.owner == request.auth.uid
         && request.resource.data.plot == plot
-        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+        && ((resource.data.owner == request.auth.uid
+              && request.resource.data.at == resource.data.get('at', request.resource.data.at))
+            || (resource.data.until < request.time.toMillis()
+              && request.resource.data.at > request.time.toMillis() - 86400000));
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
 
@@ -219,4 +224,35 @@
     // the right answers: only the admin can see them
     match /city_sponsored_keys/{quiz} {
       allow read, write: if isAdmin();
+    }
+
+    // ---- market stalls and shops: one player rents each, everyone sees it ----
+    match /city_shops/{sid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.sid == sid;
+      // keep your own, or take one whose rent has run out
+      allow update: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.sid == sid
+        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+    }
+
+    // ---- houses players sell to each other ----
+    match /city_house_sales/{plot} {
+      allow read: if signedIn();
+      // only the house's owner can list it; buying goes through the server, which moves
+      // the money and the house together
+      allow create: if signedIn() && request.resource.data.seller == request.auth.uid
+        && request.resource.data.status == "listed"
+        && get(/databases/$(database)/documents/city_plots/$(plot)).data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.seller == request.auth.uid
+        && (resource.data.status == "listed" || resource.data.get('paid', false) == true);
+      allow update: if signedIn() && request.auth.uid == resource.data.seller
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid']);
+    }
+
+    // ---- each player's naira: held by the server, which alone can change it ----
+    match /city_wallets/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow write: if false;
     }

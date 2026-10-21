@@ -21,6 +21,14 @@ import {
   type PhoneEntry,
 } from "./calls";
 import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
+import { connectShops, connectShopsLocal, type SharedShop, type Shops } from "./shops";
+import { connectWallet, type WalletNet } from "./wallet";
+import {
+  connectHouseSales,
+  connectHouseSalesLocal,
+  type HouseSale,
+  type HouseSales,
+} from "./housesales";
 import { connectTransfers, connectTransfersLocal, MAX_TRANSFER, type Transfers } from "./transfers";
 import {
   connectPitch,
@@ -75,7 +83,6 @@ import {
   REMINDERS,
   SMALL_TALK,
   ECONOMY,
-  TENANTS,
   HOUSE_PRICE,
   ROOM_RENT_WEEK,
   HOME_ITEMS,
@@ -917,7 +924,7 @@ function CityGame({
         const { doc, onSnapshot } = await import("firebase/firestore");
         if (!live) return;
         off = onSnapshot(doc(db, "city_saves", uid), (snap) => {
-          if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+          if (!snap.exists() || snap.metadata.hasPendingWrites || walletNet.current) return;
           const d = snap.data() as { data?: string; naira?: number };
           if (typeof d.naira !== "number" || !d.data) return;
           let saved: Save;
@@ -955,15 +962,78 @@ function CityGame({
       cloud.onError = null;
     };
   }, [toast]);
+  /* ---------- the wallet: money held by the server ----------
+     When the server holds this player's naira, every change to coins in the game is sent
+     to it: spending is refused if the wallet is short, earning is limited per day. The
+     coins on screen always come back to what the server says. */
+  const walletNet = useRef<WalletNet | null>(null);
+  const walletServer = useRef<number | null>(null);
+  const walletPending = useRef(0);
+  const walletChain = useRef<Promise<void>>(Promise.resolve());
+  const syncCoins = useCallback(() => {
+    const n = walletServer.current;
+    if (n === null || walletPending.current) return;
+    if (saveRef.current.coins === n) return;
+    saveRef.current = { ...saveRef.current, coins: n };
+    setSave((x) => {
+      const y = { ...x, coins: n };
+      writeSave(y);
+      return y;
+    });
+  }, []);
   const update = useCallback(
-    (fn: (s: Save) => Save) =>
+    (fn: (s: Save) => Save) => {
+      const w = walletNet.current;
+      if (w) {
+        const base = saveRef.current;
+        const delta = fn(base).coins - base.coins;
+        if (delta) {
+          walletPending.current++;
+          walletChain.current = walletChain.current
+            .then(async () => {
+              const r = await w.change(delta);
+              if (r.ok && typeof r.naira === "number") walletServer.current = r.naira;
+              else if (r.error === "not-enough")
+                toast("Your wallet doesn't have enough for that.", "warn");
+              else if (r.error === "daily-limit")
+                toast("You've reached today's earning limit. More tomorrow, in shaa Allah.");
+            })
+            .finally(() => {
+              walletPending.current--;
+              syncCoins();
+            });
+        }
+      }
       setSave((s) => {
         const n = fn(s);
         writeSave(n);
         return n;
-      }),
-    [],
+      });
+    },
+    [toast, syncCoins],
   );
+  // connect the wallet once the account and its save are loaded
+  useEffect(() => {
+    const u = cloud.uid;
+    if (!u) return;
+    let live = true;
+    void connectWallet(
+      u,
+      { path: saveRef.current.path, existing: !!saveRef.current.profile },
+      (naira) => {
+        walletServer.current = naira;
+        syncCoins();
+      },
+    ).then((w) => {
+      if (!live) return w?.stop();
+      walletNet.current = w;
+    });
+    return () => {
+      live = false;
+      walletNet.current?.stop();
+      walletNet.current = null;
+    };
+  }, [syncCoins]);
 
   /** Finish a step of the guided start: +₦100. */
   const advance = useCallback(
@@ -2161,6 +2231,99 @@ function CityGame({
         });
         return;
       }
+      const sale = salesHere.current.get(pid);
+      if (sale && !saveRef.current.plots?.[pid]) {
+        const can = saveRef.current.coins >= sale.price;
+        setPanel({
+          kind: "info",
+          title: "House for sale",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                {sale.label}: a{" "}
+                {sale.kind === "built" ? floorsName(sale.floors).toLowerCase() : "house"} for sale
+                by <b>{sale.sellerName}</b>.
+              </p>
+              <div className="rounded-xl bg-white p-3 text-center">
+                <div className="text-[12px] opacity-70">Price</div>
+                <div className="text-2xl font-black">{N(sale.price)}</div>
+                <div className="text-[12px] opacity-70">You have {N(saveRef.current.coins)}</div>
+              </div>
+              <button
+                disabled={!can}
+                onClick={async () => {
+                  const net = salesNet.current,
+                    o = onlineRef.current;
+                  if (!net || !o || saveRef.current.coins < sale.price) return;
+                  const w = walletNet.current;
+                  const myName = shownName(saveRef.current) ?? "Player";
+                  // with the wallet, the server moves the money and the house together
+                  const res = w
+                    ? await w.buyHouse(pid, myName)
+                    : { ok: await net.buy(pid, o.uid, myName).catch(() => false) };
+                  if (!res.ok) {
+                    toast(
+                      "error" in res && res.error === "not-enough"
+                        ? "Your wallet doesn't have enough for this house."
+                        : "This house is no longer for sale.",
+                      "warn",
+                    );
+                    setPanel(null);
+                    return;
+                  }
+                  if (w && "naira" in res && typeof res.naira === "number") {
+                    // the server has taken the money: just add the house
+                    walletServer.current = res.naira;
+                    const own: PlotOwn =
+                      sale.kind === "built"
+                        ? { kind: "built", floors: sale.floors }
+                        : { kind: "bought", floors: sale.floors };
+                    saveRef.current = {
+                      ...saveRef.current,
+                      coins: res.naira,
+                      plots: { ...saveRef.current.plots, [pid]: own },
+                    };
+                    setSave((x) => {
+                      const y = { ...x, coins: res.naira!, plots: { ...x.plots, [pid]: own } };
+                      writeSave(y);
+                      return y;
+                    });
+                    salesHere.current.delete(pid);
+                    takenRef.current.delete(pid);
+                    e.setPlot(pid, plotStateFn(own) ?? { kind: "tolet" });
+                    setPanel(null);
+                    toast(`Alhamdulillah, the house is yours! You paid ${N(sale.price)}.`, "good");
+                    return;
+                  }
+                  const own: PlotOwn =
+                    sale.kind === "built"
+                      ? { kind: "built", floors: sale.floors }
+                      : { kind: "bought", floors: sale.floors };
+                  saveRef.current = {
+                    ...saveRef.current,
+                    coins: saveRef.current.coins - sale.price,
+                    plots: { ...saveRef.current.plots, [pid]: own },
+                  };
+                  update((x) => ({
+                    ...x,
+                    coins: x.coins - sale.price,
+                    plots: { ...x.plots, [pid]: own },
+                  }));
+                  salesHere.current.delete(pid);
+                  takenRef.current.delete(pid);
+                  e.setPlot(pid, plotStateFn(own) ?? { kind: "tolet" });
+                  setPanel(null);
+                  toast(`Alhamdulillah, the house is yours! You paid ${N(sale.price)}.`, "good");
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+              >
+                {can ? `Buy it · ${N(sale.price)}` : "Not enough money"}
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       const by = takenRef.current.get(pid);
       if (by && !saveRef.current.plots?.[pid]) {
         setPanel({
@@ -2224,6 +2387,114 @@ function CityGame({
           body: (
             <PlotView
               rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm)}
+              sell={(() => {
+                if (own?.kind !== "bought" && own?.kind !== "built") return undefined;
+                const houses = Object.values(saveRef.current.plots ?? {}).filter(
+                  (o) => o.kind === "bought" || o.kind === "built",
+                ).length;
+                if (houses < 2) return undefined;
+                const worth =
+                  own.kind === "bought"
+                    ? houseRent(p.district, own.floors, saveRef.current.ilm).buy
+                    : (ECONOMY.build[own.floors]?.points ?? 0) +
+                      houseRent(p.district, own.floors, saveRef.current.ilm).buy / 2;
+                const price = Math.round((worth * 0.7) / 10) * 10;
+                const listed = mySales.current.get(pid);
+                const now = Date.now();
+                const blocked =
+                  saveRef.current.homePlot === pid
+                    ? "You live in this house. Move to another of your houses before you sell it."
+                    : (own.rooms ?? []).some((r) => r && r.until > now) ||
+                        (own.kind === "built" && own.tenant)
+                      ? "Tenants still live here. Sell after their rent ends."
+                      : myAds.current.some((a) => a.plot === pid)
+                        ? "Unlist its flats first."
+                        : undefined;
+                return {
+                  price,
+                  blocked,
+                  worth,
+                  listed: listed?.price,
+                  list: salesNet.current
+                    ? async (amount: number) => {
+                        const o = onlineRef.current;
+                        if (!o) return;
+                        await salesNet
+                          .current!.list({
+                            plot: pid,
+                            area: p.district,
+                            seller: o.uid,
+                            sellerName: shownName(saveRef.current) ?? "Player",
+                            price: amount,
+                            kind: own.kind,
+                            floors: own.floors,
+                            label: `No. ${p.number}, ${p.street}, ${districtById(p.district).name}`,
+                          })
+                          .then(() => {
+                            mySales.current.set(pid, { price: amount } as HouseSale);
+                            toast(`Listed for ${N(amount)}. Players see a FOR SALE sign.`, "good");
+                            render();
+                          })
+                          .catch(() => toast("Couldn't list the house. Try again.", "warn"));
+                      }
+                    : undefined,
+                  unlist: async () => {
+                    await salesNet.current?.unlist(pid).catch(() => {});
+                    mySales.current.delete(pid);
+                    render();
+                  },
+                  run: async () => {
+                    const o = onlineRef.current;
+                    const w = walletNet.current;
+                    if (w) {
+                      // the server checks it is yours, pays you and frees the house
+                      const r = await w.sellHouse(pid, price);
+                      if (!r.ok) {
+                        toast(
+                          r.error === "one-a-day"
+                            ? "You can sell one house to the city a day. Try tomorrow, or list it for players."
+                            : r.error === "too-new"
+                              ? "The city buys back houses you've owned for at least 3 days. List it for players instead."
+                              : "Couldn't sell the house. Try again.",
+                          "warn",
+                        );
+                        return;
+                      }
+                      if (typeof r.naira === "number") walletServer.current = r.naira;
+                      const plots = { ...saveRef.current.plots };
+                      delete plots[pid];
+                      saveRef.current = {
+                        ...saveRef.current,
+                        plots,
+                        coins: r.naira ?? saveRef.current.coins,
+                      };
+                      setSave((x) => {
+                        const p2 = { ...x.plots };
+                        delete p2[pid];
+                        const y = { ...x, plots: p2, coins: r.naira ?? x.coins };
+                        writeSave(y);
+                        return y;
+                      });
+                      e.setPlot(pid, { kind: p.kind === "land" ? "land" : "tolet" });
+                      setPanel(null);
+                      toast(`House sold for ${N(price)}. May Allah put barakah in it.`, "good");
+                      return;
+                    }
+                    if (o) void claimsNet.current?.release(pid, o.uid).catch(() => {});
+                    update((x) => {
+                      const plots = { ...x.plots };
+                      delete plots[pid];
+                      return { ...x, plots, coins: x.coins + price };
+                    });
+                    const plots = { ...saveRef.current.plots };
+                    delete plots[pid];
+                    saveRef.current = { ...saveRef.current, plots };
+                    e.setPlot(pid, { kind: p.kind === "land" ? "land" : "tolet" });
+                    setPanel(null);
+                    toast(`House sold for ${N(price)}. May Allah put barakah in it.`, "good");
+                  },
+                };
+              })()}
               plot={p}
               own={own}
               points={saveRef.current.coins}
@@ -2340,6 +2611,24 @@ function CityGame({
   );
 
   /** Paint every shop and stall: yours, the market's traders, or "for rent". */
+  /** stalls and shops other players rent right now */
+  const sharedShops = useRef(new Map<string, SharedShop>());
+  const shopsNet = useRef<Shops | null>(null);
+  /** Put my shop on record so everyone sees it (and nobody else can take it). */
+  const publishShop = useCallback(async (sid: string) => {
+    const own = saveRef.current.shops?.[sid];
+    const net = shopsNet.current;
+    const o = onlineRef.current;
+    if (!own || !net || !o) return true;
+    return net.claim({
+      sid,
+      owner: o.uid,
+      ownerName: shownName(saveRef.current) ?? "Player",
+      name: own.name,
+      products: own.products,
+      until: own.until,
+    });
+  }, []);
   const paintShop = useCallback((e: IlmCityEngine, sid: string) => {
     const own = saveRef.current.shops?.[sid];
     const info = e.shopInfo(sid);
@@ -2351,7 +2640,15 @@ function CityGame({
         open: true,
         label: `Your shop · ${own.name || "My shop"}`,
       });
-    else if (trader && info?.kind === "stall")
+    else if (sharedShops.current.has(sid)) {
+      const o = sharedShops.current.get(sid)!;
+      e.setShop(sid, {
+        name: o.name || (info?.kind === "shop" ? "Shop" : "Stall"),
+        imgs: o.products.map((p) => p.img),
+        open: true,
+        label: `${o.name || "Shop"} · ${o.ownerName}`,
+      });
+    } else if (trader && info?.kind === "stall")
       e.setShop(sid, {
         name: trader.name,
         imgs: trader.items.map(([em]) => emojiPic(em)),
@@ -2365,6 +2662,45 @@ function CityGame({
       const e = engine.current;
       const info = e?.shopInfo(sid);
       if (!e || !info) return;
+      const other = sharedShops.current.get(sid);
+      if (other && other.owner !== onlineRef.current?.uid) {
+        if (info.kind === "stall") doTask("market");
+        setPanel({
+          kind: "info",
+          title: other.name || "Shop",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-80">
+                {info.street}, {fullName(districtById(info.district))} · run by {other.ownerName}
+              </p>
+              {other.products.length ? (
+                other.products.map((p, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-xl bg-white p-2">
+                    {p.img && (
+                      <img src={p.img} alt="" className="size-14 rounded-lg object-cover" />
+                    )}
+                    <div>
+                      <div className="font-bold">{p.name}</div>
+                      <div className="text-[13px] text-[#1f6f63]">{p.price}</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-[13px] opacity-70">The owner is still setting up.</p>
+              )}
+              {loggedInRef.current && (
+                <button
+                  onClick={() => openChatRef.current({ uid: other.owner, name: other.ownerName })}
+                  className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+                >
+                  💬 Message {other.ownerName}
+                </button>
+              )}
+            </div>
+          ),
+        });
+        return;
+      }
       if (!loggedInRef.current && !(info.kind === "stall" && traderAt(sid))) {
         setPanel({
           kind: "info",
@@ -2410,8 +2746,28 @@ function CityGame({
                 toast(`Sales collected: +${N(due)}. May Allah bless your trade.`, "good");
                 setTimeout(render, 0);
               }}
-              onRent={(days, pts) => {
+              onRent={async (days, pts) => {
                 if (saveRef.current.coins < pts) return;
+                const net = shopsNet.current,
+                  o = onlineRef.current;
+                if (net && o) {
+                  const prev0 = saveRef.current.shops?.[sid];
+                  const ok = await net
+                    .claim({
+                      sid,
+                      owner: o.uid,
+                      ownerName: shownName(saveRef.current) ?? "Player",
+                      name: prev0?.name ?? "",
+                      products: prev0?.products ?? [],
+                      until: Math.max(Date.now(), prev0?.until ?? 0) + days * 86400000,
+                    })
+                    .catch(() => true);
+                  if (!ok) {
+                    toast("Another player has just rented this space. Try another one.", "warn");
+                    setPanel(null);
+                    return;
+                  }
+                }
                 const prev = saveRef.current.shops?.[sid];
                 const next: ShopOwn = {
                   until: Math.max(Date.now(), prev?.until ?? 0) + days * 86400000,
@@ -2441,6 +2797,7 @@ function CityGame({
                   shops: { ...saveRef.current.shops, [sid]: o },
                 };
                 paintShop(e, sid);
+                void publishShop(sid);
                 toast(`${o.name} is open for business!`, "good");
                 setPanel(null);
               }}
@@ -3495,9 +3852,13 @@ function CityGame({
           for (const x of list)
             void t.receive(x.id).then((ok) => {
               if (!ok) return;
+              // with the wallet, only money the server moved counts
+              const paid = (x as { serverPaid?: boolean }).serverPaid;
+              if (walletNet.current && !paid) return;
+              const add = walletNet.current ? 0 : x.amount;
               update((s2) => ({
                 ...s2,
-                coins: s2.coins + x.amount,
+                coins: s2.coins + add,
                 txns: [
                   {
                     dir: "in" as const,
@@ -3538,6 +3899,37 @@ function CityGame({
       if (!who) return "No player has that IlmWorld number.";
       if (who.uid === o.uid) return "That's your own number.";
       const name = shownName(saveRef.current) ?? "A player";
+      const w = walletNet.current;
+      if (w) {
+        // the server takes it from your wallet and puts it in theirs, in one step
+        const r = await w.send(who.uid, units, {
+          fromName: name,
+          toName: who.name,
+          note: note.trim().slice(0, 80) || undefined,
+        });
+        if (!r.ok)
+          return r.error === "not-enough"
+            ? "Your wallet doesn't have enough."
+            : r.error === "no-wallet"
+              ? "That player hasn't opened IlmWorld since money moved to wallets."
+              : "It didn't go through. Check your connection and try again.";
+        if (typeof r.naira === "number") walletServer.current = r.naira;
+        syncCoins();
+        update((x) => ({
+          ...x,
+          txns: [
+            {
+              dir: "out" as const,
+              name: who.name,
+              amount: units,
+              note: note.trim() || undefined,
+              at: Date.now(),
+            },
+            ...(x.txns ?? []),
+          ].slice(0, 40),
+        }));
+        return null;
+      }
       update((x) => ({ ...x, coins: x.coins - units }));
       try {
         await t.send({
@@ -3602,6 +3994,29 @@ function CityGame({
     }, 3000);
     return () => clearInterval(iv);
   }, []);
+  // shared stalls and shops: see other players' shops, and put yours on record
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || shopsNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    (local ? Promise.resolve(connectShopsLocal()) : connectShops())
+      .then((net) => {
+        shopsNet.current = net;
+        for (const [sid, own] of Object.entries(saveRef.current.shops ?? {}))
+          if (own.until > Date.now()) void publishShop(sid).catch(() => {});
+        off = net.watch((list) => {
+          const m = new Map<string, SharedShop>();
+          for (const x of list) if (x.owner !== o.uid) m.set(x.sid, x);
+          sharedShops.current = m;
+          const e = engine.current;
+          if (e) for (const sid of e.shopIds()) paintShop(e, sid);
+        });
+      })
+      .catch(() => {});
+    return () => off?.();
+  }, [onlineReady, paintShop, publishShop]);
   useEffect(() => {
     const o = onlineRef.current;
     if (!o || claimsNet.current) return;
@@ -3654,11 +4069,101 @@ function CityGame({
       }
       for (const [pid, name] of now) {
         if (saveRef.current.plots?.[pid]) continue;
-        e.setPlot(pid, { kind: "taken", by: name });
+        const sale = salesHere.current.get(pid);
+        e.setPlot(
+          pid,
+          sale ? { kind: "forsale", by: sale.sellerName } : { kind: "taken", by: name },
+        );
         takenRef.current.set(pid, name);
       }
     });
   }, [areaNow, claimsReady]);
+  /* ---------- houses players sell to each other ---------- */
+  const salesNet = useRef<HouseSales | null>(null);
+  const salesHere = useRef(new Map<string, HouseSale>());
+  const mySales = useRef(new Map<string, HouseSale>());
+  const [salesReady, setSalesReady] = useState(0);
+  useEffect(() => {
+    const o = onlineRef.current;
+    if (!o || salesNet.current) return;
+    const local =
+      import.meta.env.DEV && new URLSearchParams(window.location.search).get("online") === "local";
+    let off: (() => void) | null = null;
+    (local ? Promise.resolve(connectHouseSalesLocal()) : connectHouseSales())
+      .then((net) => {
+        salesNet.current = net;
+        setSalesReady((n) => n + 1);
+        off = net.watchMine(o.uid, (list) => {
+          mySales.current = new Map(
+            list.filter((x) => x.status === "listed").map((x) => [x.plot, x]),
+          );
+          // a player bought one of your houses: the money is yours, the house is theirs
+          for (const x of list)
+            if (
+              x.status === "sold" &&
+              (x as HouseSale & { paidByServer?: boolean }).paidByServer &&
+              saveRef.current.plots?.[x.plot]
+            ) {
+              // the server already put the money in your wallet: the house is theirs now
+              const plots = { ...saveRef.current.plots };
+              delete plots[x.plot];
+              saveRef.current = { ...saveRef.current, plots };
+              setSave((s2) => {
+                const p2 = { ...s2.plots };
+                delete p2[x.plot];
+                const y = { ...s2, plots: p2 };
+                writeSave(y);
+                return y;
+              });
+              engine.current?.setPlot(x.plot, { kind: "taken", by: x.buyerName });
+              toast(
+                `🔑 ${x.buyerName ?? "A player"} bought your house (${x.label}) for ${N(x.price)}!`,
+                "good",
+              );
+            } else if (x.status === "sold" && !x.paid && saveRef.current.plots?.[x.plot]) {
+              void net.markPaid(x.plot).catch(() => {});
+              const plots = { ...saveRef.current.plots };
+              delete plots[x.plot];
+              saveRef.current = {
+                ...saveRef.current,
+                plots,
+                coins: saveRef.current.coins + x.price,
+              };
+              update((s2) => {
+                const p2 = { ...s2.plots };
+                delete p2[x.plot];
+                return { ...s2, plots: p2, coins: s2.coins + x.price };
+              });
+              engine.current?.setPlot(x.plot, { kind: "taken", by: x.buyerName });
+              toast(
+                `🔑 ${x.buyerName ?? "A player"} bought your house (${x.label}) for ${N(x.price)}!`,
+                "good",
+              );
+            } else if (x.status === "sold" && !x.paid) void net.markPaid(x.plot).catch(() => {});
+        });
+      })
+      .catch(() => {});
+    return () => off?.();
+  }, [onlineReady, update, toast]);
+  useEffect(() => {
+    const net = salesNet.current;
+    const o = onlineRef.current;
+    if (!net || !o || !areaNow) return;
+    return net.watchArea(areaNow, (list) => {
+      const e = engine.current;
+      const next = new Map(list.filter((x) => x.seller !== o.uid).map((x) => [x.plot, x]));
+      if (e) {
+        for (const pid of salesHere.current.keys())
+          if (!next.has(pid) && !saveRef.current.plots?.[pid]) {
+            const by = takenRef.current.get(pid);
+            if (by) e.setPlot(pid, { kind: "taken", by });
+          }
+        for (const [pid, x] of next)
+          if (!saveRef.current.plots?.[pid]) e.setPlot(pid, { kind: "forsale", by: x.sellerName });
+      }
+      salesHere.current = next;
+    });
+  }, [areaNow, salesReady, claimsReady]);
   /** Take a house or land for yourself; false if another player already has it. */
   const claimPlot = useCallback(async (pid: string, own: PlotOwn) => {
     const net = claimsNet.current;
@@ -4389,6 +4894,12 @@ function CityGame({
           const cls = l.classes?.[Number(idx)];
           if (!cls) return;
           e.enterInterior("madrasah", `${cls} · ${l.name}`);
+          // a madrasah or Qur'an class has an Ustadh; a school class has a teacher
+          e.setTeacher(
+            /madrasah|qur'an|quran|arabic|memoris/i.test(l.name) || l.kind === "office"
+              ? "Ustadh"
+              : "Teacher",
+          );
           setInside(true);
           setPanel({
             kind: "info",
@@ -4431,6 +4942,7 @@ function CityGame({
         const [room, uni] = L.l.name.split(" · ");
         sayDhikr("study", () => {
           e.enterInterior("madrasah", L.l.name);
+          e.setTeacher(L.l.id.endsWith("-library") ? "Librarian" : "Lecturer");
           setInside(true);
           tuneRef.current();
           const today = clockRef.current.key;
@@ -5607,8 +6119,8 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:madrasah:")) {
-        quizHost.current = hostOf(id.slice(14));
-        e.setTeacher(quizHost.current);
+        quizHost.current = "Ustadh";
+        e.setTeacher("Ustadh");
         e.enterInterior("madrasah", landmarkName(id.slice(14)));
         setInside(true);
         return;
@@ -6718,19 +7230,6 @@ function CityGame({
                           }
                     }
                     items={[
-                      ...(isAdminRef.current
-                        ? [
-                            {
-                              icon: "🛠️",
-                              label: "Test ₦50,000",
-                              run: () => {
-                                update((x) => ({ ...x, coins: x.coins + 5000 }));
-                                setPanel(null);
-                                toast("Admin test money: +₦50,000", "good");
-                              },
-                            },
-                          ]
-                        : []),
                       { icon: "🏠", label: "Houses to let", run: () => openToLetRef.current() },
                       { icon: "👕", label: "Clothes", run: () => openWardrobeRef.current() },
                       ...(saveRef.current.homePlot
@@ -8290,7 +8789,10 @@ function PlotView({
   onCollect,
   onRooms,
   rent,
+  sell,
 }: {
+  /** selling a house you own (only when you own more than one) */
+  sell?: SellOpts;
   rent: ReturnType<typeof houseRent>;
   plot: {
     id: string;
@@ -8370,6 +8872,7 @@ function PlotView({
             count={beds}
             onRooms={(rooms, earned) => onRooms(rooms, earned)}
           />
+          {sell && <SellBox sell={sell} />}
         </div>
       );
     const price = rent.buy;
@@ -8387,7 +8890,7 @@ function PlotView({
       >
         Buy this house · {N(price)}
         <span className="block text-[12px] font-medium opacity-80">
-          Rent out its {beds} rooms for {N(ROOM_RENT_WEEK)} a week each
+          Live in one flat and let the other {beds - 1} to players
         </span>
       </button>
     );
@@ -8580,6 +9083,103 @@ function PlotView({
           onRooms={(rooms, earned) => onRooms(rooms, earned)}
         />
       )}
+      {sell && <SellBox sell={sell} />}
+    </div>
+  );
+}
+
+type SellOpts = {
+  price: number;
+  blocked?: string;
+  run: () => void;
+  /** what the house is worth; players may ask 70% to 150% of it */
+  worth?: number;
+  listed?: number;
+  list?: (amount: number) => void;
+  unlist?: () => void;
+};
+/** Sell a house you own: to the city straight away, or to players at your own price. */
+function SellBox({ sell }: { sell: SellOpts }) {
+  const [sure, setSure] = useState(false);
+  const min = Math.round(((sell.worth ?? 0) * 0.7) / 10) * 10,
+    max = Math.round(((sell.worth ?? 0) * 1.5) / 10) * 10;
+  const [ask, setAsk] = useState(String((sell.worth ?? 0) * 10));
+  const units = Math.round(Number(ask.replace(/[^\d]/g, "")) / 10);
+  const ok = units >= min && units <= max;
+  return (
+    <div className="space-y-2 rounded-xl border border-[#b8573a]/25 bg-[#fdf3ee] p-3 text-[13px]">
+      <div className="font-bold">Sell this house</div>
+      {sell.blocked ? (
+        <p className="opacity-75">{sell.blocked}</p>
+      ) : sell.listed ? (
+        <>
+          <p>
+            Listed for players at <b>{N(sell.listed)}</b>. You get the money as soon as someone buys
+            it.
+          </p>
+          <button
+            onClick={sell.unlist}
+            className="w-full rounded-lg border border-[#10201e]/15 bg-white py-2 font-bold"
+          >
+            Take it off the market
+          </button>
+        </>
+      ) : (
+        <>
+          {sell.list && sell.worth ? (
+            <div className="rounded-lg bg-white p-2.5">
+              <div className="font-semibold">To players, at your price</div>
+              <div className="text-[12px] opacity-70">
+                Between {N(min)} and {N(max)}
+              </div>
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  value={ask}
+                  onChange={(e) => setAsk(e.target.value)}
+                  inputMode="numeric"
+                  className="min-w-0 flex-1 rounded-lg border border-[#10201e]/15 px-2.5 py-2"
+                />
+                <button
+                  disabled={!ok}
+                  onClick={() => sell.list!(units)}
+                  className="rounded-lg bg-[#1f6f63] px-3 py-2 font-bold text-white disabled:opacity-40"
+                >
+                  List
+                </button>
+              </div>
+              {!ok && (
+                <div className="mt-1 text-[11.5px] text-[#b8573a]">Price must be in range.</div>
+              )}
+            </div>
+          ) : null}
+          <div className="rounded-lg bg-white p-2.5">
+            <div className="font-semibold">To the city, right now · {N(sell.price)}</div>
+            {sure ? (
+              <div className="mt-1.5 flex gap-2">
+                <button
+                  onClick={sell.run}
+                  className="flex-1 rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+                >
+                  Yes, sell it
+                </button>
+                <button
+                  onClick={() => setSure(false)}
+                  className="flex-1 rounded-lg border border-[#10201e]/15 bg-white py-2 font-bold"
+                >
+                  Keep it
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSure(true)}
+                className="mt-1.5 w-full rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+              >
+                Sell to the city
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -8603,22 +9203,8 @@ function RoomsView({
 }) {
   const now = Date.now();
   const list = Array.from({ length: count }, (_, i) => rooms[i] ?? null);
-  const used = new Set(list.filter((r) => r).map((r) => r!.tenant));
   const day = (t: number) =>
     new Date(t).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-  const rentOut = (i: number) => {
-    const free = TENANTS.filter((t) => !used.has(t));
-    const tenant = free[Math.floor(Math.random() * free.length)] ?? TENANTS[0];
-    const next = [...list];
-    next[i] = { tenant, from: now, until: now + 7 * 86400000 };
-    onRooms(next, ROOM_RENT_WEEK);
-  };
-  const renew = (i: number) => {
-    const r = list[i]!;
-    const next = [...list];
-    next[i] = { ...r, from: now, until: now + 7 * 86400000 };
-    onRooms(next, ROOM_RENT_WEEK);
-  };
   const evict = (i: number) => {
     const next = [...list];
     next[i] = null;
@@ -8665,19 +9251,15 @@ function RoomsView({
                   </span>
                 ) : (
                   <span className="flex shrink-0 gap-1.5">
-                    <button
-                      onClick={() => rentOut(i)}
-                      className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
-                    >
-                      Let · +{N(ROOM_RENT_WEEK)}
-                    </button>
-                    {players && (
+                    {players ? (
                       <button
                         onClick={() => players.onList(i)}
-                        className="rounded-lg bg-[#f2c230] px-2.5 py-1.5 text-[12px] font-bold"
+                        className="rounded-lg bg-[#1f6f63] px-2.5 py-1.5 text-[12px] font-bold text-[#fdf8ec]"
                       >
-                        To players
+                        List for players to rent
                       </button>
+                    ) : (
+                      <span className="text-[11.5px] opacity-60">Sign in to let it</span>
                     )}
                   </span>
                 ))}
@@ -8694,14 +9276,6 @@ function RoomsView({
                   Rent ended {day(r.until)}: still living here
                 </span>
                 <span className="flex shrink-0 gap-1.5">
-                  {!r.tenant.endsWith("(player)") && (
-                    <button
-                      onClick={() => renew(i)}
-                      className="rounded-lg bg-[#1f6f63] px-2 py-1 text-[11.5px] font-bold text-[#fdf8ec]"
-                    >
-                      Renew · +{N(ROOM_RENT_WEEK)}
-                    </button>
-                  )}
                   <button
                     onClick={() => evict(i)}
                     className="rounded-lg bg-[#b8573a] px-2 py-1 text-[11.5px] font-bold text-white"
@@ -8715,8 +9289,9 @@ function RoomsView({
         );
       })}
       <p className="text-[11.5px] opacity-65">
-        Tenants pay a week in advance. When their rent ends, renew it or evict them. You can't evict
-        before the rent is over.
+        Your flats are rented by real players: list a flat and a player pays a week in advance. When
+        their rent ends you can evict them, or they rent again. You can't evict before the rent is
+        over.
       </p>
     </div>
   );
@@ -8896,12 +9471,10 @@ function emojiPic(e: string) {
   emojiCache.set(e, url);
   return url;
 }
-/** The market's own traders sit at every third stall. */
-const traderAt = (id: string) => {
-  const m = /-m(\d+)$/.exec(id);
-  if (!m || Number(m[1]) % 3 !== 0) return null;
-  const n = Number(m[1]) + id.length;
-  return MARKET_TRADERS[n % MARKET_TRADERS.length];
+/** No made-up traders: every stall is free for real players to rent. */
+const traderAt = (id: string): (typeof MARKET_TRADERS)[number] | null => {
+  void id;
+  return null;
 };
 
 function ShopView({
@@ -11908,7 +12481,7 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   if (!t.eat)
     return {
       text: "Eat a halal meal",
-      prefix: (s.items ?? []).includes("kitchen") && inside ? "eat" : `stall:${area}-m`,
+      prefix: (s.items ?? []).includes("kitchen") && inside ? "eat" : "eatery:",
     };
   if (!t.learn) return { text: "Learn something at the masjid", prefix: "door:masjid:" };
   if (!t.market) return { text: "Visit the market", prefix: `stall:${area}-m` };
@@ -12123,25 +12696,16 @@ function QuranReader({ start, onPage }: { start: number; onPage: (page: number) 
     let live = true;
     setAyahs(null);
     setFailed(false);
-    fetch(`https://api.alquran.cloud/v1/page/${page}/editions/quran-uthmani,en.sahih`)
-      .then((r) => r.json())
-      .then((j) => {
+    // the Qur'an ships with the game: one small file per mushaf page
+    fetch(`/quran/${page}.json`)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((rows: { name: string; n: number; ar: string; en: string }[]) => {
         if (!live) return;
-        const [ar, tr] = j.data as {
-          ayahs: {
-            numberInSurah: number;
-            text: string;
-            surah: { englishName: string; name: string };
-          }[];
-        }[];
         setAyahs(
-          ar.ayahs.map((a, i) => ({
-            n: a.numberInSurah,
-            text: a.text,
-            surah: `${a.surah.englishName} · ${a.surah.name}`,
-            en: tr.ayahs[i]?.text ?? "",
-            first: a.numberInSurah === 1,
-          })),
+          rows.map((a) => ({ n: a.n, text: a.ar, surah: a.name, en: a.en, first: a.n === 1 })),
         );
       })
       .catch(() => live && setFailed(true));
@@ -12185,6 +12749,9 @@ function QuranReader({ start, onPage }: { start: number; onPage: (page: number) 
           ))
         )}
       </div>
+      <p className="text-[10.5px] opacity-50">
+        Uthmani text: The Noble Qur'an Encyclopedia (quranenc.com) · meaning: Sahih International
+      </p>
       <div className="grid grid-cols-2 gap-2">
         <button
           disabled={page <= 1}

@@ -144,7 +144,15 @@ function mat(color: number, extra: Partial<THREE.MeshStandardMaterialParameters>
   }
   return m;
 }
-type SignKind = "tolet" | "land" | "ownland" | "sold" | "building" | "mine" | "taken";
+type SignKind =
+  | "tolet"
+  | "land"
+  | "ownland"
+  | "sold"
+  | "building"
+  | "mine"
+  | "taken"
+  | "forsale";
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0, cast = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
   m.position.set(x, y + h / 2, z);
@@ -1283,68 +1291,8 @@ export class IlmCityEngine {
     // welcome gate where the expressway meets the main street
     this.welcomeGate(D, side);
 
-    // neighbours walking the pavements
-    const names = [
-      "Brother Bilal",
-      "Sister Khadijah",
-      "Uncle Abdullahi",
-      "Sister Maryam",
-      "Brother Zayd",
-      "Brother Hamzah",
-      "Sister Aminah",
-      "Alhaja Sekinat",
-      "Brother Tajudeen",
-      "Sister Rukayat",
-    ];
-    const robes = [
-      0x4f7fc4, 0x5a3f6a, 0x3d8a5a, 0x2f4a7a, 0xb36a3a, 0x8a5fb0, 0x3f8f6a, 0x7d2f3a, 0xcdb38a,
-      0x1f6f63,
-    ];
-    const start = Math.floor(rnd() * names.length);
-    const routes: [number, number][][] = [];
-    zs.forEach((sz) => {
-      routes.push([
-        [-(XR - 6), sz + 9],
-        [XR - 6, sz + 9],
-      ]);
-      routes.push([
-        [XR - 6, sz - 9],
-        [-(XR - 6), sz - 9],
-      ]);
-    });
-    routes.push([
-      [9, (D.holy ? -8 : north) + 1],
-      [9, crossEnd],
-    ]);
-    routes.push([
-      [-9, crossEnd],
-      [-9, (D.holy ? -8 : north) + 1],
-    ]);
-    routes.forEach((route, i) => {
-      const k = (start + i) % names.length;
-      const female = names[k].startsWith("Sister") || names[k].startsWith("Alhaja");
-      const g = person(
-        robes[k],
-        female
-          ? { hijab: [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0x3d5a4a, 0x1d1d26][i % 6], seed: i }
-          : { cap: 0xffffff, seed: i },
-      );
-      const tag = label(names[k], { size: 0.7, bold: false });
-      tag.position.y = 2.65;
-      g.add(tag);
-      g.position.set(route[0][0], 0, route[0][1]);
-      S.add(g);
-      this.walkers.push({
-        g,
-        route,
-        k: 1,
-        wait: i * 0.8,
-        t: 0,
-        name: names[k],
-        female,
-        district: D.id,
-      });
-    });
+    // (no made-up neighbours on the pavements: the people you meet outside are real players)
+    rnd(); // keeps the rest of the area's random layout as it was
 
     // the Hisbah officer on patrol
     {
@@ -6880,18 +6828,30 @@ export class IlmCityEngine {
     twin.userData.tap = mesh.userData.tap;
     faces[1].add(twin);
     this.tappables.push(twin);
+    // the same advert on the back of both panels, so it shows from either side of the road
+    const backs = faces.map((f) => {
+      const m = new THREE.Mesh(mesh.geometry, mesh.material);
+      m.position.set(mesh.position.x, mesh.position.y, -0.7);
+      m.rotation.y = Math.PI;
+      m.userData.tap = mesh.userData.tap;
+      f.add(m);
+      this.tappables.push(m);
+      return m;
+    });
+    const all = [mesh, twin, ...backs];
+    const setMat = (m: THREE.Material) => all.forEach((x) => (x.material = m));
     let own: THREE.MeshBasicMaterial | null = null;
     const paint = () => {
       if (!b.ad) {
         own?.map?.dispose();
         own?.dispose();
         own = null;
-        mesh.material = twin.material = emptyMat;
+        setMat(emptyMat);
         return;
       }
       if (!own) {
         own = canvasPlane(PW, PW * 0.4, draw, 640).mesh.material as THREE.MeshBasicMaterial;
-        mesh.material = twin.material = own;
+        setMat(own);
       }
       const tex = own.map as THREE.CanvasTexture;
       const canvas = tex.image as HTMLCanvasElement;
@@ -8214,6 +8174,7 @@ export class IlmCityEngine {
       mine: ["#1f6f63", "#fff", "YOURS", "Tap to manage"],
       taken: ["#5a5f66", "#fff", "OCCUPIED", "Not available"],
       sold: ["#7d2f3a", "#fff", "SOLD", "Not for sale"],
+      forsale: ["#e6b84a", "#2a1c05", "FOR SALE", "Tap to buy"],
     }[kind];
     c.fillStyle = bg;
     c.fillRect(0, 0, 256, 160);
@@ -8257,7 +8218,7 @@ export class IlmCityEngine {
   setPlot(
     id: string,
     state: {
-      kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken";
+      kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken" | "forsale";
       floors?: number;
       by?: string;
       /** while building: 1 foundation, 2 walls, 3 roof, 4 finishing */
@@ -8292,6 +8253,7 @@ export class IlmCityEngine {
       building: "Your building site",
       built: `Your property · No. ${p.number}`,
       taken: `No. ${p.number} · ${state.by ?? "a player"}'s ${p.kind === "land" ? "land" : "house"}`,
+      forsale: `For sale · No. ${p.number} · ${state.by ?? "a player"}`,
     };
     fx.zone.label = labels[state.kind];
     if (state.kind === "tolet") putSign("tolet", true);
@@ -8300,6 +8262,7 @@ export class IlmCityEngine {
     else if (state.kind === "owned") putSign("ownland");
     else if (state.kind === "taken")
       putSign(p.kind === "land" ? "sold" : "taken", p.kind !== "land");
+    else if (state.kind === "forsale") putSign("forsale", p.kind !== "land");
     else if (state.kind === "building") putSign("building");
     else if (state.kind === "built") putSign("mine", true);
     // the house on a land plot
