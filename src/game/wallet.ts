@@ -35,11 +35,43 @@ async function call(body: Record<string, unknown>): Promise<MoneyResult & { stat
   }
 }
 
+/** What the wallet document holds that the game uses. */
+export type WalletDoc = { naira: number; packs?: { rich?: number } };
+
+async function payCall(path: string, body: Record<string, unknown>) {
+  const { auth } = await import("@/lib/firebase");
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) return { ok: false, error: "sign-in" } as PayResult;
+  try {
+    const r = await fetch(`/api/pay/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const j = (await r.json().catch(() => ({}))) as PayResult;
+    return { ...j, ok: r.ok && j.ok !== false };
+  } catch {
+    return { ok: false, error: "offline" } as PayResult;
+  }
+}
+export type PayResult = {
+  ok: boolean;
+  error?: string;
+  url?: string;
+  naira?: number;
+  pack?: string;
+  already?: boolean;
+};
+/** Start a Paystack payment for a pack: returns the checkout page to go to. */
+export const startPayment = (pack: string) => payCall("init", { pack });
+/** After checkout: ask the server to confirm the payment and fill the wallet. */
+export const confirmPayment = (reference: string) => payCall("verify", { reference });
+
 /** Watch the wallet; create it on first use (with the starting money). */
 export async function connectWallet(
   uid: string,
   start: { path?: string; existing: boolean },
-  onBalance: (naira: number) => void,
+  onBalance: (naira: number, doc: WalletDoc) => void,
 ): Promise<WalletNet | null> {
   const { db } = await import("@/lib/firebase");
   const { doc, onSnapshot, getDoc } = await import("firebase/firestore");
@@ -56,8 +88,8 @@ export async function connectWallet(
   const off = onSnapshot(
     ref,
     (s) => {
-      const d = s.data() as { naira?: number } | undefined;
-      if (typeof d?.naira === "number") onBalance(d.naira);
+      const d = s.data() as WalletDoc | undefined;
+      if (typeof d?.naira === "number") onBalance(d.naira, d);
     },
     () => {},
   );

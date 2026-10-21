@@ -10,6 +10,7 @@ import {
   centerOf,
   cityOf,
   houseStyleOf,
+  isPrimeArea,
   districtById,
   halfOf,
   fullName,
@@ -23,6 +24,7 @@ import { darkness, type Clock } from "./time";
 import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
 import {
   Batch,
+  fillingStation,
   MAT,
   MAT2,
   TARRED,
@@ -144,15 +146,13 @@ function mat(color: number, extra: Partial<THREE.MeshStandardMaterialParameters>
   }
   return m;
 }
-type SignKind =
-  | "tolet"
-  | "land"
-  | "ownland"
-  | "sold"
-  | "building"
-  | "mine"
-  | "taken"
-  | "forsale";
+type PlotState = {
+  kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken" | "forsale";
+  floors?: number;
+  by?: string;
+  stage?: number;
+};
+type SignKind = "tolet" | "land" | "ownland" | "sold" | "building" | "mine" | "taken" | "forsale";
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0, cast = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
   m.position.set(x, y + h / 2, z);
@@ -734,6 +734,105 @@ export class IlmCityEngine {
   isDriving() {
     return this.driving;
   }
+  private bikeKind: "city" | "mountain" | "racing" | null = null;
+  /** how far the rider is lifted onto the saddle now */
+  private bikeLift = 0;
+  private bikeObj: THREE.Object3D | null = null;
+  private bikeWheels: THREE.Object3D[] = [];
+  private bikeMult = 1;
+  private bikeColor = 0x1f6f63;
+  /** Ride a bicycle (or get off it, with null): faster than walking, outside only. */
+  setBike(kind: "city" | "mountain" | "racing" | null, color = 0x1f6f63) {
+    if (this.bikeObj) {
+      this.bikeObj.removeFromParent();
+      this.bikeObj = null;
+    }
+    this.liftRider(0);
+    this.bikeWheels = [];
+    this.bikeKind = kind;
+    this.bikeColor = color;
+    if (!kind) return;
+    this.bikeMult = kind === "racing" ? 2.1 : kind === "mountain" ? 1.85 : 1.6;
+    const g = new THREE.Group();
+    const frame = mat(color, { roughness: 0.4, metalness: 0.4 });
+    const dark = mat(0x1a1b1d, { roughness: 0.6 });
+    const steel = mat(0xc9cfd4, { roughness: 0.3, metalness: 0.6 });
+    const R = kind === "mountain" ? 0.36 : 0.34;
+    for (const z of [0.55, -0.55]) {
+      const w = new THREE.Group();
+      const tyre = new THREE.Mesh(
+        new THREE.TorusGeometry(R, kind === "mountain" ? 0.06 : 0.035, 8, 20),
+        dark,
+      );
+      tyre.rotation.y = Math.PI / 2;
+      w.add(tyre);
+      for (let k = 0; k < 3; k++) {
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.01, R * 2, 0.01), steel);
+        spoke.rotation.x = (k * Math.PI) / 3;
+        w.add(spoke);
+      }
+      w.position.set(0, R, z);
+      g.add(w);
+      this.bikeWheels.push(w);
+    }
+    const bar = (len: number, x0: number, y0: number, z0: number, ax: number, m = frame) => {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 6), m);
+      b.position.set(x0, y0, z0);
+      b.rotation.x = ax;
+      g.add(b);
+      return b;
+    };
+    // the frame: down tube, top tube, seat tube, forks and stays
+    bar(0.75, 0, R + 0.28, 0.12, 0.95);
+    bar(0.62, 0, R + 0.5, 0.05, Math.PI / 2 - 0.15);
+    bar(0.55, 0, R + 0.28, -0.12, -0.3);
+    bar(0.55, 0, R + 0.22, 0.5, 0.25);
+    bar(0.5, 0, R + 0.12, -0.35, Math.PI / 2 - 0.5);
+    // seat, handlebars, pedals
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.26), dark);
+    seat.position.set(0, R + 0.6, -0.22);
+    g.add(seat);
+    const hb = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, kind === "racing" ? 0.42 : 0.6, 6),
+      kind === "racing" ? dark : steel,
+    );
+    hb.rotation.z = Math.PI / 2;
+    hb.position.set(0, R + 0.62, 0.42);
+    g.add(hb);
+    for (const s of [1, -1]) {
+      const pedal = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.08), dark);
+      pedal.position.set(s * 0.16, R - 0.05, 0);
+      g.add(pedal);
+    }
+    g.traverse((o) => (o.castShadow = true));
+    this.player.add(g);
+    this.bikeObj = g;
+    this.syncBike();
+  }
+  private liftRider(y: number) {
+    if (y === this.bikeLift) return;
+    for (const c of this.player.children) if (c !== this.bikeObj) c.position.y += y - this.bikeLift;
+    this.bikeLift = y;
+  }
+  isCycling() {
+    return !!this.bikeKind;
+  }
+  /** Stand somewhere outside, facing a way (the start of a race). */
+  placePlayer(x: number, z: number, yaw: number) {
+    if (this.where !== "out") return;
+    this.player.position.set(x, 0, z);
+    this.player.rotation.y = yaw;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.camYaw = yaw + Math.PI;
+    this.snapCamera();
+  }
+  /** The bicycle stays outside: indoors you walk. */
+  private syncBike() {
+    const on = !!this.bikeObj && this.where === "out";
+    if (this.bikeObj) this.bikeObj.visible = on;
+    this.liftRider(on ? 0.62 : 0);
+  }
   private teacherTag: { g: THREE.Object3D; tag: THREE.Object3D } | null = null;
   /** The madrasah teacher is the sheikh of that madrasah's street. */
   setTeacher(name: string) {
@@ -754,7 +853,11 @@ export class IlmCityEngine {
 
   enterInterior(kind: InteriorKind, name = "") {
     this.interiorName = name;
-    if (kind === "home") this.setDuplex(false);
+    if (kind === "home") {
+      this.setDuplex(false);
+      // the newcomers' flats in Lekki and Ikeja are in a glass tower
+      this.setGlassFlat(isPrimeArea(this.district.id) && this.district.id !== "lekki");
+    }
     this.outPos.copy(this.player.position);
     this.where = kind;
     const o = this.interiorOrigin[kind];
@@ -1019,6 +1122,22 @@ export class IlmCityEngine {
 
     // a football pitch and the sisters' corner take three plots in a row
     const play = this.choosePlayPlots(D, zs, H, southEdge);
+    // hold the pitch, sisters' corner and police station plots, so the shops built before
+    // them (eatery, dealer, mall, boutique) don't land on top of them
+    const playHold: Box[] = [];
+    if (play && !D.holy) {
+      const hold = (sz: number, north: boolean, x: number) => {
+        const cz = north ? sz - 21.5 : sz + 21.5;
+        playHold.push({
+          x0: this.ox + x - 12,
+          x1: this.ox + x + 12,
+          z0: this.oz + cz - 11,
+          z1: this.oz + cz + 11,
+        });
+      };
+      for (const x of play.xs) hold(play.sz, play.north, x);
+      if (play.police) hold(play.police.sz, play.police.north, play.police.x);
+    }
     const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
     zs.forEach((sz, si) => {
@@ -1036,7 +1155,13 @@ export class IlmCityEngine {
           const landShare = st.land ?? D.land ?? 0.13;
           const land = r1 < landShare;
           const shops = !land && r1 < landShare + (D.shops ?? 0.2);
-          const toLet = !land && !shops && rnd() < (st.toLet ?? D.toLet ?? 0.3);
+          // every house is open to players now (the dice is still rolled, so plots keep their
+          // numbers and looks)
+          let toLet = false;
+          if (!land && !shops) {
+            rnd();
+            toLet = true;
+          }
           if (
             play &&
             ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
@@ -1156,6 +1281,7 @@ export class IlmCityEngine {
       }
     });
     this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
+    this.reserved.push(...playHold);
     this.buildEatery(D);
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
@@ -1166,6 +1292,7 @@ export class IlmCityEngine {
       )
     )
       this.buildBoutique(D);
+    this.reserved = this.reserved.filter((r) => !playHold.includes(r));
     if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
     if (!D.holy) this.buildCourt(D);
@@ -1350,8 +1477,9 @@ export class IlmCityEngine {
     sand.position.set(50, 0, 534);
     S.add(sand);
     this.colliders.out.push({ x0: -1000, x1: 1100, z0: 541, z1: 1200 });
-    water(150, 105, 540, 20, true);
-    this.colliders.out.push({ x0: 420, x1: 660, z0: -55, z1: 95 });
+    // the small lagoon south of Manaar Gardens Estate
+    water(140, 38, 575, 130, true);
+    this.colliders.out.push({ x0: 445, x1: 705, z0: 98, z1: 162 });
     // world edges
     this.colliders.out.push({ x0: -1100, x1: -800, z0: -1900, z1: 900 });
     this.colliders.out.push({ x0: 1060, x1: 1400, z0: -1900, z1: 900 });
@@ -1442,9 +1570,18 @@ export class IlmCityEngine {
       if (!d.parent) continue;
       const p = districtById(d.parent);
       const east = d.link === "east";
+      const south = d.link === "south";
       // a = along the road, from the parent to this area
-      const a0 = east ? p.origin.x + halfOf(p).x - 6 : p.origin.z - (halfOf(p).z - 4);
-      const a1 = east ? d.origin.x - halfOf(d).x + 6 : d.origin.z + halfOf(d).z - 7;
+      const a0 = east
+        ? p.origin.x + halfOf(p).x - 6
+        : south
+          ? p.origin.z + (halfOf(p).z - 4)
+          : p.origin.z - (halfOf(p).z - 4);
+      const a1 = east
+        ? d.origin.x - halfOf(d).x + 6
+        : south
+          ? d.origin.z - halfOf(d).z + 7
+          : d.origin.z + halfOf(d).z - 7;
       const len = Math.abs(a1 - a0),
         mid = (a0 + a1) / 2;
       const at = (along: number, across: number): [number, number] =>
@@ -1493,6 +1630,8 @@ export class IlmCityEngine {
       const len0 = Math.hypot(dx, dz);
       this.expressway(c.x + (dx / len0) * 24, c.z + (dz / len0) * 24, ax, az, d.highway);
     });
+    this.buildFillingStations();
+    this.buildArena();
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
     this.buildCityFill();
@@ -1520,6 +1659,13 @@ export class IlmCityEngine {
             p.origin.z,
             d.origin.x - halfOf(d).x,
             d.origin.z,
+          ];
+        else if (d.link === "south")
+          [x0, z0, x1, z1] = [
+            d.origin.x,
+            p.origin.z + halfOf(p).z,
+            d.origin.x,
+            d.origin.z - halfOf(d).z,
           ];
       } else {
         const c = centerOf(d);
@@ -1552,6 +1698,259 @@ export class IlmCityEngine {
     for (const m of this.worldBatch.build()) this.scene.add(m);
   }
 
+  /** The sports arena: its centre, half its width and depth, and the track's middle line. */
+  private arena: { x: number; z: number; hw: number; hd: number; S: number; rm: number } | null =
+    null;
+  /** The points a runner or rider must pass, in order, for one lap (the finish line first). */
+  arenaCheckpoints() {
+    const A = this.arena;
+    if (!A) return null;
+    const half = A.S / 2;
+    return {
+      r: 7,
+      pts: [
+        { x: A.x, z: A.z + A.rm },
+        { x: A.x + half + A.rm, z: A.z },
+        { x: A.x, z: A.z - A.rm },
+        { x: A.x - half - A.rm, z: A.z },
+      ],
+    };
+  }
+  /** IlmWorld Sports Arena: a running track round a football field, stands, floodlights and a
+      start and finish arch. Races (running and cycling) are held here. */
+  private buildArena() {
+    const S = 84,
+      r1 = 27,
+      r2 = 36,
+      rm = (r1 + r2) / 2;
+    const hw = S / 2 + r2 + 10,
+      hd = r2 + 22;
+    const segs = this.roadSegments();
+    const clear = (x: number, z: number) => {
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        if (Math.abs(x - d.origin.x) < H.x + hw + 12 && Math.abs(z - d.origin.z) < H.z + hd + 12)
+          return false;
+      }
+      for (let i = -4; i <= 4; i++)
+        for (let k = -2; k <= 2; k++) {
+          const px = x + (i / 4) * hw,
+            pz = z + (k / 2) * hd;
+          for (const sg of segs) if (IlmCityEngine.distToSeg(px, pz, sg) < 14) return false;
+        }
+      for (const f of this.fuelSpots)
+        if (Math.abs(f.x - x) < hw + 20 && Math.abs(f.z - z) < hd + 20) return false;
+      return true;
+    };
+    // the open land nearest the middle of the mainland, inside the city's edges
+    const L = IlmCityEngine.LAGOON;
+    let at: { x: number; z: number } | null = null;
+    let best = Infinity;
+    for (let x = -700; x <= 960; x += 10)
+      for (let z = -640; z <= 480; z += 10) {
+        if (x - hw < -780 || x + hw > 1040 || z + hd > 520 || z - hd < -660) continue;
+        if (x + hw > L.x0 && x - hw < L.x1 && z + hd > L.z0 - 10 && z - hd < L.z1 + 10) continue;
+        if (x + hw > 425 && x - hw < 725 && z + hd > 88 && z - hd < 172) continue;
+        if (Math.hypot(x, z) < 90) continue;
+        const d = Math.hypot(x + 60, z + 300);
+        if (d >= best || !clear(x, z)) continue;
+        best = d;
+        at = { x, z };
+      }
+    if (!at) return;
+    this.arena = { ...at, hw, hd, S, rm };
+    const g = new THREE.Group();
+    g.position.set(at.x, 0, at.z);
+    this.scene.add(g);
+    const stadium = (r: number) => {
+      const sh = new THREE.Shape();
+      sh.moveTo(-S / 2, -r);
+      sh.lineTo(S / 2, -r);
+      sh.absarc(S / 2, 0, r, -Math.PI / 2, Math.PI / 2, false);
+      sh.lineTo(-S / 2, r);
+      sh.absarc(-S / 2, 0, r, Math.PI / 2, (Math.PI * 3) / 2, false);
+      return sh;
+    };
+    const ring = (ro: number, ri: number, color: number, y: number) => {
+      const sh = stadium(ro);
+      sh.holes.push(stadium(ri) as unknown as THREE.Path);
+      const geo = new THREE.ShapeGeometry(sh, 24);
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat(color, { roughness: 0.9 }));
+      m.position.y = y;
+      m.receiveShadow = true;
+      g.add(m);
+    };
+    // the apron, the track, its white lane lines and the field inside
+    const apron = new THREE.Mesh(groundGeo(hw * 2, hd * 2, 3), mat(0xc9c6bd));
+    apron.position.y = 0.02;
+    apron.receiveShadow = true;
+    g.add(apron);
+    ring(r2 + 1.2, r1 - 1.2, 0x5f9e48, 0.03);
+    ring(r2, r1, 0xb5523b, 0.045);
+    for (let k = 0; k <= 8; k++) {
+      const rr = r1 + (k * (r2 - r1)) / 8;
+      ring(rr + 0.06, rr - 0.06, 0xf4f4f0, 0.055);
+    }
+    const field = new THREE.Mesh(
+      new THREE.ShapeGeometry(stadium(r1 - 1.2), 24).rotateX(-Math.PI / 2),
+      mat(0x5f9e48, { roughness: 0.95 }),
+    );
+    field.position.y = 0.035;
+    g.add(field);
+    // a football pitch marked inside
+    const lineM = mat(0xf4f4f0);
+    for (const [w, d, x, z] of [
+      [90, 0.15, 0, -22],
+      [90, 0.15, 0, 22],
+      [0.15, 44, -45, 0],
+      [0.15, 44, 45, 0],
+      [0.15, 44, 0, 0],
+    ]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineM);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x, 0.06, z);
+      g.add(m);
+    }
+    for (const x of [-45, 45]) g.add(box(0.15, 2.4, 7.3, 0xf4f4f0, x, 0, 0));
+    // the start and finish line across the front straight, and its arch
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.5, r2 - r1), lineM);
+    fl.rotation.x = -Math.PI / 2;
+    fl.position.set(0, 0.07, rm);
+    g.add(fl);
+    for (const z of [r1 - 1.5, r2 + 1.5]) {
+      g.add(box(0.5, 6, 0.5, 0x1f6f63, 0, 0, z));
+      this.colliders.out.push({
+        x0: at.x - 0.3,
+        x1: at.x + 0.3,
+        z0: at.z + z - 0.3,
+        z1: at.z + z + 0.3,
+      });
+    }
+    const banner = this.signBoard("START · FINISH", r2 - r1 + 4, 1.4, "#1f6f63", "#ffffff");
+    banner.position.set(0, 6.2, rm);
+    g.add(banner);
+    const back = this.signBoard("START · FINISH", r2 - r1 + 4, 1.4, "#1f6f63", "#ffffff");
+    back.position.set(0, 6.2, rm - 0.05);
+    back.rotation.y = Math.PI;
+    g.add(back);
+    // the stand along the back straight, with a roof
+    const sz = -(r2 + 4);
+    for (let t = 0; t < 5; t++) {
+      g.add(box(S + 20, 0.6 + t * 0.6, 2, 0x9aa0a6, 0, 0, sz - t * 2));
+      g.add(
+        box(
+          S + 16,
+          0.35,
+          0.6,
+          [0x1f6f63, 0xe6b84a, 0x2a4a7a][t % 3],
+          0,
+          0.6 + t * 0.6,
+          sz - t * 2 + 0.3,
+        ),
+      );
+    }
+    g.add(box(S + 24, 0.4, 13, 0xf4f4f0, 0, 9, sz - 5));
+    for (const x of [-S / 2 - 10, 0, S / 2 + 10]) g.add(box(0.4, 9, 0.4, 0x5a5f66, x, 0, sz - 10));
+    this.colliders.out.push({
+      x0: at.x - S / 2 - 12,
+      x1: at.x + S / 2 + 12,
+      z0: at.z + sz - 11,
+      z1: at.z + sz + 1,
+    });
+    const name = this.signBoard("IlmWorld Sports Arena", 22, 2.2, "#10201e", "#e6b84a");
+    name.position.set(0, 10.8, sz + 1.6);
+    g.add(name);
+    // floodlights at the four corners
+    for (const [x, z] of [
+      [-hw + 4, -hd + 4],
+      [hw - 4, -hd + 4],
+      [-hw + 4, hd - 4],
+      [hw - 4, hd - 4],
+    ]) {
+      g.add(box(0.5, 18, 0.5, 0x5a5f66, x, 0, z));
+      g.add(box(3, 1.6, 0.6, 0xf4f4f0, x, 18, z));
+      this.colliders.out.push({
+        x0: at.x + x - 0.4,
+        x1: at.x + x + 0.4,
+        z0: at.z + z - 0.4,
+        z1: at.z + z + 0.4,
+      });
+    }
+    // where races are entered: by the finish line
+    this.zones.push({
+      id: "arena",
+      label: "🏁 Races",
+      x: at.x + 6,
+      z: at.z + r2 + 4,
+      r: 4,
+      scene: "out",
+    });
+    const t = label("🏁 IlmWorld Sports Arena · running and cycling races", {
+      size: 1.1,
+      bg: "rgba(16,32,30,0.9)",
+    });
+    t.position.set(at.x, 13, at.z + hd - 4);
+    this.scene.add(t);
+  }
+  /** Where filling stations stand (kept clear of the city's other buildings). */
+  private fuelSpots: { x: number; z: number }[] = [];
+  /** A Barakah Oil filling station beside each expressway, where it reaches its area. */
+  private buildFillingStations() {
+    const segs = this.roadSegments();
+    for (const d of DISTRICTS) {
+      if (d.parent || d.holy) continue;
+      const c = centerOf(d);
+      const [ex, ez] = this.roadEnd(d);
+      const L = Math.hypot(c.x - ex, c.z - ez);
+      if (L < 90) continue;
+      const ux = (c.x - ex) / L,
+        uz = (c.z - ez) / L;
+      // try either side of the road, a little way out of the area
+      let placed = false;
+      for (const along of [44, 64, 84])
+        for (const side of [1, -1]) {
+          if (placed) continue;
+          const nx = -uz * side,
+            nz = ux * side;
+          const x = ex + ux * along + nx * 26,
+            z = ez + uz * along + nz * 26;
+          const clearOfAreas = DISTRICTS.every(
+            (o) =>
+              Math.abs(x - o.origin.x) > halfOf(o).x + 18 ||
+              Math.abs(z - o.origin.z) > halfOf(o).z + 18,
+          );
+          const L2 = IlmCityEngine.LAGOON;
+          const inLagoon = x > L2.x0 - 20 && x < L2.x1 + 20 && z > L2.z0 - 20 && z < L2.z1 + 20;
+          // clear of every road except its own
+          const roadsOk = segs.every(
+            (sg) =>
+              IlmCityEngine.distToSeg(x, z, sg) > 20 ||
+              Math.abs(IlmCityEngine.distToSeg(x, z, sg) - 26) < 1,
+          );
+          if (!clearOfAreas || inLagoon || !roadsOk) continue;
+          // its front faces the road
+          const turn = Math.atan2(-nx, -nz);
+          const built = fillingStation(this.worldBatch, { x, z, turn });
+          for (const b of built.colliders) this.colliders.out.push(b);
+          for (const sp of built.spots)
+            this.zones.push({
+              id: "fuel:" + d.id,
+              label: sp.label,
+              x: sp.x,
+              z: sp.z,
+              r: 3.2,
+              scene: "out",
+            });
+          const t = label(`⛽ Barakah Oil · ${d.name}`, { size: 1, bg: "rgba(29,122,58,0.92)" });
+          t.position.set(x, 8, z);
+          this.scene.add(t);
+          this.fuelSpots.push({ x, z });
+          placed = true;
+        }
+    }
+  }
+
   /* ---------------- the megacity ---------------- */
   /** Every road between areas, as straight segments (for keeping buildings off them). */
   private roadSegments() {
@@ -1561,6 +1960,8 @@ export class IlmCityEngine {
         const p = districtById(d.parent);
         if (d.link === "east")
           segs.push([p.origin.x + halfOf(p).x, d.origin.z, d.origin.x - halfOf(d).x, d.origin.z]);
+        else if (d.link === "south")
+          segs.push([d.origin.x, p.origin.z + halfOf(p).z, d.origin.x, d.origin.z - halfOf(d).z]);
         else
           segs.push([d.origin.x, p.origin.z - halfOf(p).z, d.origin.x, d.origin.z + halfOf(d).z]);
       } else {
@@ -1705,9 +2106,12 @@ export class IlmCityEngine {
       if (z < -1605) return true;
       if (Math.hypot(x, z) < 50) return true;
       if (x > L.x0 - r && x < L.x1 + r && z > L.z0 - r && z < L.z1 + r) return true;
-      if (Math.hypot(x - 540, z - 20) < 85) return true; // the small lagoon
+      if (x > 425 && x < 725 && z > 88 && z < 172) return true; // the small lagoon
       // Manaar University College's building site, west of Igbe Laara
       if (x > 340 && x < 462 && z > -610 && z < -512) return true;
+      for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 26) return true;
+      const A = this.arena;
+      if (A && Math.abs(x - A.x) < A.hw + 14 && Math.abs(z - A.z) < A.hd + 14) return true;
       for (const s of segs) if (IlmCityEngine.distToSeg(x, z, s) < 15 + CELL / 2) return true;
       for (const d of DISTRICTS) {
         const H = halfOf(d);
@@ -1851,6 +2255,8 @@ export class IlmCityEngine {
         const p = districtById(d.parent);
         if (d.link === "east") {
           if (Math.abs(z - d.origin.z) < 12 && x > p.origin.x && x < d.origin.x) return d.highway;
+        } else if (d.link === "south") {
+          if (Math.abs(x - d.origin.x) < 12 && z < d.origin.z && z > p.origin.z) return d.highway;
         } else if (Math.abs(x - d.origin.x) < 12 && z > d.origin.z && z < p.origin.z)
           return d.highway;
         continue;
@@ -5113,6 +5519,7 @@ export class IlmCityEngine {
   private guide: { zone: Zone; arrow: THREE.Object3D } | null = null;
   /** Point the way to the nearest place with this id (in the scene you are in). */
   guideTo(prefix: string) {
+    this.showPlotPhase(prefix);
     this.clearGuide();
     const p = this.player.position;
     const zone = this.zones
@@ -5622,7 +6029,10 @@ export class IlmCityEngine {
         for (const cx of xs) {
           const cz = north ? st.z - 21.5 : st.z + 21.5;
           if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
-          const c = compound(this.curBatch, {
+          // Lekki and Ikeja: an apartment tower with as many flats as there are players (the
+          // dry run keeps the area's random layout as it was); elsewhere a Lagos block of flats
+          const prime = isPrimeArea(D.id);
+          const c = compound(prime ? new Batch(true) : this.curBatch, {
             x: cx,
             z: cz,
             turn: north ? 0 : Math.PI,
@@ -5631,9 +6041,13 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: 0xe8dcb5,
-            style: houseStyleOf(D),
+            style: prime ? houseStyleOf(D) : "storey",
           });
-          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          if (prime) {
+            this.buildTower(D, cx, cz, north);
+            if (north) this.addCollider("out", cx - 10.5, cx + 10.5, cz - 8.5, cz + 7);
+            else this.addCollider("out", cx - 10.5, cx + 10.5, cz - 7, cz + 8.5);
+          } else for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
           this.reserved.push({
             x0: this.ox + cx - 12,
             x1: this.ox + cx + 12,
@@ -5648,12 +6062,71 @@ export class IlmCityEngine {
             r: 3,
             scene: "out",
           });
-          const t = label(`${D.name} Estate · flats`, { size: 1, bg: "rgba(31,111,99,0.92)" });
-          t.position.set(c.gate.x, 5, c.gate.z);
+          const t = label(`${D.name} ${prime ? "Towers" : "Estate"} · flats for every player`, {
+            size: 1.1,
+            bg: "rgba(31,111,99,0.92)",
+          });
+          t.position.set(c.gate.x, prime ? 6 : 5, c.gate.z);
           this.dg.add(t);
           return;
         }
       }
+  }
+  /** An area's apartment tower: a podium with the entrance, then many floors of flats with
+      balconies, a roof crown and the area's name. Every player who rents a flat in the area
+      has their own flat in it. */
+  private buildTower(D: District, cx: number, cz: number, north: boolean) {
+    const g = new THREE.Group();
+    g.position.set(cx, 0, cz);
+    g.rotation.y = north ? 0 : Math.PI;
+    const tier = D.tier ?? 2;
+    const floors = tier === 1 ? 18 : tier === 2 ? 13 : 9;
+    const FH = 3.2,
+      W = 18,
+      Dp = 14,
+      bz = -1.5;
+    const wall = tier === 1 ? 0xeef1f4 : D.city === "ilorin" ? 0xe7c49a : 0xe9dcc0;
+    const trim = tier === 1 ? 0x2a4a7a : 0x1f6f63;
+    const body = mat(wall, { roughness: 0.8 });
+    const glass = MAT2.glass();
+    const dark = mat(0x2a3a4a, { roughness: 0.3, metalness: 0.2 });
+    // the podium: lobby glass and a canopy over the door
+    g.add(box(W + 3, 4, Dp + 2, trim, 0, 0, bz));
+    const lobby = new THREE.Mesh(new THREE.PlaneGeometry(W - 4, 3), glass);
+    lobby.position.set(0, 1.7, bz + (Dp + 2) / 2 + 0.02);
+    g.add(lobby);
+    g.add(box(8, 0.3, 3.2, 0xf4f4f0, 0, 3.4, bz + (Dp + 2) / 2 + 1.5));
+    // the tower
+    const H = floors * FH;
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(W, H, Dp), body);
+    tower.position.set(0, 4 + H / 2, bz);
+    tower.castShadow = true;
+    tower.receiveShadow = true;
+    g.add(tower);
+    // a window band on every floor, all four sides, and balconies on the front
+    for (let f = 0; f < floors; f++) {
+      const y = 4 + f * FH + 1.5;
+      const front = new THREE.Mesh(new THREE.BoxGeometry(W + 0.06, 1.4, Dp + 0.06), dark);
+      front.position.set(0, y, bz);
+      g.add(front);
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(W + 0.2, 0.25, Dp + 0.2), body);
+      slab.position.set(0, 4 + f * FH, bz);
+      g.add(slab);
+      if (f % 1 === 0)
+        for (const bx of [-5.5, 0, 5.5]) {
+          const bal = box(4, 0.2, 1.4, 0xf4f4f0, bx, 4 + f * FH + 0.05, bz + Dp / 2 + 0.7);
+          g.add(bal);
+          const rail = box(4, 0.9, 0.06, trim, bx, 4 + f * FH + 0.25, bz + Dp / 2 + 1.38, false);
+          g.add(rail);
+        }
+    }
+    // the crown on the roof
+    g.add(box(W + 0.6, 0.6, Dp + 0.6, trim, 0, 4 + H, bz));
+    g.add(box(W * 0.5, 3, Dp * 0.5, wall, 0, 4.6 + H, bz));
+    const sign = this.signBoard(`${D.name} Towers`, 12, 1.6, "#1f6f63", "#ffffff");
+    sign.position.set(0, 4.6 + H + 1.5, bz + Dp * 0.25 + 0.02);
+    g.add(sign);
+    this.dg.add(g);
   }
   /** Where the door of an area's estate (or Lekki's home) is. */
   homeDoor(area: string) {
@@ -5665,12 +6138,14 @@ export class IlmCityEngine {
   }
   /** Begin inside the family house; walking out puts you at its gate. */
   startAtPlot(id: string, name: string) {
+    const p = this.plots.find((q) => q.id === IlmCityEngine.plotBase(id));
+    if (p) this.setPhase(p.district, IlmCityEngine.plotPhase(id));
     const z = this.zones.find((zz) => zz.id === "plot:" + id);
-    const p = this.plots.find((q) => q.id === id);
     if (z) this.player.position.set(z.x, 0, z.z);
     if (p) this.district = districtById(p.district);
     this.enterInterior("home", name);
-    this.setDuplex((p?.floors ?? 1) >= 2);
+    this.setDuplex(!p?.type && (p?.floors ?? 1) >= 2);
+    this.setGlassFlat(p?.type === "tower");
   }
   /** Begin the day inside your flat; walking out puts you at the estate gate. */
   startAtHome(area: string, name: string) {
@@ -5827,7 +6302,16 @@ export class IlmCityEngine {
     const Hz = halfOf(D).z,
       Hx = halfOf(D).x;
     const dside = D.link === "east" ? -1 : side;
-    if (byCar) {
+    // a south area is reached from the north: the same way in, mirrored
+    const fromN = D.link === "south";
+    if (byCar && fromN) {
+      vehicle = this.car;
+      path = [W(3, -(Hz + 40)), W(3, -20), W(-4, 9.8), W(-16, 9.8)];
+    } else if (fromN) {
+      vehicle = makeBus(!!D.holy);
+      this.scene.add(vehicle);
+      path = [W(3, -(Hz + 40)), W(3, -20), W(-6, 9.6), W(-52, 9.6)];
+    } else if (byCar) {
       vehicle = this.car;
       path =
         D.parent && D.link !== "east"
@@ -5842,7 +6326,13 @@ export class IlmCityEngine {
           : [W(dside * (Hx + 38), 3), W(dside * 40, 3), W(-6, 9.6), W(-52, 9.6)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = D.parent && D.link !== "east" ? Math.PI / 2 : dside > 0 ? Math.PI : 0;
+    vehicle.rotation.y = fromN
+      ? -Math.PI / 2
+      : D.parent && D.link !== "east"
+        ? Math.PI / 2
+        : dside > 0
+          ? Math.PI
+          : 0;
     this.player.position.copy(path[0]);
     this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
     this.ev.onCinematic?.(true);
@@ -5907,11 +6397,12 @@ export class IlmCityEngine {
   private welcomeGate(D: District, side: number) {
     const H = halfOf(D);
     const north = !!D.parent && D.link !== "east";
+    const fromN = D.link === "south";
     const gx = north ? 0 : side * (H.x - 18);
-    const gz = north ? H.z - 14 : 0;
+    const gz = north ? (fromN ? -(H.z - 14) : H.z - 14) : 0;
     const g = new THREE.Group();
     g.position.set(gx, 0, gz);
-    g.rotation.y = north ? 0 : (side * Math.PI) / 2;
+    g.rotation.y = north ? (fromN ? Math.PI : 0) : (side * Math.PI) / 2;
     for (const x of [-8.6, 8.6]) {
       g.add(box(1.4, 7.5, 1.4, 0xece6d6, x, 0, 0));
       const cap = new THREE.Mesh(new THREE.ConeGeometry(1, 1.6, 8), mat(PALETTE.dome));
@@ -5992,6 +6483,7 @@ export class IlmCityEngine {
   /** Walk to the nearest place whose id starts with `prefix` (used by the guided start). */
   goToZone(prefix: string) {
     if (this.driving || this.riding || this.kekeTrip) return false;
+    this.showPlotPhase(prefix);
     const p = this.player.position;
     const z = this.zones
       .filter((zz) => zz.scene === this.where && !zz.off && zz.id.startsWith(prefix))
@@ -6049,6 +6541,14 @@ export class IlmCityEngine {
     }
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
+    this.bikeLift = 0;
+    if (this.bikeKind) {
+      // the old bicycle went with the old clothes: put the rider back on it
+      const k = this.bikeKind;
+      this.bikeKind = null;
+      this.bikeObj = null;
+      this.setBike(k, this.bikeColor);
+    }
     if (this.carrying) {
       const { mesh, how } = this.carrying;
       mesh.removeFromParent();
@@ -6975,6 +7475,80 @@ export class IlmCityEngine {
     this.homeWall?.color.setHex(wall);
     this.homeFloor?.color.setHex(floor);
   }
+  private homeBackWall: THREE.Object3D | null = null;
+  private glassView: THREE.Group | null = null;
+  /** A flat high up in a glass tower: the back wall is floor-to-ceiling glass over the city. */
+  setGlassFlat(on: boolean) {
+    if (this.homeBackWall) this.homeBackWall.visible = !on;
+    if (this.glassView) this.glassView.visible = on;
+  }
+  /** The glass wall of a tower flat: panes, slim frames, a balcony rail, and the city and the
+      lagoon far below, at dusk lights. */
+  private buildGlassView(W: number, D: number) {
+    const g = new THREE.Group();
+    g.visible = false;
+    const z = -D / 2;
+    // the view through the glass: the city and the lagoon at dusk, lights coming on
+    const cv = document.createElement("canvas");
+    cv.width = 1024;
+    cv.height = 256;
+    const c = cv.getContext("2d")!;
+    const sky = c.createLinearGradient(0, 0, 0, 256);
+    sky.addColorStop(0, "#4f7fb8");
+    sky.addColorStop(0.5, "#e9a982");
+    sky.addColorStop(0.68, "#f7d9a8");
+    c.fillStyle = sky;
+    c.fillRect(0, 0, 1024, 256);
+    c.fillStyle = "rgba(255,240,200,0.9)";
+    c.beginPath();
+    c.arc(780, 150, 18, 0, Math.PI * 2);
+    c.fill();
+    let seed = 7;
+    const rr = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let layer = 0; layer < 2; layer++)
+      for (let x = -10; x < 1024;) {
+        const w = 26 + rr() * 50,
+          h = (layer ? 50 : 30) + rr() * (layer ? 110 : 60);
+        const base = 196;
+        c.fillStyle = layer ? "#2c3f55" : "#7a8ca4";
+        c.fillRect(x, base - h, w, h);
+        if (layer)
+          for (let wy = base - h + 6; wy < base - 4; wy += 8)
+            for (let wx = x + 4; wx < x + w - 4; wx += 7)
+              if (rr() < 0.3) {
+                c.fillStyle = "rgba(255,214,140,0.9)";
+                c.fillRect(wx, wy, 3, 4);
+              }
+        x += w + (layer ? 8 : 3) + rr() * 18;
+      }
+    const sea = c.createLinearGradient(0, 196, 0, 256);
+    sea.addColorStop(0, "#3d6f8f");
+    sea.addColorStop(1, "#1f3f57");
+    c.fillStyle = sea;
+    c.fillRect(0, 196, 1024, 60);
+    c.fillStyle = "rgba(255,220,170,0.4)";
+    for (let k = 0; k < 40; k++) c.fillRect(rr() * 1024, 200 + rr() * 52, 16 + rr() * 40, 2);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    const view = new THREE.Mesh(
+      new THREE.PlaneGeometry(W - 0.4, 4.6),
+      new THREE.MeshBasicMaterial({ map: t, fog: false }),
+    );
+    view.position.set(0, 2.45, z - 0.05);
+    g.add(view);
+    // slim dark frames, a sill and a head
+    for (let x = -W / 2; x <= W / 2 + 0.01; x += W / 5) g.add(box(0.14, 5, 0.2, 0x2b2f33, x, 0, z));
+    g.add(box(W, 0.18, 0.3, 0x2b2f33, 0, 0, z), box(W, 0.3, 0.3, 0x2b2f33, 0, 4.7, z));
+    // a glass rail across the lower part, as on a balcony
+    const rail = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, 0.9),
+      new THREE.MeshStandardMaterial({ color: 0xcfe8f2, transparent: true, opacity: 0.35 }),
+    );
+    rail.position.set(0, 0.6, z + 0.12);
+    g.add(rail);
+    g.add(box(W, 0.06, 0.08, 0xc9cfd4, 0, 1.05, z + 0.12));
+    return g;
+  }
   /** A duplex has stairs to the family rooms upstairs. */
   setDuplex(on: boolean) {
     if (this.stairs) this.stairs.visible = on;
@@ -7387,6 +7961,9 @@ export class IlmCityEngine {
       (g.children[0] as THREE.Mesh).material = this.homeFloor;
       for (const c of g.children.slice(2, 7))
         if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = this.homeWall;
+      this.homeBackWall = g.children[2];
+      this.glassView = this.buildGlassView(20, 14);
+      g.add(this.glassView);
       const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
         box(w, h, d, c, x, y, z);
       // bed (always there)
@@ -8214,8 +8791,58 @@ export class IlmCityEngine {
     return g;
   }
 
+  /* ---------- phases: each area's houses come in copies ----------
+     When an area fills up, a new phase opens: the same streets with a fresh set of houses.
+     A house in phase 2 has the id "<plot>~2". You see one phase of an area at a time. */
+  private viewPhase = new Map<string, number>();
+  private plotStates = new Map<string, PlotState>();
+  static plotBase(id: string) {
+    return id.split("~")[0];
+  }
+  static plotPhase(id: string) {
+    return Number(id.split("~")[1] ?? 1) || 1;
+  }
+  phasedId(base: string, n: number) {
+    return n > 1 ? `${base}~${n}` : base;
+  }
+  /** The phase of an area you are looking at (1 = the original houses). */
+  phaseOf(area: string) {
+    return this.viewPhase.get(area) ?? 1;
+  }
+  /** Look at another phase of an area: every house shows how it is in that phase. */
+  setPhase(area: string, n: number) {
+    if (this.phaseOf(area) === n) return;
+    this.viewPhase.set(area, n);
+    for (const p of this.plots) {
+      if (p.district !== area) continue;
+      const fx = this.plotFx.get(p.id);
+      if (!fx) continue;
+      const pid = this.phasedId(p.id, n);
+      fx.zone.id = "plot:" + pid;
+      this.paintPlot(
+        p.id,
+        this.plotStates.get(pid) ?? { kind: p.kind === "land" ? "land" : "tolet" },
+      );
+    }
+    this.place = "";
+  }
+  /** Going to a house in another phase: show that phase of its area first. */
+  private showPlotPhase(prefix: string) {
+    if (!prefix.startsWith("plot:") || prefix.endsWith("-")) return;
+    const id = prefix.slice(5);
+    const p = this.plots.find((q) => q.id === IlmCityEngine.plotBase(id));
+    if (p) this.setPhase(p.district, IlmCityEngine.plotPhase(id));
+  }
+  /** Show a plot as it now is (any phase; only the phase on view is drawn). */
+  setPlot(id: string, state: PlotState) {
+    this.plotStates.set(id, state);
+    const base = IlmCityEngine.plotBase(id);
+    const p = this.plots.find((q) => q.id === base);
+    if (!p || IlmCityEngine.plotPhase(id) !== this.phaseOf(p.district)) return;
+    this.paintPlot(base, state);
+  }
   /** Show a plot as it now is: for rent, rented by you, land, building, or built. */
-  setPlot(
+  private paintPlot(
     id: string,
     state: {
       kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken" | "forsale";
@@ -8340,13 +8967,17 @@ export class IlmCityEngine {
       { kind: "rented" | "owned" | "building" | "built"; floors?: number; stage?: number }
     >,
   ) {
+    for (const [id, st] of Object.entries(states)) this.plotStates.set(id, st);
     for (const id of this.plotFx.keys()) {
       const p = this.plots.find((q) => q.id === id)!;
-      this.setPlot(id, states[id] ?? { kind: p.kind === "land" ? "land" : "tolet" });
+      const pid = this.phasedId(id, this.phaseOf(p.district));
+      this.setPlot(pid, states[pid] ?? { kind: p.kind === "land" ? "land" : "tolet" });
     }
   }
+  /** A plot's details; for a house in a later phase, its id keeps the phase. */
   plotInfo(id: string) {
-    return this.plots.find((q) => q.id === id) ?? null;
+    const p = this.plots.find((q) => q.id === IlmCityEngine.plotBase(id));
+    return p ? { ...p, id } : null;
   }
   private areaGroup(id: string) {
     const D = districtById(id);
@@ -8873,7 +9504,7 @@ export class IlmCityEngine {
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
-      place = `${area.name}, ${area.state}`;
+      place = `${area.name}${this.phaseOf(area.id) > 1 ? ` (Phase ${this.phaseOf(area.id)})` : ""}, ${area.state}`;
     } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
     if (place !== this.place) {
       this.place = place;
@@ -8886,6 +9517,7 @@ export class IlmCityEngine {
   private followYaw: number | null = null;
 
   private walk(v: THREE.Vector2, dt: number, t: number) {
+    this.syncBike();
     // the stick moves you relative to where the camera looks
     const fx = -Math.sin(this.camYaw),
       fz = -Math.cos(this.camYaw);
@@ -8914,7 +9546,8 @@ export class IlmCityEngine {
     }
     const moving = dir.lengthSq() > 0.001;
     if (moving) {
-      const speed = 7.5 * Math.min(1, dir.length());
+      const onBike = !!this.bikeKind && this.where === "out";
+      const speed = 7.5 * (onBike ? this.bikeMult : 1) * Math.min(1, dir.length());
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
@@ -8936,7 +9569,11 @@ export class IlmCityEngine {
       if (this.where === "out" && (v.y > 0.4 || (v.lengthSq() === 0 && this.tapTarget)))
         this.followYaw = targetRot + Math.PI;
       this.walkT += dt;
-      animatePerson(this.player, this.walkT * 9, 1, speed);
+      // on a bicycle the legs go round slower and the wheels spin
+      if (onBike) {
+        animatePerson(this.player, this.walkT * 6, 0.6, 7.5);
+        for (const w of this.bikeWheels) w.rotation.x += (speed * dt) / 0.34;
+      } else animatePerson(this.player, this.walkT * 9, 1, speed);
     } else {
       animatePerson(this.player, 0, 0);
       void t;

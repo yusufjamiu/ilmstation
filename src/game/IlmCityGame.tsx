@@ -22,7 +22,27 @@ import {
 } from "./calls";
 import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
 import { connectShops, connectShopsLocal, type SharedShop, type Shops } from "./shops";
-import { connectWallet, type WalletNet } from "./wallet";
+import {
+  connectWallet,
+  confirmPayment,
+  startPayment,
+  type WalletDoc,
+  type WalletNet,
+} from "./wallet";
+import { PACKS } from "./packs";
+import {
+  MIN_LAP_MS,
+  fmtTime as raceTime,
+  resultsOf,
+  sendPayout,
+  sendTime,
+  watchEntries,
+  watchFinished,
+  watchRaces,
+  type Race,
+  type RaceEntry,
+} from "./races";
+import type { HomeType } from "./buildings";
 import {
   connectHouseSales,
   connectHouseSalesLocal,
@@ -106,6 +126,7 @@ import {
   rootOf,
   regionOf,
   districtById,
+  isPrimeArea,
   type Lecture,
   type District,
   type Question,
@@ -182,6 +203,16 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** when the bought Rich family pack's house was handed over */
+  richApplied?: number;
+  /** litres of petrol in your car's tank (filled at a filling station) */
+  fuel?: number;
+  /** races already announced to you, and races whose results you have seen */
+  racesSeen?: string[];
+  resultsSeen?: string[];
+  /** your bicycle, and whether you are riding it */
+  bike?: { kind: BikeKind; color: number };
+  cycling?: boolean;
   path?: LifePath;
   job?: string;
   /** the day you last worked a shift */
@@ -394,14 +425,34 @@ const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
 const FLOOR_RENT: Record<number, number> = { 1: 1, 2: 1.5, 3: 2 };
 const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
 const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
-function houseRent(area: string, floors: number, ilm: number) {
+/** How full each area's original houses are (0 to 1): prices rise with demand. */
+const AREA_DEMAND: Record<string, number> = {};
+/** Petrol: litres a trip uses, the tank, and the pump price (₦10 units per litre). */
+const FUEL = { trip: 10, far: 25, tank: 50, start: 20, perLitre: 0.7 };
+/** A glass tower costs a fortune: you buy the whole tower and let its flats. */
+const TOWER_PRICE = 60000;
+function houseRent(area: string, floors: number, ilm: number, type?: HomeType) {
   const t = districtById(area).tier ?? 2;
-  const base = r10(150 * (TIER_RENT[t] ?? 1) * (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1));
+  // a face-me-I-face-you house is the cheapest home there is
+  const kindX = type === "faceme" ? 0.6 : 1;
+  // up to half as much again when an area is in demand
+  const demand = 1 + 0.5 * Math.min(1, AREA_DEMAND[area] ?? 0);
+  const base = r10(
+    150 *
+      (TIER_RENT[t] ?? 1) *
+      (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1) *
+      demand *
+      kindX,
+  );
   const need = TIER_LEVEL[t] ?? 0;
   const premium = ilmLevel(ilm).i < need;
   const week = premium ? r10(base * 1.5) : base;
   const buy = r10(
-    (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * (TIER_RENT[t] ?? 1),
+    (type === "tower"
+      ? TOWER_PRICE
+      : (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * kindX) *
+      (TIER_RENT[t] ?? 1) *
+      demand,
   );
   return { week, month: r10(week * 3.4), base, premium, need: ILM_LEVELS[need], buy };
 }
@@ -459,12 +510,6 @@ const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] =
     icon: "🏪",
     name: "Trader",
     text: "A flat and your first shop free for a week. Add products, then collect your sales.",
-  },
-  {
-    id: "rich",
-    icon: "🏡",
-    name: "Rich family",
-    text: "A big furnished family house on the street and ₦6,000 to start.",
   },
 ];
 /** Who teaches at a masjid or madrasah: the sheikh its street is named after. */
@@ -597,6 +642,68 @@ if (typeof window !== "undefined") {
     if (document.visibilityState === "hidden") out();
   });
 }
+/** When the admin last gave everyone a fresh start (0: never). */
+let resetAt = 0;
+/** Read the fresh-start time and remove every save on this phone made before it. */
+async function clearOldSaves() {
+  try {
+    const { db } = await import("@/lib/firebase");
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await Promise.race([
+      getDoc(doc(db, "city_config", "reset")),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    resetAt = Number((snap?.data() as { at?: number } | undefined)?.at ?? 0);
+    if (!resetAt) return;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(GUEST_KEY)) continue;
+      try {
+        const sv = JSON.parse(localStorage.getItem(k) ?? "null") as Save | null;
+        if (!sv || (sv.savedAt ?? 0) < resetAt) localStorage.removeItem(k);
+      } catch {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {
+    /* offline: try again next time */
+  }
+}
+/** If an admin starts everyone fresh while the game is open: stop saving the old game,
+    forget it on this phone and start again. */
+function watchFreshStart() {
+  void (async () => {
+    try {
+      const { db } = await import("@/lib/firebase");
+      const { doc, onSnapshot } = await import("firebase/firestore");
+      let first = true;
+      onSnapshot(
+        doc(db, "city_config", "reset"),
+        (snap) => {
+          const at = Number((snap.data() as { at?: number } | undefined)?.at ?? 0);
+          if (first) {
+            // the first answer only sets the starting point
+            first = false;
+            if (!resetAt) resetAt = at;
+            return;
+          }
+          if (!at || at <= resetAt) return;
+          resetAt = at;
+          cloud.uid = null;
+          cloud.pending = null;
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k?.startsWith(GUEST_KEY)) localStorage.removeItem(k);
+          }
+          window.location.reload();
+        },
+        () => {},
+      );
+    } catch {
+      /* offline */
+    }
+  })();
+}
 /** Before the game starts: bring this account's save down from the cloud if it is newer
     than the one on this phone (or the phone has none). */
 async function pullCloudSave(uid: string) {
@@ -633,7 +740,15 @@ async function pullCloudSave(uid: string) {
     } catch {
       remote = null;
     }
-    if (!remote) return;
+    // a save from before the fresh start is not brought back
+    if (remote && (remote.savedAt ?? 0) < resetAt) remote = null;
+    if (!remote) {
+      if (local) {
+        cloud.pending = local;
+        await cloud.flush();
+      }
+      return;
+    }
     let pick = !local || (remote.savedAt ?? 0) >= (local.savedAt ?? 0) ? remote : local;
     // an admin changed the balance in the console: apply the difference
     if (typeof d.naira === "number" && d.naira !== remote.coins * NAIRA_UNIT) {
@@ -731,6 +846,9 @@ function useCityAuth(): Who {
         const { auth, db } = await import("@/lib/firebase");
         const { onAuthStateChanged } = await import("firebase/auth");
         const { doc, getDoc } = await import("firebase/firestore");
+        // a fresh start for everyone (set by an admin): forget saves from before it
+        await clearOldSaves();
+        watchFreshStart();
         onAuthStateChanged(auth, async (u) => {
           if (!u) return finish(guest);
           // logged in: wait for the account and its save instead of starting as a guest
@@ -1012,6 +1130,32 @@ function CityGame({
     },
     [toast, syncCoins],
   );
+  const walletDoc = useRef<WalletDoc | null>(null);
+  /** hand over what a bought pack gives besides money (set further down) */
+  const applyPacksRef = useRef<() => void>(() => {});
+  // back from Paystack checkout: confirm the payment, then tidy the address bar
+  useEffect(() => {
+    if (!cloud.uid) return;
+    const q = new URLSearchParams(window.location.search);
+    const ref = q.get("reference") ?? q.get("trxref");
+    if (!ref) return;
+    q.delete("reference");
+    q.delete("trxref");
+    const rest = q.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : ""));
+    void confirmPayment(ref).then((r) =>
+      toast(
+        r.ok
+          ? r.pack === "rich"
+            ? "Payment received. Your family house and naira are on the way!"
+            : "Payment received. Your naira is in your wallet!"
+          : r.error === "not-paid"
+            ? "That payment didn't go through. No money was taken."
+            : "We couldn't confirm the payment yet. If you were charged, it will arrive shortly.",
+        r.ok ? "good" : "warn",
+      ),
+    );
+  }, [toast]);
   // connect the wallet once the account and its save are loaded
   useEffect(() => {
     const u = cloud.uid;
@@ -1020,9 +1164,11 @@ function CityGame({
     void connectWallet(
       u,
       { path: saveRef.current.path, existing: !!saveRef.current.profile },
-      (naira) => {
+      (naira, doc) => {
         walletServer.current = naira;
         syncCoins();
+        walletDoc.current = doc;
+        applyPacksRef.current();
       },
     ).then((w) => {
       if (!live) return w?.stop();
@@ -1261,7 +1407,7 @@ function CityGame({
   const quranNext = useRef(false);
   /** the sheikh of the masjid or madrasah you are in: he asks the quiz */
   const quizHost = useRef("The Imam");
-  const openWalletRef = useRef<() => void>(() => {});
+  const openWalletRef = useRef<(tab?: "wallet" | "send" | "buy", why?: string) => void>(() => {});
   const profileBtn = useRef<HTMLButtonElement | null>(null);
   const eat = useCallback(
     (d: Dish) => {
@@ -1312,7 +1458,13 @@ function CityGame({
         setPanel({
           kind: "info",
           title: "Not enough money",
-          body: <NoPointsView price={price} points={saveRef.current.coins} />,
+          body: (
+            <NoPointsView
+              price={price}
+              points={saveRef.current.coins}
+              onTopUp={() => openWalletRef.current("buy")}
+            />
+          ),
         });
         return;
       }
@@ -2086,11 +2238,17 @@ function CityGame({
         return;
       }
       const train = (far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain;
-      // in your own car you still pay for fuel
+      // in your own car the trip uses petrol from the tank; with too little in it you buy
+      // fuel on the way, which costs more than at a filling station
+      const litres = far ? FUEL.far : FUEL.trip;
+      const tank = saveRef.current.fuel ?? FUEL.start;
+      const fromTank = byCar && tank >= litres;
       const fare = byCar
-        ? far
-          ? Math.round(INTERCITY.bus * 0.6)
-          : 8
+        ? fromTank
+          ? 0
+          : far
+            ? Math.round(INTERCITY.bus * 0.6)
+            : 8
         : far
           ? train
             ? INTERCITY.train
@@ -2099,7 +2257,10 @@ function CityGame({
             ? TRAIN_LOCAL
             : BUS_FARE;
       if (byCar && saveRef.current.coins < fare) {
-        toast(`Fuel for this trip costs ${N(fare)}. You don't have enough.`, "warn");
+        toast(
+          `Your tank is nearly empty and fuel on the way costs ${N(fare)}. Fill up at a filling station.`,
+          "warn",
+        );
         return;
       }
       if (!byCar && saveRef.current.coins < fare) {
@@ -2125,7 +2286,10 @@ function CityGame({
           district: to,
           car: byCar ? e.carPos() : x.car,
           pos: undefined,
+          ...(fromTank ? { fuel: Math.max(0, (x.fuel ?? FUEL.start) - litres) } : {}),
         }));
+        if (fromTank && tank - litres < FUEL.trip)
+          setTimeout(() => toast("Your tank is low. Fill up at a filling station.", "warn"), 2500);
         setTravelling(null);
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
@@ -2386,7 +2550,7 @@ function CityGame({
                 : "House to let or buy",
           body: (
             <PlotView
-              rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm)}
+              rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm, p.type)}
               sell={(() => {
                 if (own?.kind !== "bought" && own?.kind !== "built") return undefined;
                 const houses = Object.values(saveRef.current.plots ?? {}).filter(
@@ -2395,7 +2559,7 @@ function CityGame({
                 if (houses < 2) return undefined;
                 const worth =
                   own.kind === "bought"
-                    ? houseRent(p.district, own.floors, saveRef.current.ilm).buy
+                    ? houseRent(p.district, own.floors, saveRef.current.ilm, p.type).buy
                     : (ECONOMY.build[own.floors]?.points ?? 0) +
                       houseRent(p.district, own.floors, saveRef.current.ilm).buy / 2;
                 const price = Math.round((worth * 0.7) / 10) * 10;
@@ -2561,9 +2725,7 @@ function CityGame({
                 setTimeout(render, 0);
               }}
               onPaystack={(amount, what) =>
-                toast(
-                  `Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next. For now, pay from your IlmWorld wallet.`,
-                )
+                openWalletRef.current("buy", `${what}: ₦${amount.toLocaleString()}`)
               }
               onSet={(next) => {
                 setOwn(next);
@@ -2573,11 +2735,15 @@ function CityGame({
               onEnter={() => {
                 setPanel(null);
                 e.enterInterior("home", `No. ${p.number}, ${p.street}`);
-                // a house of two floors or more is a duplex: stairs to the family rooms
-                e.setDuplex((p.floors ?? 1) >= 2);
+                // a house of two floors or more is a duplex: stairs to the family rooms;
+                // a flat in a glass tower looks out over the city
+                const duplex = !p.type && (p.floors ?? 1) >= 2;
+                e.setDuplex(duplex);
+                e.setGlassFlat(p.type === "tower");
                 setInside(true);
-                if ((p.floors ?? 1) >= 2)
-                  toast("Your duplex: take the stairs up to the family rooms.", "good");
+                if (duplex) toast("Your duplex: take the stairs up to the family rooms.", "good");
+                else if (p.type === "tower")
+                  toast("Your penthouse flat, high over the city.", "good");
               }}
               onRooms={(rooms, earned) => {
                 const own2 = saveRef.current.plots?.[pid];
@@ -2788,7 +2954,7 @@ function CityGame({
                 setTimeout(render, 0);
               }}
               onPaystack={(amount, what) =>
-                toast(`Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next.`)
+                openWalletRef.current("buy", `${what}: ₦${amount.toLocaleString()}`)
               }
               onSave={(o) => {
                 update((x) => ({ ...x, shops: { ...x.shops, [sid]: o } }));
@@ -2970,6 +3136,7 @@ function CityGame({
     const ilm = saveRef.current.ilm;
     const lv = ilmLevel(ilm);
     const list = e.plots
+      .map((q) => ({ ...q, id: e.phasedId(q.id, e.phaseOf(q.district)) }))
       .filter(
         (q) =>
           q.kind === "house" &&
@@ -2978,10 +3145,12 @@ function CityGame({
           !takenRef.current.has(q.id) &&
           !saveRef.current.plots?.[q.id],
       )
-      .map((q) => ({ q, r: houseRent(q.district, q.floors ?? 1, ilm) }))
+      .map((q) => ({ q, r: houseRent(q.district, q.floors ?? 1, ilm, q.type) }))
       .sort(
         (a, b) =>
-          a.r.week - b.r.week || Number(a.q.district !== here) - Number(b.q.district !== here),
+          Number(a.q.type === "tower") - Number(b.q.type === "tower") ||
+          a.r.week - b.r.week ||
+          Number(a.q.district !== here) - Number(b.q.district !== here),
       );
     const areas = [...new Set(list.map((x) => x.q.district))];
     setPanel({
@@ -2994,13 +3163,31 @@ function CityGame({
             The best areas open up as your Ilm grows; you can still rent there now by paying half as
             much again.
           </p>
+          <PhaseBox
+            area={here}
+            info={phaseInfo.current[here]}
+            viewing={e.phaseOf(here)}
+            onView={(n) => {
+              e.setPhase(here, n);
+              manualPhase.current.add(here);
+              repaintClaims.current();
+              setPanel(null);
+              toast(
+                n > 1
+                  ? `Now showing ${districtById(here).name} Phase ${n}: a fresh set of houses on the same streets.`
+                  : `Now showing the original ${districtById(here).name} houses.`,
+                "good",
+              );
+            }}
+          />
           {areas.map((a) => {
             const D = districtById(a);
             const items = list.filter((x) => x.q.district === a).slice(0, 8);
             return (
               <div key={a}>
                 <div className="mb-1 text-[13px] font-bold">
-                  {D.name}{" "}
+                  {D.name}
+                  {e.phaseOf(a) > 1 ? ` (Phase ${e.phaseOf(a)})` : ""}{" "}
                   {a === here && <span className="font-normal opacity-60">· you are here</span>}
                 </div>
                 <div className="space-y-1.5">
@@ -3018,16 +3205,18 @@ function CityGame({
                     >
                       <span className="min-w-0">
                         <span className="block truncate text-[13.5px] font-semibold">
-                          {floorsName(q.floors ?? 1)} · No. {q.number}, {q.street}
+                          {homeName(q.floors ?? 1, q.type)} · No. {q.number}, {q.street}
                         </span>
                         <span className="text-[11.5px] opacity-70">
-                          {(q.floors ?? 1) * 2 + 1} bedrooms
+                          {homeRooms(q.floors ?? 1, q.type)}
                           {r.premium ? ` · for ${r.need.brother}s, or pay more` : ""}
                         </span>
                       </span>
                       <span className="shrink-0 text-right text-[13px] font-bold text-[#1f6f63]">
-                        {N(r.week)}
-                        <span className="block text-[10.5px] font-normal opacity-70">a week</span>
+                        {N(q.type === "tower" ? r.buy : r.week)}
+                        <span className="block text-[10.5px] font-normal opacity-70">
+                          {q.type === "tower" ? "to buy" : "a week"}
+                        </span>
                       </span>
                     </button>
                   ))}
@@ -3964,7 +4153,7 @@ function CityGame({
   );
   const sendMoneyRef = useRef(sendMoney);
   sendMoneyRef.current = sendMoney;
-  openWalletRef.current = () => {
+  openWalletRef.current = (tab, why) => {
     advance("wallet");
     setPanel({
       kind: "info",
@@ -3976,10 +4165,253 @@ function CityGame({
           txns={saveRef.current.txns ?? []}
           online={!!onlineRef.current}
           onSend={(num, units, note) => sendMoneyRef.current(num, units, note)}
+          tab={tab}
+          why={why}
+          canBuy={!!walletNet.current}
+          richDone={!!saveRef.current.richApplied || !!walletDoc.current?.packs?.rich}
+          onBuy={async (pack) => {
+            const r = await startPayment(pack);
+            if (r.ok && r.url) {
+              window.location.href = r.url;
+              return null;
+            }
+            return r.error === "not-configured"
+              ? "Buying naira opens soon, in shaa Allah."
+              : r.error === "no-email"
+                ? "Your account needs an email address to pay."
+                : "Couldn't start the payment. Please try again.";
+          }}
         />
       ),
     });
   };
+
+  /* ---------- bicycles and races ---------- */
+  const toggleBike = useCallback(() => {
+    const e = engine.current;
+    const b = saveRef.current.bike;
+    if (!e || !b) return;
+    const on = !saveRef.current.cycling;
+    if (raceRef.current && !on && raceRef.current.kind === "bike") {
+      toast("Finish the cycling race first, or cancel it.", "warn");
+      return;
+    }
+    e.setBike(on ? b.kind : null, b.color);
+    saveRef.current = { ...saveRef.current, cycling: on };
+    update((x) => ({ ...x, cycling: on }));
+  }, [toast, update]);
+  /** The race being run now: which, how many laps, where the runner is up to. */
+  type Running = {
+    race: Race | null;
+    kind: "run" | "bike";
+    laps: number;
+    lap: number;
+    next: number;
+    start: number;
+    go: boolean;
+  };
+  const raceRef = useRef<Running | null>(null);
+  const [raceNow, setRaceNow] = useState<{ text: string; ms: number } | null>(null);
+  const stopRace = useCallback(
+    (msg?: string) => {
+      raceRef.current = null;
+      setRaceNow(null);
+      if (msg) toast(msg, "warn");
+    },
+    [toast],
+  );
+  const startRace = useCallback(
+    (race: Race | null, kind: "run" | "bike", laps: number) => {
+      const e = engine.current;
+      const cp = e?.arenaCheckpoints();
+      if (!e || !cp) return;
+      const s = saveRef.current;
+      if (kind === "bike" && !s.bike) {
+        toast("You need a bicycle for a cycling race. Buy one at IlmMotors.", "warn");
+        return;
+      }
+      if (kind === "bike" && !s.cycling) {
+        e.setBike(s.bike!.kind, s.bike!.color);
+        saveRef.current = { ...s, cycling: true };
+        update((x) => ({ ...x, cycling: true }));
+      }
+      if (kind === "run" && s.cycling) {
+        e.setBike(null);
+        saveRef.current = { ...s, cycling: false };
+        update((x) => ({ ...x, cycling: false }));
+      }
+      setPanel(null);
+      // on the start line, facing along the front straight
+      const f = cp.pts[0];
+      e.placePlayer(f.x - 3, f.z, Math.PI / 2);
+      raceRef.current = { race, kind, laps, lap: 0, next: 1, start: 0, go: false };
+      let n = 3;
+      setRaceNow({ text: "3", ms: 0 });
+      const tick = setInterval(() => {
+        if (!raceRef.current) return clearInterval(tick);
+        n--;
+        if (n > 0) setRaceNow({ text: String(n), ms: 0 });
+        else {
+          clearInterval(tick);
+          raceRef.current.go = true;
+          raceRef.current.start = performance.now();
+          setRaceNow({ text: "GO!", ms: 0 });
+        }
+      }, 1000);
+    },
+    [toast, update],
+  );
+  // follow the runner round the track: checkpoints in order, laps, the finish
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const r = raceRef.current;
+      const e = engine.current;
+      if (!r || !e) return;
+      const cp = e.arenaCheckpoints();
+      const p = e.playerPos();
+      if (!cp) return;
+      if (p.where !== "out" || e.isDriving()) return stopRace("Race stopped.");
+      if (!r.go) {
+        // no early start: stay near the line during the countdown
+        if (Math.hypot(p.x - cp.pts[0].x, p.z - cp.pts[0].z) > 12)
+          stopRace("False start: the race is stopped.");
+        return;
+      }
+      if (r.kind === "bike" && !e.isCycling())
+        return stopRace("You got off your bicycle: race stopped.");
+      if (r.kind === "run" && e.isCycling()) return stopRace("No bicycles in a running race.");
+      const ms = performance.now() - r.start;
+      const target = cp.pts[r.next];
+      if (Math.hypot(p.x - target.x, p.z - target.z) < cp.r) {
+        if (r.next === 0) {
+          r.lap++;
+          if (r.lap >= r.laps) {
+            raceRef.current = null;
+            setRaceNow(null);
+            const fair = ms >= MIN_LAP_MS[r.kind] * r.laps;
+            if (!fair) {
+              toast("That time is too fast to be real: it doesn't count.", "warn");
+              return;
+            }
+            const race = r.race;
+            const o = onlineRef.current;
+            if (!race || !o) {
+              toast(`Finished! Your time: ${raceTime(ms)}`, "good");
+              return;
+            }
+            void sendTime(race.id, o.uid, shownName(saveRef.current) ?? "Player", Math.round(ms))
+              .then((res) =>
+                toast(
+                  res.improved
+                    ? `Finished in ${raceTime(ms)}: your best time in ${race.title}!`
+                    : `Finished in ${raceTime(ms)}. Your best is still ${raceTime(res.best)}.`,
+                  "good",
+                ),
+              )
+              .catch(() =>
+                toast(`Finished in ${raceTime(ms)}, but the time couldn't be sent.`, "warn"),
+              );
+            return;
+          }
+        }
+        r.next = (r.next + 1) % cp.pts.length;
+      }
+      setRaceNow({
+        text: `${r.kind === "bike" ? "🚲" : "🏃"} Lap ${Math.min(r.lap + 1, r.laps)}/${r.laps}`,
+        ms,
+      });
+    }, 100);
+    return () => clearInterval(iv);
+  }, [toast, stopRace]);
+  /* races are announced: a card the first time a player sees each one, and a chip at the
+     top while one is on */
+  const [openRaces, setOpenRaces] = useState<Race[]>([]);
+  useEffect(() => (onlineReady ? watchRaces(setOpenRaces) : undefined), [onlineReady]);
+  const goToArena = useCallback(() => {
+    setPanel(null);
+    const e = engine.current;
+    if (!e) return;
+    if (e.isDriving() || !e.goToZone("arena")) {
+      // the arena is just north of Ikeja: travel there, then walk the last bit
+      if (e.districtId() === "ikeja" && e.isDriving())
+        toast("Drive north out of Ikeja: the arena is on the left of the road.");
+      else tripRef.current("ikeja", !!e.isDriving(), "arena");
+      return;
+    }
+    toast("Follow the marker to the IlmWorld Sports Arena.", "good");
+  }, [toast]);
+  const showRace = useCallback(
+    (r: Race) =>
+      setPanel({
+        kind: "info",
+        title: r.from > Date.now() ? "🏁 A race is coming" : "🏁 A race is on!",
+        body: (
+          <RaceNews
+            r={r}
+            hasBike={!!saveRef.current.bike}
+            onGo={goToArena}
+            onLater={() => setPanel(null)}
+          />
+        ),
+      }),
+    [goToArena],
+  );
+  useEffect(() => {
+    if (!save.profile || panelRef.current) return;
+    const seen = saveRef.current.racesSeen ?? [];
+    const fresh = openRaces.find((r) => !seen.includes(r.id));
+    if (!fresh) return;
+    const t = setTimeout(() => {
+      if (panelRef.current) return;
+      const racesSeen = [...seen, fresh.id].slice(-30);
+      saveRef.current = { ...saveRef.current, racesSeen };
+      update((x) => ({ ...x, racesSeen }));
+      showRace(fresh);
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [openRaces, save.profile, panel, showRace, update]);
+  // when a race ends, everyone sees the winners once (and winners are told they won)
+  const [doneRaces, setDoneRaces] = useState<Race[]>([]);
+  useEffect(() => (onlineReady ? watchFinished(setDoneRaces) : undefined), [onlineReady]);
+  useEffect(() => {
+    if (!save.profile || panelRef.current) return;
+    const seen = saveRef.current.resultsSeen ?? [];
+    const r = doneRaces.find((x) => !seen.includes(x.id));
+    if (!r) return;
+    const t = setTimeout(() => {
+      if (panelRef.current) return;
+      const resultsSeen = [...seen, r.id].slice(-30);
+      saveRef.current = { ...saveRef.current, resultsSeen };
+      update((x) => ({ ...x, resultsSeen }));
+      void resultsOf(r.id)
+        .then((board) => {
+          if (!board.length || panelRef.current) return;
+          const me = onlineRef.current?.uid;
+          const place = board.findIndex((b) => b.uid === me);
+          setPanel({
+            kind: "info",
+            title: place >= 0 && place < r.winners ? "🎉 You won!" : "🏁 Race results",
+            body: <RaceResults r={r} board={board} me={me ?? null} />,
+          });
+        })
+        .catch(() => {});
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [doneRaces, save.profile, panel, update]);
+  const openRacesRef = useRef(() => {});
+  openRacesRef.current = () =>
+    setPanel({
+      kind: "info",
+      title: "🏁 IlmWorld Sports Arena",
+      body: (
+        <RacesView
+          done={doneRaces}
+          me={onlineRef.current?.uid ?? null}
+          hasBike={!!saveRef.current.bike}
+          onStart={(race, kind, laps) => startRace(race, kind, laps)}
+        />
+      ),
+    });
 
   /* ---------- houses are shared: one player per house ---------- */
   const claimsNet = useRef<Claims | null>(null);
@@ -4054,6 +4486,29 @@ function CityGame({
     return net.watchArea(areaNow, (list) => {
       const e = engine.current;
       if (!e) return;
+      // how full each phase of this area is, and which phases are open
+      const total = Math.max(
+        1,
+        e.plots.filter((q) => q.district === areaNow && (q.toLet || q.kind === "land")).length,
+      );
+      const occ: Record<number, number> = {};
+      for (const c of list) {
+        const ph = IlmCityEngine.plotPhase(c.plot);
+        occ[ph] = (occ[ph] ?? 0) + 1;
+      }
+      let open = 1;
+      while ((occ[open] ?? 0) / total >= 0.8) open++;
+      phaseInfo.current[areaNow] = { total, occ, open };
+      AREA_DEMAND[areaNow] = (occ[1] ?? 0) / total;
+      // show the phase where you have a house; otherwise the first one with room
+      if (!manualPhase.current.has(areaNow)) {
+        const mine = Object.keys(saveRef.current.plots ?? {}).find(
+          (k) => e.plotInfo(k)?.district === areaNow,
+        );
+        let want = mine ? IlmCityEngine.plotPhase(mine) : 1;
+        if (!mine) while (want < open && (occ[want] ?? 0) / total >= 0.8) want++;
+        if (e.phaseOf(areaNow) !== want) e.setPhase(areaNow, want);
+      }
       const now = new Map(list.filter((c) => c.owner !== o.uid).map((c) => [c.plot, c.name]));
       for (const pid of [...takenRef.current.keys()]) {
         if (now.has(pid)) continue;
@@ -4164,6 +4619,10 @@ function CityGame({
       salesHere.current = next;
     });
   }, [areaNow, salesReady, claimsReady]);
+  /** each area's phases: how many houses, how many taken in each phase, how many open */
+  const phaseInfo = useRef<Record<string, PhaseInfo>>({});
+  const manualPhase = useRef(new Set<string>());
+  const repaintClaims = useRef(() => setClaimsReady((n) => n + 1));
   /** Take a house or land for yourself; false if another player already has it. */
   const claimPlot = useCallback(async (pid: string, own: PlotOwn) => {
     const net = claimsNet.current;
@@ -4184,6 +4643,73 @@ function CityGame({
   const claimPlotRef = useRef(claimPlot);
   claimPlotRef.current = claimPlot;
 
+  /* ---------- the Rich family pack: a furnished family house, handed over once ---------- */
+  // try again once the game is ready (the wallet can arrive before the world)
+  useEffect(() => {
+    const t = setTimeout(() => applyPacksRef.current(), 4000);
+    return () => clearTimeout(t);
+  }, [save.profile, claimsReady, onlineReady]);
+  const applyingRich = useRef(false);
+  applyPacksRef.current = () => {
+    const e = engine.current;
+    const sv = saveRef.current;
+    if (!e || !sv.profile || sv.richApplied || applyingRich.current) return;
+    if (!walletDoc.current?.packs?.rich || !onlineRef.current) return;
+    applyingRich.current = true;
+    void (async () => {
+      const area = sv.homeArea ?? e.districtId();
+      const me = onlineRef.current?.uid ?? "";
+      const mix = (id: string) => flatFor(me + id).seed;
+      const houses = e.plots
+        .filter((q) => q.district === area && q.kind === "house" && q.toLet)
+        .sort((a, b) => (b.floors ?? 1) - (a.floors ?? 1) || mix(a.id) - mix(b.id));
+      let got: { id: string; floors: number } | null = null;
+      // the first phase with a free house; a few tries per phase, then the next phase
+      for (let n = 1; n <= 30 && !got; n++) {
+        let tries = 0;
+        for (const q of houses) {
+          const id = e.phasedId(q.id, n);
+          if (saveRef.current.plots?.[id] || takenRef.current.has(id)) continue;
+          if (++tries > 6) break;
+          if (await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 })) {
+            got = { id, floors: q.floors ?? 1 };
+            break;
+          }
+        }
+      }
+      applyingRich.current = false;
+      if (!got) {
+        toast("Your Rich family pack is paid. We'll hand over your house shortly.", "warn");
+        return;
+      }
+      const own: PlotOwn = { kind: "bought", floors: got.floors, rooms: [] };
+      const items = [
+        ...new Set([...(saveRef.current.items ?? []), ...HOME_ITEMS.map((i) => i.id)]),
+      ];
+      const pid = got.id;
+      saveRef.current = {
+        ...saveRef.current,
+        plots: { ...saveRef.current.plots, [pid]: own },
+        homePlot: pid,
+        items,
+        richApplied: Date.now(),
+      };
+      update((x) => ({
+        ...x,
+        plots: { ...x.plots, [pid]: own },
+        homePlot: pid,
+        items,
+        richApplied: Date.now(),
+      }));
+      e.setPlot(pid, plotStateFn(own) ?? { kind: "tolet" });
+      e.setHomeItems(items);
+      toast(
+        `Alhamdulillah! Your family house in ${districtById(area).name} is ready and furnished. Find it under My houses.`,
+        "good",
+      );
+    })();
+  };
+
   useEffect(() => {
     const o = onlineRef.current;
     if (!o || visitingRef.current || saveRef.current.paint) return;
@@ -4195,7 +4721,7 @@ function CityGame({
   const flatName = useCallback((area: string) => {
     const o = onlineRef.current;
     const f = o ? flatFor(o.uid).label + " · " : "";
-    return `Your flat · ${f}${districtById(area).name}`;
+    return `Your flat · ${f}${estateName(area)}`;
   }, []);
   const payRent = useCallback(() => {
     const sv = saveRef.current;
@@ -4205,7 +4731,13 @@ function CityGame({
       setPanel({
         kind: "info",
         title: "Not enough money for rent",
-        body: <NoPointsView price={rent} points={sv.coins} />,
+        body: (
+          <NoPointsView
+            price={rent}
+            points={sv.coins}
+            onTopUp={() => openWalletRef.current("buy")}
+          />
+        ),
       });
       return false;
     }
@@ -4468,7 +5000,9 @@ function CityGame({
               fine={st.fine}
               reason={st.fineReason}
               points={saveRef.current.coins}
-              onNaira={() => toast("Paystack checkout is coming next.")}
+              onNaira={() =>
+                openWalletRef.current("buy", `the chat fine: ₦${st.fine.toLocaleString()}`)
+              }
               onPayPoints={async () => {
                 const pts = Math.round(st.fine / 10);
                 if (saveRef.current.coins < pts) return;
@@ -4505,7 +5039,7 @@ function CityGame({
                 void openChatWith(other);
               }}
               onNaira={(amount, what) =>
-                toast(`Paystack checkout for ${what} (₦${amount.toLocaleString()}) is coming next.`)
+                openWalletRef.current("buy", `${what}: ₦${amount.toLocaleString()}`)
               }
             />
           ),
@@ -5687,6 +6221,36 @@ function CityGame({
         openShop(id.slice(id.indexOf(":") + 1));
         return;
       }
+      if (id === "arena") {
+        openRacesRef.current();
+        return;
+      }
+      if (id.startsWith("fuel:")) {
+        const name = districtById(id.slice(5))?.name ?? "";
+        const render = () =>
+          setPanel({
+            kind: "info",
+            title: "⛽ Barakah Oil",
+            body: (
+              <FuelView
+                where={name}
+                fuel={saveRef.current.fuel ?? FUEL.start}
+                coins={saveRef.current.coins}
+                onBuy={(l) => {
+                  const cost = Math.ceil(l * FUEL.perLitre);
+                  if (saveRef.current.coins < cost) return;
+                  const fuel = Math.min(FUEL.tank, (saveRef.current.fuel ?? FUEL.start) + l);
+                  saveRef.current = { ...saveRef.current, fuel };
+                  update((x) => ({ ...x, coins: x.coins - cost, fuel }));
+                  toast(`${l} litres in your tank. −${N(cost)}`, "good");
+                  setTimeout(render, 0);
+                }}
+              />
+            ),
+          });
+        render();
+        return;
+      }
       if (id.startsWith("plot:")) {
         openPlot(id.slice(5));
         return;
@@ -5965,9 +6529,7 @@ function CityGame({
         const which = id.slice(10) === "home" ? "lekki" : id.slice(10);
         const mine = saveRef.current.homeArea ?? "lekki";
         if (which !== mine) {
-          toast(
-            `Your flat is in ${districtById(mine).name} ${mine === "lekki" ? "(Your Home)" : "Estate"}. Take a danfo or keke there.`,
-          );
+          toast(`Your flat is in ${estateName(mine)}. Take a danfo or keke there.`);
           return;
         }
         const go = () => {
@@ -6052,27 +6614,64 @@ function CityGame({
           kind: "info",
           title: "🚗 IlmMotors",
           body: (
-            <DealerView
-              points={saveRef.current.coins}
-              mine={saveRef.current.ride}
-              onBuy={(kind, color, price) => {
-                if (saveRef.current.coins < price) {
-                  setPanel({
-                    kind: "info",
-                    title: "Not enough money",
-                    body: <NoPointsView price={price} points={saveRef.current.coins} />,
-                  });
-                  return;
-                }
-                update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
-                e.setCar(kind, color);
-                setPanel(null);
-                toast(
-                  `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
-                  "good",
-                );
-              }}
-            />
+            <>
+              <BikeShop
+                points={saveRef.current.coins}
+                mine={saveRef.current.bike}
+                onBuy={(kind, color, price) => {
+                  if (saveRef.current.coins < price) {
+                    setPanel({
+                      kind: "info",
+                      title: "Not enough money",
+                      body: (
+                        <NoPointsView
+                          price={price}
+                          points={saveRef.current.coins}
+                          onTopUp={() => openWalletRef.current("buy")}
+                        />
+                      ),
+                    });
+                    return;
+                  }
+                  const bike = { kind, color };
+                  saveRef.current = { ...saveRef.current, bike, cycling: true };
+                  update((x) => ({ ...x, coins: x.coins - price, bike, cycling: true }));
+                  e.setBike(kind, color);
+                  setPanel(null);
+                  toast(
+                    `Your ${BIKES.find((b) => b.kind === kind)?.name} is ready. You're riding it now: tap 🚶 Walk to get off.`,
+                    "good",
+                  );
+                }}
+              />
+              <DealerView
+                points={saveRef.current.coins}
+                mine={saveRef.current.ride}
+                onBuy={(kind, color, price) => {
+                  if (saveRef.current.coins < price) {
+                    setPanel({
+                      kind: "info",
+                      title: "Not enough money",
+                      body: (
+                        <NoPointsView
+                          price={price}
+                          points={saveRef.current.coins}
+                          onTopUp={() => openWalletRef.current("buy")}
+                        />
+                      ),
+                    });
+                    return;
+                  }
+                  update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
+                  e.setCar(kind, color);
+                  setPanel(null);
+                  toast(
+                    `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
+                    "good",
+                  );
+                }}
+              />
+            </>
           ),
         });
         return;
@@ -6172,7 +6771,13 @@ function CityGame({
             setPanel({
               kind: "info",
               title: "Not enough money",
-              body: <NoPointsView price={price} points={saveRef.current.coins} />,
+              body: (
+                <NoPointsView
+                  price={price}
+                  points={saveRef.current.coins}
+                  onTopUp={() => openWalletRef.current("buy")}
+                />
+              ),
             });
             return;
           }
@@ -6295,12 +6900,13 @@ function CityGame({
                         onClick={() => go(d.id, true)}
                         className="flex-1 rounded-lg bg-[#1f6f63] px-3 py-2 text-[13px] font-bold text-[#fdf8ec]"
                       >
-                        Drive · fuel{" "}
-                        {N(
-                          cityOf(districtById(d.id)) === cityOf(districtById(here))
-                            ? 8
-                            : Math.round(INTERCITY.bus * 0.6),
-                        )}
+                        {(() => {
+                          const same = cityOf(districtById(d.id)) === cityOf(districtById(here));
+                          const need = same ? FUEL.trip : FUEL.far;
+                          return (saveRef.current.fuel ?? FUEL.start) >= need
+                            ? `Drive · ${need} L from your tank`
+                            : `Drive · fuel ${N(same ? 8 : Math.round(INTERCITY.bus * 0.6))}`;
+                        })()}
                       </button>
                     )}
                   </div>
@@ -6570,6 +7176,8 @@ function CityGame({
       e.onSlowPhone = () => {};
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
+    if (saveRef.current.bike && saveRef.current.cycling)
+      e.setBike(saveRef.current.bike.kind, saveRef.current.bike.color);
     if (saveRef.current.impound) e.setImpounded(true);
     e.onIncident = (kind, who) => incidentRef.current(kind, who);
     // every visit starts at home: you are only out in the city while you are playing
@@ -6578,7 +7186,7 @@ function CityGame({
       if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
-        if (sv.homePlot && e.plots.some((q) => q.id === sv.homePlot))
+        if (sv.homePlot && e.plotInfo(sv.homePlot))
           e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
         else {
           e.startAtHome(home, flatName(home));
@@ -7085,9 +7693,7 @@ function CityGame({
               );
             }}
             onNaira={(_ids, naira) =>
-              toast(
-                `Paystack checkout for ₦${naira.toLocaleString()} is coming next. For now, pay from your IlmWorld wallet.`,
-              )
+              openWalletRef.current("buy", `your furniture: ₦${naira.toLocaleString()}`)
             }
           />
         ),
@@ -7329,6 +7935,22 @@ function CityGame({
               📱 Phone
             </button>
           )}
+          {save.bike && !driving && !inside && (
+            <button
+              onClick={() => toggleBike()}
+              className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
+            >
+              {save.cycling ? "🚶 Walk" : "🚲 Ride"}
+            </button>
+          )}
+          {save.profile && openRaces.length > 0 && !raceNow && (
+            <button
+              onClick={() => showRace(openRaces[0])}
+              className="pointer-events-auto max-w-[170px] truncate rounded-xl bg-[#e6b84a] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05] shadow"
+            >
+              🏁 {openRaces[0].from > Date.now() ? "Race soon" : "Race on"}: {openRaces[0].title}
+            </button>
+          )}
           {save.profile && (
             <div className="pointer-events-auto flex max-w-[170px] items-center gap-1 rounded-xl bg-[#10201e]/85 py-1 pl-2.5 pr-1 text-[11.5px] font-semibold text-[#fdf8ec] shadow">
               <button
@@ -7366,6 +7988,24 @@ function CityGame({
           )}
         </div>
       </div>
+      {raceNow && (
+        <div className="pointer-events-none fixed inset-x-0 top-24 z-30 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#10201e]/90 px-4 py-2 text-[#fdf8ec] shadow-lg">
+            <span className="text-[15px] font-black">{raceNow.text}</span>
+            {raceNow.ms > 0 && (
+              <span className="font-mono text-[18px] font-bold text-[#e6b84a]">
+                {raceTime(raceNow.ms)}
+              </span>
+            )}
+            <button
+              onClick={() => stopRace()}
+              className="rounded-lg bg-[#fdf8ec]/15 px-2 py-1 text-[12px] font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {pitchRoom && !match && pitch.current && (
         <PitchLobby
           r={pitchRoom}
@@ -7726,7 +8366,7 @@ function CityGame({
             let plots = saveRef.current.plots ?? {};
             let shops = saveRef.current.shops ?? {};
             let homePlot: string | undefined;
-            let msg = `Welcome home, ${look.name}! Your flat has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
+            let msg = `Welcome home, ${look.name}! Your flat in ${estateName(area)} has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
             let lease: Save["lease"];
             if (path === "rich") {
               // the family house: a big house on the street that no other player has, furnished
@@ -8775,7 +9415,23 @@ type PlotOwn =
 const roomsIn = (floors: number) => floors * 2 + 1;
 
 const naira = (n: number) => "₦" + n.toLocaleString("en-NG");
+/** where newcomers' flats are: a glass tower in Lekki and Ikeja, an estate elsewhere */
+const estateName = (area: string) =>
+  area === "lekki"
+    ? "Your Home, Lekki"
+    : `${districtById(area).name} ${isPrimeArea(area) ? "Towers" : "Estate"}`;
 const floorsName = (f: number) => (f <= 1 ? "Bungalow" : f === 2 ? "Duplex" : "Storey building");
+const homeName = (f: number, type?: HomeType) =>
+  type === "tower" ? "Glass tower" : type === "faceme" ? "Face-me-I-face-you" : floorsName(f);
+/** how many flats or rooms a home has: a tower has two flats on every floor */
+const bedsOf = (f: number, type?: HomeType) =>
+  type === "tower" ? f * 2 : type === "faceme" ? 8 : f * 2 + 1;
+const homeRooms = (f: number, type?: HomeType) =>
+  type === "tower"
+    ? `${f} floors · ${bedsOf(f, type)} flats`
+    : type === "faceme"
+      ? "8 rooms off one corridor"
+      : `${bedsOf(f, type)} bedrooms`;
 
 function PlotView({
   plot,
@@ -8801,6 +9457,7 @@ function PlotView({
     street: string;
     district: string;
     floors: number;
+    type?: HomeType;
   };
   own?: PlotOwn;
   points: number;
@@ -8856,12 +9513,15 @@ function PlotView({
   );
 
   if (plot.kind === "house") {
-    const beds = plot.floors * 2 + 1;
+    const beds = bedsOf(plot.floors, plot.type);
+    const name = homeName(plot.floors, plot.type);
+    const tower = plot.type === "tower";
+    const unit = tower ? "flats" : plot.type === "faceme" ? "rooms" : "bedrooms";
     if (own?.kind === "bought")
       return (
         <div className="space-y-2">
           <p>
-            {where}. Your own {floorsName(plot.floors).toLowerCase()} with {beds} bedrooms.
+            {where}. Your own {name.toLowerCase()} with {beds} {unit}.
           </p>
           <button className={primary} onClick={onEnter}>
             Go inside
@@ -8888,9 +9548,10 @@ function PlotView({
           )
         }
       >
-        Buy this house · {N(price)}
+        Buy this {tower ? "tower" : "house"} · {N(price)}
         <span className="block text-[12px] font-medium opacity-80">
-          Live in one flat and let the other {beds - 1} to players
+          Live in one {tower ? "flat" : plot.type === "faceme" ? "room" : "flat"} and let the other{" "}
+          {beds - 1} to players
         </span>
       </button>
     );
@@ -8899,7 +9560,7 @@ function PlotView({
       return (
         <div className="space-y-2">
           <p>
-            {where}. Your {floorsName(plot.floors).toLowerCase()} with {beds} bedrooms.{" "}
+            {where}. Your {name.toLowerCase()} with {beds} {unit}.{" "}
             <b>
               {days} day{days === 1 ? "" : "s"} left.
             </b>
@@ -8915,12 +9576,21 @@ function PlotView({
     return (
       <div className="space-y-2">
         <p>
-          {where}. {floorsName(plot.floors)} with {beds} bedrooms, a kitchen, a parlour and a fenced
-          compound.
+          {where}.{" "}
+          {tower
+            ? `${name}: ${plot.floors} floors of glass, ${beds} flats with views over the city, a lit lobby and a fountain. Only for sale: buy the tower and let its flats to players.`
+            : plot.type === "faceme"
+              ? `${name}: ${beds} rooms facing each other down one corridor, a shared tap and washing line. Cheap to rent.`
+              : `${name} with ${beds} bedrooms, a kitchen, a parlour and a fenced compound.`}
         </p>
         <p className="text-[13px] opacity-75">You have {N(points)}.</p>
-        {rentButtons(false)}
+        {!tower && rentButtons(false)}
         {buyButton}
+        {tower && points < price && (
+          <button className={secondary} onClick={() => onPaystack(price * 10, "this tower")}>
+            Top up your wallet to buy it
+          </button>
+        )}
       </div>
     );
   }
@@ -9088,6 +9758,8 @@ function PlotView({
   );
 }
 
+/** the most the city pays for a house (the server's daily limit) */
+const CITY_BUYS_UP_TO = 20000;
 type SellOpts = {
   price: number;
   blocked?: string;
@@ -9154,7 +9826,12 @@ function SellBox({ sell }: { sell: SellOpts }) {
           ) : null}
           <div className="rounded-lg bg-white p-2.5">
             <div className="font-semibold">To the city, right now · {N(sell.price)}</div>
-            {sure ? (
+            {sell.price > CITY_BUYS_UP_TO ? (
+              <div className="mt-1 text-[12px] opacity-75">
+                The city only buys back homes worth up to {N(CITY_BUYS_UP_TO)}. List this one for
+                players to buy.
+              </div>
+            ) : sure ? (
               <div className="mt-1.5 flex gap-2">
                 <button
                   onClick={sell.run}
@@ -10064,6 +10741,16 @@ function Onboarding({
                 </span>
               </button>
             ))}
+            <div className="flex w-full items-start gap-3 rounded-xl border border-dashed border-[#c9a227]/60 bg-[#fff7df] px-4 py-3 text-left opacity-80">
+              <span className="text-[28px] leading-none">🏡</span>
+              <span>
+                <span className="block text-[16px] font-bold">Rich family pack</span>
+                <span className="block text-[13px] opacity-75">
+                  A furnished family house and ₦20,000. Start any life, then buy it from Wallet →
+                  Buy naira.
+                </span>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -10536,8 +11223,22 @@ function placesIn(id: string): Place[] {
     out.push({
       icon: "🚗",
       name: "IlmMotors",
-      sub: "Buy a car",
+      sub: "Buy a car or a bicycle",
       prefix: `dealer:${D.id}`,
+    });
+  if (!D.parent && !D.holy)
+    out.push({
+      icon: "⛽",
+      name: "Barakah Oil filling station",
+      sub: `By ${D.highway}, at the edge of ${D.name}`,
+      prefix: `fuel:${D.id}`,
+    });
+  if (cityOf(D) === "lagos")
+    out.push({
+      icon: "🏁",
+      name: "IlmWorld Sports Arena",
+      sub: "Running and cycling races · between Agege and Ikeja",
+      prefix: "arena",
     });
   out.push({
     icon: "🏓",
@@ -10640,6 +11341,78 @@ const CARS: { kind: CarKind; price: number }[] = [
   { kind: "luxury", price: 2500 },
 ];
 const PAINT = [0xf4f4f2, 0x1d1d26, 0xc0392b, 0x1f6f63, 0x2f4a7a, 0xb8bcc2, 0xe6b84a, 0x6d4a2b];
+type BikeKind = "city" | "mountain" | "racing";
+const BIKES: { kind: BikeKind; name: string; price: number; text: string }[] = [
+  {
+    kind: "city",
+    name: "City bike",
+    price: 1500,
+    text: "Easy to ride round town. Twice as fast as walking.",
+  },
+  {
+    kind: "mountain",
+    name: "Mountain bike",
+    price: 3500,
+    text: "Thick tyres, strong frame, a bit faster.",
+  },
+  {
+    kind: "racing",
+    name: "Racing bike",
+    price: 6000,
+    text: "Light and very fast: made for cycling races.",
+  },
+];
+function BikeShop({
+  points,
+  mine,
+  onBuy,
+}: {
+  points: number;
+  mine?: { kind: BikeKind; color: number };
+  onBuy: (kind: BikeKind, color: number, price: number) => void;
+}) {
+  const [color, setColor] = useState<number>(mine?.color ?? 0x1f6f63);
+  const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+  return (
+    <div className="mb-4 space-y-2 rounded-2xl bg-[#e8f3ef] p-3">
+      <div className="text-[15px] font-bold">🚲 Bicycles</div>
+      <p className="text-[12.5px] opacity-75">
+        Ride anywhere outside, no fuel needed, and enter cycling races at the IlmWorld Sports Arena.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {PAINT.map((c) => (
+          <button
+            key={c}
+            onClick={() => setColor(c)}
+            className={`size-7 rounded-full border-2 ${color === c ? "border-[#10201e] ring-2 ring-[#f2c230]" : "border-[#10201e]/20"}`}
+            style={{ background: hex(c) }}
+            aria-label="Colour"
+          />
+        ))}
+      </div>
+      {BIKES.map((b) => {
+        const owned = mine?.kind === b.kind;
+        return (
+          <button
+            key={b.kind}
+            disabled={owned && mine?.color === color}
+            onClick={() => onBuy(b.kind, color, b.price)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-3 py-2.5 text-left shadow-sm disabled:opacity-50"
+          >
+            <span>
+              <span className="block text-[14px] font-bold">{b.name}</span>
+              <span className="block text-[12px] opacity-70">{b.text}</span>
+            </span>
+            <span className="shrink-0 text-[13px] font-bold text-[#1f6f63]">
+              {owned ? "Yours" : N(b.price)}
+            </span>
+          </button>
+        );
+      })}
+      {points < 1500 && <p className="text-[12px] opacity-70">You have {N(points)}.</p>}
+    </div>
+  );
+}
 const REPAINT = 60;
 function DealerView({
   points,
@@ -11107,19 +11880,427 @@ function CallScreen({
   );
 }
 
+/* ---------------- races at the sports arena ---------------- */
+function RaceNews({
+  r,
+  hasBike,
+  onGo,
+  onLater,
+}: {
+  r: Race;
+  hasBike: boolean;
+  onGo: () => void;
+  onLater: () => void;
+}) {
+  const day = (t: number) =>
+    new Date(t).toLocaleString(undefined, {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  const soon = r.from > Date.now();
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-[#10201e] p-4 text-[#fdf8ec]">
+        <div className="text-[13px] opacity-80">
+          {r.kind === "bike" ? "🚲 Cycling race" : "🏃 Running race"} · {r.laps} lap
+          {r.laps > 1 ? "s" : ""}
+        </div>
+        <div className="text-[20px] font-black leading-tight">{r.title}</div>
+        {r.prize && (
+          <div className="mt-1 text-[15px] font-bold text-[#e6b84a]">
+            🏆 Top {r.winners}: {r.prize}
+          </div>
+        )}
+      </div>
+      <p className="text-[14px]">
+        {soon ? `Opens ${day(r.from)}. ` : ""}Closes {day(r.until)}. Go to the IlmWorld Sports Arena
+        (just north of Ikeja) and {r.kind === "bike" ? "ride" : "run"} the track against the clock
+        as many times as you like: your best time counts.
+      </p>
+      {r.kind === "bike" && !hasBike && (
+        <p className="rounded-xl bg-[#fff7df] p-3 text-[13px]">
+          You need a bicycle: buy one at IlmMotors in Ikeja or Lekki.
+        </p>
+      )}
+      <button
+        onClick={onGo}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+      >
+        Take me to the arena
+      </button>
+      <button
+        onClick={onLater}
+        className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+      >
+        Later
+      </button>
+    </div>
+  );
+}
+function RaceResults({ r, board, me }: { r: Race; board: RaceEntry[]; me: string | null }) {
+  const place = board.findIndex((b) => b.uid === me);
+  const won = place >= 0 && place < r.winners;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-[#10201e] p-4 text-[#fdf8ec]">
+        <div className="text-[13px] opacity-80">
+          {r.kind === "bike" ? "🚲 Cycling race" : "🏃 Running race"} · finished
+        </div>
+        <div className="text-[20px] font-black leading-tight">{r.title}</div>
+        {r.prize && (
+          <div className="text-[14px] text-[#e6b84a]">
+            🏆 Top {r.winners}: {r.prize}
+          </div>
+        )}
+      </div>
+      {won && me && <PrizeForm r={r} me={me} name={board[place].name} place={place} />}
+      {!won && place >= 0 && (
+        <p className="rounded-xl bg-white p-3 text-[14px]">
+          You came {ordinal(place + 1)} of {board.length}. Well done for taking part!
+        </p>
+      )}
+      <div className="space-y-1 rounded-xl bg-white p-3 text-[14px] shadow-sm">
+        {board.slice(0, Math.max(10, r.winners)).map((b, i) => (
+          <div
+            key={b.uid}
+            className={`flex justify-between ${i < r.winners ? "font-bold" : ""} ${b.uid === me ? "text-[#1f6f63]" : ""}`}
+          >
+            <span>
+              {i < r.winners ? (["🥇", "🥈", "🥉"][i] ?? "🏅") : `${i + 1}.`} {b.name}
+            </span>
+            <span className="font-mono">{raceTime(b.ms)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/** A winner says where to send their prize (only the IlmWorld team sees it). */
+function PrizeForm({ r, me, name, place }: { r: Race; me: string; name: string; place: number }) {
+  const [bank, setBank] = useState("");
+  const [account, setAccount] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [state, setState] = useState<"form" | "busy" | "sent" | "error">("form");
+  const input = "w-full rounded-xl border border-[#10201e]/15 bg-white px-3 py-2.5 text-[15px]";
+  if (state === "sent")
+    return (
+      <p className="rounded-xl bg-[#e8f3ef] p-3 text-[14px] font-bold text-[#1d6b3a]">
+        Received. The IlmWorld team will send your prize to that account, in shaa Allah.
+      </p>
+    );
+  const ok = bank.trim() && /^\d{10}$/.test(account.trim()) && accountName.trim();
+  return (
+    <div className="space-y-2 rounded-xl bg-[#e8f3ef] p-3">
+      <p className="text-[14px] font-bold text-[#1d6b3a]">
+        Mabrook! You came {ordinal(place + 1)}. Where should we send your prize?
+      </p>
+      <input
+        className={input}
+        placeholder="Bank, e.g. GTBank"
+        value={bank}
+        onChange={(e) => setBank(e.target.value)}
+      />
+      <input
+        className={input}
+        inputMode="numeric"
+        placeholder="Account number (10 digits)"
+        value={account}
+        onChange={(e) => setAccount(e.target.value.replace(/\D/g, "").slice(0, 10))}
+      />
+      <input
+        className={input}
+        placeholder="Account name"
+        value={accountName}
+        onChange={(e) => setAccountName(e.target.value)}
+      />
+      <input
+        className={input}
+        inputMode="tel"
+        placeholder="Phone number (optional)"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+      />
+      <button
+        disabled={!ok || state === "busy"}
+        onClick={async () => {
+          setState("busy");
+          try {
+            await sendPayout({
+              race: r.id,
+              uid: me,
+              name,
+              bank: bank.trim(),
+              account: account.trim(),
+              accountName: accountName.trim(),
+              phone: phone.trim(),
+            });
+            setState("sent");
+          } catch {
+            setState("error");
+          }
+        }}
+        className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-white disabled:opacity-40"
+      >
+        {state === "busy" ? "Sending…" : "Send my details"}
+      </button>
+      {state === "error" && (
+        <p className="text-[13px] font-bold text-[#b3261e]">Couldn't send. Try again.</p>
+      )}
+      <p className="text-[12px] opacity-70">Only the IlmWorld team can see these details.</p>
+    </div>
+  );
+}
+const ordinal = (n: number) =>
+  n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th"));
+
+function RacesView({
+  done,
+  me,
+  hasBike,
+  onStart,
+}: {
+  done: Race[];
+  me: string | null;
+  hasBike: boolean;
+  onStart: (race: Race | null, kind: "run" | "bike", laps: number) => void;
+}) {
+  const [races, setRaces] = useState<Race[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [board, setBoard] = useState<RaceEntry[]>([]);
+  useEffect(() => (me ? watchRaces(setRaces) : setRaces([])), [me]);
+  useEffect(() => (open ? watchEntries(open, setBoard) : undefined), [open]);
+  const now = Date.now();
+  const day = (t: number) =>
+    new Date(t).toLocaleString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  const btn = "rounded-lg px-3 py-2 text-[13px] font-bold";
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Races are set by the IlmWorld team. While a race is open, run or ride it as many times as
+        you like: your best time counts on the leaderboard.
+      </p>
+      {races === null ? (
+        <p>Loading races…</p>
+      ) : !races.length ? (
+        <p className="rounded-xl bg-white p-3 text-[14px]">
+          No race is open right now. Watch this space: the team announces races here.
+        </p>
+      ) : (
+        races.map((r) => {
+          const started = r.from <= now;
+          const mine = board.find((b) => b.uid === me);
+          return (
+            <div key={r.id} className="space-y-2 rounded-xl bg-white p-3 shadow-sm">
+              <div className="text-[15px] font-bold">
+                {r.kind === "bike" ? "🚲" : "🏃"} {r.title}
+              </div>
+              <div className="text-[12.5px] opacity-75">
+                {r.laps} lap{r.laps > 1 ? "s" : ""} · {r.kind === "bike" ? "cycling" : "running"} ·{" "}
+                {started ? `open until ${day(r.until)}` : `starts ${day(r.from)}`}
+              </div>
+              {r.prize && (
+                <div className="text-[13px] font-bold text-[#1d6b3a]">
+                  🏆 Top {r.winners}: {r.prize}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  disabled={!started || !me || (r.kind === "bike" && !hasBike)}
+                  onClick={() => onStart(r, r.kind, r.laps)}
+                  className={`${btn} flex-1 bg-[#1f6f63] text-white disabled:opacity-40`}
+                >
+                  {r.kind === "bike" && !hasBike ? "Needs a bicycle" : "Start my run"}
+                </button>
+                <button
+                  onClick={() => setOpen(open === r.id ? null : r.id)}
+                  className={`${btn} border border-[#1f6f63]/30 bg-white`}
+                >
+                  {open === r.id ? "Hide" : "Leaderboard"}
+                </button>
+              </div>
+              {open === r.id && (
+                <div className="space-y-1 text-[13px]">
+                  {!board.length && <p className="opacity-70">No times yet. Be the first!</p>}
+                  {board.slice(0, 10).map((b, i) => (
+                    <div
+                      key={b.uid}
+                      className={`flex justify-between ${b.uid === me ? "font-bold text-[#1f6f63]" : ""}`}
+                    >
+                      <span>
+                        {i + 1}. {b.name}
+                      </span>
+                      <span className="font-mono">{raceTime(b.ms)}</span>
+                    </div>
+                  ))}
+                  {mine && board.indexOf(mine) >= 10 && (
+                    <div className="flex justify-between font-bold text-[#1f6f63]">
+                      <span>
+                        {board.indexOf(mine) + 1}. {mine.name}
+                      </span>
+                      <span className="font-mono">{raceTime(mine.ms)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+      {done.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[14px] font-bold">Results</div>
+          {done.map((r) => (
+            <div key={r.id} className="rounded-xl bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[14px] font-bold">
+                  {r.kind === "bike" ? "🚲" : "🏃"} {r.title}
+                </span>
+                <button
+                  onClick={() => setOpen(open === r.id ? null : r.id)}
+                  className={`${btn} border border-[#1f6f63]/30 bg-white`}
+                >
+                  {open === r.id ? "Hide" : "Winners"}
+                </button>
+              </div>
+              {open === r.id && (
+                <div className="mt-2 space-y-1 text-[13px]">
+                  {!board.length && <p className="opacity-70">Nobody finished this race.</p>}
+                  {board.slice(0, 10).map((b, i) => (
+                    <div
+                      key={b.uid}
+                      className={`flex justify-between ${i < r.winners ? "font-bold" : ""} ${b.uid === me ? "text-[#1f6f63]" : ""}`}
+                    >
+                      <span>
+                        {i < r.winners ? (["🥇", "🥈", "🥉"][i] ?? "🏅") : `${i + 1}.`} {b.name}
+                      </span>
+                      <span className="font-mono">{raceTime(b.ms)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2 rounded-xl bg-[#e8f3ef] p-3">
+        <div className="text-[14px] font-bold">Practise</div>
+        <div className="flex gap-2">
+          <button onClick={() => onStart(null, "run", 1)} className={`${btn} flex-1 bg-white`}>
+            🏃 Run a lap
+          </button>
+          <button
+            disabled={!hasBike}
+            onClick={() => onStart(null, "bike", 1)}
+            className={`${btn} flex-1 bg-white disabled:opacity-40`}
+          >
+            🚲 Ride a lap
+          </button>
+        </div>
+      </div>
+      {!me && <p className="text-[12.5px] opacity-75">Log in to IlmStation to enter races.</p>}
+    </div>
+  );
+}
+
+/* ---------------- filling station ---------------- */
+function FuelView({
+  where,
+  fuel,
+  coins,
+  onBuy,
+}: {
+  where: string;
+  fuel: number;
+  coins: number;
+  onBuy: (litres: number) => void;
+}) {
+  const room = Math.max(0, FUEL.tank - fuel);
+  const cost = (l: number) => Math.ceil(l * FUEL.perLitre);
+  const btn =
+    "w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left text-[14px] font-bold text-[#fdf8ec] disabled:opacity-40";
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Barakah Oil filling station, {where}. Petrol is ₦{FUEL.perLitre * 10} a litre. A trip across
+        town uses {FUEL.trip} litres; to another city, {FUEL.far}.
+      </p>
+      <div className="rounded-xl bg-white p-3 shadow-sm">
+        <div className="flex justify-between text-[13px] font-bold">
+          <span>Your tank</span>
+          <span>
+            {fuel} / {FUEL.tank} litres
+          </span>
+        </div>
+        <div className="mt-2 h-3 overflow-hidden rounded-full bg-[#10201e]/10">
+          <div
+            className={`h-full rounded-full ${fuel < FUEL.trip ? "bg-[#b8573a]" : "bg-[#1d6b3a]"}`}
+            style={{ width: `${(fuel / FUEL.tank) * 100}%` }}
+          />
+        </div>
+      </div>
+      {room === 0 ? (
+        <p className="font-bold text-[#1d6b3a]">Your tank is full.</p>
+      ) : (
+        <>
+          <button disabled={coins < cost(room)} className={btn} onClick={() => onBuy(room)}>
+            Fill the tank ({room} litres) · {N(cost(room))}
+          </button>
+          {room > 10 && (
+            <button
+              disabled={coins < cost(10)}
+              className={btn
+                .replace("bg-[#1f6f63] ", "border border-[#1f6f63]/30 bg-white ")
+                .replace("text-[#fdf8ec]", "text-[#10201e]")}
+              onClick={() => onBuy(10)}
+            >
+              Buy 10 litres · {N(cost(10))}
+            </button>
+          )}
+        </>
+      )}
+      <p className="text-[12px] opacity-70">
+        With an empty tank you buy fuel on the way, which costs more ({N(8)} a trip).
+      </p>
+    </div>
+  );
+}
+
 /* ---------------- wallet ---------------- */
 function WalletView({
   points,
   txns,
   online,
   onSend,
+  tab: startTab,
+  why,
+  canBuy,
+  richDone,
+  onBuy,
 }: {
   points: number;
   txns: NonNullable<Save["txns"]>;
   online: boolean;
   onSend: (number: string, units: number, note: string) => Promise<string | null>;
+  tab?: "wallet" | "send" | "buy";
+  /** what the player was paying for when they came to top up */
+  why?: string;
+  canBuy: boolean;
+  richDone: boolean;
+  /** start a Paystack payment; an error message, or null when leaving for checkout */
+  onBuy: (pack: string) => Promise<string | null>;
 }) {
-  const [tab, setTab] = useState<"wallet" | "send">("wallet");
+  const [tab, setTab] = useState<"wallet" | "send" | "buy">(startTab ?? "wallet");
+  const [buying, setBuying] = useState<string | null>(null);
   const [num, setNum] = useState("");
   const [amt, setAmt] = useState("");
   const [note, setNote] = useState("");
@@ -11130,17 +12311,91 @@ function WalletView({
   const toGo = Math.max(0, MIN_WITHDRAW - bal);
   const tabs = (
     <div className="flex gap-1 rounded-xl bg-[#10201e]/6 p-1">
-      {(["wallet", "send"] as const).map((t) => (
+      {(["wallet", "buy", "send"] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
           className={`flex-1 rounded-lg py-1.5 text-[13px] font-bold ${tab === t ? "bg-white shadow-sm" : "opacity-60"}`}
         >
-          {t === "wallet" ? "💰 Wallet" : "📤 Send money"}
+          {t === "wallet" ? "💰 Wallet" : t === "buy" ? "➕ Buy naira" : "📤 Send"}
         </button>
       ))}
     </div>
   );
+  if (tab === "buy") {
+    const buy = async (id: string) => {
+      setBuying(id);
+      setErr(null);
+      const e = await onBuy(id);
+      if (e) {
+        setErr(e);
+        setBuying(null);
+      }
+    };
+    return (
+      <div className="space-y-3">
+        {tabs}
+        {why && (
+          <p className="rounded-xl bg-[#fff7df] p-3 text-[13px]">
+            For {why}. Top up below, then pay from your wallet. You have {N(bal)}.
+          </p>
+        )}
+        {!online || !canBuy ? (
+          <p className="text-[13px] opacity-75">Log in to IlmStation to buy IlmWorld naira.</p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {PACKS.filter((p) => !p.rich).map((p) => (
+                <button
+                  key={p.id}
+                  disabled={!!buying}
+                  onClick={() => void buy(p.id)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm disabled:opacity-50"
+                >
+                  <span>
+                    <span className="block text-[15px] font-bold">{N(p.units)}</span>
+                    {p.note && (
+                      <span className="block text-[12px] font-bold text-[#1d6b3a]">{p.note}</span>
+                    )}
+                  </span>
+                  <span className="rounded-lg bg-[#1d6b3a] px-3 py-1.5 text-[14px] font-bold text-white">
+                    {buying === p.id ? "Opening…" : `₦${p.price.toLocaleString()}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {PACKS.filter((p) => p.rich).map((p) => (
+              <div
+                key={p.id}
+                className="space-y-2 rounded-2xl border border-[#c9a227]/60 bg-[#fff7df] p-4"
+              >
+                <div className="text-[16px] font-bold">🏡 {p.name}</div>
+                <p className="text-[13px] opacity-80">
+                  {p.note}. The house is yours to live in, with flats to let to other players.
+                </p>
+                <button
+                  disabled={!!buying || richDone}
+                  onClick={() => void buy(p.id)}
+                  className="w-full rounded-xl bg-[#e6b84a] py-2.5 font-bold text-[#2a1c05] disabled:opacity-50"
+                >
+                  {richDone
+                    ? "You have this pack"
+                    : buying === p.id
+                      ? "Opening…"
+                      : `Buy for ₦${p.price.toLocaleString()}`}
+                </button>
+              </div>
+            ))}
+            {err && <p className="text-[13px] font-bold text-[#b3261e]">{err}</p>}
+            <p className="text-[12px] opacity-70">
+              Paid securely with Paystack (card, bank transfer or USSD). Naira you buy is for
+              spending in IlmWorld; only naira you earn can be cashed out.
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
   if (tab === "send") {
     const naira = Math.floor(Number(amt.replace(/[^0-9]/g, "")) || 0);
     const units = Math.floor(naira / NAIRA_PER_POINT);
@@ -11510,7 +12765,7 @@ function OutingView({
           <div className="text-[17px] font-black">Where do you want to go?</div>
           <div className="text-[12px] opacity-80">
             Powered by OutingStation · rides{" "}
-            {driving ? `fuel ${N(8)} in your car` : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
+            {driving ? "petrol from your tank" : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
           </div>
         </div>
       </div>
@@ -12780,6 +14035,61 @@ function shownName(s: Save) {
   const p = s.profile;
   if (!p?.name) return undefined;
   return (s.hajj?.done ?? 0) > 0 ? `${p.female ? "Alhaja" : "Alhaji"} ${p.name}` : p.name;
+}
+
+type PhaseInfo = { total: number; occ: Record<number, number>; open: number };
+/** The phases of an area's houses: how full each is, and which one you are looking at. */
+function PhaseBox({
+  area,
+  info,
+  viewing,
+  onView,
+}: {
+  area: string;
+  info?: PhaseInfo;
+  viewing: number;
+  onView: (n: number) => void;
+}) {
+  if (!info) return null;
+  const D = districtById(area);
+  const phases = Array.from({ length: info.open }, (_, i) => i + 1);
+  return (
+    <div className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
+      <div className="text-[13px] font-bold">{D.name}: house phases</div>
+      <p className="text-[11.5px] opacity-70">
+        When a phase is 80% taken, a new one opens: a fresh set of houses on the same streets.
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {phases.map((n) => {
+          const pct = Math.round(((info.occ[n] ?? 0) / info.total) * 100);
+          return (
+            <div key={n} className="flex items-center gap-2 text-[12.5px]">
+              <span className="w-16 font-semibold">{n === 1 ? "Original" : `Phase ${n}`}</span>
+              <span className="h-2 flex-1 overflow-hidden rounded-full bg-[#10201e]/10">
+                <span
+                  className="block h-full rounded-full bg-[#1f6f63]"
+                  style={{ width: `${Math.min(100, pct)}%` }}
+                />
+              </span>
+              <span className="w-10 text-right tabular-nums">{pct}%</span>
+              {n === viewing ? (
+                <span className="w-14 text-center text-[11px] font-bold text-[#1f6f63]">
+                  viewing
+                </span>
+              ) : (
+                <button
+                  onClick={() => onView(n)}
+                  className="w-14 rounded-lg bg-[#1f6f63] py-1 text-[11px] font-bold text-white"
+                >
+                  View
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /** The short dhikr for this part of the day (a new one every two hours). */
@@ -14527,7 +15837,15 @@ function HungryView({ onOrder, onEatery }: { onOrder: () => void; onEatery: () =
   );
 }
 
-function NoPointsView({ price, points }: { price: number; points: number }) {
+function NoPointsView({
+  price,
+  points,
+  onTopUp,
+}: {
+  price: number;
+  points: number;
+  onTopUp: () => void;
+}) {
   return (
     <div className="space-y-3">
       <p>
@@ -14538,10 +15856,10 @@ function NoPointsView({ price, points }: { price: number; points: number }) {
         quiz, or top up your wallet.
       </p>
       <button
-        disabled
-        className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05] opacity-60"
+        onClick={onTopUp}
+        className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05]"
       >
-        Top up · coming soon with Paystack
+        Top up with Paystack
       </button>
     </div>
   );
