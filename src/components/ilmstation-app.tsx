@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChallengeScreen, PresenceBeat, useLeaderboard } from "@/components/challenge";
+import { MessagesSquare } from "lucide-react";
+import { ChatroomsScreen } from "@/components/chatrooms";
 import { FriendsPanel, useFriendIds } from "@/components/friends";
 import { StudyScreen } from "@/components/study";
 import { HifzScreen } from "@/components/hifz";
@@ -47,13 +49,13 @@ function AchievementsTab() {
 }
 import { cn } from "@/lib/utils";
 
-type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings";
+type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings";
 type QuizStep = "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
 const navGroups = [
   { label: "Today", items: [["home", "Today", Home], ["quests", "Quest map", Sparkles], ["ramadan", "Ramadan", MoonStar]] },
-  { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Hifz", BookOpen], ["halaqah", "Halaqah", Users], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
+  { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Hifz", BookOpen], ["halaqah", "Halaqah", Users], ["chatrooms", "Chatrooms", MessagesSquare], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
   { label: "You", items: [["progress", "Progress", Trophy], ["community", "Community", CircleUserRound], ["family", "Family hub", Baby], ["rewards", "Wallet & store", Wallet], ["settings", "Settings", Settings]] },
 ] as const;
 
@@ -108,6 +110,7 @@ export function IlmStationApp() {
         {screen === "quests" && <QuestScreen onShare={openShare} />}
         {screen === "hifz" && <HifzScreen />}
         {screen === "halaqah" && <HalaqahScreen onShare={openShare} />}
+        {screen === "chatrooms" && <ChatroomsScreen />}
         {screen === "challenge" && <ChallengeScreen />}
         {screen === "study" && <StudyScreen />}
         {screen === "library" && <LibraryScreen onShare={openShare} />}
