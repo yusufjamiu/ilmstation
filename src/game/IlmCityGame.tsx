@@ -2224,6 +2224,48 @@ function CityGame({
           body: (
             <PlotView
               rent={houseRent(p.district, p.floors ?? 1, saveRef.current.ilm)}
+              sell={(() => {
+                if (own?.kind !== "bought" && own?.kind !== "built") return undefined;
+                const houses = Object.values(saveRef.current.plots ?? {}).filter(
+                  (o) => o.kind === "bought" || o.kind === "built",
+                ).length;
+                if (houses < 2) return undefined;
+                const worth =
+                  own.kind === "bought"
+                    ? houseRent(p.district, own.floors, saveRef.current.ilm).buy
+                    : (ECONOMY.build[own.floors]?.points ?? 0) +
+                      houseRent(p.district, own.floors, saveRef.current.ilm).buy / 2;
+                const price = Math.round((worth * 0.7) / 10) * 10;
+                const now = Date.now();
+                const blocked =
+                  saveRef.current.homePlot === pid
+                    ? "You live in this house. Move to another of your houses before you sell it."
+                    : (own.rooms ?? []).some((r) => r && r.until > now) ||
+                        (own.kind === "built" && own.tenant)
+                      ? "Tenants still live here. Sell after their rent ends."
+                      : myAds.current.some((a) => a.plot === pid)
+                        ? "Unlist its flats first."
+                        : undefined;
+                return {
+                  price,
+                  blocked,
+                  run: () => {
+                    const o = onlineRef.current;
+                    if (o) void claimsNet.current?.release(pid, o.uid).catch(() => {});
+                    update((x) => {
+                      const plots = { ...x.plots };
+                      delete plots[pid];
+                      return { ...x, plots, coins: x.coins + price };
+                    });
+                    const plots = { ...saveRef.current.plots };
+                    delete plots[pid];
+                    saveRef.current = { ...saveRef.current, plots };
+                    e.setPlot(pid, { kind: p.kind === "land" ? "land" : "tolet" });
+                    setPanel(null);
+                    toast(`House sold for ${N(price)}. May Allah put barakah in it.`, "good");
+                  },
+                };
+              })()}
               plot={p}
               own={own}
               points={saveRef.current.coins}
@@ -8406,7 +8448,10 @@ function PlotView({
   onCollect,
   onRooms,
   rent,
+  sell,
 }: {
+  /** selling a house you own (only when you own more than one) */
+  sell?: { price: number; blocked?: string; run: () => void };
   rent: ReturnType<typeof houseRent>;
   plot: {
     id: string;
@@ -8486,6 +8531,7 @@ function PlotView({
             count={beds}
             onRooms={(rooms, earned) => onRooms(rooms, earned)}
           />
+          {sell && <SellBox sell={sell} />}
         </div>
       );
     const price = rent.buy;
@@ -8695,6 +8741,47 @@ function PlotView({
           count={roomsIn(own.floors)}
           onRooms={(rooms, earned) => onRooms(rooms, earned)}
         />
+      )}
+      {sell && <SellBox sell={sell} />}
+    </div>
+  );
+}
+
+/** Sell a house you own: the city buys it back and it is free for other players. */
+function SellBox({ sell }: { sell: { price: number; blocked?: string; run: () => void } }) {
+  const [sure, setSure] = useState(false);
+  return (
+    <div className="rounded-xl border border-[#b8573a]/25 bg-[#fdf3ee] p-3 text-[13px]">
+      <div className="font-bold">Sell this house · {N(sell.price)}</div>
+      {sell.blocked ? (
+        <p className="opacity-75">{sell.blocked}</p>
+      ) : sure ? (
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={sell.run}
+            className="flex-1 rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+          >
+            Yes, sell it
+          </button>
+          <button
+            onClick={() => setSure(false)}
+            className="flex-1 rounded-lg border border-[#10201e]/15 bg-white py-2 font-bold"
+          >
+            Keep it
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="opacity-75">
+            You get 70% of what it is worth, straight away. Then it is free for other players.
+          </p>
+          <button
+            onClick={() => setSure(true)}
+            className="mt-2 w-full rounded-lg bg-[#b8573a] py-2 font-bold text-white"
+          >
+            Sell
+          </button>
+        </>
       )}
     </div>
   );
