@@ -1469,9 +1469,18 @@ export class IlmCityEngine {
       if (!d.parent) continue;
       const p = districtById(d.parent);
       const east = d.link === "east";
+      const south = d.link === "south";
       // a = along the road, from the parent to this area
-      const a0 = east ? p.origin.x + halfOf(p).x - 6 : p.origin.z - (halfOf(p).z - 4);
-      const a1 = east ? d.origin.x - halfOf(d).x + 6 : d.origin.z + halfOf(d).z - 7;
+      const a0 = east
+        ? p.origin.x + halfOf(p).x - 6
+        : south
+          ? p.origin.z + (halfOf(p).z - 4)
+          : p.origin.z - (halfOf(p).z - 4);
+      const a1 = east
+        ? d.origin.x - halfOf(d).x + 6
+        : south
+          ? d.origin.z - halfOf(d).z + 7
+          : d.origin.z + halfOf(d).z - 7;
       const len = Math.abs(a1 - a0),
         mid = (a0 + a1) / 2;
       const at = (along: number, across: number): [number, number] =>
@@ -1548,6 +1557,13 @@ export class IlmCityEngine {
             d.origin.x - halfOf(d).x,
             d.origin.z,
           ];
+        else if (d.link === "south")
+          [x0, z0, x1, z1] = [
+            d.origin.x,
+            p.origin.z + halfOf(p).z,
+            d.origin.x,
+            d.origin.z - halfOf(d).z,
+          ];
       } else {
         const c = centerOf(d);
         const [ex, ez] = this.roadEnd(d);
@@ -1588,6 +1604,8 @@ export class IlmCityEngine {
         const p = districtById(d.parent);
         if (d.link === "east")
           segs.push([p.origin.x + halfOf(p).x, d.origin.z, d.origin.x - halfOf(d).x, d.origin.z]);
+        else if (d.link === "south")
+          segs.push([d.origin.x, p.origin.z + halfOf(p).z, d.origin.x, d.origin.z - halfOf(d).z]);
         else
           segs.push([d.origin.x, p.origin.z - halfOf(p).z, d.origin.x, d.origin.z + halfOf(d).z]);
       } else {
@@ -1878,6 +1896,8 @@ export class IlmCityEngine {
         const p = districtById(d.parent);
         if (d.link === "east") {
           if (Math.abs(z - d.origin.z) < 12 && x > p.origin.x && x < d.origin.x) return d.highway;
+        } else if (d.link === "south") {
+          if (Math.abs(x - d.origin.x) < 12 && z < d.origin.z && z > p.origin.z) return d.highway;
         } else if (Math.abs(x - d.origin.x) < 12 && z > d.origin.z && z < p.origin.z)
           return d.highway;
         continue;
@@ -5923,7 +5943,16 @@ export class IlmCityEngine {
     const Hz = halfOf(D).z,
       Hx = halfOf(D).x;
     const dside = D.link === "east" ? -1 : side;
-    if (byCar) {
+    // a south area is reached from the north: the same way in, mirrored
+    const fromN = D.link === "south";
+    if (byCar && fromN) {
+      vehicle = this.car;
+      path = [W(3, -(Hz + 40)), W(3, -20), W(-4, 9.8), W(-16, 9.8)];
+    } else if (fromN) {
+      vehicle = makeBus(!!D.holy);
+      this.scene.add(vehicle);
+      path = [W(3, -(Hz + 40)), W(3, -20), W(-6, 9.6), W(-52, 9.6)];
+    } else if (byCar) {
       vehicle = this.car;
       path =
         D.parent && D.link !== "east"
@@ -5938,7 +5967,13 @@ export class IlmCityEngine {
           : [W(dside * (Hx + 38), 3), W(dside * 40, 3), W(-6, 9.6), W(-52, 9.6)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = D.parent && D.link !== "east" ? Math.PI / 2 : dside > 0 ? Math.PI : 0;
+    vehicle.rotation.y = fromN
+      ? -Math.PI / 2
+      : D.parent && D.link !== "east"
+        ? Math.PI / 2
+        : dside > 0
+          ? Math.PI
+          : 0;
     this.player.position.copy(path[0]);
     this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
     this.ev.onCinematic?.(true);
@@ -6003,11 +6038,12 @@ export class IlmCityEngine {
   private welcomeGate(D: District, side: number) {
     const H = halfOf(D);
     const north = !!D.parent && D.link !== "east";
+    const fromN = D.link === "south";
     const gx = north ? 0 : side * (H.x - 18);
-    const gz = north ? H.z - 14 : 0;
+    const gz = north ? (fromN ? -(H.z - 14) : H.z - 14) : 0;
     const g = new THREE.Group();
     g.position.set(gx, 0, gz);
-    g.rotation.y = north ? 0 : (side * Math.PI) / 2;
+    g.rotation.y = north ? (fromN ? Math.PI : 0) : (side * Math.PI) / 2;
     for (const x of [-8.6, 8.6]) {
       g.add(box(1.4, 7.5, 1.4, 0xece6d6, x, 0, 0));
       const cap = new THREE.Mesh(new THREE.ConeGeometry(1, 1.6, 8), mat(PALETTE.dome));

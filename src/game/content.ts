@@ -260,6 +260,13 @@ export const STREETS: Record<string, Street> = {
     bio: COMING_SOON,
   },
   sakinah: { id: "sakinah", name: "Sakinah Close", bio: HOMES },
+  mgavenue: {
+    id: "mgavenue",
+    name: "Manaar Gardens Avenue",
+    bio: "The main road of Manaar Gardens Estate in Igbe Laara: ready houses to let, a mosque and a quiet, gated street life.",
+  },
+  mgrahmah: { id: "mgrahmah", name: "Rahmah Crescent", bio: HOMES },
+  mgbarakah: { id: "mgbarakah", name: "Barakah Close", bio: HOMES },
   tawfiq: { id: "tawfiq", name: "Tawfiq Street", bio: HOMES },
   rayyan: { id: "rayyan", name: "Rayyan Close", bio: HOMES },
   safa: { id: "safa", name: "Safa Street", bio: HOMES },
@@ -362,7 +369,7 @@ export type District = {
   /** reached by road from this area instead of by its own expressway */
   parent?: string;
   /** which way the road runs from the parent area (default north) */
-  link?: "north" | "east";
+  link?: "north" | "east" | "south";
   /** the name of its bus stop */
   busStop?: string;
   /** share of empty plots that are shops and land (default 0.08 and 0.13) */
@@ -407,7 +414,7 @@ function universityArea(o: {
   gate?: string;
   /** more places in the area */
   extra?: Landmark[];
-  link?: "north" | "east";
+  link?: "north" | "east" | "south";
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
   const fx = [-112, -24, 26, 70];
@@ -845,6 +852,35 @@ export const DISTRICTS: District[] = [
         width: 46,
         depth: 32,
         floors: 3,
+      },
+    ],
+  },
+  {
+    // a gated housing estate just south of Igbe Laara, every house ready to let
+    id: "manaargardens",
+    tier: 2,
+    name: "Manaar Gardens Estate",
+    state: "Lagos",
+    origin: { x: 575, z: -65 },
+    highway: "Manaar Gardens Road",
+    parent: "ikorodu",
+    link: "south",
+    busStop: "Manaar Gardens Gate",
+    half: { x: 145, z: 150 },
+    shops: 0.08,
+    land: 0.04,
+    streets: [
+      { id: "mgavenue", z: 0, decor: true },
+      { id: "mgrahmah", z: -75, decor: true },
+      { id: "mgbarakah", z: 75, decor: true },
+    ],
+    landmarks: [
+      {
+        id: "manaargardens-mosque",
+        kind: "masjid",
+        name: "Manaar Gardens Mosque",
+        street: "mgavenue",
+        x: -40,
       },
     ],
   },
