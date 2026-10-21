@@ -193,14 +193,16 @@
     match /city_plots/{plot} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.owner == request.auth.uid
-        && request.resource.data.plot == plot;
-      // keep your own, or take one whose rent has run out
+        && request.resource.data.plot == plot
+        && request.resource.data.at > request.time.toMillis() - 86400000
+        && request.resource.data.at < request.time.toMillis() + 86400000;
+      // keep your own (when it became yours stays the same), or take one whose rent has run out
       allow update: if signedIn() && request.resource.data.owner == request.auth.uid
         && request.resource.data.plot == plot
-        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis()
-            // or you are buying it from its owner
-            || (get(/databases/$(database)/documents/city_house_sales/$(plot)).data.status == "listed"
-                && getAfter(/databases/$(database)/documents/city_house_sales/$(plot)).data.buyer == request.auth.uid));
+        && ((resource.data.owner == request.auth.uid
+              && request.resource.data.at == resource.data.get('at', request.resource.data.at))
+            || (resource.data.until < request.time.toMillis()
+              && request.resource.data.at > request.time.toMillis() - 86400000));
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
 
@@ -238,19 +240,19 @@
     // ---- houses players sell to each other ----
     match /city_house_sales/{plot} {
       allow read: if signedIn();
-      // only the house's owner can list it
+      // only the house's owner can list it; buying goes through the server, which moves
+      // the money and the house together
       allow create: if signedIn() && request.resource.data.seller == request.auth.uid
         && request.resource.data.status == "listed"
         && get(/databases/$(database)/documents/city_plots/$(plot)).data.owner == request.auth.uid;
       allow delete: if signedIn() && resource.data.seller == request.auth.uid
         && (resource.data.status == "listed" || resource.data.get('paid', false) == true);
-      allow update: if signedIn() && (
-        // a buyer takes a listed house
-        (resource.data.status == "listed" && request.resource.data.status == "sold"
-          && request.resource.data.buyer == request.auth.uid
-          && request.auth.uid != resource.data.seller
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'buyer', 'buyerName', 'soldAt']))
-        // the seller marks the money collected
-        || (request.auth.uid == resource.data.seller
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid'])));
+      allow update: if signedIn() && request.auth.uid == resource.data.seller
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid']);
+    }
+
+    // ---- each player's naira: held by the server, which alone can change it ----
+    match /city_wallets/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow write: if false;
     }

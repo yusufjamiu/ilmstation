@@ -22,6 +22,7 @@ import {
 } from "./calls";
 import { connectClaims, connectClaimsLocal, flatFor, type Claims } from "./claims";
 import { connectShops, connectShopsLocal, type SharedShop, type Shops } from "./shops";
+import { connectWallet, type WalletNet } from "./wallet";
 import {
   connectHouseSales,
   connectHouseSalesLocal,
@@ -923,7 +924,7 @@ function CityGame({
         const { doc, onSnapshot } = await import("firebase/firestore");
         if (!live) return;
         off = onSnapshot(doc(db, "city_saves", uid), (snap) => {
-          if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+          if (!snap.exists() || snap.metadata.hasPendingWrites || walletNet.current) return;
           const d = snap.data() as { data?: string; naira?: number };
           if (typeof d.naira !== "number" || !d.data) return;
           let saved: Save;
@@ -961,15 +962,78 @@ function CityGame({
       cloud.onError = null;
     };
   }, [toast]);
+  /* ---------- the wallet: money held by the server ----------
+     When the server holds this player's naira, every change to coins in the game is sent
+     to it: spending is refused if the wallet is short, earning is limited per day. The
+     coins on screen always come back to what the server says. */
+  const walletNet = useRef<WalletNet | null>(null);
+  const walletServer = useRef<number | null>(null);
+  const walletPending = useRef(0);
+  const walletChain = useRef<Promise<void>>(Promise.resolve());
+  const syncCoins = useCallback(() => {
+    const n = walletServer.current;
+    if (n === null || walletPending.current) return;
+    if (saveRef.current.coins === n) return;
+    saveRef.current = { ...saveRef.current, coins: n };
+    setSave((x) => {
+      const y = { ...x, coins: n };
+      writeSave(y);
+      return y;
+    });
+  }, []);
   const update = useCallback(
-    (fn: (s: Save) => Save) =>
+    (fn: (s: Save) => Save) => {
+      const w = walletNet.current;
+      if (w) {
+        const base = saveRef.current;
+        const delta = fn(base).coins - base.coins;
+        if (delta) {
+          walletPending.current++;
+          walletChain.current = walletChain.current
+            .then(async () => {
+              const r = await w.change(delta);
+              if (r.ok && typeof r.naira === "number") walletServer.current = r.naira;
+              else if (r.error === "not-enough")
+                toast("Your wallet doesn't have enough for that.", "warn");
+              else if (r.error === "daily-limit")
+                toast("You've reached today's earning limit. More tomorrow, in shaa Allah.");
+            })
+            .finally(() => {
+              walletPending.current--;
+              syncCoins();
+            });
+        }
+      }
       setSave((s) => {
         const n = fn(s);
         writeSave(n);
         return n;
-      }),
-    [],
+      });
+    },
+    [toast, syncCoins],
   );
+  // connect the wallet once the account and its save are loaded
+  useEffect(() => {
+    const u = cloud.uid;
+    if (!u) return;
+    let live = true;
+    void connectWallet(
+      u,
+      { path: saveRef.current.path, existing: !!saveRef.current.profile },
+      (naira) => {
+        walletServer.current = naira;
+        syncCoins();
+      },
+    ).then((w) => {
+      if (!live) return w?.stop();
+      walletNet.current = w;
+    });
+    return () => {
+      live = false;
+      walletNet.current?.stop();
+      walletNet.current = null;
+    };
+  }, [syncCoins]);
 
   /** Finish a step of the guided start: +₦100. */
   const advance = useCallback(
@@ -2191,12 +2255,44 @@ function CityGame({
                   const net = salesNet.current,
                     o = onlineRef.current;
                   if (!net || !o || saveRef.current.coins < sale.price) return;
-                  const ok = await net
-                    .buy(pid, o.uid, shownName(saveRef.current) ?? "Player")
-                    .catch(() => false);
-                  if (!ok) {
-                    toast("This house is no longer for sale.", "warn");
+                  const w = walletNet.current;
+                  const myName = shownName(saveRef.current) ?? "Player";
+                  // with the wallet, the server moves the money and the house together
+                  const res = w
+                    ? await w.buyHouse(pid, myName)
+                    : { ok: await net.buy(pid, o.uid, myName).catch(() => false) };
+                  if (!res.ok) {
+                    toast(
+                      "error" in res && res.error === "not-enough"
+                        ? "Your wallet doesn't have enough for this house."
+                        : "This house is no longer for sale.",
+                      "warn",
+                    );
                     setPanel(null);
+                    return;
+                  }
+                  if (w && "naira" in res && typeof res.naira === "number") {
+                    // the server has taken the money: just add the house
+                    walletServer.current = res.naira;
+                    const own: PlotOwn =
+                      sale.kind === "built"
+                        ? { kind: "built", floors: sale.floors }
+                        : { kind: "bought", floors: sale.floors };
+                    saveRef.current = {
+                      ...saveRef.current,
+                      coins: res.naira,
+                      plots: { ...saveRef.current.plots, [pid]: own },
+                    };
+                    setSave((x) => {
+                      const y = { ...x, coins: res.naira!, plots: { ...x.plots, [pid]: own } };
+                      writeSave(y);
+                      return y;
+                    });
+                    salesHere.current.delete(pid);
+                    takenRef.current.delete(pid);
+                    e.setPlot(pid, plotStateFn(own) ?? { kind: "tolet" });
+                    setPanel(null);
+                    toast(`Alhamdulillah, the house is yours! You paid ${N(sale.price)}.`, "good");
                     return;
                   }
                   const own: PlotOwn =
@@ -2347,8 +2443,43 @@ function CityGame({
                     mySales.current.delete(pid);
                     render();
                   },
-                  run: () => {
+                  run: async () => {
                     const o = onlineRef.current;
+                    const w = walletNet.current;
+                    if (w) {
+                      // the server checks it is yours, pays you and frees the house
+                      const r = await w.sellHouse(pid, price);
+                      if (!r.ok) {
+                        toast(
+                          r.error === "one-a-day"
+                            ? "You can sell one house to the city a day. Try tomorrow, or list it for players."
+                            : r.error === "too-new"
+                              ? "The city buys back houses you've owned for at least 3 days. List it for players instead."
+                              : "Couldn't sell the house. Try again.",
+                          "warn",
+                        );
+                        return;
+                      }
+                      if (typeof r.naira === "number") walletServer.current = r.naira;
+                      const plots = { ...saveRef.current.plots };
+                      delete plots[pid];
+                      saveRef.current = {
+                        ...saveRef.current,
+                        plots,
+                        coins: r.naira ?? saveRef.current.coins,
+                      };
+                      setSave((x) => {
+                        const p2 = { ...x.plots };
+                        delete p2[pid];
+                        const y = { ...x, plots: p2, coins: r.naira ?? x.coins };
+                        writeSave(y);
+                        return y;
+                      });
+                      e.setPlot(pid, { kind: p.kind === "land" ? "land" : "tolet" });
+                      setPanel(null);
+                      toast(`House sold for ${N(price)}. May Allah put barakah in it.`, "good");
+                      return;
+                    }
                     if (o) void claimsNet.current?.release(pid, o.uid).catch(() => {});
                     update((x) => {
                       const plots = { ...x.plots };
@@ -3933,7 +4064,28 @@ function CityGame({
           );
           // a player bought one of your houses: the money is yours, the house is theirs
           for (const x of list)
-            if (x.status === "sold" && !x.paid && saveRef.current.plots?.[x.plot]) {
+            if (
+              x.status === "sold" &&
+              (x as HouseSale & { paidByServer?: boolean }).paidByServer &&
+              saveRef.current.plots?.[x.plot]
+            ) {
+              // the server already put the money in your wallet: the house is theirs now
+              const plots = { ...saveRef.current.plots };
+              delete plots[x.plot];
+              saveRef.current = { ...saveRef.current, plots };
+              setSave((s2) => {
+                const p2 = { ...s2.plots };
+                delete p2[x.plot];
+                const y = { ...s2, plots: p2 };
+                writeSave(y);
+                return y;
+              });
+              engine.current?.setPlot(x.plot, { kind: "taken", by: x.buyerName });
+              toast(
+                `🔑 ${x.buyerName ?? "A player"} bought your house (${x.label}) for ${N(x.price)}!`,
+                "good",
+              );
+            } else if (x.status === "sold" && !x.paid && saveRef.current.plots?.[x.plot]) {
               void net.markPaid(x.plot).catch(() => {});
               const plots = { ...saveRef.current.plots };
               delete plots[x.plot];

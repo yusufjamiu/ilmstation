@@ -90,6 +90,9 @@ export default {
     // play.ilmstation.com opens IlmWorld straight away.
     const url = new URL(request.url);
     if (url.pathname === "/api/turn") return turnServers();
+    // IlmWorld money: every change to a player's naira goes through the server
+    if (url.pathname === "/api/money")
+      return import("./lib/money-server").then((m) => m.handleMoney(request));
     const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
     if (host.startsWith("play.") && url.pathname === "/")
       return new Response(null, { status: 302, headers: { location: "/world" + url.search } });
