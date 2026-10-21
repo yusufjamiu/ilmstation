@@ -1,0 +1,222 @@
+// IlmCity rules. Paste these lines inside your existing
+//   match /databases/{database}/documents { ... }
+// block in Firebase console → Firestore Database → Rules, then press Publish.
+// They only cover the new IlmCity collections and do not change your other rules.
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // where each player is in the city (only their own position can be written)
+    match /city_presence/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // chat limits, pass, blocks and fines
+    match /city_players/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if isAdmin() || (signedIn() && request.auth.uid == uid
+        // a player may clear their own fine (after paying) but never set one
+        && (!('fine' in request.resource.data)
+            || request.resource.data.fine == 0
+            || (resource != null && request.resource.data.fine == resource.data.get('fine', 0))));
+    }
+
+    // conversations between two players
+    match /city_chats/{chatId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members;
+      allow update: if signedIn() && request.auth.uid in resource.data.members
+        && request.resource.data.members == resource.data.members;
+
+      match /messages/{msgId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/city_chats/$(chatId)).data.members;
+        allow create: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/city_chats/$(chatId)).data.members
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 400;
+        allow read: if isAdmin();
+      }
+    }
+
+    // reports: anyone signed in can send one; only admins can read them
+    match /city_reports/{id} {
+      allow create: if signedIn() && request.resource.data.reporter == request.auth.uid;
+      allow read, update: if isAdmin();
+    }
+
+    // ---- added for IlmWorld: matches, adverts, award, MSSN questions, nasheeds ----
+
+    // football matches between two players
+    match /city_matches/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b);
+      allow create: if signedIn() && request.resource.data.a == request.auth.uid
+        && request.resource.data.status == "invited";
+      allow update: if signedIn()
+        && (request.auth.uid == resource.data.a || request.auth.uid == resource.data.b)
+        && request.resource.data.a == resource.data.a
+        && request.resource.data.b == resource.data.b;
+    }
+
+    // billboard adverts: players ask, the admin approves; everyone sees approved ones
+    match /city_ads/{id} {
+      allow read: if resource.data.status == "approved"
+        || isAdmin()
+        || (signedIn() && request.auth.uid == resource.data.from);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "pending";
+      allow update, delete: if isAdmin();
+    }
+
+    // best home of the week: everyone reads, only the admin announces
+    match /city_awards/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // questions to the MSSN: players ask and read their own; the admin answers
+    match /city_enquiries/{id} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == resource.data.from);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.text is string && request.resource.data.text.size() <= 400;
+      allow update, delete: if isAdmin();
+    }
+
+    // nasheeds: everyone listens, only the admin uploads
+    match /city_nasheeds/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---- added for IlmWorld phones: numbers and voice calls ----
+
+    // the phone book: IlmWorld number -> player (each player writes only their own entry)
+    match /city_phones/{num} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    // voice calls: only the caller and the person called can see or change a call
+    match /city_calls/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "ringing";
+      allow update: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to)
+        && request.resource.data.from == resource.data.from
+        && request.resource.data.to == resource.data.to;
+
+      match /{side}/{cand} {
+        allow read, create: if signedIn()
+          && (request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.from
+              || request.auth.uid == get(/databases/$(database)/documents/city_calls/$(id)).data.to);
+      }
+    }
+
+    // ---- homes on show: visits and weekly likes ----
+    match /city_homes/{uid} {
+      allow read: if true;
+      // your own home: anything; someone else: only add one like, with their like record
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && (request.auth.uid == uid
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likesWeek'])
+            && existsAfter(/databases/$(database)/documents/city_home_likes/$(request.resource.data.likesWeek + '_' + uid + '_' + request.auth.uid))));
+    }
+    match /city_home_likes/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.from != request.resource.data.owner
+        && id == request.resource.data.week + '_' + request.resource.data.owner + '_' + request.auth.uid;
+    }
+
+    // ---- rooms to let between players ----
+    match /city_rooms/{id} {
+      allow read: if signedIn();
+      // the owner lists, unlists and marks rent collected
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+      allow update: if signedIn() && (
+        request.auth.uid == resource.data.owner
+        // a tenant can only take a free room, for themselves
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenant', 'tenantName', 'until', 'paid'])
+            && request.resource.data.tenant == request.auth.uid
+            && request.resource.data.paid == false
+            && (resource.data.get('tenant', null) == null || resource.data.get('until', 0) < request.time.toMillis())));
+    }
+
+    // ---- knocking on a player's door ----
+    match /city_knocks/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.status == "knocking";
+      // the owner lets in, says not now or asks to leave; the visitor can only leave
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((request.auth.uid == resource.data.to && request.resource.data.status in ['in', 'no', 'out'])
+            || (request.auth.uid == resource.data.from && request.resource.data.status == 'left'));
+    }
+
+    // ---- each player's saved progress and money (an admin can read and correct it) ----
+    match /city_saves/{uid} {
+      allow read, write: if (signedIn() && request.auth.uid == uid) || isAdmin();
+    }
+
+    // ---- sending money to another player ----
+    match /city_transfers/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.from || request.auth.uid == resource.data.to);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.to != request.auth.uid
+        && request.resource.data.status == "sent"
+        && request.resource.data.amount is int
+        && request.resource.data.amount > 0
+        && request.resource.data.amount <= 5000;
+      // only the person it was sent to can mark it received, once
+      allow update: if signedIn() && request.auth.uid == resource.data.to
+        && resource.data.status == "sent"
+        && request.resource.data.status == "received"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
+    // ---- one player per house: who rents or owns each house and plot of land ----
+    match /city_plots/{plot} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.plot == plot;
+      // keep your own, or take one whose rent has run out
+      allow update: if signedIn() && request.resource.data.owner == request.auth.uid
+        && request.resource.data.plot == plot
+        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    // ---- sponsored quizzes with cash prizes: the admin sets them, players enter once ----
+    match /city_sponsored/{quiz} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+      // one entry per player, written once and never changed by them; the admin marks paid
+      match /entries/{uid} {
+        allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.picks is list
+          && request.resource.data.picks.size() <= 50
+          && !('paid' in request.resource.data);
+        allow update: if isAdmin();
+      }
+    }
+    // the right answers: only the admin can see them
+    match /city_sponsored_keys/{quiz} {
+      allow read, write: if isAdmin();
+    }

@@ -44,8 +44,55 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+/* Relay servers (TURN) for IlmWorld voice calls: phones on different mobile networks often
+   can't reach each other directly, so the voice goes through a relay. Credentials are made
+   on the server, short-lived, from Cloudflare Realtime TURN or Metered (whichever is set). */
+let turnCache: { at: number; body: string } | null = null;
+async function turnServers(): Promise<Response> {
+  const json = (body: string) =>
+    new Response(body, {
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  if (turnCache && Date.now() - turnCache.at < 10 * 60_000) return json(turnCache.body);
+  const env = process.env;
+  let iceServers: unknown = [];
+  try {
+    if (env.CLOUDFLARE_TURN_KEY_ID && env.CLOUDFLARE_TURN_API_TOKEN) {
+      const r = await fetch(
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${env.CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${env.CLOUDFLARE_TURN_API_TOKEN}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ ttl: 3600 }),
+        },
+      );
+      if (r.ok) iceServers = ((await r.json()) as { iceServers?: unknown }).iceServers ?? [];
+    } else if (env.METERED_TURN_DOMAIN && env.METERED_API_KEY) {
+      const r = await fetch(
+        `https://${env.METERED_TURN_DOMAIN}/api/v1/turn/credentials?apiKey=${env.METERED_API_KEY}`,
+      );
+      if (r.ok) iceServers = await r.json();
+    }
+  } catch {
+    iceServers = [];
+  }
+  const body = JSON.stringify({ iceServers });
+  if (Array.isArray(iceServers) ? iceServers.length : iceServers)
+    turnCache = { at: Date.now(), body };
+  return json(body);
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // play.ilmstation.com opens IlmWorld straight away.
+    const url = new URL(request.url);
+    if (url.pathname === "/api/turn") return turnServers();
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
+    if (host.startsWith("play.") && url.pathname === "/")
+      return new Response(null, { status: 302, headers: { location: "/world" + url.search } });
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

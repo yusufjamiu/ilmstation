@@ -13,11 +13,14 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as CentresRouteImport } from './routes/centres'
 import { Route as ChatroomsRouteImport } from './routes/chatrooms'
+import { Route as CityRouteImport } from './routes/city'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlayRouteImport } from './routes/play'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SponsorshipRouteImport } from './routes/sponsorship'
+import { Route as WorldRouteImport } from './routes/world'
+import { Route as AdminWorldRouteImport } from './routes/admin.world'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -37,6 +40,11 @@ const CentresRoute = CentresRouteImport.update({
 const ChatroomsRoute = ChatroomsRouteImport.update({
   id: '/chatrooms',
   path: '/chatrooms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CityRoute = CityRouteImport.update({
+  id: '/city',
+  path: '/city',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EventsRoute = EventsRouteImport.update({
@@ -64,28 +72,44 @@ const SponsorshipRoute = SponsorshipRouteImport.update({
   path: '/sponsorship',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorldRoute = WorldRouteImport.update({
+  id: '/world',
+  path: '/world',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminWorldRoute = AdminWorldRouteImport.update({
+  id: '/admin/world',
+  path: '/admin/world',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
+  '/city': typeof CityRoute
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/world': typeof WorldRoute
+  '/admin/world': typeof AdminWorldRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
+  '/city': typeof CityRoute
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/world': typeof WorldRoute
+  '/admin/world': typeof AdminWorldRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -93,11 +117,14 @@ export interface FileRoutesById {
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
+  '/city': typeof CityRoute
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/world': typeof WorldRoute
+  '/admin/world': typeof AdminWorldRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -106,33 +133,42 @@ export interface FileRouteTypes {
     | '/app'
     | '/centres'
     | '/chatrooms'
+    | '/city'
     | '/events'
     | '/login'
     | '/play'
     | '/signup'
     | '/sponsorship'
+    | '/world'
+    | '/admin/world'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/app'
     | '/centres'
     | '/chatrooms'
+    | '/city'
     | '/events'
     | '/login'
     | '/play'
     | '/signup'
     | '/sponsorship'
+    | '/world'
+    | '/admin/world'
   id:
     | '__root__'
     | '/'
     | '/app'
     | '/centres'
     | '/chatrooms'
+    | '/city'
     | '/events'
     | '/login'
     | '/play'
     | '/signup'
     | '/sponsorship'
+    | '/world'
+    | '/admin/world'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -140,11 +176,14 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRoute
   CentresRoute: typeof CentresRoute
   ChatroomsRoute: typeof ChatroomsRoute
+  CityRoute: typeof CityRoute
   EventsRoute: typeof EventsRoute
   LoginRoute: typeof LoginRoute
   PlayRoute: typeof PlayRoute
   SignupRoute: typeof SignupRoute
   SponsorshipRoute: typeof SponsorshipRoute
+  WorldRoute: typeof WorldRoute
+  AdminWorldRoute: typeof AdminWorldRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -175,6 +214,13 @@ declare module '@tanstack/react-router' {
       path: '/chatrooms'
       fullPath: '/chatrooms'
       preLoaderRoute: typeof ChatroomsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/city': {
+      id: '/city'
+      path: '/city'
+      fullPath: '/city'
+      preLoaderRoute: typeof CityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/events': {
@@ -212,6 +258,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SponsorshipRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/world': {
+      id: '/world'
+      path: '/world'
+      fullPath: '/world'
+      preLoaderRoute: typeof WorldRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/world': {
+      id: '/admin/world'
+      path: '/admin/world'
+      fullPath: '/admin/world'
+      preLoaderRoute: typeof AdminWorldRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -220,11 +280,14 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRoute,
   CentresRoute: CentresRoute,
   ChatroomsRoute: ChatroomsRoute,
+  CityRoute: CityRoute,
   EventsRoute: EventsRoute,
   LoginRoute: LoginRoute,
   PlayRoute: PlayRoute,
   SignupRoute: SignupRoute,
   SponsorshipRoute: SponsorshipRoute,
+  WorldRoute: WorldRoute,
+  AdminWorldRoute: AdminWorldRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
