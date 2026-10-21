@@ -144,6 +144,12 @@ function mat(color: number, extra: Partial<THREE.MeshStandardMaterialParameters>
   }
   return m;
 }
+type PlotState = {
+  kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken" | "forsale";
+  floors?: number;
+  by?: string;
+  stage?: number;
+};
 type SignKind = "tolet" | "land" | "ownland" | "sold" | "building" | "mine" | "taken" | "forsale";
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0, cast = true) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
@@ -5123,6 +5129,7 @@ export class IlmCityEngine {
   private guide: { zone: Zone; arrow: THREE.Object3D } | null = null;
   /** Point the way to the nearest place with this id (in the scene you are in). */
   guideTo(prefix: string) {
+    this.showPlotPhase(prefix);
     this.clearGuide();
     const p = this.player.position;
     const zone = this.zones
@@ -5738,8 +5745,9 @@ export class IlmCityEngine {
   }
   /** Begin inside the family house; walking out puts you at its gate. */
   startAtPlot(id: string, name: string) {
+    const p = this.plots.find((q) => q.id === IlmCityEngine.plotBase(id));
+    if (p) this.setPhase(p.district, IlmCityEngine.plotPhase(id));
     const z = this.zones.find((zz) => zz.id === "plot:" + id);
-    const p = this.plots.find((q) => q.id === id);
     if (z) this.player.position.set(z.x, 0, z.z);
     if (p) this.district = districtById(p.district);
     this.enterInterior("home", name);
@@ -6065,6 +6073,7 @@ export class IlmCityEngine {
   /** Walk to the nearest place whose id starts with `prefix` (used by the guided start). */
   goToZone(prefix: string) {
     if (this.driving || this.riding || this.kekeTrip) return false;
+    this.showPlotPhase(prefix);
     const p = this.player.position;
     const z = this.zones
       .filter((zz) => zz.scene === this.where && !zz.off && zz.id.startsWith(prefix))
@@ -8287,8 +8296,58 @@ export class IlmCityEngine {
     return g;
   }
 
+  /* ---------- phases: each area's houses come in copies ----------
+     When an area fills up, a new phase opens: the same streets with a fresh set of houses.
+     A house in phase 2 has the id "<plot>~2". You see one phase of an area at a time. */
+  private viewPhase = new Map<string, number>();
+  private plotStates = new Map<string, PlotState>();
+  static plotBase(id: string) {
+    return id.split("~")[0];
+  }
+  static plotPhase(id: string) {
+    return Number(id.split("~")[1] ?? 1) || 1;
+  }
+  phasedId(base: string, n: number) {
+    return n > 1 ? `${base}~${n}` : base;
+  }
+  /** The phase of an area you are looking at (1 = the original houses). */
+  phaseOf(area: string) {
+    return this.viewPhase.get(area) ?? 1;
+  }
+  /** Look at another phase of an area: every house shows how it is in that phase. */
+  setPhase(area: string, n: number) {
+    if (this.phaseOf(area) === n) return;
+    this.viewPhase.set(area, n);
+    for (const p of this.plots) {
+      if (p.district !== area) continue;
+      const fx = this.plotFx.get(p.id);
+      if (!fx) continue;
+      const pid = this.phasedId(p.id, n);
+      fx.zone.id = "plot:" + pid;
+      this.paintPlot(
+        p.id,
+        this.plotStates.get(pid) ?? { kind: p.kind === "land" ? "land" : "tolet" },
+      );
+    }
+    this.place = "";
+  }
+  /** Going to a house in another phase: show that phase of its area first. */
+  private showPlotPhase(prefix: string) {
+    if (!prefix.startsWith("plot:") || prefix.endsWith("-")) return;
+    const id = prefix.slice(5);
+    const p = this.plots.find((q) => q.id === IlmCityEngine.plotBase(id));
+    if (p) this.setPhase(p.district, IlmCityEngine.plotPhase(id));
+  }
+  /** Show a plot as it now is (any phase; only the phase on view is drawn). */
+  setPlot(id: string, state: PlotState) {
+    this.plotStates.set(id, state);
+    const base = IlmCityEngine.plotBase(id);
+    const p = this.plots.find((q) => q.id === base);
+    if (!p || IlmCityEngine.plotPhase(id) !== this.phaseOf(p.district)) return;
+    this.paintPlot(base, state);
+  }
   /** Show a plot as it now is: for rent, rented by you, land, building, or built. */
-  setPlot(
+  private paintPlot(
     id: string,
     state: {
       kind: "tolet" | "rented" | "land" | "owned" | "building" | "built" | "taken" | "forsale";
@@ -8413,13 +8472,17 @@ export class IlmCityEngine {
       { kind: "rented" | "owned" | "building" | "built"; floors?: number; stage?: number }
     >,
   ) {
+    for (const [id, st] of Object.entries(states)) this.plotStates.set(id, st);
     for (const id of this.plotFx.keys()) {
       const p = this.plots.find((q) => q.id === id)!;
-      this.setPlot(id, states[id] ?? { kind: p.kind === "land" ? "land" : "tolet" });
+      const pid = this.phasedId(id, this.phaseOf(p.district));
+      this.setPlot(pid, states[pid] ?? { kind: p.kind === "land" ? "land" : "tolet" });
     }
   }
+  /** A plot's details; for a house in a later phase, its id keeps the phase. */
   plotInfo(id: string) {
-    return this.plots.find((q) => q.id === id) ?? null;
+    const p = this.plots.find((q) => q.id === IlmCityEngine.plotBase(id));
+    return p ? { ...p, id } : null;
   }
   private areaGroup(id: string) {
     const D = districtById(id);
@@ -8946,7 +9009,7 @@ export class IlmCityEngine {
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
-      place = `${area.name}, ${area.state}`;
+      place = `${area.name}${this.phaseOf(area.id) > 1 ? ` (Phase ${this.phaseOf(area.id)})` : ""}, ${area.state}`;
     } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
     if (place !== this.place) {
       this.place = place;

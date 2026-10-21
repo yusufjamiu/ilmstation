@@ -394,14 +394,22 @@ const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
 const FLOOR_RENT: Record<number, number> = { 1: 1, 2: 1.5, 3: 2 };
 const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
 const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
+/** How full each area's original houses are (0 to 1): prices rise with demand. */
+const AREA_DEMAND: Record<string, number> = {};
 function houseRent(area: string, floors: number, ilm: number) {
   const t = districtById(area).tier ?? 2;
-  const base = r10(150 * (TIER_RENT[t] ?? 1) * (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1));
+  // up to half as much again when an area is in demand
+  const demand = 1 + 0.5 * Math.min(1, AREA_DEMAND[area] ?? 0);
+  const base = r10(
+    150 * (TIER_RENT[t] ?? 1) * (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1) * demand,
+  );
   const need = TIER_LEVEL[t] ?? 0;
   const premium = ilmLevel(ilm).i < need;
   const week = premium ? r10(base * 1.5) : base;
   const buy = r10(
-    (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * (TIER_RENT[t] ?? 1),
+    (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) *
+      (TIER_RENT[t] ?? 1) *
+      demand,
   );
   return { week, month: r10(week * 3.4), base, premium, need: ILM_LEVELS[need], buy };
 }
@@ -2964,6 +2972,7 @@ function CityGame({
     const ilm = saveRef.current.ilm;
     const lv = ilmLevel(ilm);
     const list = e.plots
+      .map((q) => ({ ...q, id: e.phasedId(q.id, e.phaseOf(q.district)) }))
       .filter(
         (q) =>
           q.kind === "house" &&
@@ -2988,13 +2997,31 @@ function CityGame({
             The best areas open up as your Ilm grows; you can still rent there now by paying half as
             much again.
           </p>
+          <PhaseBox
+            area={here}
+            info={phaseInfo.current[here]}
+            viewing={e.phaseOf(here)}
+            onView={(n) => {
+              e.setPhase(here, n);
+              manualPhase.current.add(here);
+              repaintClaims.current();
+              setPanel(null);
+              toast(
+                n > 1
+                  ? `Now showing ${districtById(here).name} Phase ${n}: a fresh set of houses on the same streets.`
+                  : `Now showing the original ${districtById(here).name} houses.`,
+                "good",
+              );
+            }}
+          />
           {areas.map((a) => {
             const D = districtById(a);
             const items = list.filter((x) => x.q.district === a).slice(0, 8);
             return (
               <div key={a}>
                 <div className="mb-1 text-[13px] font-bold">
-                  {D.name}{" "}
+                  {D.name}
+                  {e.phaseOf(a) > 1 ? ` (Phase ${e.phaseOf(a)})` : ""}{" "}
                   {a === here && <span className="font-normal opacity-60">· you are here</span>}
                 </div>
                 <div className="space-y-1.5">
@@ -4048,6 +4075,29 @@ function CityGame({
     return net.watchArea(areaNow, (list) => {
       const e = engine.current;
       if (!e) return;
+      // how full each phase of this area is, and which phases are open
+      const total = Math.max(
+        1,
+        e.plots.filter((q) => q.district === areaNow && (q.toLet || q.kind === "land")).length,
+      );
+      const occ: Record<number, number> = {};
+      for (const c of list) {
+        const ph = IlmCityEngine.plotPhase(c.plot);
+        occ[ph] = (occ[ph] ?? 0) + 1;
+      }
+      let open = 1;
+      while ((occ[open] ?? 0) / total >= 0.8) open++;
+      phaseInfo.current[areaNow] = { total, occ, open };
+      AREA_DEMAND[areaNow] = (occ[1] ?? 0) / total;
+      // show the phase where you have a house; otherwise the first one with room
+      if (!manualPhase.current.has(areaNow)) {
+        const mine = Object.keys(saveRef.current.plots ?? {}).find(
+          (k) => e.plotInfo(k)?.district === areaNow,
+        );
+        let want = mine ? IlmCityEngine.plotPhase(mine) : 1;
+        if (!mine) while (want < open && (occ[want] ?? 0) / total >= 0.8) want++;
+        if (e.phaseOf(areaNow) !== want) e.setPhase(areaNow, want);
+      }
       const now = new Map(list.filter((c) => c.owner !== o.uid).map((c) => [c.plot, c.name]));
       for (const pid of [...takenRef.current.keys()]) {
         if (now.has(pid)) continue;
@@ -4158,6 +4208,10 @@ function CityGame({
       salesHere.current = next;
     });
   }, [areaNow, salesReady, claimsReady]);
+  /** each area's phases: how many houses, how many taken in each phase, how many open */
+  const phaseInfo = useRef<Record<string, PhaseInfo>>({});
+  const manualPhase = useRef(new Set<string>());
+  const repaintClaims = useRef(() => setClaimsReady((n) => n + 1));
   /** Take a house or land for yourself; false if another player already has it. */
   const claimPlot = useCallback(async (pid: string, own: PlotOwn) => {
     const net = claimsNet.current;
@@ -6572,7 +6626,7 @@ function CityGame({
       if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
-        if (sv.homePlot && e.plots.some((q) => q.id === sv.homePlot))
+        if (sv.homePlot && e.plotInfo(sv.homePlot))
           e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
         else {
           e.startAtHome(home, flatName(home));
@@ -12783,6 +12837,61 @@ function shownName(s: Save) {
   const p = s.profile;
   if (!p?.name) return undefined;
   return (s.hajj?.done ?? 0) > 0 ? `${p.female ? "Alhaja" : "Alhaji"} ${p.name}` : p.name;
+}
+
+type PhaseInfo = { total: number; occ: Record<number, number>; open: number };
+/** The phases of an area's houses: how full each is, and which one you are looking at. */
+function PhaseBox({
+  area,
+  info,
+  viewing,
+  onView,
+}: {
+  area: string;
+  info?: PhaseInfo;
+  viewing: number;
+  onView: (n: number) => void;
+}) {
+  if (!info) return null;
+  const D = districtById(area);
+  const phases = Array.from({ length: info.open }, (_, i) => i + 1);
+  return (
+    <div className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
+      <div className="text-[13px] font-bold">{D.name}: house phases</div>
+      <p className="text-[11.5px] opacity-70">
+        When a phase is 80% taken, a new one opens: a fresh set of houses on the same streets.
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {phases.map((n) => {
+          const pct = Math.round(((info.occ[n] ?? 0) / info.total) * 100);
+          return (
+            <div key={n} className="flex items-center gap-2 text-[12.5px]">
+              <span className="w-16 font-semibold">{n === 1 ? "Original" : `Phase ${n}`}</span>
+              <span className="h-2 flex-1 overflow-hidden rounded-full bg-[#10201e]/10">
+                <span
+                  className="block h-full rounded-full bg-[#1f6f63]"
+                  style={{ width: `${Math.min(100, pct)}%` }}
+                />
+              </span>
+              <span className="w-10 text-right tabular-nums">{pct}%</span>
+              {n === viewing ? (
+                <span className="w-14 text-center text-[11px] font-bold text-[#1f6f63]">
+                  viewing
+                </span>
+              ) : (
+                <button
+                  onClick={() => onView(n)}
+                  className="w-14 rounded-lg bg-[#1f6f63] py-1 text-[11px] font-bold text-white"
+                >
+                  View
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 /** The short dhikr for this part of the day (a new one every two hours). */
