@@ -814,6 +814,11 @@ export class IlmCityEngine {
     for (const c of this.player.children) if (c !== this.bikeObj) c.position.y += y - this.bikeLift;
     this.bikeLift = y;
   }
+  private tired = false;
+  /** Worn out (no sleep): you walk and ride slowly. */
+  setTired(on: boolean) {
+    this.tired = on;
+  }
   isCycling() {
     return !!this.bikeKind;
   }
@@ -9547,7 +9552,8 @@ export class IlmCityEngine {
     const moving = dir.lengthSq() > 0.001;
     if (moving) {
       const onBike = !!this.bikeKind && this.where === "out";
-      const speed = 7.5 * (onBike ? this.bikeMult : 1) * Math.min(1, dir.length());
+      const speed =
+        7.5 * (onBike ? this.bikeMult : 1) * (this.tired ? 0.55 : 1) * Math.min(1, dir.length());
       const n = dir.clone().normalize();
       const nx = this.player.position.x + n.x * speed * dt,
         nz = this.player.position.z + n.z * speed * dt;
