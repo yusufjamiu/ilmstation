@@ -36,7 +36,11 @@ export async function connectClaims(): Promise<Claims> {
         const s = await tx.get(ref);
         const cur = s.exists() ? (s.data() as Claim) : null;
         if (cur && cur.owner !== c.owner && live(cur)) return false;
-        tx.set(ref, { ...c, at: Date.now() });
+        // keep when it first became yours (the city only buys back houses held a few days)
+        tx.set(ref, {
+          ...c,
+          at: cur && cur.owner === c.owner ? (cur.at ?? Date.now()) : Date.now(),
+        });
         return true;
       });
     },
@@ -71,7 +75,10 @@ export function connectClaimsLocal(): Claims {
       const all = read();
       const cur = all[c.plot];
       if (cur && cur.owner !== c.owner && live(cur)) return false;
-      all[c.plot] = { ...c, at: Date.now() };
+      all[c.plot] = {
+        ...c,
+        at: cur && cur.owner === c.owner ? (cur.at ?? Date.now()) : Date.now(),
+      };
       write(all);
       return true;
     },

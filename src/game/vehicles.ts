@@ -5,7 +5,17 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
    No real brand names or logos: the luxury car is simply "the executive saloon". */
 
 export type VehicleKind =
-  "small" | "sedan" | "suv" | "luxury" | "danfo" | "keke" | "hisbah" | "pickup";
+  | "small"
+  | "sedan"
+  | "suv"
+  | "luxury"
+  | "danfo"
+  | "keke"
+  | "hisbah"
+  | "pickup"
+  | "truck"
+  | "tanker"
+  | "tipper";
 
 export const VEHICLE_INFO: Record<
   VehicleKind,
@@ -48,6 +58,27 @@ export const VEHICLE_INFO: Record<
   },
   danfo: { name: "Danfo", blurb: "The yellow bus of Lagos.", length: 5.8, width: 2.1, top: 22 },
   keke: { name: "Keke", blurb: "Three wheels, always around.", length: 2.6, width: 1.3, top: 16 },
+  truck: {
+    name: "Trailer",
+    blurb: "A long trailer carrying goods across the country.",
+    length: 11,
+    width: 2.5,
+    top: 20,
+  },
+  tanker: {
+    name: "Fuel Tanker",
+    blurb: "Carries petrol to the filling stations.",
+    length: 9.5,
+    width: 2.5,
+    top: 19,
+  },
+  tipper: {
+    name: "Tipper",
+    blurb: "Sand and gravel for building sites.",
+    length: 7.5,
+    width: 2.45,
+    top: 20,
+  },
   hisbah: {
     name: "Hisbah Patrol",
     blurb: "The Hisbah patrol van.",
@@ -216,6 +247,58 @@ function bus(kind: "danfo" | "hisbah" | "citybus"): Piece[] {
   return out;
 }
 
+/** Lorries: a cab at the front (+x) and a trailer, a fuel tank or a tipper body behind. */
+function lorry(kind: "truck" | "tanker" | "tipper", color: number): Piece[] {
+  const I = VEHICLE_INFO[kind];
+  const L = I.length,
+    W = I.width,
+    r = 0.52;
+  const out: Piece[] = [];
+  const cabL = 2.2;
+  const cx = L / 2 - cabL / 2;
+  // the chassis
+  out.push(bx(L - 0.4, 0.3, W * 0.7, 0x2a2c30, -0.2, r * 0.8, 0));
+  // the cab: painted, a big windscreen, a sun visor and mirrors
+  out.push(bx(cabL, 1.5, W, color, cx, r + 0.2, 0));
+  out.push(bx(cabL * 0.98, 0.9, W * 0.98, color, cx, r + 1.7, 0, 0.94, 0.98));
+  out.push(bx(0.05, 0.75, W * 0.86, GLASS, L / 2 + 0.01, r + 1.75, 0));
+  for (const s of [1, -1]) {
+    out.push(bx(cabL * 0.5, 0.6, 0.04, GLASS, cx + 0.2, r + 1.8, s * (W / 2 + 0.01)));
+    out.push(bx(0.08, 0.5, 0.12, BLACK, L / 2 - 0.1, r + 1.6, s * (W / 2 + 0.25)));
+    out.push(bx(0.06, 0.22, 0.4, LIGHT, L / 2 + 0.02, r + 0.55, s * (W * 0.32)));
+    out.push(bx(0.06, 0.2, 0.3, TAIL, -L / 2 + 0.02, r + 0.6, s * (W * 0.36)));
+  }
+  out.push(bx(0.12, 0.35, W * 1.02, 0x2a2c30, L / 2 - 0.05, r - 0.1, 0)); // bumper
+  out.push(bx(0.06, 0.5, W * 0.5, CHROME, L / 2 + 0.01, r + 0.7, 0)); // grille
+  const back = L - cabL - 0.3;
+  const bx0 = -L / 2 + back / 2;
+  if (kind === "truck") {
+    // a tall box trailer
+    out.push(bx(back, 2.6, W, 0xeeeeea, bx0, r + 0.6, 0));
+    for (const s of [1, -1])
+      out.push(bx(back * 0.96, 0.5, 0.02, color, bx0, r + 2.4, s * (W / 2 + 0.005)));
+  } else if (kind === "tanker") {
+    // a round silver fuel tank with a red band
+    const t = new THREE.CylinderGeometry(1.15, 1.15, back, 18);
+    t.rotateZ(Math.PI / 2);
+    t.translate(bx0, r + 0.6 + 1.15, 0);
+    out.push(colored(t, 0xd6dadf));
+    const band = new THREE.CylinderGeometry(1.17, 1.17, 0.5, 18);
+    band.rotateZ(Math.PI / 2);
+    band.translate(bx0, r + 0.6 + 1.15, 0);
+    out.push(colored(band, 0xc8262a));
+    out.push(bx(back * 0.8, 0.12, 0.6, 0x9aa0a6, bx0, r + 2.9, 0)); // catwalk on top
+  } else {
+    // an open steel tipper body full of sand
+    out.push(bx(back, 1.2, W, color, bx0, r + 0.6, 0, 1.03, 1.03));
+    out.push(bx(back * 0.95, 0.25, W * 0.9, 0xd9b77a, bx0, r + 1.6, 0, 0.8, 0.8));
+  }
+  const axles =
+    kind === "truck" ? [L / 2 - 1.2, -L / 2 + 1.0, -L / 2 + 2.3] : [L / 2 - 1.2, -L / 2 + 1.3];
+  for (const x of axles) for (const s of [1, -1]) out.push(...wheel(x, s * (W / 2 - 0.2), r, 0.4));
+  return out;
+}
+
 function keke(color: number): Piece[] {
   const out: Piece[] = [];
   out.push(bx(2.3, 0.65, 1.25, color, -0.2, 0.3, 0, 1, 0.95));
@@ -258,7 +341,9 @@ export function vehicleMesh(kind: VehicleKind, color = 0xf4f4f2, saudi = false) 
             ? bus(kind)
             : kind === "keke"
               ? keke(color)
-              : car(kind, color);
+              : kind === "truck" || kind === "tanker" || kind === "tipper"
+                ? lorry(kind, color)
+                : car(kind, color);
     geo = mergeGeometries(parts, false)!;
     parts.forEach((p) => p.dispose());
     geo.computeBoundingSphere();

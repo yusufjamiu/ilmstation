@@ -4,6 +4,18 @@ import type { AdRequest, Award, Enquiry, Nasheed, SponsoredEntry, SponsoredQuiz 
 import { DISTRICTS } from "./content";
 import { connectHomes, weekKey, type ShownHome } from "./homes";
 import { AD_PRICES } from "./live";
+import {
+  closeRace,
+  createRace,
+  fmtTime,
+  markRacePaid,
+  payoutOf,
+  watchAllRaces,
+  watchEntries,
+  type Race,
+  type Payout,
+  type RaceEntry,
+} from "./races";
 
 /* IlmWorld admin: reports and fines, billboard adverts, the Saturday best-home award,
    questions sent to the MSSN, and nasheeds. Only accounts listed in the Firestore
@@ -46,9 +58,9 @@ const when = (t: number) =>
 export default function Admin() {
   const [state, setState] = useState<"loading" | "out" | "no" | "yes">("loading");
   const [user, setUser] = useState<User | null>(null);
-  const [tab, setTab] = useState<"reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored">(
-    "reports",
-  );
+  const [tab, setTab] = useState<
+    "reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored" | "races" | "fresh"
+  >("reports");
   useEffect(() => {
     let off = () => {};
     fb()
@@ -98,6 +110,8 @@ export default function Admin() {
     ["mssn", "❓ MSSN"],
     ["nasheeds", "🎵 Nasheeds"],
     ["sponsored", "💵 Sponsored quizzes"],
+    ["races", "🏁 Races"],
+    ["fresh", "🔄 Fresh start"],
   ];
   return (
     <Shell wide>
@@ -118,6 +132,8 @@ export default function Admin() {
       {tab === "mssn" && <Mssn />}
       {tab === "nasheeds" && <Nasheeds />}
       {tab === "sponsored" && <Sponsored />}
+      {tab === "races" && <RacesAdmin />}
+      {tab === "fresh" && <FreshStart />}
     </Shell>
   );
 }
@@ -589,6 +605,258 @@ function parseQuestions(text: string) {
     out.push({ q, o: rest.map((l) => l.replace(/^\*\s*/, "")), a });
   }
   return out;
+}
+
+/** Running and cycling races at the IlmWorld Sports Arena: only admins set them. */
+function RacesAdmin() {
+  const [races, setRaces] = useState<Race[]>([]);
+  const [kind, setKind] = useState<"run" | "bike">("run");
+  const [title, setTitle] = useState("");
+  const [prize, setPrize] = useState("");
+  const [winners, setWinners] = useState("3");
+  const [laps, setLaps] = useState("2");
+  const local = (t: number) =>
+    new Date(t - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const [from, setFrom] = useState(local(Date.now()));
+  const [until, setUntil] = useState(local(Date.now() + 3 * 86400000));
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => watchAllRaces(setRaces), []);
+  const input = "w-full rounded-xl border border-black/15 px-3 py-2";
+  return (
+    <div className="space-y-4">
+      <div className="max-w-xl space-y-2 rounded-2xl bg-white p-4 shadow-sm">
+        <h2 className="text-xl font-bold">Set a race</h2>
+        <p className="text-[13px] opacity-75">
+          Players run or ride the track at the IlmWorld Sports Arena while the race is open. Each
+          keeps their best time; the fastest win. You pay the winners and mark them paid.
+        </p>
+        <div className="flex gap-2">
+          {(["run", "bike"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => {
+                setKind(k);
+                setLaps(k === "run" ? "2" : "4");
+              }}
+              className={`flex-1 rounded-xl py-2 font-bold ${kind === k ? "bg-[#1f6f63] text-white" : "bg-black/5"}`}
+            >
+              {k === "run" ? "🏃 Running race" : "🚲 Cycling race"}
+            </button>
+          ))}
+        </div>
+        <input
+          className={input}
+          placeholder="Title, e.g. Jumu'ah 2-lap dash"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <input
+          className={input}
+          placeholder="Prize, e.g. ₦5,000 each (real money)"
+          value={prize}
+          onChange={(e) => setPrize(e.target.value)}
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-[13px]">
+            Winners
+            <input
+              className={input}
+              inputMode="numeric"
+              value={winners}
+              onChange={(e) => setWinners(e.target.value)}
+            />
+          </label>
+          <label className="text-[13px]">
+            Laps (one lap ≈ 370 m)
+            <input
+              className={input}
+              inputMode="numeric"
+              value={laps}
+              onChange={(e) => setLaps(e.target.value)}
+            />
+          </label>
+          <label className="text-[13px]">
+            Opens
+            <input
+              className={input}
+              type="datetime-local"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </label>
+          <label className="text-[13px]">
+            Closes
+            <input
+              className={input}
+              type="datetime-local"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+          </label>
+        </div>
+        <button
+          disabled={!title.trim()}
+          onClick={async () => {
+            const f = new Date(from).getTime(),
+              u = new Date(until).getTime();
+            if (!(u > f)) return setMsg("The race must close after it opens.");
+            try {
+              await createRace({
+                kind,
+                title: title.trim(),
+                prize: prize.trim(),
+                winners: Math.max(1, Math.min(20, Number(winners) || 1)),
+                laps: Math.max(1, Math.min(10, Number(laps) || 1)),
+                from: f,
+                until: u,
+              });
+              setTitle("");
+              setPrize("");
+              setMsg("Race set. Players see it at the arena.");
+            } catch {
+              setMsg("Couldn't save the race. Are the latest Firestore rules published?");
+            }
+          }}
+          className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-white disabled:opacity-40"
+        >
+          Set the race
+        </button>
+        {msg && <p className="font-bold">{msg}</p>}
+      </div>
+      {races.map((r) => (
+        <RaceCard key={r.id} r={r} />
+      ))}
+    </div>
+  );
+}
+/** Where a winner asked for their prize to go. */
+function PayTo({ race, uid }: { race: string; uid: string }) {
+  const [p, setP] = useState<Payout | null | undefined>(undefined);
+  useEffect(() => {
+    void payoutOf(race, uid)
+      .then(setP)
+      .catch(() => setP(null));
+  }, [race, uid]);
+  if (p === undefined) return null;
+  return (
+    <span className="block text-[12px] font-normal">
+      {p
+        ? `Pay to: ${p.accountName} · ${p.bank} · ${p.account}${p.phone ? ` · ${p.phone}` : ""}`
+        : `No bank details yet (user ID ${uid})`}
+    </span>
+  );
+}
+function RaceCard({ r }: { r: Race }) {
+  const [board, setBoard] = useState<RaceEntry[]>([]);
+  useEffect(() => watchEntries(r.id, setBoard), [r.id]);
+  const done = r.status === "closed" || r.until < Date.now();
+  return (
+    <div className="max-w-xl space-y-2 rounded-2xl bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="font-bold">
+            {r.kind === "bike" ? "🚲" : "🏃"} {r.title}
+          </div>
+          <div className="text-[12.5px] opacity-70">
+            {r.laps} laps · {new Date(r.from).toLocaleString()} →{" "}
+            {new Date(r.until).toLocaleString()} · {done ? "finished" : "open"} · prize:{" "}
+            {r.prize || "none"} (top {r.winners})
+          </div>
+        </div>
+        {r.status === "open" && (
+          <button
+            onClick={() => void closeRace(r.id)}
+            className="rounded-lg bg-black/5 px-3 py-1.5 text-[13px] font-bold"
+          >
+            Close
+          </button>
+        )}
+      </div>
+      {!board.length && <p className="text-[13px] opacity-70">No times yet.</p>}
+      {board.map((b, i) => (
+        <div key={b.uid} className="flex items-center justify-between gap-2 text-[13.5px]">
+          <span className={i < r.winners ? "font-bold" : ""}>
+            {i + 1}. {b.name} · {fmtTime(b.ms)} · {b.tries} tries
+            {i < r.winners && <PayTo race={r.id} uid={b.uid} />}
+          </span>
+          {i < r.winners &&
+            (b.paid ? (
+              <span className="text-[12px] font-bold text-[#1d6b3a]">Paid ✓</span>
+            ) : (
+              <button
+                onClick={() => void markRacePaid(r.id, b.uid)}
+                className="rounded-lg bg-[#e6b84a] px-2 py-1 text-[12px] font-bold"
+              >
+                Mark paid
+              </button>
+            ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Start IlmWorld again for everyone: before launch, so all players begin equal. */
+function FreshStart() {
+  const [word, setWord] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const token = await auth.currentUser?.getIdToken();
+      const r = await fetch("/api/money", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ op: "freshStart" }),
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        counts?: Record<string, number>;
+      };
+      if (!r.ok || !j.ok) setMsg(`Not done: ${j.error ?? r.status}`);
+      else {
+        const n = Object.values(j.counts ?? {}).reduce((a, b) => a + b, 0);
+        setMsg(`Done. ${n} records removed. Everyone starts again as a new player.`);
+        setWord("");
+      }
+    } catch {
+      setMsg("Not done: no connection.");
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="max-w-xl space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="text-xl font-bold">Fresh start for everyone</h2>
+      <p className="text-[14px]">
+        Every player starts IlmWorld again as a new player with the ₦200 welcome money. All
+        characters, saves, wallets, houses, shops, house sales, flats, money transfers, chats, calls
+        and fines are removed, on every phone too. Every house in the world is free again.
+      </p>
+      <p className="text-[14px]">
+        Kept: IlmStation accounts and logins, adverts, awards, nasheeds, sponsored quizzes, reports
+        and Paystack payment records.
+      </p>
+      <p className="text-[14px] font-bold text-[#b3261e]">This cannot be undone.</p>
+      <input
+        value={word}
+        onChange={(e) => setWord(e.target.value)}
+        placeholder="Type FRESH START to confirm"
+        className="w-full rounded-xl border border-black/15 px-3 py-2.5"
+      />
+      <button
+        disabled={busy || word.trim() !== "FRESH START"}
+        onClick={() => void run()}
+        className="w-full rounded-xl bg-[#b3261e] py-3 font-bold text-white disabled:opacity-40"
+      >
+        {busy ? "Starting fresh…" : "Start everyone fresh"}
+      </button>
+      {msg && <p className="font-bold">{msg}</p>}
+    </div>
+  );
 }
 
 function Sponsored() {

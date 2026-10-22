@@ -400,8 +400,30 @@ export class Traffic {
       "small",
       "sedan",
     ];
-    for (const tour of this.tours)
-      for (let i = 0; i < 10; i++) add(kinds[i % kinds.length], tour, (tour.length / 10) * i + 120);
+    for (const tour of this.tours) {
+      // Lagos roads are busy
+      const n = tour === this.tour ? 22 : 10;
+      for (let i = 0; i < n; i++) add(kinds[i % kinds.length], tour, (tour.length / n) * i + 120);
+    }
+    // lorries on the expressways: trailers, fuel tankers and tippers
+    const lorries: [VehicleKind, number][] = [
+      ["truck", 0x1f4f9a],
+      ["tanker", 0xf4f4f0],
+      ["tipper", 0xc8862a],
+      ["truck", 0xc8262a],
+      ["truck", 0x2d5a3d],
+      ["tanker", 0xf2c230],
+      ["tipper", 0x3a3f46],
+      ["truck", 0xf4f4f0],
+    ];
+    for (const tour of this.tours) {
+      // Lagos gets most of them; Ilorin and the Saudi cities a few
+      const n = tour === this.tour ? 16 : 4;
+      for (let i = 0; i < n; i++) {
+        const [k, c] = lorries[i % lorries.length];
+        add(k, tour, (tour.length / n) * i + 260, c);
+      }
+    }
     for (const tour2 of tours2)
       for (let i = 0; i < 8; i++) add(kinds[(i + 3) % kinds.length], tour2, (tour2.length / 8) * i);
     for (const sh of this.shuttles) {
