@@ -6537,7 +6537,7 @@ function CityGame({
           setInside(true);
           sayDhikr("enterHome");
         };
-        if (!saveRef.current.homePlot && (saveRef.current.lease?.until ?? 0) < Date.now()) {
+        if ((saveRef.current.lease?.until ?? 0) < Date.now()) {
           rentDue(go);
           return;
         }
@@ -7186,28 +7186,37 @@ function CityGame({
       if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
-        if (sv.homePlot && e.plotInfo(sv.homePlot))
-          e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
-        else {
+        // a house counts as home only while it is yours: bought, built, or rent still paid
+        const hp = sv.homePlot ? sv.plots?.[sv.homePlot] : undefined;
+        const houseOk =
+          !!hp &&
+          !!e.plotInfo(sv.homePlot!) &&
+          (hp.kind !== "rented" || hp.until > Date.now()) &&
+          hp.kind !== "owned";
+        const left = (sv.lease?.until ?? (sv.homePlot ? 0 : Infinity)) - Date.now();
+        if (houseOk) e.startAtPlot(sv.homePlot!, `Family house · ${nm}`);
+        else if (left < 0) {
+          // rent unpaid: you wake up outside the estate gate, not in the flat
           e.startAtHome(home, flatName(home));
-          const left = (sv.lease?.until ?? Infinity) - Date.now();
-          if (left < 0)
-            setTimeout(
-              () =>
-                toast(
-                  `🏠 Your rent of ${N(flatRent(home))} is due. Pay it in 👤 Profile, or before you come back in.`,
-                  "warn",
-                ),
-              2500,
-            );
-          else if (left < 86400000)
+          e.exitInterior();
+          setTimeout(
+            () =>
+              toast(
+                `🏠 Your rent of ${N(flatRent(home))} is not paid, so you're outside. Pay it in 👤 Profile → Pay rent to go back in.`,
+                "warn",
+              ),
+            2500,
+          );
+        } else {
+          e.startAtHome(home, flatName(home));
+          if (left < 86400000)
             setTimeout(
               () =>
                 toast(`🏠 Rent of ${N(flatRent(home))} is due tomorrow. 👤 Profile → Pay rent.`),
               2500,
             );
         }
-        setInside(true);
+        setInside(e.scenePlace() !== "out");
       }
     }
     const startedAt = performance.now();
