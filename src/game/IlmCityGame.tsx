@@ -207,6 +207,8 @@ type Save = {
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
   fuel?: number;
+  /** unpaid flat rent the landlord has collected so far from your earnings */
+  rentPot?: number;
   /** races already announced to you, and races whose results you have seen */
   racesSeen?: string[];
   resultsSeen?: string[];
@@ -419,6 +421,44 @@ const PREMIUM_HIJABS = [0xc9a227, 0xe6d3a0, 0xf2e6f0, 0x5a1f6a];
 /** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
 const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
 const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
+/** The landlord can claim at most this many unpaid weeks. */
+const ARREARS_WEEKS = 4;
+/** A house you live in instead of the flat: bought, built, or rented with rent still paid. */
+function houseOf(s: Save): string | undefined {
+  const ok = (pid: string) => {
+    const o = s.plots?.[pid];
+    return (
+      !!o &&
+      (o.kind === "bought" || o.kind === "built" || (o.kind === "rented" && o.until > Date.now()))
+    );
+  };
+  if (s.homePlot && ok(s.homePlot)) return s.homePlot;
+  return Object.keys(s.plots ?? {}).find(ok);
+}
+/** Unpaid flat rent is not forgotten: while it is owed, half of everything you earn goes to
+    the landlord until the weeks you owe (up to four) are paid; then you can go home again. */
+function collectRent(before: Save, after: Save): Save {
+  const earned = after.coins - before.coins;
+  if (earned <= 1 || !after.profile || !after.lease || houseOf(after)) return after;
+  const now = Date.now();
+  let until = Math.max(after.lease.until, now - ARREARS_WEEKS * 7 * 86400000);
+  if (until >= now) return after;
+  const rent = flatRent(after.homeArea ?? "lekki");
+  const took = Math.floor(earned / 2);
+  let pot = (after.rentPot ?? 0) + took;
+  while (pot >= rent && until < now) {
+    until += 7 * 86400000;
+    pot -= rent;
+  }
+  // paid up: whatever is left over comes back to you
+  const back = until >= now ? pot : 0;
+  return {
+    ...after,
+    coins: after.coins - took + back,
+    rentPot: until >= now ? 0 : pot,
+    lease: { until },
+  };
+}
 /** A house's rent: by its area and size. The best areas are for players of a higher Ilm
     level; anyone below it can still rent there by paying half as much again. */
 const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
@@ -992,6 +1032,8 @@ function CityGame({
   const stageTold = useRef(new Set<string>());
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
+  const wornRef = useRef(false);
+  const restAt = useRef(0);
   const lastSent = useRef({ x: 0, z: 0, area: "" });
   const watchedArea = useRef<string | null>(null);
   const offArea = useRef<(() => void) | null>(null);
@@ -1100,7 +1142,8 @@ function CityGame({
     });
   }, []);
   const update = useCallback(
-    (fn: (s: Save) => Save) => {
+    (fn0: (s: Save) => Save) => {
+      const fn = (s: Save) => collectRent(s, fn0(s));
       const w = walletNet.current;
       if (w) {
         const base = saveRef.current;
@@ -4741,10 +4784,19 @@ function CityGame({
       });
       return false;
     }
-    const until = Math.max(Date.now(), sv.lease?.until ?? 0) + WEEK;
-    update((x) => ({ ...x, coins: x.coins - rent, lease: { until } }));
-    toast(`Rent paid: −${N(rent)}. Your flat is paid for another week. Alhamdulillah!`, "good");
-    return true;
+    // unpaid weeks (up to four) are paid first
+    const now = Date.now();
+    const from = Math.max(sv.lease?.until ?? now, now - ARREARS_WEEKS * WEEK);
+    const until = from + WEEK;
+    update((x) => ({ ...x, coins: x.coins - rent, lease: { until }, rentPot: 0 }));
+    toast(
+      until > now
+        ? `Rent paid: −${N(rent)}. Your flat is paid until ${new Date(until).toLocaleDateString()}. Alhamdulillah!`
+        : `Rent paid: −${N(rent)}. You still owe ${Math.ceil((now - until) / WEEK)} more week(s) before you can go in.`,
+      until > now ? "good" : "warn",
+    );
+    // true only when the flat is paid up and you can go in
+    return until > now;
   }, [update, toast]);
   const payRentRef = useRef(payRent);
   payRentRef.current = payRent;
@@ -4841,6 +4893,19 @@ function CityGame({
             Your landlord says: "Assalamu alaikum. The rent for your flat in{" "}
             {districtById(area).name} is {N(rent)} a week. Please pay before you go in."
           </p>
+          {(() => {
+            const until = saveRef.current.lease?.until ?? Date.now();
+            const weeks = Math.min(
+              ARREARS_WEEKS,
+              Math.ceil(Math.max(0, Date.now() - until) / (7 * 86400000)),
+            );
+            return weeks > 1 ? (
+              <p className="rounded-xl bg-[#fdf3dc] p-3 text-[13px]">
+                You owe {weeks} weeks ({N(weeks * rent)}). Until it's paid, half of everything you
+                earn goes to the landlord.
+              </p>
+            ) : null;
+          })()}
           <p className="text-[13px] opacity-75">You have {N(saveRef.current.coins)}.</p>
           <button
             onClick={() => {
@@ -4853,6 +4918,14 @@ function CityGame({
           >
             Pay {N(rent)} for one week
           </button>
+          {saveRef.current.coins < rent && (
+            <button
+              onClick={() => openWalletRef.current("buy", `your rent: ${N(rent)}`)}
+              className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05]"
+            >
+              Top up your wallet with Paystack
+            </button>
+          )}
           <p className="text-[12.5px] opacity-70">
             Short of money? Work a shift (👤 Profile → Work), pray in the masjid or take a quiz.
           </p>
@@ -5306,6 +5379,7 @@ function CityGame({
         id === "exit" ||
         id === "eat" ||
         id === "pray" ||
+        id === "masjid-rest" ||
         id === "prayermat" ||
         id === "bath" ||
         id === "quran" ||
@@ -6537,7 +6611,7 @@ function CityGame({
           setInside(true);
           sayDhikr("enterHome");
         };
-        if (!saveRef.current.homePlot && (saveRef.current.lease?.until ?? 0) < Date.now()) {
+        if ((saveRef.current.lease?.until ?? 0) < Date.now()) {
           rentDue(go);
           return;
         }
@@ -6986,6 +7060,35 @@ function CityGame({
         });
         return;
       }
+      if (id === "masjid-rest") {
+        // a short free rest for anyone, home or not: enough to carry on, not a night's sleep
+        const last = restAt.current;
+        if (Date.now() - last < 2 * 3600000) {
+          toast("You rested here not long ago. For proper sleep you need a home or a hotel.");
+          return;
+        }
+        if ((saveRef.current.needs ?? freshNeeds()).energy >= 45) {
+          toast("You're not tired yet. Rest here when you need it.");
+          return;
+        }
+        setPanel({
+          kind: "busy",
+          title: "Resting quietly in the masjid",
+          ms: 3000,
+          done: () => {
+            restAt.current = Date.now();
+            update((x) => ({
+              ...x,
+              needs: { ...(x.needs ?? freshNeeds()), energy: 45 },
+            }));
+            toast(
+              "A short rest. Enough to carry on, but a full night's sleep needs a home or a hotel.",
+              "good",
+            );
+          },
+        });
+        return;
+      }
       if (id === "sleep") {
         setPanel({
           kind: "info",
@@ -7186,28 +7289,33 @@ function CityGame({
       if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
-        if (sv.homePlot && e.plotInfo(sv.homePlot))
-          e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
-        else {
+        // a house counts as home only while it is yours: bought, built, or rent still paid
+        const house = houseOf(sv);
+        const left = (sv.lease?.until ?? (sv.homePlot ? 0 : Infinity)) - Date.now();
+        if (house && e.plotInfo(house))
+          e.startAtPlot(house, house === sv.homePlot ? `Family house · ${nm}` : "Your house");
+        else if (left < 0) {
+          // rent unpaid: you wake up outside the estate gate, not in the flat
           e.startAtHome(home, flatName(home));
-          const left = (sv.lease?.until ?? Infinity) - Date.now();
-          if (left < 0)
-            setTimeout(
-              () =>
-                toast(
-                  `🏠 Your rent of ${N(flatRent(home))} is due. Pay it in 👤 Profile, or before you come back in.`,
-                  "warn",
-                ),
-              2500,
-            );
-          else if (left < 86400000)
+          e.exitInterior();
+          setTimeout(
+            () =>
+              toast(
+                `🏠 Your rent of ${N(flatRent(home))} a week is not paid, so you're outside. Until it's paid, half of what you earn goes to your landlord. Pay in 👤 Profile → Pay rent.`,
+                "warn",
+              ),
+            2500,
+          );
+        } else {
+          e.startAtHome(home, flatName(home));
+          if (left < 86400000)
             setTimeout(
               () =>
                 toast(`🏠 Rent of ${N(flatRent(home))} is due tomorrow. 👤 Profile → Pay rent.`),
               2500,
             );
         }
-        setInside(true);
+        setInside(e.scenePlace() !== "out");
       }
     }
     const startedAt = performance.now();
@@ -7265,6 +7373,17 @@ function CityGame({
           return { ...x, needs: n };
         });
         const n = saveRef.current.needs;
+        // with no sleep you are worn out: slow until you rest at home or in a hotel
+        const worn = !!n && n.energy < 15;
+        if (worn !== wornRef.current) {
+          wornRef.current = worn;
+          e.setTired(worn);
+          if (worn)
+            toast(
+              "😴 You're worn out and moving slowly. Sleep at home, book a hotel, or rest a little in any masjid (free).",
+              "warn",
+            );
+        }
         if (n && Date.now() - needHintAt.current > 240000) {
           const low = NEED_META.find((m) => n[m.id] < 25);
           if (low) {
