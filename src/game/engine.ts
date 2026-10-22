@@ -7926,6 +7926,14 @@ export class IlmCityEngine {
         scene: "masjid",
       });
       this.zones.push({
+        id: "masjid-rest",
+        label: "Rest a little (free)",
+        x: o.x + 7,
+        z: o.z + 3,
+        r: 2,
+        scene: "masjid",
+      });
+      this.zones.push({
         id: "quran",
         label: "Read Quran",
         x: o.x - 9.5,

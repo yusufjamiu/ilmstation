@@ -1033,6 +1033,7 @@ function CityGame({
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
   const wornRef = useRef(false);
+  const restAt = useRef(0);
   const lastSent = useRef({ x: 0, z: 0, area: "" });
   const watchedArea = useRef<string | null>(null);
   const offArea = useRef<(() => void) | null>(null);
@@ -4917,6 +4918,14 @@ function CityGame({
           >
             Pay {N(rent)} for one week
           </button>
+          {saveRef.current.coins < rent && (
+            <button
+              onClick={() => openWalletRef.current("buy", `your rent: ${N(rent)}`)}
+              className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05]"
+            >
+              Top up your wallet with Paystack
+            </button>
+          )}
           <p className="text-[12.5px] opacity-70">
             Short of money? Work a shift (👤 Profile → Work), pray in the masjid or take a quiz.
           </p>
@@ -5370,6 +5379,7 @@ function CityGame({
         id === "exit" ||
         id === "eat" ||
         id === "pray" ||
+        id === "masjid-rest" ||
         id === "prayermat" ||
         id === "bath" ||
         id === "quran" ||
@@ -7050,6 +7060,35 @@ function CityGame({
         });
         return;
       }
+      if (id === "masjid-rest") {
+        // a short free rest for anyone, home or not: enough to carry on, not a night's sleep
+        const last = restAt.current;
+        if (Date.now() - last < 2 * 3600000) {
+          toast("You rested here not long ago. For proper sleep you need a home or a hotel.");
+          return;
+        }
+        if ((saveRef.current.needs ?? freshNeeds()).energy >= 45) {
+          toast("You're not tired yet. Rest here when you need it.");
+          return;
+        }
+        setPanel({
+          kind: "busy",
+          title: "Resting quietly in the masjid",
+          ms: 3000,
+          done: () => {
+            restAt.current = Date.now();
+            update((x) => ({
+              ...x,
+              needs: { ...(x.needs ?? freshNeeds()), energy: 45 },
+            }));
+            toast(
+              "A short rest. Enough to carry on, but a full night's sleep needs a home or a hotel.",
+              "good",
+            );
+          },
+        });
+        return;
+      }
       if (id === "sleep") {
         setPanel({
           kind: "info",
@@ -7341,7 +7380,7 @@ function CityGame({
           e.setTired(worn);
           if (worn)
             toast(
-              "😴 You're worn out and moving slowly. Sleep at home (pay your rent) or book a hotel.",
+              "😴 You're worn out and moving slowly. Sleep at home, book a hotel, or rest a little in any masjid (free).",
               "warn",
             );
         }
