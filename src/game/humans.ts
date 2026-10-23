@@ -848,8 +848,10 @@ function turn(b: THREE.Bone | undefined, axis: THREE.Vector3, angle: number) {
   b.updateMatrixWorld(true);
 }
 
-export type Pose = "stand" | "ruku" | "sujud" | "sit";
+export type Pose = "stand" | "ruku" | "sujud" | "sit" | "ride";
 const hipsY = new WeakMap<object, number>();
+/** How a rider sits on a bicycle (angles in radians, hips in the skeleton's centimetres). */
+export const RIDE = { hips: 22, thigh: 1.2, knee: 1.35, lean: 0.55, arm: 0.8, fore: 0.1 };
 /** Hold a still pose (praying or sitting). The person's own right-hand axis is used
     so the pose works whichever way they face. */
 export function poseHuman(o: THREE.Object3D, pose: Pose) {
@@ -890,6 +892,18 @@ export function poseHuman(o: THREE.Object3D, pose: Pose) {
     turn(b.RightArm, X, -1.1);
     turn(b.LeftForeArm, X, 0.6);
     turn(b.RightForeArm, X, 0.6);
+  } else if (pose === "ride") {
+    // on a bicycle: sitting on the saddle, leaning a little forward, both hands on the bars
+    b.Hips.position.y -= RIDE.hips;
+    turn(b.LeftUpLeg, X, -RIDE.thigh);
+    turn(b.RightUpLeg, X, -RIDE.thigh);
+    turn(b.LeftLeg, X, RIDE.knee);
+    turn(b.RightLeg, X, RIDE.knee);
+    turn(b.Spine, X, RIDE.lean);
+    turn(b.LeftArm, X, -RIDE.arm);
+    turn(b.RightArm, X, -RIDE.arm);
+    turn(b.LeftForeArm, X, -RIDE.fore);
+    turn(b.RightForeArm, X, -RIDE.fore);
   } else if (pose === "sit") {
     b.Hips.position.y -= 72;
     kneel();

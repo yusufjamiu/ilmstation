@@ -805,6 +805,10 @@ export class IlmCityEngine {
       this.bikeObj = null;
     }
     this.liftRider(0);
+    if (this.bikePosed) {
+      releasePose(this.player);
+      this.bikePosed = false;
+    }
     this.bikeWheels = [];
     this.bikeKind = kind;
     this.bikeColor = color;
@@ -818,7 +822,13 @@ export class IlmCityEngine {
   }
   private liftRider(y: number) {
     if (y === this.bikeLift) return;
-    for (const c of this.player.children) if (c !== this.bikeObj) c.position.y += y - this.bikeLift;
+    // up onto the saddle, and back a little from the handlebars
+    const back = (v: number) => (v ? -0.28 : 0);
+    for (const c of this.player.children)
+      if (c !== this.bikeObj) {
+        c.position.y += y - this.bikeLift;
+        c.position.z += back(y) - back(this.bikeLift);
+      }
     this.bikeLift = y;
   }
   private tired = false;
@@ -839,11 +849,18 @@ export class IlmCityEngine {
     this.camYaw = yaw + Math.PI;
     this.snapCamera();
   }
+  /** The rider holds the handlebars while on the bicycle. */
+  private bikePosed = false;
   /** The bicycle stays outside: indoors you walk. */
   private syncBike() {
     const on = !!this.bikeObj && this.where === "out";
     if (this.bikeObj) this.bikeObj.visible = on;
-    this.liftRider(on ? 0.62 : 0);
+    this.liftRider(on ? 0.42 : 0);
+    if (on && !this.bikePosed) this.bikePosed = poseHuman(this.player, "ride");
+    else if (!on && this.bikePosed) {
+      releasePose(this.player);
+      this.bikePosed = false;
+    }
   }
   private teacherTag: { g: THREE.Object3D; tag: THREE.Object3D } | null = null;
   /** The madrasah teacher is the sheikh of that madrasah's street. */
@@ -6804,6 +6821,7 @@ export class IlmCityEngine {
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
     this.bikeLift = 0;
+    this.bikePosed = false;
     if (this.bikeKind) {
       // the old bicycle went with the old clothes: put the rider back on it
       const k = this.bikeKind;
