@@ -71,6 +71,10 @@ type Admin = {
   auth: import("firebase-admin/auth").Auth;
 };
 let adminP: Promise<Admin | null> | null = null;
+/** For tests: use a stand-in for Firebase. */
+export function setAdminForTest(a: Admin) {
+  adminP = Promise.resolve(a);
+}
 export function admin(): Promise<Admin | null> {
   if (adminP) return adminP;
   adminP = (async () => {
@@ -106,6 +110,20 @@ export function admin(): Promise<Admin | null> {
   return adminP;
 }
 
+/** Every house, plot of land and shop in the world (made from the game's map by
+    scripts/world-catalog.py), so the server knows what each one is and what it costs. */
+type Catalog = {
+  plots: Record<string, { d: string; k: "h" | "l" | "s"; f?: number; t?: string }>;
+  shops: Record<string, { d: string; k: string }>;
+};
+let catalogP: Promise<Catalog> | null = null;
+const catalog = () =>
+  (catalogP ??= import("./world-catalog.json").then((m) => (m.default ?? m) as Catalog));
+/** "lekki-49~2" (phase 2 of house lekki-49) → "lekki-49" */
+const plotBase = (id: string) => id.split("~")[0];
+const DAY = 86400000;
+const FOREVER = 100 * 365 * DAY;
+
 /** What a fresh start empties: every player's progress, houses, shops, money and messages.
     Adverts, awards, nasheeds, sponsored quizzes, reports and payment records are kept. */
 export const FRESH_START_WIPES = [
@@ -125,6 +143,7 @@ export const FRESH_START_WIPES = [
   "city_enquiries",
   "city_presence",
   "city_players",
+  "city_race_runs",
 ];
 
 const reply = (status: number, body: unknown) =>
@@ -134,7 +153,26 @@ const reply = (status: number, body: unknown) =>
   });
 
 type Body = {
-  op: "init" | "change" | "buyHouse" | "sellHouse" | "send" | "freshStart";
+  op:
+    | "init"
+    | "change"
+    | "buyHouse"
+    | "sellHouse"
+    | "send"
+    | "freshStart"
+    | "plot"
+    | "shop"
+    | "starterShop"
+    | "richHouse"
+    | "raceStart"
+    | "raceFinish";
+  race?: string;
+  /** plot: rent a house, buy it, or buy land */
+  how?: "rent" | "buy" | "land";
+  days?: number;
+  price?: number;
+  sid?: string;
+  products?: unknown[];
   to?: string;
   fromName?: string;
   toName?: string;
@@ -169,6 +207,173 @@ export async function handleMoney(request: Request): Promise<Response> {
   const walletRef = db.collection("city_wallets").doc(uid);
   const now = Date.now();
   try {
+    if (body.op === "plot" && body.plot) {
+      // rent a house, buy one, or buy land: the price is checked, the money taken and the
+      // house recorded as yours in one step
+      const { housePrice, LAND_PRICE, MAX_MARKUP, r10 } = await import("../game/prices");
+      const cat = (await catalog()).plots[plotBase(body.plot)];
+      const how = body.how;
+      if (!cat || !how) return reply(400, { ok: false, error: "no-such-place" });
+      if ((how === "land") !== (cat.k === "l") || cat.k === "s")
+        return reply(400, { ok: false, error: "wrong-kind" });
+      const hp = housePrice(cat.d, cat.f ?? 1, cat.t);
+      const days = how === "rent" ? (Number(body.days) >= 30 ? 30 : 7) : 0;
+      if (how === "rent" && cat.t === "tower") return reply(400, { ok: false, error: "buy-only" });
+      const floor =
+        how === "land"
+          ? LAND_PRICE
+          : how === "buy"
+            ? hp.buy
+            : days === 30
+              ? r10(hp.base * 3.4)
+              : hp.base;
+      const price = Math.round(Number(body.price) || 0);
+      if (price < floor || price > floor * MAX_MARKUP)
+        return reply(409, { ok: false, error: "wrong-price", floor });
+      const plotRef = db.collection("city_plots").doc(body.plot);
+      const out = await db.runTransaction(async (tx) => {
+        const [p, mine] = await Promise.all([tx.get(plotRef), tx.get(walletRef)]);
+        const cur = p.exists
+          ? (p.data() as { owner: string; until: number; at?: number; kind: string })
+          : null;
+        if (cur && cur.owner !== uid && cur.until > now) return { ok: false, error: "taken" };
+        if (!mine.exists) return { ok: false, error: "no-wallet" };
+        const w = mine.data() as Wallet;
+        if (w.naira < price) return { ok: false, error: "not-enough" };
+        const same = !!cur && cur.owner === uid;
+        const until =
+          how === "rent" ? Math.max(now, same ? cur!.until : 0) + days * DAY : now + FOREVER;
+        tx.set(walletRef, { ...w, naira: w.naira - price, updatedAt: now });
+        tx.set(plotRef, {
+          plot: body.plot,
+          area: cat.d,
+          owner: uid,
+          name: String(body.name ?? "A player").slice(0, 60),
+          kind: how === "rent" ? "rented" : "owned",
+          until,
+          at: same ? (cur!.at ?? now) : now,
+        });
+        return { ok: true, naira: w.naira - price, until };
+      });
+      return reply(out.ok ? 200 : 409, out);
+    }
+
+    if ((body.op === "shop" || body.op === "starterShop") && body.sid) {
+      // rent a shop or a market stall (the first shop of a new trader is free for a week)
+      const { shopPrice, MAX_MARKUP } = await import("../game/prices");
+      const cat = (await catalog()).shops[body.sid];
+      if (!cat) return reply(400, { ok: false, error: "no-such-place" });
+      const starter = body.op === "starterShop";
+      const days = starter ? 7 : Number(body.days) >= 30 && cat.k === "shop" ? 30 : 7;
+      const floor = starter ? 0 : shopPrice(cat.k, days);
+      const price = starter ? 0 : Math.round(Number(body.price) || 0);
+      if (price < floor || price > Math.max(floor, 1) * MAX_MARKUP)
+        return reply(409, { ok: false, error: "wrong-price", floor });
+      const shopRef = db.collection("city_shops").doc(body.sid);
+      const out = await db.runTransaction(async (tx) => {
+        const [sh, mine] = await Promise.all([tx.get(shopRef), tx.get(walletRef)]);
+        const cur = sh.exists
+          ? (sh.data() as { owner: string; until: number; name?: string; products?: unknown[] })
+          : null;
+        if (cur && cur.owner !== uid && cur.until > now) return { ok: false, error: "taken" };
+        if (!mine.exists) return { ok: false, error: "no-wallet" };
+        const w = mine.data() as Wallet & { starterShop?: number };
+        if (starter && w.starterShop) return { ok: false, error: "already" };
+        if (w.naira < price) return { ok: false, error: "not-enough" };
+        const same = !!cur && cur.owner === uid;
+        const until = Math.max(now, same ? cur!.until : 0) + days * DAY;
+        tx.set(walletRef, {
+          ...w,
+          naira: w.naira - price,
+          updatedAt: now,
+          ...(starter ? { starterShop: now } : {}),
+        });
+        tx.set(shopRef, {
+          sid: body.sid,
+          owner: uid,
+          ownerName: String(body.name ?? "A player").slice(0, 60),
+          name: same ? (cur!.name ?? "") : "",
+          products: same ? (cur!.products ?? []) : [],
+          until,
+          at: now,
+        });
+        return { ok: true, naira: w.naira - price, until };
+      });
+      return reply(out.ok ? 200 : 409, out);
+    }
+
+    if (body.op === "richHouse" && body.plot) {
+      // the Rich family pack, bought with Paystack: one house of your own, free
+      const cat = (await catalog()).plots[plotBase(body.plot)];
+      if (!cat || cat.k !== "h" || cat.t === "tower")
+        return reply(400, { ok: false, error: "no-such-place" });
+      const plotRef = db.collection("city_plots").doc(body.plot);
+      const out = await db.runTransaction(async (tx) => {
+        const [p, mine] = await Promise.all([tx.get(plotRef), tx.get(walletRef)]);
+        if (!mine.exists) return { ok: false, error: "no-wallet" };
+        const w = mine.data() as Wallet & { packs?: { rich?: number; richHouse?: number } };
+        if (!w.packs?.rich) return { ok: false, error: "no-pack" };
+        if (w.packs.richHouse) return { ok: false, error: "already" };
+        const cur = p.exists ? (p.data() as { owner: string; until: number }) : null;
+        if (cur && cur.owner !== uid && cur.until > now) return { ok: false, error: "taken" };
+        tx.set(walletRef, { ...w, packs: { ...w.packs, richHouse: now }, updatedAt: now });
+        tx.set(plotRef, {
+          plot: body.plot,
+          area: cat.d,
+          owner: uid,
+          name: String(body.name ?? "A player").slice(0, 60),
+          kind: "owned",
+          until: now + FOREVER,
+          at: now,
+        });
+        return { ok: true, naira: w.naira };
+      });
+      return reply(out.ok ? 200 : 409, out);
+    }
+
+    if ((body.op === "raceStart" || body.op === "raceFinish") && body.race) {
+      // race times are kept by the server's clock: the game says when you start and when you
+      // cross the line, and the server works out the time and keeps your best
+      const { MIN_LAP_MS } = await import("../game/races");
+      const raceRef = db.collection("city_races").doc(body.race);
+      const runRef = db.collection("city_race_runs").doc(`${body.race}_${uid}`);
+      const r = await raceRef.get();
+      const race = r.data() as
+        | { status: string; from: number; until: number; laps: number; kind: "run" | "bike" }
+        | undefined;
+      if (!race || race.status !== "open" || race.from > now || race.until < now)
+        return reply(409, { ok: false, error: "closed" });
+      if (body.op === "raceStart") {
+        await runRef.set({ uid, race: body.race, start: now });
+        return reply(200, { ok: true });
+      }
+      const run = (await runRef.get()).data() as { start: number } | undefined;
+      if (!run) return reply(409, { ok: false, error: "no-start" });
+      const ms = now - run.start;
+      await runRef.delete();
+      if (ms < MIN_LAP_MS[race.kind] * race.laps)
+        return reply(409, { ok: false, error: "too-fast", ms });
+      if (ms > 30 * 60000) return reply(409, { ok: false, error: "too-slow", ms });
+      const entryRef = raceRef.collection("entries").doc(uid);
+      const out = await db.runTransaction(async (tx) => {
+        const old = await tx.get(entryRef);
+        const prev = old.exists
+          ? (old.data() as { ms: number; tries?: number; paid?: boolean })
+          : null;
+        const best = prev ? Math.min(prev.ms, ms) : ms;
+        tx.set(entryRef, {
+          uid,
+          name: String(body.name ?? "A player").slice(0, 60),
+          ms: best,
+          tries: (prev?.tries ?? 0) + 1,
+          at: now,
+          ...(prev?.paid ? { paid: true } : {}),
+        });
+        return { best, improved: !prev || ms < prev.ms };
+      });
+      return reply(200, { ok: true, ms, ...out });
+    }
+
     if (body.op === "freshStart") {
       // admins only: everyone starts IlmWorld again from nothing (accounts are kept)
       const isAdmin = (await db.collection("admins").doc(uid).get()).exists;

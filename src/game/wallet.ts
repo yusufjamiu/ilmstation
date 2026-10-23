@@ -2,7 +2,14 @@
    balance and asks the server for every change; if the server isn't set up yet, the game
    keeps working with the money in its own save. */
 
-export type MoneyResult = { ok: boolean; naira?: number; credited?: number; error?: string };
+export type MoneyResult = {
+  ok: boolean;
+  naira?: number;
+  credited?: number;
+  error?: string;
+  /** when the rent now runs to */
+  until?: number;
+};
 export type WalletNet = {
   /** true once the server holds this player's money */
   active: boolean;
@@ -15,10 +22,31 @@ export type WalletNet = {
     amount: number,
     o: { fromName: string; toName: string; note?: string },
   ): Promise<MoneyResult>;
+  /** Rent a house (7 or 30 days), buy it, or buy land: paid and recorded on the server. */
+  plot(
+    plot: string,
+    how: "rent" | "buy" | "land",
+    price: number,
+    o: { days?: number; name: string },
+  ): Promise<MoneyResult>;
+  /** Rent a shop or a market stall. */
+  shop(sid: string, days: number, price: number, name: string): Promise<MoneyResult>;
+  /** A new trader's first shop, free for a week (once). */
+  starterShop(sid: string, name: string): Promise<MoneyResult>;
+  /** Race against the server's clock: start, then finish (the server keeps the time). */
+  raceStart(race: string): Promise<MoneyResult>;
+  raceFinish(
+    race: string,
+    name: string,
+  ): Promise<MoneyResult & { ms?: number; best?: number; improved?: boolean }>;
+  /** The Rich family pack's house. */
+  richHouse(plot: string, name: string): Promise<MoneyResult>;
   stop(): void;
 };
 
-async function call(body: Record<string, unknown>): Promise<MoneyResult & { status: number }> {
+async function call(
+  body: Record<string, unknown>,
+): Promise<MoneyResult & { status: number; ms?: number; best?: number; improved?: boolean }> {
   const { auth } = await import("@/lib/firebase");
   const token = await auth.currentUser?.getIdToken();
   if (!token) return { ok: false, error: "sign-in", status: 401 };
@@ -28,7 +56,11 @@ async function call(body: Record<string, unknown>): Promise<MoneyResult & { stat
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     });
-    const j = (await r.json().catch(() => ({}))) as MoneyResult;
+    const j = (await r.json().catch(() => ({}))) as MoneyResult & {
+      ms?: number;
+      best?: number;
+      improved?: boolean;
+    };
     return { ...j, ok: r.ok && j.ok !== false, status: r.status };
   } catch {
     return { ok: false, error: "offline", status: 0 };
@@ -99,6 +131,12 @@ export async function connectWallet(
     buyHouse: (plot, name) => call({ op: "buyHouse", plot, name }),
     sellHouse: (plot, amount) => call({ op: "sellHouse", plot, amount }),
     send: (to, amount, o) => call({ op: "send", to, amount, ...o }),
+    plot: (plot, how, price, o) => call({ op: "plot", plot, how, price, ...o }),
+    shop: (sid, days, price, name) => call({ op: "shop", sid, days, price, name }),
+    starterShop: (sid, name) => call({ op: "starterShop", sid, name }),
+    richHouse: (plot, name) => call({ op: "richHouse", plot, name }),
+    raceStart: (race) => call({ op: "raceStart", race }),
+    raceFinish: (race, name) => call({ op: "raceFinish", race, name }),
     stop: off,
   };
 }
