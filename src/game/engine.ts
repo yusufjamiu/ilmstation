@@ -6856,6 +6856,32 @@ export class IlmCityEngine {
         return true;
     }
     for (const r of this.remotes.values()) if (hits(r.g.position.x, r.g.position.z)) return true;
+    // cars, danfos, keke and lorries are solid: you walk (or ride) round them, never through
+    if (this.where === "out") {
+      const pad = this.bikeKind ? 0.75 : 0.4;
+      // how far outside the vehicle's box a point is (below zero: inside it)
+      const outside = (v: Vehicle, px: number, pz: number) => {
+        const h = v.mesh.rotation.y,
+          c = Math.cos(h),
+          s = Math.sin(h);
+        const dx = px - v.mesh.position.x,
+          dz = pz - v.mesh.position.z;
+        const lx = dx * c - dz * s,
+          lz = dx * s + dz * c;
+        return Math.max(
+          Math.abs(lx) - (v.half + pad),
+          Math.abs(lz) - (VEHICLE_INFO[v.kind].width / 2 + pad),
+        );
+      };
+      for (const v of this.traffic.vehicles) {
+        const dx = v.mesh.position.x - x,
+          dz = v.mesh.position.z - z;
+        if (dx * dx + dz * dz > (v.half + 3) ** 2) continue;
+        const now = outside(v, x, z);
+        // blocked when stepping into it, or deeper into it (so you can always step out)
+        if (now < 0 && now < outside(v, ox, oz)) return true;
+      }
+    }
     return false;
   }
 
