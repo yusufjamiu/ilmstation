@@ -904,6 +904,42 @@ export class IlmCityEngine {
     this.applyLight();
     this.snapCamera();
   }
+  /** Your parked car: how far away it is, and the area it's in (null: none here). */
+  carWhere() {
+    if (!this.car.visible) return null;
+    const p = this.player.position,
+      c = this.car.position;
+    return { dist: Math.hypot(c.x - p.x, c.z - p.z), area: this.areaAt(c.x, c.z)?.id ?? null };
+  }
+  /** A car you just bought: parked beside you, ready to drive away. */
+  deliverCar() {
+    const p = this.player.position;
+    for (const r of [5, 7, 9, 12])
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        const x = p.x + Math.cos(a) * r,
+          z = p.z + Math.sin(a) * r;
+        if (!this.free(x, z, 2.2)) continue;
+        this.car.position.set(x, 0, z);
+        this.carHeading = this.player.rotation.y - Math.PI / 2;
+        this.car.rotation.y = this.carHeading;
+        this.car.visible = true;
+        return true;
+      }
+    return false;
+  }
+  /** Walk to your parked car (the "Get in your car" button shows when you reach it). */
+  walkToCar() {
+    if (!this.car.visible || this.where !== "out" || this.driving) return false;
+    const c = this.car.position;
+    const h = this.carHeading;
+    // to the driver's door
+    this.tapTarget = new THREE.Vector3(c.x + Math.sin(h) * 1.8, 0, c.z + Math.cos(h) * 1.8);
+    this.tapZone = null;
+    this.marker.position.set(this.tapTarget.x, 0.05, this.tapTarget.z);
+    this.marker.visible = true;
+    return true;
+  }
   enterCar() {
     this.driving = true;
     this.player.visible = false;

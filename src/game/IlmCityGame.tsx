@@ -2245,7 +2245,16 @@ function CityGame({
             area={area}
             onGo={(prefix) => {
               setPanel(null);
-              if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
+              const e = engine.current;
+              if (prefix === "mycar") {
+                const c = e?.carWhere();
+                if (!c) toast("Your car isn't here: it stays at home when you travel far.");
+                else if (c.dist > 150 && c.area && c.area !== e?.districtId())
+                  toast(`Your car is parked in ${districtById(c.area).name}.`);
+                else if (!e?.walkToCar()) toast("Go outside first, then try again.");
+                return;
+              }
+              if (!e?.goToZone(prefix)) toast("Go outside first, then try again.");
             }}
           />
         ),
@@ -4342,6 +4351,57 @@ function CityGame({
                 : "Couldn't start the payment. Please try again.";
           }}
         />
+      ),
+    });
+  };
+
+  /* ---------- leaving home: walk, bicycle or car ---------- */
+  const askRideRef = useRef(() => {});
+  askRideRef.current = () => {
+    const e = engine.current;
+    if (!e || e.scenePlace() !== "out") return;
+    const bike = bikeHere(saveRef.current, e.districtId());
+    const car = saveRef.current.impound ? null : e.carWhere();
+    const carNear = !!car && car.dist < 120;
+    if (!bike && !carNear) return;
+    const btn = "w-full rounded-xl px-4 py-3 text-left font-bold";
+    setPanel({
+      kind: "info",
+      title: "How are you going?",
+      body: (
+        <div className="space-y-2">
+          <button
+            onClick={() => setPanel(null)}
+            className={`${btn} border border-[#1f6f63]/30 bg-white`}
+          >
+            🚶 Walk
+          </button>
+          {bike && (
+            <button
+              onClick={() => {
+                setPanel(null);
+                e.setBike(bike.kind, bike.color);
+                saveRef.current = { ...saveRef.current, cycling: true };
+                update((x) => ({ ...x, cycling: true }));
+              }}
+              className={`${btn} bg-[#1f6f63] text-[#fdf8ec]`}
+            >
+              🚲 Take my bicycle
+            </button>
+          )}
+          {carNear && (
+            <button
+              onClick={() => {
+                setPanel(null);
+                if (e.walkToCar())
+                  toast("Walking to your car. Tap “Get in your car” when you reach it.");
+              }}
+              className={`${btn} bg-[#2a4a7a] text-white`}
+            >
+              🚗 Take my car
+            </button>
+          )}
+        </div>
       ),
     });
   };
@@ -6950,10 +7010,15 @@ function CityGame({
                   update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
                   e.setCar(kind, color);
                   setPanel(null);
+                  // the new car waits right outside the showroom
+                  const here = e.deliverCar();
                   toast(
-                    `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
+                    here
+                      ? `Your new ${VEHICLE_INFO[kind].name} is parked right beside you. Tap “Get in your car”. Drive safely, bismillah!`
+                      : `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
                     "good",
                   );
+                  if (here) e.walkToCar();
                 }}
               />
             </>
@@ -7015,8 +7080,15 @@ function CityGame({
         e.exitInterior();
         setInside(false);
         tuneRef.current();
-        if (was === "home") sayDhikr("leaveHome");
-        else if (was === "masjid") sayDhikr("leaveMasjid");
+        if (was === "home") {
+          // out of the house you walk; with a bicycle or a car you're asked how you're going
+          if (saveRef.current.cycling) {
+            e.setBike(null);
+            saveRef.current = { ...saveRef.current, cycling: false };
+            update((x) => ({ ...x, cycling: false }));
+          }
+          sayDhikr("leaveHome", () => askRideRef.current());
+        } else if (was === "masjid") sayDhikr("leaveMasjid");
         return;
       }
       if (id === "car") {
@@ -11595,6 +11667,13 @@ function placesIn(id: string): Place[] {
       name: "IlmMotors",
       sub: "Buy a car or a bicycle",
       prefix: `dealer:${D.id}`,
+    });
+  if (!D.holy)
+    out.push({
+      icon: "🚗",
+      name: "My car",
+      sub: "Walk to where your car is parked",
+      prefix: "mycar",
     });
   if (!D.parent && !D.holy)
     out.push({
