@@ -30,6 +30,7 @@ import {
   type WalletNet,
 } from "./wallet";
 import { PACKS } from "./packs";
+import { NO_TRAFFIC } from "./traffic";
 import {
   MIN_LAP_MS,
   fmtTime as raceTime,
@@ -215,6 +216,8 @@ type Save = {
   /** your bicycle, and whether you are riding it */
   bike?: { kind: BikeKind; color: number };
   cycling?: boolean;
+  /** a hire bicycle in Madinah, until this time */
+  hire?: number;
   path?: LifePath;
   job?: string;
   /** the day you last worked a shift */
@@ -421,6 +424,22 @@ const PREMIUM_HIJABS = [0xc9a227, 0xe6d3a0, 0xf2e6f0, 0x5a1f6a];
 /** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
 const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
 const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
+/** Taking your bicycle on a danfo to another area of your city costs this much more. */
+const BIKE_ON_BUS = 5;
+/** Hire bicycles in Madinah: an hour, or the whole day. */
+const HIRE = { hour: { ms: 3600000, price: 15 }, day: { ms: 12 * 3600000, price: 40 } };
+const HIRE_COLOR = 0x2fa84f;
+/** Which bicycle you can ride where you are, if any: your own in your home city (not in the
+    Holy Cities), a hired one in Madinah; none in Makkah. */
+function bikeHere(s: Save, area: string): { kind: BikeKind; color: number; hired: boolean } | null {
+  const d = districtById(area);
+  const city = cityOf(d);
+  if (city === "madinah")
+    return (s.hire ?? 0) > Date.now() ? { kind: "city", color: HIRE_COLOR, hired: true } : null;
+  if (d.holy || !s.bike) return null;
+  if (city !== cityOf(districtById(s.homeArea ?? "lekki"))) return null;
+  return { ...s.bike, hired: false };
+}
 /** The landlord can claim at most this many unpaid weeks. */
 const ARREARS_WEEKS = 4;
 /** A house you live in instead of the flat: bought, built, or rented with rent still paid. */
@@ -2286,19 +2305,25 @@ function CityGame({
       const litres = far ? FUEL.far : FUEL.trip;
       const tank = saveRef.current.fuel ?? FUEL.start;
       const fromTank = byCar && tank >= litres;
-      const fare = byCar
-        ? fromTank
-          ? 0
+      // your bicycle comes along on a danfo within your city (for a little more); it stays
+      // behind for other cities, flights and the train, and hire bikes stay in Madinah
+      const sv0 = saveRef.current;
+      const bikeNow = sv0.cycling ? bikeHere(sv0, here) : null;
+      const bikeAlong = !!bikeNow && !bikeNow.hired && !far && !train && !!bikeHere(sv0, to);
+      const fare =
+        (byCar
+          ? fromTank
+            ? 0
+            : far
+              ? Math.round(INTERCITY.bus * 0.6)
+              : 8
           : far
-            ? Math.round(INTERCITY.bus * 0.6)
-            : 8
-        : far
-          ? train
-            ? INTERCITY.train
-            : INTERCITY.bus
-          : train
-            ? TRAIN_LOCAL
-            : BUS_FARE;
+            ? train
+              ? INTERCITY.train
+              : INTERCITY.bus
+            : train
+              ? TRAIN_LOCAL
+              : BUS_FARE) + (bikeAlong && !byCar ? BIKE_ON_BUS : 0);
       if (byCar && saveRef.current.coins < fare) {
         toast(
           `Your tank is nearly empty and fuel on the way costs ${N(fare)}. Fill up at a filling station.`,
@@ -2323,6 +2348,19 @@ function CityGame({
         advance("learn");
         setDriving(false);
         setInside(false);
+        if (bikeNow && !bikeAlong) {
+          e.setBike(null);
+          setTimeout(
+            () =>
+              toast(
+                bikeNow.hired
+                  ? "You returned the hire bicycle before leaving."
+                  : `Your bicycle stays at home in ${cityOf(districtById(saveRef.current.homeArea ?? "lekki"))[0].toUpperCase() + cityOf(districtById(saveRef.current.homeArea ?? "lekki")).slice(1)}.`,
+              ),
+            2500,
+          );
+        } else if (bikeAlong && !byCar)
+          setTimeout(() => toast(`Your bicycle came on the danfo: +${N(BIKE_ON_BUS)}.`), 2500);
         update((x) => ({
           ...x,
           coins: x.coins - fare,
@@ -2330,6 +2368,9 @@ function CityGame({
           car: byCar ? e.carPos() : x.car,
           pos: undefined,
           ...(fromTank ? { fuel: Math.max(0, (x.fuel ?? FUEL.start) - litres) } : {}),
+          ...(bikeNow && !bikeAlong
+            ? { cycling: false, ...(bikeNow.hired ? { hire: 0 } : {}) }
+            : {}),
         }));
         if (fromTank && tank - litres < FUEL.trip)
           setTimeout(() => toast("Your tank is low. Fill up at a filling station.", "warn"), 2500);
@@ -4232,8 +4273,9 @@ function CityGame({
   /* ---------- bicycles and races ---------- */
   const toggleBike = useCallback(() => {
     const e = engine.current;
-    const b = saveRef.current.bike;
-    if (!e || !b) return;
+    if (!e) return;
+    const b = bikeHere(saveRef.current, e.districtId());
+    if (!b) return;
     const on = !saveRef.current.cycling;
     if (raceRef.current && !on && raceRef.current.kind === "bike") {
       toast("Finish the cycling race first, or cancel it.", "warn");
@@ -6358,22 +6400,80 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("bikehire:")) {
+        const until = saveRef.current.hire ?? 0;
+        const buy = (k: keyof typeof HIRE) => {
+          const h = HIRE[k];
+          if (saveRef.current.coins < h.price) {
+            toast(`The hire is ${N(h.price)}. You have ${N(saveRef.current.coins)}.`, "warn");
+            return;
+          }
+          const hire = Math.max(Date.now(), saveRef.current.hire ?? 0) + h.ms;
+          saveRef.current = { ...saveRef.current, hire, cycling: true };
+          update((x) => ({ ...x, coins: x.coins - h.price, hire, cycling: true }));
+          e.setBike("city", HIRE_COLOR);
+          setPanel(null);
+          toast(
+            `Bismillah! Your hire bicycle is yours until ${new Date(hire).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Park it outside when you go into the masjid.`,
+            "good",
+          );
+        };
+        setPanel({
+          kind: "info",
+          title: "🚲 Madinah Bike",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Hire a bicycle to get around Madinah. Ride it anywhere in the city; park it outside
+                when you enter a masjid. Bicycles can't be taken to Makkah or other cities.
+              </p>
+              {until > Date.now() && (
+                <p className="rounded-xl bg-[#e8f3ef] p-3 text-[13px] font-bold text-[#1d6b3a]">
+                  You have a bicycle until{" "}
+                  {new Date(until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+                </p>
+              )}
+              <button
+                onClick={() => buy("hour")}
+                className="w-full rounded-xl bg-[#2fa84f] px-4 py-3 text-left font-bold text-white"
+              >
+                1 hour · {N(HIRE.hour.price)}
+              </button>
+              <button
+                onClick={() => buy("day")}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-white"
+              >
+                The whole day (12 hours) · {N(HIRE.day.price)}
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "keke" && NO_TRAFFIC.has(e.districtId())) {
+        toast(
+          "No taxis inside Mina and Arafat in the days of Hajj: pilgrims walk. Taxis wait at the gate.",
+        );
+        return;
+      }
       if (id === "keke") {
         const area = e.districtId();
+        // a taxi in Makkah or Madinah costs more than a keke at home
+        const kfare = districtById(area).holy ? 10 : 3;
         setPanel({
           kind: "info",
           title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Keke",
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
-                Any place in {fullName(districtById(area))} for {N(3)}.
+                Any place in {fullName(districtById(area))} for {N(kfare)}.
               </p>
               <PlacesView
                 area={area}
                 onGo={(prefix) => {
-                  if (saveRef.current.coins < 3) {
+                  if (saveRef.current.coins < kfare) {
                     toast(
-                      `The ${districtById(area).holy ? "taxi" : "keke"} fare is ₦30. Earn money at a mosque or school.`,
+                      `The ${districtById(area).holy ? "taxi" : "keke"} fare is ${N(kfare)}. Earn money at a mosque or school.`,
                       "warn",
                     );
                     return;
@@ -6382,7 +6482,7 @@ function CityGame({
                   if (e.kekeTo(prefix)) {
                     tuneRef.current();
                     sayDhikr("ride");
-                    update((x) => ({ ...x, coins: x.coins - 3 }));
+                    update((x) => ({ ...x, coins: x.coins - kfare }));
                     advance("ride");
                     toast("Off we go! Hold on tight.", "good");
                   } else
@@ -6461,6 +6561,13 @@ function CityGame({
       if (id.startsWith("arrived:")) {
         toast(`You got off in ${districtById(id.slice(8)).name}.`, "good");
         return;
+      }
+      if (id.startsWith("door:masjid:") && saveRef.current.cycling) {
+        // bicycles are parked outside the masjid
+        e.setBike(null);
+        saveRef.current = { ...saveRef.current, cycling: false };
+        update((x) => ({ ...x, cycling: false }));
+        toast("You parked your bicycle outside the masjid. Tap 🚲 Ride when you come out.");
       }
       if (id.startsWith("door:masjid:")) {
         advance("masjid");
@@ -7279,8 +7386,13 @@ function CityGame({
       e.onSlowPhone = () => {};
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
-    if (saveRef.current.bike && saveRef.current.cycling)
-      e.setBike(saveRef.current.bike.kind, saveRef.current.bike.color);
+    {
+      const b = bikeHere(
+        saveRef.current,
+        saveRef.current.district ?? saveRef.current.homeArea ?? "lekki",
+      );
+      if (b && saveRef.current.cycling) e.setBike(b.kind, b.color);
+    }
     if (saveRef.current.impound) e.setImpounded(true);
     e.onIncident = (kind, who) => incidentRef.current(kind, who);
     // every visit starts at home: you are only out in the city while you are playing
@@ -7372,6 +7484,18 @@ function CityGame({
             n[k] = Math.max(0, n[k] - NEED_DECAY[k] / 60);
           return { ...x, needs: n };
         });
+        // a hire bicycle runs out, or you are somewhere bicycles can't go: you get off
+        if (saveRef.current.cycling && !bikeHere(saveRef.current, e.districtId())) {
+          e.setBike(null);
+          const hired = cityOf(districtById(e.districtId())) === "madinah";
+          saveRef.current = { ...saveRef.current, cycling: false };
+          update((x) => ({ ...x, cycling: false }));
+          toast(
+            hired
+              ? "Your bicycle hire has ended. Hire again at a Madinah Bike dock."
+              : "No bicycles here.",
+          );
+        }
         const n = saveRef.current.needs;
         // with no sleep you are worn out: slow until you rest at home or in a hotel
         const worn = !!n && n.energy < 15;
@@ -8054,7 +8178,7 @@ function CityGame({
               📱 Phone
             </button>
           )}
-          {save.bike && !driving && !inside && (
+          {!!bikeHere(save, areaNow ?? save.district ?? "lekki") && !driving && !inside && (
             <button
               onClick={() => toggleBike()}
               className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"

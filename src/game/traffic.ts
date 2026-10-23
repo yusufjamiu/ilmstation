@@ -96,6 +96,8 @@ function lane(center: [number, number][], off: number, v: number): P[] {
   return out;
 }
 
+/** The Hajj sites: pilgrims on foot, no cars, buses or taxis driving through. */
+export const NO_TRAFFIC = new Set(["mina", "arafat"]);
 const sideOf = (d: District) => (d.origin.x > centerOf(d).x ? -1 : 1);
 export const roadEndOf = (d: District): [number, number] => [
   d.origin.x + sideOf(d) * (halfOf(d).x - 6),
@@ -276,13 +278,18 @@ export class Traffic {
       for (const child of DISTRICTS.filter((c) => c.parent === root.id))
         branches.push([root, child]);
     for (const [root, first] of branches) {
-      const chain: District[] = [root, first];
+      let chain: District[] = [root, first];
       for (;;) {
         const next = DISTRICTS.find((d) => d.parent === chain[chain.length - 1].id);
         if (!next) break;
         chain.push(next);
       }
-      const east = chain[1].link === "east";
+      // buses go as far as the gate of Mina, not on into the Hajj sites
+      const cut = chain.findIndex((d) => NO_TRAFFIC.has(d.id));
+      const gate = cut > 0 ? chain[cut] : null;
+      if (cut > 0) chain = chain.slice(0, cut);
+      if (chain.length < 2 && !gate) continue;
+      const east = (gate ?? chain[1]).link === "east";
       const top = chain[chain.length - 1];
       let sp: P[];
       if (east) {
@@ -310,7 +317,7 @@ export class Traffic {
       } else {
         const cx = root.origin.x,
           zs = root.origin.z + 40,
-          ze = top.origin.z - (halfOf(top).z - 12);
+          ze = gate ? gate.origin.z + halfOf(gate).z + 14 : top.origin.z - (halfOf(top).z - 12);
         sp = [
           ...lane(
             [
@@ -434,6 +441,7 @@ export class Traffic {
       for (let i = 0; i < n; i++) add(kinds[(i + 1) % kinds.length], sh, (SL / n) * i + 80);
     }
     for (const d of DISTRICTS) {
+      if (NO_TRAFFIC.has(d.id)) continue;
       d.streets.forEach((st, k) => {
         const p = streetLoop(d, st.z, k === 0 ? 11 : 8);
         if (k === 0) {
