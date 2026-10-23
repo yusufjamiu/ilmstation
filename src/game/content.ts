@@ -260,6 +260,13 @@ export const STREETS: Record<string, Street> = {
     bio: COMING_SOON,
   },
   sakinah: { id: "sakinah", name: "Sakinah Close", bio: HOMES },
+  graavenue: {
+    id: "graavenue",
+    name: "GRA Avenue",
+    bio: "The main road of Ikeja GRA: glass towers, storey buildings and duplexes for players to rent and buy.",
+  },
+  grafirdaus: { id: "grafirdaus", name: "Firdaus Crescent", bio: HOMES },
+  granoor: { id: "granoor", name: "Noor Close", bio: HOMES },
   mgavenue: {
     id: "mgavenue",
     name: "Manaar Gardens Avenue",
@@ -1326,6 +1333,29 @@ export const DISTRICTS: District[] = [
     ],
   },
 
+  /* ---------------- Ikeja GRA: towers, storey buildings and duplexes ---------------- */
+  {
+    id: "ikejagra",
+    tier: 1,
+    name: "GRA",
+    state: "Lagos",
+    origin: { x: 130, z: -975 },
+    half: { x: 120, z: 110 },
+    highway: "GRA Road",
+    parent: "lagosairport",
+    busStop: "Ikeja GRA",
+    land: 0.05,
+    shops: 0.06,
+    streets: [
+      { id: "graavenue", z: 0, decor: true },
+      { id: "grafirdaus", z: -70, decor: true },
+      { id: "granoor", z: 70, decor: true },
+    ],
+    landmarks: [
+      { id: "gra-mosque", kind: "masjid", name: "GRA Central Mosque", street: "graavenue", x: -40 },
+    ],
+  },
+
   /* ---------------- Ilorin, Kwara State: its own map, east of Lagos ---------------- */
   {
     id: "ilorincentral",
@@ -2101,7 +2131,7 @@ export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** The look of an area's houses, so no two kinds of place look the same. */
 /** Lekki and Ikeja: glass towers, storey buildings and duplexes; the newcomers' flats are in
     a tower too. */
-export const isPrimeArea = (id: string) => ["lekki", "badore", "ikeja"].includes(id);
+export const isPrimeArea = (id: string) => ["lekki", "badore", "ikeja", "ikejagra"].includes(id);
 export function houseStyleOf(d: District): import("./buildings").HouseStyle {
   if (d.id === "mina" || d.id === "arafat") return "tents";
   if (d.holy) return d.id === "haram" || d.id === "nabawi" ? "tower" : "saudi";

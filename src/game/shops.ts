@@ -15,6 +15,11 @@ export type SharedShop = {
 export interface Shops {
   /** Take a stall or shop. True if it is now yours (or already was). */
   claim(s: Omit<SharedShop, "at">): Promise<boolean>;
+  /** Change your shop's name and products (the rent itself is paid through the server). */
+  update(
+    sid: string,
+    o: { name: string; products: SharedShop["products"]; ownerName: string },
+  ): Promise<void>;
   /** Every stall and shop rented right now, by anyone. */
   watch(cb: (s: SharedShop[]) => void): () => void;
 }
@@ -22,7 +27,7 @@ const live = (s: SharedShop) => s.until > Date.now();
 
 export async function connectShops(): Promise<Shops> {
   const { db } = await import("@/lib/firebase");
-  const { doc, collection, query, where, onSnapshot, runTransaction } =
+  const { doc, collection, query, where, onSnapshot, runTransaction, updateDoc } =
     await import("firebase/firestore");
   return {
     async claim(s) {
@@ -34,6 +39,9 @@ export async function connectShops(): Promise<Shops> {
         tx.set(ref, { ...s, at: Date.now() });
         return true;
       });
+    },
+    async update(sid, o) {
+      await updateDoc(doc(db, "city_shops", sid), o);
     },
     watch(cb) {
       return onSnapshot(
@@ -62,6 +70,11 @@ export function connectShopsLocal(): Shops {
       all[s.sid] = { ...s, at: Date.now() };
       localStorage.setItem(K, JSON.stringify(all));
       return true;
+    },
+    async update(sid, o) {
+      const all = read();
+      if (all[sid]) all[sid] = { ...all[sid], ...o };
+      localStorage.setItem(K, JSON.stringify(all));
     },
     watch(cb) {
       let last = "";

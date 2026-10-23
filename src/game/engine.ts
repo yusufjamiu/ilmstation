@@ -1523,6 +1523,81 @@ export class IlmCityEngine {
       scene: "out",
     });
   }
+  private tawaf: {
+    bodies: THREE.InstancedMesh;
+    heads: THREE.InstancedMesh;
+    people: { r: number; a: number; w: number }[];
+    world: { x: number; z: number };
+    t: number;
+  } | null = null;
+  /** Hundreds of pilgrims circling the Kaaba seven times, anticlockwise, closer in and faster
+      near the Kaaba, slower further out. */
+  private buildTawafCrowd(g: THREE.Group, IN: number) {
+    const rnd = mulberry(7007);
+    const people: { r: number; a: number; w: number }[] = [];
+    for (let i = 0; i < 1500; i++) {
+      // packed close to the Kaaba, thinner towards the colonnades
+      const r = 8.5 + Math.pow(rnd(), 1.6) * (IN - 12);
+      // walking pace: about 1.1 m/s, a little slower in the thick of the crowd
+      people.push({ r, a: rnd() * Math.PI * 2, w: (0.9 + rnd() * 0.5) / r });
+    }
+    const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
+    body.translate(0, 0.68, 0);
+    const head = new THREE.SphereGeometry(0.16, 8, 6);
+    head.translate(0, 1.52, 0);
+    const mk = (geo: THREE.BufferGeometry) => {
+      const m = new THREE.InstancedMesh(geo, mat(0xffffff, { roughness: 0.9 }), people.length);
+      m.castShadow = true;
+      m.frustumCulled = false;
+      g.add(m);
+      return m;
+    };
+    const bodies = mk(body),
+      heads = mk(head);
+    const c = new THREE.Color();
+    const skins = [0x8d5a3b, 0x6b4430, 0xc68a5e, 0xe0b48a, 0x5a3a28];
+    people.forEach((_, i) => {
+      const sister = rnd() < 0.35;
+      bodies.setColorAt(i, c.setHex(sister && rnd() < 0.5 ? 0x1d1d22 : 0xf6f5ef));
+      heads.setColorAt(i, c.setHex(sister ? 0xf6f5ef : skins[i % skins.length]));
+    });
+    this.tawaf = {
+      bodies,
+      heads,
+      people,
+      world: { x: g.position.x + this.ox, z: g.position.z + this.oz },
+      t: 1,
+    };
+    this.stepTawaf(0, true);
+  }
+  private stepTawaf(dt: number, first = false) {
+    const T = this.tawaf;
+    if (!T) return;
+    // only while someone is near enough to see it, a few times a second
+    const p = this.camera.position;
+    if (!first && Math.hypot(p.x - T.world.x, p.z - T.world.z) > 260) return;
+    T.t += dt;
+    if (dt && T.t < 0.06) return;
+    const step = T.t;
+    T.t = 0;
+    const M4 = new THREE.Matrix4(),
+      q = new THREE.Quaternion(),
+      up = new THREE.Vector3(0, 1, 0),
+      one = new THREE.Vector3(1, 1, 1),
+      v = new THREE.Vector3();
+    T.people.forEach((pp, i) => {
+      // anticlockwise seen from above: the Kaaba stays on the pilgrim's left
+      pp.a += pp.w * step;
+      const x = Math.cos(pp.a) * pp.r,
+        z = -Math.sin(pp.a) * pp.r;
+      q.setFromAxisAngle(up, Math.atan2(-Math.sin(pp.a), -Math.cos(pp.a)));
+      M4.compose(v.set(x, 0, z), q, one);
+      T.bodies.setMatrixAt(i, M4);
+      T.heads.setMatrixAt(i, M4);
+    });
+    T.bodies.instanceMatrix.needsUpdate = true;
+    T.heads.instanceMatrix.needsUpdate = true;
+  }
   /** Pilgrims in ihram filling the plain: in Arafat most stand facing the Ka'bah with their
       hands raised in du'a, many round Jabal ar-Rahmah; in Mina they walk between the tents and
       the Jamarat. Drawn as a few instanced meshes, so thousands cost little. */
@@ -1532,10 +1607,24 @@ export class IlmCityEngine {
     const rnd = mulberry(arafat ? 9091 : 9092);
     const n = arafat ? 900 : 600;
     const kaaba = districtById("haram").origin;
-    const spots: { x: number; z: number; ry: number; dua: boolean; sister: boolean }[] = [];
+    const spots: {
+      x: number;
+      z: number;
+      ry: number;
+      dua: boolean;
+      sister: boolean;
+      crouch: boolean;
+    }[] = [];
     for (let tries = 0; spots.length < n && tries < n * 6; tries++) {
       let x: number, z: number;
-      if (arafat && rnd() < 0.4) {
+      let crouch = false;
+      const roll = rnd();
+      if (arafat && roll < 0.2) {
+        // Muzdalifah: pilgrims resting on the ground and picking up pebbles
+        x = (rnd() * 2 - 1) * (H.x - 10);
+        z = -72 + (rnd() * 2 - 1) * 12;
+        crouch = rnd() < 0.6;
+      } else if (arafat && roll < 0.55) {
         // round the foot of the Mount of Mercy
         const a = rnd() * Math.PI * 2,
           r = 24 + rnd() * 34;
@@ -1554,9 +1643,10 @@ export class IlmCityEngine {
       spots.push({
         x,
         z,
-        ry: dua || arafat ? toK + (rnd() - 0.5) * 0.4 : rnd() * Math.PI * 2,
-        dua,
+        ry: (dua || arafat) && !crouch ? toK + (rnd() - 0.5) * 0.4 : rnd() * Math.PI * 2,
+        dua: dua && !crouch,
         sister: rnd() < 0.35,
+        crouch,
       });
     }
     const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
@@ -1587,12 +1677,13 @@ export class IlmCityEngine {
       q = new THREE.Quaternion(),
       up = new THREE.Vector3(0, 1, 0),
       one = new THREE.Vector3(1, 1, 1),
+      low = new THREE.Vector3(1, 0.62, 1),
       c = new THREE.Color();
     const skins = [0x8d5a3b, 0x6b4430, 0xc68a5e, 0xe0b48a, 0x5a3a28];
     let h = 0;
     spots.forEach((p, i) => {
       q.setFromAxisAngle(up, p.ry);
-      M4.compose(new THREE.Vector3(p.x, 0, p.z), q, one);
+      M4.compose(new THREE.Vector3(p.x, 0, p.z), q, p.crouch ? low : one);
       bodies.setMatrixAt(i, M4);
       heads.setMatrixAt(i, M4);
       // brothers in the two white sheets; sisters in white or black with their heads covered
@@ -1649,7 +1740,8 @@ export class IlmCityEngine {
     // the north edge: Ikorodu reaches further north than the rest of the city
     // (the Lagos airport road goes north from Ikeja, past the edge)
     this.colliders.out.push({ x0: -1100, x1: 10, z0: -1900, z1: -680 });
-    this.colliders.out.push({ x0: 10, x1: 250, z0: -1900, z1: -822 });
+    // (the road goes on north from the airport to Ikeja GRA)
+    this.colliders.out.push({ x0: 10, x1: 250, z0: -1900, z1: -1092 });
     this.colliders.out.push({ x0: 250, x1: 420, z0: -1900, z1: -680 });
     // every other city: its own ground (sand in Saudi Arabia), with edges all round
     for (const city of Object.keys(CITY_CENTER).filter((c) => c !== "lagos")) {
@@ -4429,6 +4521,8 @@ export class IlmCityEngine {
     zone("zamzam", "💧 Drink Zamzam", W(-IN + 3.5, 0));
     zone("safa:sai", "Sa'i between Safa and Marwah", W(IN - 6, -IN + 10));
     zone(`door:masjid:${l.id}`, `Enter ${l.name} for salah`, W(0, OUT + 4), 4);
+    // a great crowd making tawaf, the Kaaba on their left
+    this.buildTawafCrowd(g, IN);
     // pilgrims in ihram walking round the Kaaba, the Kaaba on their left
     for (let i = 0; i < 18; i++) {
       const r = 10 + (i % 4) * 3.2;
@@ -9450,6 +9544,7 @@ export class IlmCityEngine {
     this.stepGuide(performance.now() / 1000);
     this.stepJob(dt, performance.now() / 1000);
     this.stepTraffic(dt);
+    this.stepTawaf(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
     // only draw areas near the camera

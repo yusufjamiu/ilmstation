@@ -30,6 +30,7 @@ import {
   type WalletNet,
 } from "./wallet";
 import { PACKS } from "./packs";
+import { housePrice, r10 } from "./prices";
 import { NO_TRAFFIC } from "./traffic";
 import {
   MIN_LAP_MS,
@@ -480,39 +481,16 @@ function collectRent(before: Save, after: Save): Save {
 }
 /** A house's rent: by its area and size. The best areas are for players of a higher Ilm
     level; anyone below it can still rent there by paying half as much again. */
-const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
-const FLOOR_RENT: Record<number, number> = { 1: 1, 2: 1.5, 3: 2 };
 const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
-const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
 /** How full each area's original houses are (0 to 1): prices rise with demand. */
 const AREA_DEMAND: Record<string, number> = {};
 /** Petrol: litres a trip uses, the tank, and the pump price (₦10 units per litre). */
 const FUEL = { trip: 10, far: 25, tank: 50, start: 20, perLitre: 0.7 };
-/** A glass tower costs a fortune: you buy the whole tower and let its flats. */
-const TOWER_PRICE = 60000;
 function houseRent(area: string, floors: number, ilm: number, type?: HomeType) {
-  const t = districtById(area).tier ?? 2;
-  // a face-me-I-face-you house is the cheapest home there is
-  const kindX = type === "faceme" ? 0.6 : 1;
-  // up to half as much again when an area is in demand
-  const demand = 1 + 0.5 * Math.min(1, AREA_DEMAND[area] ?? 0);
-  const base = r10(
-    150 *
-      (TIER_RENT[t] ?? 1) *
-      (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1) *
-      demand *
-      kindX,
-  );
+  const { base, buy, tier: t } = housePrice(area, floors, type, AREA_DEMAND[area] ?? 0);
   const need = TIER_LEVEL[t] ?? 0;
   const premium = ilmLevel(ilm).i < need;
   const week = premium ? r10(base * 1.5) : base;
-  const buy = r10(
-    (type === "tower"
-      ? TOWER_PRICE
-      : (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * kindX) *
-      (TIER_RENT[t] ?? 1) *
-      demand,
-  );
   return { week, month: r10(week * 3.4), base, premium, need: ILM_LEVELS[need], buy };
 }
 /** Building on your land, one stage at a time. */
@@ -2810,6 +2788,43 @@ function CityGame({
               }
               onPay={async (pts, next, msg) => {
                 if (saveRef.current.coins < pts) return;
+                const w = walletNet.current;
+                if (w) {
+                  // the server takes the money and records the house as yours, together
+                  const prev = saveRef.current.plots?.[pid];
+                  const how =
+                    next.kind === "rented" ? "rent" : next.kind === "owned" ? "land" : "buy";
+                  const days =
+                    next.kind === "rented"
+                      ? Math.round(
+                          (next.until -
+                            Math.max(Date.now(), prev?.kind === "rented" ? prev.until : 0)) /
+                            86400000,
+                        )
+                      : undefined;
+                  const r = await w.plot(pid, how, pts, {
+                    days,
+                    name: shownName(saveRef.current) ?? "Player",
+                  });
+                  if (!r.ok) {
+                    toast(
+                      r.error === "taken"
+                        ? "Another player has just taken this one. Please choose another."
+                        : r.error === "not-enough"
+                          ? "Your wallet doesn't have enough for that."
+                          : "Couldn't complete that. Please try again.",
+                      "warn",
+                    );
+                    if (r.error === "taken") setPanel(null);
+                    return;
+                  }
+                  if (typeof r.naira === "number") walletServer.current = r.naira;
+                  syncCoins();
+                  setOwn(next.kind === "rented" && r.until ? { ...next, until: r.until } : next);
+                  toast(msg, "good");
+                  setTimeout(render, 0);
+                  return;
+                }
                 if (!(await claimPlotRef.current(pid, next))) {
                   toast("Another player has just taken this one. Please choose another.", "warn");
                   setPanel(null);
@@ -2882,6 +2897,18 @@ function CityGame({
     const net = shopsNet.current;
     const o = onlineRef.current;
     if (!own || !net || !o) return true;
+    // with the server holding the money, the rent is recorded there: only the shop's name and
+    // products are sent from here
+    if (walletNet.current) {
+      await net
+        .update(sid, {
+          name: own.name,
+          products: own.products,
+          ownerName: shownName(saveRef.current) ?? "Player",
+        })
+        .catch(() => {});
+      return true;
+    }
     return net.claim({
       sid,
       owner: o.uid,
@@ -3012,6 +3039,43 @@ function CityGame({
                 if (saveRef.current.coins < pts) return;
                 const net = shopsNet.current,
                   o = onlineRef.current;
+                const w = walletNet.current;
+                if (w) {
+                  const r = await w.shop(sid, days, pts, shownName(saveRef.current) ?? "Player");
+                  if (!r.ok) {
+                    toast(
+                      r.error === "taken"
+                        ? "Another player has just rented this space. Try another one."
+                        : r.error === "not-enough"
+                          ? "Your wallet doesn't have enough for that."
+                          : "Couldn't complete that. Please try again.",
+                      "warn",
+                    );
+                    if (r.error === "taken") setPanel(null);
+                    return;
+                  }
+                  if (typeof r.naira === "number") walletServer.current = r.naira;
+                  syncCoins();
+                  const prev = saveRef.current.shops?.[sid];
+                  const next: ShopOwn = {
+                    until: r.until ?? Math.max(Date.now(), prev?.until ?? 0) + days * 86400000,
+                    name: prev?.name ?? "",
+                    products: prev?.products ?? [],
+                    salesAt: prev?.salesAt ?? Date.now(),
+                  };
+                  saveRef.current = {
+                    ...saveRef.current,
+                    shops: { ...saveRef.current.shops, [sid]: next },
+                  };
+                  update((x) => ({ ...x, shops: { ...x.shops, [sid]: next } }));
+                  paintShop(e, sid);
+                  toast(
+                    "The keys are yours! Give your business a name and add product photos.",
+                    "good",
+                  );
+                  setTimeout(render, 0);
+                  return;
+                }
                 if (net && o) {
                   const prev0 = saveRef.current.shops?.[sid];
                   const ok = await net
@@ -4352,6 +4416,8 @@ function CityGame({
           clearInterval(tick);
           raceRef.current.go = true;
           raceRef.current.start = performance.now();
+          // for a real race the server's clock starts now too
+          if (race && walletNet.current) void walletNet.current.raceStart(race.id).catch(() => {});
           setRaceNow({ text: "GO!", ms: 0 });
         }
       }, 1000);
@@ -4392,6 +4458,28 @@ function CityGame({
             }
             const race = r.race;
             const o = onlineRef.current;
+            const w = walletNet.current;
+            if (race && w) {
+              // the server times the race (its clock started at GO) and keeps your best
+              void w
+                .raceFinish(race.id, shownName(saveRef.current) ?? "Player")
+                .then((res) =>
+                  toast(
+                    !res.ok
+                      ? res.error === "too-fast"
+                        ? "That time is too fast to be real: it doesn't count."
+                        : res.error === "closed"
+                          ? "This race has closed: the time doesn't count."
+                          : "Your time couldn't be recorded. Please run it again."
+                      : res.improved
+                        ? `Finished in ${raceTime(res.ms ?? ms)}: your best time in ${race.title}!`
+                        : `Finished in ${raceTime(res.ms ?? ms)}. Your best is still ${raceTime(res.best ?? ms)}.`,
+                    res.ok ? "good" : "warn",
+                  ),
+                )
+                .catch(() => toast("Your time couldn't be recorded. Please run it again.", "warn"));
+              return;
+            }
             if (!race || !o) {
               toast(`Finished! Your time: ${raceTime(ms)}`, "good");
               return;
@@ -4758,7 +4846,7 @@ function CityGame({
       const me = onlineRef.current?.uid ?? "";
       const mix = (id: string) => flatFor(me + id).seed;
       const houses = e.plots
-        .filter((q) => q.district === area && q.kind === "house" && q.toLet)
+        .filter((q) => q.district === area && q.kind === "house" && q.toLet && q.type !== "tower")
         .sort((a, b) => (b.floors ?? 1) - (a.floors ?? 1) || mix(a.id) - mix(b.id));
       let got: { id: string; floors: number } | null = null;
       // the first phase with a free house; a few tries per phase, then the next phase
@@ -4768,7 +4856,11 @@ function CityGame({
           const id = e.phasedId(q.id, n);
           if (saveRef.current.plots?.[id] || takenRef.current.has(id)) continue;
           if (++tries > 6) break;
-          if (await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 })) {
+          const w = walletNet.current;
+          const ok = w
+            ? (await w.richHouse(id, shownName(saveRef.current) ?? "Player")).ok
+            : await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 });
+          if (ok) {
             got = { id, floors: q.floors ?? 1 };
             break;
           }
@@ -8683,6 +8775,9 @@ function CityGame({
                 msg = `Welcome, ${look.name}! Every family house here is taken, so you start in a furnished flat with ₦6,000.`;
             } else if (path === "trader") {
               const sid = e.shopIds().find((id) => id.startsWith(area + "-") && !/-m\d+$/.test(id));
+              // the free week is recorded by the server, once per player
+              if (sid && walletNet.current)
+                void walletNet.current.starterShop(sid, look.name).catch(() => {});
               if (sid) {
                 shops = {
                   ...shops,

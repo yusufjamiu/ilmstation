@@ -192,17 +192,8 @@
     // ---- one player per house: who rents or owns each house and plot of land ----
     match /city_plots/{plot} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
-        && request.resource.data.plot == plot
-        && request.resource.data.at > request.time.toMillis() - 86400000
-        && request.resource.data.at < request.time.toMillis() + 86400000;
-      // keep your own (when it became yours stays the same), or take one whose rent has run out
-      allow update: if signedIn() && request.resource.data.owner == request.auth.uid
-        && request.resource.data.plot == plot
-        && ((resource.data.owner == request.auth.uid
-              && request.resource.data.at == resource.data.get('at', request.resource.data.at))
-            || (resource.data.until < request.time.toMillis()
-              && request.resource.data.at > request.time.toMillis() - 86400000));
+      // renting and buying go through the server, which takes the money at the same time
+      allow create, update: if false;
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
     }
 
@@ -229,12 +220,10 @@
     // ---- market stalls and shops: one player rents each, everyone sees it ----
     match /city_shops/{sid} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.owner == request.auth.uid
-        && request.resource.data.sid == sid;
-      // keep your own, or take one whose rent has run out
-      allow update: if signedIn() && request.resource.data.owner == request.auth.uid
-        && request.resource.data.sid == sid
-        && (resource.data.owner == request.auth.uid || resource.data.until < request.time.toMillis());
+      // the rent is paid through the server; the owner only changes the name and products
+      allow create: if false;
+      allow update: if signedIn() && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'products', 'ownerName']);
     }
 
     // ---- houses players sell to each other ----
@@ -258,14 +247,8 @@
       allow write: if isAdmin();
       match /entries/{uid} {
         allow read: if signedIn();
-        allow create, update: if signedIn() && request.auth.uid == uid
-          && request.resource.data.uid == uid
-          && request.resource.data.ms is number
-          && request.resource.data.ms >= 15000
-          && !('paid' in request.resource.data)
-          && get(/databases/$(database)/documents/city_races/$(race)).data.status == "open"
-          && get(/databases/$(database)/documents/city_races/$(race)).data.until > request.time.toMillis()
-          && get(/databases/$(database)/documents/city_races/$(race)).data.from <= request.time.toMillis();
+        // times are kept by the server's clock; only admins change an entry (to mark it paid)
+        allow create: if false;
         allow update, delete: if isAdmin();
       }
     }
