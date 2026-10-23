@@ -742,17 +742,9 @@ export class IlmCityEngine {
   private bikeMult = 1;
   private bikeColor = 0x1f6f63;
   /** Ride a bicycle (or get off it, with null): faster than walking, outside only. */
-  setBike(kind: "city" | "mountain" | "racing" | null, color = 0x1f6f63) {
-    if (this.bikeObj) {
-      this.bikeObj.removeFromParent();
-      this.bikeObj = null;
-    }
-    this.liftRider(0);
-    this.bikeWheels = [];
-    this.bikeKind = kind;
-    this.bikeColor = color;
-    if (!kind) return;
-    this.bikeMult = kind === "racing" ? 2.1 : kind === "mountain" ? 1.85 : 1.6;
+  /** A bicycle, its front facing +z, wheels on the ground. */
+  private makeBike(kind: "city" | "mountain" | "racing", color: number) {
+    const wheels: THREE.Object3D[] = [];
     const g = new THREE.Group();
     const frame = mat(color, { roughness: 0.4, metalness: 0.4 });
     const dark = mat(0x1a1b1d, { roughness: 0.6 });
@@ -773,7 +765,7 @@ export class IlmCityEngine {
       }
       w.position.set(0, R, z);
       g.add(w);
-      this.bikeWheels.push(w);
+      wheels.push(w);
     }
     const bar = (len: number, x0: number, y0: number, z0: number, ax: number, m = frame) => {
       const b = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 6), m);
@@ -805,6 +797,21 @@ export class IlmCityEngine {
       g.add(pedal);
     }
     g.traverse((o) => (o.castShadow = true));
+    return { g, wheels };
+  }
+  setBike(kind: "city" | "mountain" | "racing" | null, color = 0x1f6f63) {
+    if (this.bikeObj) {
+      this.bikeObj.removeFromParent();
+      this.bikeObj = null;
+    }
+    this.liftRider(0);
+    this.bikeWheels = [];
+    this.bikeKind = kind;
+    this.bikeColor = color;
+    if (!kind) return;
+    this.bikeMult = kind === "racing" ? 2.1 : kind === "mountain" ? 1.85 : 1.6;
+    const { g, wheels } = this.makeBike(kind, color);
+    this.bikeWheels = wheels;
     this.player.add(g);
     this.bikeObj = g;
     this.syncBike();
@@ -1115,15 +1122,18 @@ export class IlmCityEngine {
       ] as [number, number, number][])
         spots.push([x, sz + dz, r]);
     let si = 0;
-    BILLBOARDS.filter((b) => b.district === D.id).forEach((b) => {
-      while (si < spots.length) {
-        const [x, z, r] = spots[si++];
-        if (this.boxFree(x - 8, x + 8, z - 1.8, z + 1.8)) {
-          this.billboard(b, x, z, r);
-          break;
+    // no adverts on the Hajj sites
+    BILLBOARDS.filter((b) => b.district === D.id && D.id !== "mina" && D.id !== "arafat").forEach(
+      (b) => {
+        while (si < spots.length) {
+          const [x, z, r] = spots[si++];
+          if (this.boxFree(x - 8, x + 8, z - 1.8, z + 1.8)) {
+            this.billboard(b, x, z, r);
+            break;
+          }
         }
-      }
-    });
+      },
+    );
 
     // a football pitch and the sisters' corner take three plots in a row
     const play = this.choosePlayPlots(D, zs, H, southEdge);
@@ -1452,9 +1462,157 @@ export class IlmCityEngine {
       this.walkers.push({ g, route, k: 1, wait: 2, t: 0, name, district: D.id, hisbah: true });
     }
 
+    // Mina and Arafat are shown as in the days of Hajj: crowds of pilgrims
+    if (D.id === "arafat" || D.id === "mina") this.buildPilgrims(D, S);
+    // Madinah: bicycles for hire by the street
+    if (D.id === "nabawi" || D.id === "quba") this.buildBikeDock(D, S);
+
     for (const m of batch.build()) S.add(m);
     this.ox = 0;
     this.oz = 0;
+  }
+
+  /** A row of green hire bicycles in their docks, with a pay point. */
+  private buildBikeDock(D: District, S: THREE.Object3D) {
+    let at: { x: number; z: number; rot: number } | null = null;
+    // along the main street, away from the welcome arch at the area's ends
+    const xs: number[] = [];
+    for (let x = 14; x < halfOf(D).x - 50; x += 3) xs.push(x, -x - 15);
+    for (const z of D.streets.flatMap((st) => [st.z + 10.5, st.z - 10.5]))
+      for (const x of xs) {
+        if (at) break;
+        let ok = this.boxFree(x - 1, x + 15, z - 0.8, z + 0.8);
+        for (let k = 0; k <= 14 && ok; k += 2)
+          if (!this.free(this.ox + x + k, this.oz + z, 0.7)) ok = false;
+        if (ok)
+          at = {
+            x: x + 7,
+            z,
+            rot: D.streets.some((st) => Math.abs(z - st.z - 10.5) < 0.1) ? 0 : Math.PI,
+          };
+      }
+    if (!at) return;
+    const g = new THREE.Group();
+    g.position.set(at.x, 0, at.z);
+    g.rotation.y = at.rot;
+    // the dock rail, the bikes side by side, the pay point with its sign
+    g.add(box(14, 0.12, 0.25, 0x5a5f66, 0, 0.05, -0.7));
+    // side by side, front wheels in the docks
+    for (let i = 0; i < 8; i++) {
+      const { g: b } = this.makeBike("city", 0x2fa84f);
+      b.position.set(-6 + i * 1.3, 0, 0.2);
+      b.rotation.y = Math.PI;
+      g.add(b);
+      g.add(box(0.12, 0.9, 0.12, 0x2fa84f, -6 + i * 1.3, 0, -0.7));
+    }
+    g.add(box(0.7, 2, 0.5, 0x2fa84f, -8.5, 0, -0.4));
+    const sign = this.signBoard("Madinah Bike · hire", 4, 0.8, "#2fa84f", "#ffffff");
+    sign.position.set(-8.5, 2.6, -0.4);
+    g.add(sign);
+    S.add(g);
+    const cos = Math.cos(at.rot),
+      sin = Math.sin(at.rot);
+    const lx = -8.5,
+      lz = 1.2;
+    this.zones.push({
+      id: "bikehire:" + D.id,
+      label: "🚲 Hire a bicycle",
+      x: this.ox + at.x + lx * cos + lz * sin,
+      z: this.oz + at.z - lx * sin + lz * cos,
+      r: 2.5,
+      scene: "out",
+    });
+  }
+  /** Pilgrims in ihram filling the plain: in Arafat most stand facing the Ka'bah with their
+      hands raised in du'a, many round Jabal ar-Rahmah; in Mina they walk between the tents and
+      the Jamarat. Drawn as a few instanced meshes, so thousands cost little. */
+  private buildPilgrims(D: District, S: THREE.Object3D) {
+    const arafat = D.id === "arafat";
+    const H = halfOf(D);
+    const rnd = mulberry(arafat ? 9091 : 9092);
+    const n = arafat ? 900 : 600;
+    const kaaba = districtById("haram").origin;
+    const spots: { x: number; z: number; ry: number; dua: boolean; sister: boolean }[] = [];
+    for (let tries = 0; spots.length < n && tries < n * 6; tries++) {
+      let x: number, z: number;
+      if (arafat && rnd() < 0.4) {
+        // round the foot of the Mount of Mercy
+        const a = rnd() * Math.PI * 2,
+          r = 24 + rnd() * 34;
+        x = Math.cos(a) * r;
+        z = -48 + Math.sin(a) * r;
+      } else {
+        x = (rnd() * 2 - 1) * (H.x - 8);
+        z = (rnd() * 2 - 1) * (H.z - 8);
+      }
+      if (Math.abs(x) > H.x - 4 || Math.abs(z) > H.z - 4) continue;
+      if (!this.free(this.ox + x, this.oz + z, 0.6)) continue;
+      // keep the way into the area and the bus stop clear
+      if (Math.abs(x + 60) < 22 && Math.abs(z - 12) < 10) continue;
+      const toK = Math.atan2(kaaba.x - (this.ox + x), kaaba.z - (this.oz + z));
+      const dua = arafat ? rnd() < 0.65 : rnd() < 0.15;
+      spots.push({
+        x,
+        z,
+        ry: dua || arafat ? toK + (rnd() - 0.5) * 0.4 : rnd() * Math.PI * 2,
+        dua,
+        sister: rnd() < 0.35,
+      });
+    }
+    const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
+    body.translate(0, 0.68, 0);
+    const head = new THREE.SphereGeometry(0.16, 8, 6);
+    head.translate(0, 1.52, 0);
+    const arm = new THREE.BoxGeometry(0.09, 0.55, 0.09);
+    const arms = mergeGeometries(
+      [-1, 1].map((sx) => {
+        const g = arm.clone();
+        g.translate(0, 0.27, 0);
+        g.rotateX(-0.5);
+        g.translate(sx * 0.2, 1.25, 0.05);
+        return g;
+      }),
+      false,
+    )!;
+    const mk = (g: THREE.BufferGeometry, count: number) => {
+      const m = new THREE.InstancedMesh(g, mat(0xffffff, { roughness: 0.9 }), count);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      return m;
+    };
+    const bodies = mk(body, spots.length),
+      heads = mk(head, spots.length),
+      hands = mk(arms, Math.max(1, spots.filter((p) => p.dua).length));
+    const M4 = new THREE.Matrix4(),
+      q = new THREE.Quaternion(),
+      up = new THREE.Vector3(0, 1, 0),
+      one = new THREE.Vector3(1, 1, 1),
+      c = new THREE.Color();
+    const skins = [0x8d5a3b, 0x6b4430, 0xc68a5e, 0xe0b48a, 0x5a3a28];
+    let h = 0;
+    spots.forEach((p, i) => {
+      q.setFromAxisAngle(up, p.ry);
+      M4.compose(new THREE.Vector3(p.x, 0, p.z), q, one);
+      bodies.setMatrixAt(i, M4);
+      heads.setMatrixAt(i, M4);
+      // brothers in the two white sheets; sisters in white or black with their heads covered
+      bodies.setColorAt(i, c.setHex(p.sister && rnd() < 0.5 ? 0x1d1d22 : 0xf6f5ef));
+      heads.setColorAt(
+        i,
+        c.setHex(p.sister ? (rnd() < 0.6 ? 0xf6f5ef : 0x1d1d22) : skins[i % skins.length]),
+      );
+      if (p.dua) {
+        hands.setMatrixAt(h, M4);
+        hands.setColorAt(h, c.setHex(p.sister ? 0xf6f5ef : skins[i % skins.length]));
+        h++;
+      }
+    });
+    hands.count = h;
+    for (const m of [bodies, heads, hands]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      S.add(m);
+    }
   }
 
   /** The whole city: every area, the expressways, the City Junction, ocean and lagoon. */
@@ -6294,6 +6452,8 @@ export class IlmCityEngine {
   travel(id: string, byCar: boolean) {
     const D = districtById(id);
     this.ensureCity(cityOf(D));
+    // your car stays at home: there's none in Makkah or Madinah
+    this.car.visible = !D.holy && !this.impounded;
     this.where = "out";
     this.district = D;
     this.driving = false;
@@ -6503,13 +6663,16 @@ export class IlmCityEngine {
   /** Begin in this area: you stand on the main street, your car parked beside you. */
   startIn(id: string) {
     const D = districtById(id);
+    this.car.visible = !D.holy && !this.impounded;
     this.where = "out";
     this.district = D;
     this.standAt(D.origin.x - 9, D.origin.z + 17);
     this.player.rotation.y = Math.PI;
-    this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
-    this.carHeading = Math.PI;
-    this.car.rotation.y = Math.PI;
+    if (!D.holy) {
+      this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
+      this.carHeading = Math.PI;
+      this.car.rotation.y = Math.PI;
+    }
     this.camYaw = 0;
     this.snapCamera();
   }
