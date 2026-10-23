@@ -6452,6 +6452,8 @@ export class IlmCityEngine {
   travel(id: string, byCar: boolean) {
     const D = districtById(id);
     this.ensureCity(cityOf(D));
+    // your car stays at home: there's none in Makkah or Madinah
+    this.car.visible = !D.holy && !this.impounded;
     this.where = "out";
     this.district = D;
     this.driving = false;
@@ -6661,13 +6663,16 @@ export class IlmCityEngine {
   /** Begin in this area: you stand on the main street, your car parked beside you. */
   startIn(id: string) {
     const D = districtById(id);
+    this.car.visible = !D.holy && !this.impounded;
     this.where = "out";
     this.district = D;
     this.standAt(D.origin.x - 9, D.origin.z + 17);
     this.player.rotation.y = Math.PI;
-    this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
-    this.carHeading = Math.PI;
-    this.car.rotation.y = Math.PI;
+    if (!D.holy) {
+      this.car.position.set(D.origin.x - 16, 0, D.origin.z + 9.8);
+      this.carHeading = Math.PI;
+      this.car.rotation.y = Math.PI;
+    }
     this.camYaw = 0;
     this.snapCamera();
   }

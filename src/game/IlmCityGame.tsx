@@ -2344,6 +2344,18 @@ function CityGame({
       arriveRef.current = () => {
         // by train you step off at the station; otherwise the bus or car drives in
         if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar);
+        // ihram is worn in Saudi Arabia while a pilgrimage is under way, not back home
+        {
+          const sv1 = saveRef.current;
+          if (sv1.profile)
+            e.setPlayerLook({
+              ...sv1.profile,
+              ihram:
+                !sv1.profile.female &&
+                (!!sv1.umrah?.stage || hajjIhram(sv1.hajj?.stage)) &&
+                countryOf(districtById(to)) === "Saudi Arabia",
+            });
+        }
         advance("ride");
         advance("learn");
         setDriving(false);
@@ -7368,10 +7380,15 @@ function CityGame({
     if (import.meta.env.DEV) Object.assign(window, { __ilmcity: e, __districts: DISTRICTS });
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
+    // pilgrims who stopped playing in Saudi Arabia carry on there, still in ihram
+    const abroad =
+      !!saveRef.current.district &&
+      countryOf(districtById(saveRef.current.district)) === "Saudi Arabia";
+    const pilgrim = !!saveRef.current.umrah?.stage || hajjIhram(saveRef.current.hajj?.stage);
     if (saveRef.current.profile)
       e.setPlayerLook({
         ...saveRef.current.profile,
-        ihram: !!saveRef.current.umrah?.stage || hajjIhram(saveRef.current.hajj?.stage),
+        ihram: pilgrim && abroad && !saveRef.current.profile.female,
       });
     e.setHomeItems(saveRef.current.items ?? []);
     {
@@ -7398,7 +7415,22 @@ function CityGame({
     // every visit starts at home: you are only out in the city while you are playing
     {
       const sv = saveRef.current;
-      if (sv.profile) {
+      if (sv.profile && abroad) {
+        // in Makkah or Madinah you carry on where you were (at today's Hajj site, if any)
+        const st = sv.hajj?.stage;
+        const area = (st && HAJJ[st].area) || sv.district!;
+        e.startIn(area);
+        setInside(false);
+        setTimeout(
+          () =>
+            toast(
+              pilgrim
+                ? `You're still on your ${st ? "Hajj" : "Umrah"}, in ${districtById(area).name}. Carry on from My Day.`
+                : `Welcome back to ${districtById(area).name}.`,
+            ),
+          2500,
+        );
+      } else if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
         // a house counts as home only while it is yours: bought, built, or rent still paid
