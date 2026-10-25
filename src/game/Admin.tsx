@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { User } from "firebase/auth";
 import type { AdRequest, Award, Enquiry, Nasheed, SponsoredEntry, SponsoredQuiz } from "./live";
 import { DISTRICTS } from "./content";
+import ContentAdmin from "./ContentAdmin";
 import { connectHomes, weekKey, type ShownHome } from "./homes";
 import { AD_PRICES } from "./live";
 import {
@@ -59,7 +60,7 @@ export default function Admin() {
   const [state, setState] = useState<"loading" | "out" | "no" | "yes">("loading");
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState<
-    "reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored" | "races" | "fresh"
+    "reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored" | "races" | "content" | "fresh"
   >("reports");
   useEffect(() => {
     let off = () => {};
@@ -111,6 +112,7 @@ export default function Admin() {
     ["nasheeds", "🎵 Nasheeds"],
     ["sponsored", "💵 Sponsored quizzes"],
     ["races", "🏁 Races"],
+    ["content", "📚 Content"],
     ["fresh", "🔄 Fresh start"],
   ];
   return (
@@ -133,6 +135,7 @@ export default function Admin() {
       {tab === "nasheeds" && <Nasheeds />}
       {tab === "sponsored" && <Sponsored />}
       {tab === "races" && <RacesAdmin />}
+      {tab === "content" && <ContentAdmin />}
       {tab === "fresh" && <FreshStart />}
     </Shell>
   );

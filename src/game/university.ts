@@ -2,8 +2,17 @@
    (100 to 500), and every course has a short quiz. */
 
 import { FACULTY_QUESTIONS, type FQ } from "./content";
+import {
+  getContent,
+  keyOf,
+  type CourseDoc,
+  type CourseRef,
+  type DeptDoc,
+  type FacultyDoc,
+  type Topic,
+} from "./learning";
 
-type Dept = { name: string; code: string; topics: string[]; qs: FQ[] };
+export type Dept = { name: string; code: string; topics: string[]; qs: FQ[] };
 
 const q = (text: string, a: string, ...w: string[]): FQ => {
   const o = [a, ...w];
@@ -919,7 +928,7 @@ const ALIAS: Record<string, string> = {
 export const LEVELS = [100, 200, 300, 400, 500];
 
 /** The departments of a faculty (from its name, e.g. "Faculty of Law · UNILAG"). */
-function facultyKey(faculty: string) {
+export function facultyKey(faculty: string) {
   const name = faculty.split(" · ")[0];
   const alias = Object.keys(ALIAS).find((k) => name.includes(k));
   if (alias) return ALIAS[alias];
@@ -964,4 +973,33 @@ export function courseQuiz(d: Dept, faculty: string, code: string): FQ[] {
   const order = pool.map((x) => ({ x, r: rnd() })).sort((a, b) => a.r - b.r);
   return order.slice(0, 5).map((o) => o.x);
 }
-export type { Dept };
+
+/** Every kind of faculty and its built-in departments (for the admin page). */
+export const FACULTY_KINDS = Object.keys(DEPTS);
+export const builtInDepartments = (key: string): Dept[] => DEPTS[key] ?? [];
+
+/* ---------- with what the IlmWorld team has written in the admin page ---------- */
+/** A faculty's departments: the built-in ones and any the team has added. */
+export async function departmentsLive(faculty: string): Promise<Dept[]> {
+  const key = facultyKey(faculty);
+  const extra = await getContent<FacultyDoc>(keyOf("faculty", key));
+  const base = DEPTS[key] ?? [];
+  const added = (extra?.depts ?? [])
+    .filter((d) => d.code && !base.some((b) => b.code === d.code))
+    .map((d) => ({ name: d.name, code: d.code, topics: [], qs: [] }));
+  return [...base, ...added];
+}
+/** A department's courses at a level: as the team set them, or the built-in three. */
+export async function coursesLive(d: Dept, level: number): Promise<CourseRef[]> {
+  const doc = await getContent<DeptDoc>(keyOf("dept", d.code));
+  const set = doc?.courses?.[String(level)];
+  if (set?.length) return set;
+  return d.topics.length ? coursesOf(d, level) : [];
+}
+/** A course's topics (up to 12): as the team wrote them, or one topic with the course quiz. */
+export async function courseTopics(d: Dept, faculty: string, c: CourseRef): Promise<Topic[]> {
+  const doc = await getContent<CourseDoc>(keyOf("course", c.code));
+  if (doc?.topics?.length) return doc.topics;
+  const qs = courseQuiz(d, faculty, c.code);
+  return qs.length ? [{ title: c.title, qs }] : [];
+}

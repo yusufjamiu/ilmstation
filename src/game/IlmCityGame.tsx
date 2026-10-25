@@ -60,7 +60,15 @@ import {
   type PitchNet,
   type PitchRoom,
 } from "./pitchnet";
-import { departmentsOf, coursesOf, courseQuiz, LEVELS, type Dept } from "./university";
+import { courseTopics, coursesLive, departmentsLive, LEVELS, type Dept } from "./university";
+import {
+  getContent,
+  keyOf,
+  type MosqueDoc,
+  type QItem,
+  type QuizDoc,
+  type Topic,
+} from "./learning";
 import {
   AD_PRICES,
   requestAd,
@@ -87,7 +95,7 @@ import {
   type Online,
   type PlayerStatus,
 } from "./online";
-import { SCHOOL_POINTS, SUBJECTS, quizFor, type Q as SchoolQ } from "./school";
+import { SCHOOL_POINTS, SUBJECTS, bandOf, quizFor, type Q as SchoolQ } from "./school";
 import {
   AD_EMAIL,
   BILLBOARDS,
@@ -211,6 +219,8 @@ type Save = {
   fuel?: number;
   /** unpaid flat rent the landlord has collected so far from your earnings */
   rentPot?: number;
+  /** the team's quiz questions you've answered today */
+  quizSeen?: { day: string; keys: string[] };
   /** races already announced to you, and races whose results you have seen */
   racesSeen?: string[];
   resultsSeen?: string[];
@@ -573,8 +583,28 @@ const hm = (s: string) => {
   return h * 60 + m;
 };
 const weekday = (c: Clock) => new Date(c.key + "T12:00:00Z").getUTCDay();
+/** Lectures the IlmWorld team has added to mosques from the admin page (by mosque). */
+const LIVE_LECTURES: Record<string, Lecture[]> = {};
+/** A mosque's lectures: the built-in ones and those the team has added. */
+const lecturesOf = (mosque: string) => [
+  ...LECTURES.filter((l) => l.mosque === mosque),
+  ...(LIVE_LECTURES[mosque] ?? []),
+];
+/** Fetch the team's lectures for these mosques. */
+async function loadMosques(ids: string[]) {
+  await Promise.all(
+    ids.map(async (id) => {
+      const doc = await getContent<MosqueDoc>(keyOf("mosque", id));
+      LIVE_LECTURES[id] = (doc?.lectures ?? []).map((l, i) => ({
+        ...l,
+        id: `${id}-live-${i}`,
+        mosque: id,
+      }));
+    }),
+  );
+}
 const lecturesAt = (mosque: string, c: Clock) =>
-  LECTURES.filter((l) => l.mosque === mosque && (!l.days?.length || l.days.includes(weekday(c))));
+  lecturesOf(mosque).filter((l) => !l.days?.length || l.days.includes(weekday(c)));
 /** The lecture playing in this mosque right now, if any. */
 function lectureNow(mosque: string, c: Clock) {
   return lecturesAt(mosque, c).find((l) => c.min >= hm(l.start) && c.min < hm(l.start) + l.minutes);
@@ -1446,6 +1476,9 @@ function CityGame({
   /** you set off to the masjid to read the Qur'an: it opens when you walk in */
   const quranNext = useRef(false);
   /** the sheikh of the masjid or madrasah you are in: he asks the quiz */
+  /** where the quiz is being asked (a mosque or an MSSN centre), for its own questions */
+  const quizPlace = useRef<string | null>(null);
+  const quizTried = useRef(false);
   const quizHost = useRef("The Imam");
   const openWalletRef = useRef<(tab?: "wallet" | "send" | "buy", why?: string) => void>(() => {});
   const profileBtn = useRef<HTMLButtonElement | null>(null);
@@ -4664,6 +4697,14 @@ function CityGame({
   /** houses in view that other players have (plot → their name) */
   const takenRef = useRef(new Map<string, string>());
   const [areaNow, setAreaNow] = useState<string | null>(null);
+  // the team's lectures for the mosques of the area you're in
+  useEffect(() => {
+    if (!areaNow || !onlineReady) return;
+    const ids = districtById(areaNow)
+      .landmarks.filter((l) => l.kind === "masjid" || l.kind === "haram" || l.kind === "nabawi")
+      .map((l) => l.id);
+    void loadMosques(ids);
+  }, [areaNow, onlineReady]);
   useEffect(() => {
     const iv = setInterval(() => {
       const a = engine.current?.districtId();
@@ -5728,6 +5769,7 @@ function CityGame({
                   name={shownName(saveRef.current) ?? "Player"}
                 />
                 <ClassView
+                  schoolId={l.id}
                   subjects={l.subjects}
                   cls={cls}
                   school={l.name}
@@ -6423,6 +6465,8 @@ function CityGame({
               uid={onlineRef.current?.uid ?? null}
               onQuiz={() => {
                 setPanel(null);
+                quizPlace.current = keyOf("mssn", L.l.id);
+                quizHost.current = "The MSSN";
                 setTimeout(() => onActionRef.current("quiz"), 50);
               }}
               onRegister={(faculty) => {
@@ -6737,6 +6781,7 @@ function CityGame({
         advance("masjid");
         const lid = id.slice(12);
         quizHost.current = hostOf(lid);
+        quizPlace.current = keyOf("mosque", lid);
         const name = landmarkName(lid);
         // the two Holy Mosques: you walk into the real courtyard, not a small prayer hall
         const holyMosque = lid === "masjid-al-haram" || lid === "masjid-an-nabawi";
@@ -7316,7 +7361,7 @@ function CityGame({
           title: "Radio · lectures",
           body: (
             <div className="space-y-2">
-              {LECTURES.map((l) => (
+              {[...LECTURES, ...Object.values(LIVE_LECTURES).flat()].map((l) => (
                 <button
                   key={l.id}
                   onClick={() => openLecture(l, false)}
@@ -7419,6 +7464,38 @@ function CityGame({
       if (id === "quiz") {
         if (s.asked.length >= QUIZ_CAP) {
           toast("You answered all 5 questions today. Come back tomorrow, in shaa Allah.");
+          return;
+        }
+        // this mosque's (or MSSN centre's) own questions first, as the team wrote them
+        const place = quizPlace.current;
+        if (place && !quizTried.current) {
+          quizTried.current = true;
+          void getContent<{ quiz?: QItem[] }>(place).then((doc) => {
+            const today = clockRef.current.key;
+            const seen =
+              saveRef.current.quizSeen?.day === today ? saveRef.current.quizSeen.keys : [];
+            const items = (doc?.quiz ?? [])
+              .map((q, i) => ({ q, k: `${place}:${i}` }))
+              .filter((x) => !seen.includes(x.k));
+            if (!items.length) {
+              onActionRef.current("quiz");
+              quizTried.current = false;
+              return;
+            }
+            const pickd = items[Math.floor(Math.random() * items.length)];
+            update((x) => ({
+              ...x,
+              asked: [...x.asked, -1],
+              quizSeen: { day: today, keys: [...seen, pickd.k] },
+            }));
+            setPanel({
+              kind: "quiz",
+              q: { ...pickd.q, e: pickd.q.e ?? "" },
+              qi: -1,
+              host: quizHost.current,
+            });
+            quizTried.current = false;
+          });
           return;
         }
         const pool = QUESTIONS.map((_, i) => i).filter((i) => !s.asked.includes(i));
@@ -9489,7 +9566,7 @@ function LearnChoice({
   onQuiz: () => void;
   pray?: { label: string; run: () => void };
 }) {
-  const all = LECTURES.filter((l) => l.mosque === mosque);
+  const all = lecturesOf(mosque);
   const next = lectureNext(mosque, clock);
   return (
     <div className="space-y-3">
@@ -10428,10 +10505,12 @@ const landmarkById = (lid: string) => {
 function ClassView({
   cls,
   school,
+  schoolId,
   earnedToday,
   onCorrect,
   subjects,
 }: {
+  schoolId: string;
   subjects?: string[];
   cls: string;
   school: string;
@@ -10456,6 +10535,16 @@ function ClassView({
             onClick={() => {
               setSub(s.id);
               setQs(quizFor(s.id, cls));
+              // this school's own questions for the subject and class, if the team wrote them
+              void getContent<QuizDoc>(keyOf("school", schoolId, s.id, bandOf(cls))).then((d) => {
+                if (d?.quiz?.length)
+                  setQs(
+                    [...d.quiz]
+                      .sort(() => Math.random() - 0.5)
+                      .slice(0, 10)
+                      .map((q) => ({ q: q.q, o: q.o, a: q.a })),
+                  );
+              });
               setI(0);
               setPicked(null);
               setScore(0);
@@ -14990,22 +15079,40 @@ function InClassView({
 }: {
   library: boolean;
   about: string;
-  /** the faculty's name: choose a department, a level and a course, then take its quiz */
+  /** the faculty's name: choose a department, a level, a course and a topic, then its quiz */
   faculty?: string;
   onCorrect: () => boolean;
   onLeave: () => void;
 }) {
+  const [depts, setDepts] = useState<Dept[] | null>(null);
   const [dept, setDept] = useState<Dept | null>(null);
   const [level, setLevel] = useState<number | null>(null);
+  const [courses, setCourses] = useState<{ code: string; title: string }[] | null>(null);
   const [course, setCourse] = useState<{ code: string; title: string } | null>(null);
+  const [topics, setTopics] = useState<Topic[] | null>(null);
+  const [topic, setTopic] = useState<Topic | null>(null);
   const [browsing, setBrowsing] = useState(false);
-  const quiz = useMemo(
-    () => (dept && course && faculty ? courseQuiz(dept, faculty, course.code) : undefined),
-    [dept, course, faculty],
-  );
   const [qi, setQi] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState(0);
+  useEffect(() => {
+    if (browsing && faculty && !depts) void departmentsLive(faculty).then(setDepts);
+  }, [browsing, faculty, depts]);
+  useEffect(() => {
+    setCourses(null);
+    if (dept && level) void coursesLive(dept, level).then(setCourses);
+  }, [dept, level]);
+  useEffect(() => {
+    setTopics(null);
+    if (dept && course && faculty) void courseTopics(dept, faculty, course).then(setTopics);
+  }, [dept, course, faculty]);
+  const quiz = topic?.qs;
+  const pick = "w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left";
+  const back = (fn: () => void) => (
+    <button onClick={fn} className="text-[12.5px] underline opacity-70">
+      ← Back
+    </button>
+  );
   if (quiz && qi !== null) {
     if (qi >= quiz.length)
       return (
@@ -15014,18 +15121,18 @@ function InClassView({
             {score} / {quiz.length}
           </div>
           <p>
-            {course?.code} · {course?.title}
+            {course?.code} · {topic?.title}
           </p>
           <p>{score === quiz.length ? "Excellent! Masha Allah." : "Well done. Keep studying!"}</p>
           <button
             onClick={() => {
-              setCourse(null);
+              setTopic(null);
               setQi(null);
               setScore(0);
             }}
             className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
           >
-            Take another course
+            Another topic
           </button>
           <button
             onClick={onLeave}
@@ -15039,7 +15146,7 @@ function InClassView({
     return (
       <div className="space-y-2">
         <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
-          {course?.code} · question {qi + 1} of {quiz.length}
+          {course?.code} · {topic?.title} · question {qi + 1} of {quiz.length}
         </div>
         <p className="text-[16px] font-semibold">{q.q}</p>
         {q.o.map((o, k) => (
@@ -15058,6 +15165,7 @@ function InClassView({
             {o}
           </button>
         ))}
+        {picked !== null && q.e && <p className="rounded-xl bg-white p-3 text-[13px]">{q.e}</p>}
         {picked !== null && (
           <button
             onClick={() => {
@@ -15073,23 +15181,19 @@ function InClassView({
     );
   }
   if (faculty && browsing) {
-    const pick = "w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left";
-    const back = (fn: () => void) => (
-      <button onClick={fn} className="text-[12.5px] underline opacity-70">
-        ← Back
-      </button>
-    );
     if (!dept)
       return (
         <div className="space-y-2">
           <p className="text-[13px] font-semibold opacity-75">
             {faculty.split(" · ")[0]}: choose your department
           </p>
-          {departmentsOf(faculty).map((d) => (
-            <button key={d.name} onClick={() => setDept(d)} className={pick}>
+          {!depts && <p className="text-[13px] opacity-70">Loading…</p>}
+          {depts?.map((d) => (
+            <button key={d.code} onClick={() => setDept(d)} className={pick}>
               <div className="font-bold">Department of {d.name}</div>
               <div className="text-[12px] opacity-65">
-                {d.code} · {d.topics.slice(0, 3).join(", ")}…
+                {d.code}
+                {d.topics.length ? ` · ${d.topics.slice(0, 3).join(", ")}…` : ""}
               </div>
             </button>
           ))}
@@ -15116,31 +15220,75 @@ function InClassView({
           {back(() => setDept(null))}
         </div>
       );
-    if (!course || qi === null)
+    if (!course)
       return (
         <div className="space-y-2">
           <p className="text-[13px] font-semibold opacity-75">
             {dept.name} · {level} Level: pick a course
           </p>
-          {coursesOf(dept, level).map((c) => (
-            <button
-              key={c.code}
-              onClick={() => {
-                setCourse(c);
-                setQi(0);
-                setPicked(null);
-                setScore(0);
-              }}
-              className={pick}
-            >
+          {!courses && <p className="text-[13px] opacity-70">Loading…</p>}
+          {courses && !courses.length && (
+            <p className="text-[13px] opacity-70">No courses at this level yet.</p>
+          )}
+          {courses?.map((c) => (
+            <button key={c.code} onClick={() => setCourse(c)} className={pick}>
               <div className="text-[12px] font-bold text-[#1f6f63]">{c.code}</div>
               <div className="font-semibold">{c.title}</div>
-              <div className="text-[12px] opacity-65">5 questions · tap to take the quiz</div>
             </button>
           ))}
           {back(() => setLevel(null))}
         </div>
       );
+    if (!topic)
+      return (
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold opacity-75">
+            {course.code} · {course.title}: topics
+          </p>
+          {!topics && <p className="text-[13px] opacity-70">Loading…</p>}
+          {topics && !topics.length && (
+            <p className="text-[13px] opacity-70">This course has no topics yet.</p>
+          )}
+          {topics?.map((t, i) => (
+            <button key={i} onClick={() => setTopic(t)} className={pick}>
+              <div className="text-[12px] font-bold text-[#1f6f63]">Topic {i + 1}</div>
+              <div className="font-semibold">{t.title}</div>
+              <div className="text-[12px] opacity-65">
+                {t.notes ? "Notes · " : ""}
+                {t.qs.length} question{t.qs.length === 1 ? "" : "s"}
+              </div>
+            </button>
+          ))}
+          {back(() => setCourse(null))}
+        </div>
+      );
+    return (
+      <div className="space-y-3">
+        <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+          {course.code} · {topic.title}
+        </div>
+        {topic.notes ? (
+          <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-[14px] leading-relaxed">
+            {topic.notes}
+          </div>
+        ) : (
+          <p className="text-[13px] opacity-70">Test yourself on this topic.</p>
+        )}
+        {topic.qs.length > 0 && (
+          <button
+            onClick={() => {
+              setQi(0);
+              setPicked(null);
+              setScore(0);
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Take the quiz · {topic.qs.length} question{topic.qs.length === 1 ? "" : "s"}
+          </button>
+        )}
+        {back(() => setTopic(null))}
+      </div>
+    );
   }
   return (
     <div className="space-y-3 text-center">

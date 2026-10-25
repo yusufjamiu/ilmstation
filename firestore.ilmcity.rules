@@ -262,6 +262,11 @@
     }
 
     // the time of the last fresh start (set by the server when an admin asks)
+    // what players learn (courses, mosque lectures, school and MSSN quizzes): admins write
+    match /city_content/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
     match /city_config/{id} {
       allow read: if true;
       allow write: if false;
