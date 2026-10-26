@@ -1,7 +1,7 @@
 /* Universities: every faculty has departments; each department has courses at each level
    (100 to 500), and every course has a short quiz. */
 
-import { FACULTY_QUESTIONS, districtById, type FQ } from "./content";
+import { FACULTY_QUESTIONS, facultiesOf, type FQ } from "./content";
 import {
   getContent,
   keyOf,
@@ -1440,11 +1440,11 @@ export function courseQuiz(d: Dept, faculty: string, code: string): FQ[] {
 
 /** Every kind of faculty and its built-in departments (for the admin page). */
 export const FACULTY_KINDS = Object.keys(DEPTS);
-/** A university's faculties taught in its Faculties Complex: built in, and any the team added. */
+/** The faculties the team added to a university: taught in its Faculties Complex. */
 export async function complexFaculties(area: string): Promise<string[]> {
-  const built = districtById(area).moreFaculties ?? [];
+  const built = facultiesOf(area).map((f) => f.name);
   const doc = await getContent<UniDoc>(keyOf("uni", area));
-  return [...built, ...(doc?.faculties ?? []).filter((f) => !built.includes(f))];
+  return (doc?.faculties ?? []).filter((f) => !built.includes(f));
 }
 export const builtInDepartments = (key: string): Dept[] => DEPTS[key] ?? [];
 

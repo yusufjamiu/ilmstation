@@ -177,8 +177,8 @@ function Universities() {
           </button>
         </div>
         <p className="text-[12px] opacity-65">
-          The first four faculties have their own buildings; the rest are taught in the Faculties
-          Complex on campus.
+          Built-in faculties each have their own building on campus. Faculties you add here are
+          taught in the Faculties Complex.
         </p>
         {fac && (
           <div className="space-y-2">

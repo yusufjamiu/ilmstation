@@ -396,8 +396,6 @@ export type District = {
   holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
   campus?: { gate: string; z: number };
-  /** a university's other faculties, all housed in its Faculties Complex */
-  moreFaculties?: string[];
 };
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
@@ -415,7 +413,7 @@ function universityArea(o: {
   avenue: string;
   homes: string;
   faculties: string[];
-  /** more faculties, taught in the Faculties Complex */
+  /** more faculties: each gets its own building too (up to 12 in all) */
   more?: string[];
   about: string;
   state?: string;
@@ -428,7 +426,13 @@ function universityArea(o: {
   link?: "north" | "east" | "south";
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
-  const fx = [-112, -24, 26, 70];
+  // every faculty has its own building: eight along the south of MSSN Avenue, four more on
+  // the north side; the Faculties Complex (for faculties the team adds) sits near the gate
+  const slots: { x: number; side: "n" | "s" }[] = [
+    ...[-26, 26, -50, 50, -74, 74, -98, 98].map((x) => ({ x, side: "s" as const })),
+    ...[-52, 26, -76, 116].map((x) => ({ x, side: "n" as const })),
+  ];
+  const allFaculties = [...o.faculties, ...(o.more ?? [])].slice(0, slots.length);
   return {
     id: o.id,
     name: o.name,
@@ -446,22 +450,21 @@ function universityArea(o: {
     shops: 0.3,
     land: 0.12,
     campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34 },
-    moreFaculties: o.more ?? [],
     streets: [
       { id: o.road, z: 0, decor: true },
       { id: o.avenue, z: -75 },
       { id: o.homes, z: 75 },
     ],
     landmarks: [
-      ...o.faculties.slice(0, 4).map((f, i): Landmark => ({
+      ...allFaculties.map((f, i): Landmark => ({
         id: `${o.id}-fac-${i}`,
         kind: "faculty",
         name: `${f} · ${o.short}`,
         street: o.avenue,
-        side: "s",
-        x: fx[i],
-        width: 30,
-        depth: 28,
+        side: slots[i].side,
+        x: slots[i].x,
+        width: 22,
+        depth: 26,
         floors: 3,
         about: `${f}, ${o.uni}.`,
       })),
@@ -470,26 +473,26 @@ function universityArea(o: {
         kind: "faculty",
         name: `${o.short} Faculties Complex`,
         street: o.avenue,
-        x: -8,
-        width: 36,
+        x: -28,
+        width: 22,
         depth: 26,
         floors: 4,
-        about: `The Faculties Complex of ${o.uni}: lecture halls for its other faculties. Choose your faculty inside.`,
+        about: `The Faculties Complex of ${o.uni}: lecture halls for its newest faculties. Choose your faculty inside.`,
       },
       {
         id: `${o.id}-mosque`,
         kind: "masjid",
         name: `${o.short} Central Mosque`,
         street: o.avenue,
-        x: 48,
+        x: 56,
       },
       {
         id: `${o.id}-library`,
         kind: "faculty",
         name: `${o.short} Library`,
         street: o.avenue,
-        x: 108,
-        width: 26,
+        x: 88,
+        width: 22,
         depth: 30,
         floors: 2,
         about: `The main library of ${o.uni}: quiet reading rooms, books and journals.`,
@@ -499,8 +502,8 @@ function universityArea(o: {
         kind: "field",
         name: `${o.short} Sports Field`,
         street: o.avenue,
-        x: -74,
-        width: 58,
+        x: -110,
+        width: 44,
         depth: 44,
       },
       {
@@ -508,9 +511,9 @@ function universityArea(o: {
         kind: "office",
         name: `MSSN ${o.short} Secretariat`,
         street: o.avenue,
-        x: 112,
+        x: 122,
         side: "s",
-        width: 28,
+        width: 22,
         depth: 18,
         floors: 1,
         brand: { color: 0x1f6f63, accent: 0xfdf8ec },
@@ -521,9 +524,9 @@ function universityArea(o: {
         kind: "hangout",
         name: `MSSN ${o.short} Meeting Point`,
         street: o.avenue,
-        x: -62,
+        x: -122,
         side: "s",
-        width: 30,
+        width: 22,
         depth: 18,
         about: o.about,
       },
@@ -3536,7 +3539,6 @@ export const facultiesOf = (area: string) => {
     ...d.landmarks
       .filter((l) => l.kind === "faculty" && isFacultyBuilding(l.id))
       .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] })),
-    ...(d.moreFaculties ?? []).map((name, i) => ({ id: `${area}-more-${i}`, name })),
   ];
 };
 /** a faculty's own building (not the library or the Faculties Complex) */

@@ -15202,6 +15202,12 @@ function InClassView({
       <div className="space-y-2">
         <p className="text-[13px] font-semibold opacity-75">Choose your faculty</p>
         {!facs && <p className="text-[13px] opacity-70">Loading…</p>}
+        {facs?.length === 0 && (
+          <p className="text-[13px] opacity-70">
+            New faculties will open here soon, in shaa Allah. Every faculty now has its own building
+            on campus.
+          </p>
+        )}
         {facs?.map((f) => (
           <button
             key={f}
