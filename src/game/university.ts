@@ -1,7 +1,7 @@
 /* Universities: every faculty has departments; each department has courses at each level
    (100 to 500), and every course has a short quiz. */
 
-import { FACULTY_QUESTIONS, type FQ } from "./content";
+import { FACULTY_QUESTIONS, districtById, type FQ } from "./content";
 import {
   getContent,
   keyOf,
@@ -10,6 +10,7 @@ import {
   type DeptDoc,
   type FacultyDoc,
   type Topic,
+  type UniDoc,
 } from "./learning";
 
 export type Dept = { name: string; code: string; topics: string[]; qs: FQ[] };
@@ -916,6 +917,458 @@ const DEPTS: Record<string, Dept[]> = {
       ],
     },
   ],
+  "Social Sciences": [
+    {
+      name: "Economics",
+      code: "ECO",
+      topics: [
+        "Principles of Economics",
+        "Microeconomics",
+        "Macroeconomics",
+        "Islamic Economics",
+        "Development Economics",
+        "Money and Banking",
+      ],
+      qs: [
+        q(
+          "When demand rises and supply stays the same, the price usually…",
+          "rises",
+          "falls",
+          "stays the same",
+          "disappears",
+        ),
+        q(
+          "The total value of goods and services a country produces in a year is its…",
+          "GDP",
+          "budget",
+          "inflation",
+          "tax",
+        ),
+        q(
+          "A general rise in prices over time is called…",
+          "inflation",
+          "deflation",
+          "recession",
+          "export",
+        ),
+        q("Islamic economics forbids charging…", "riba (interest)", "rent", "profit", "wages"),
+      ],
+    },
+    {
+      name: "Political Science",
+      code: "POL",
+      topics: [
+        "Introduction to Political Science",
+        "Nigerian Government and Politics",
+        "Public Administration",
+        "International Relations",
+        "Political Thought in Islam",
+        "Comparative Politics",
+      ],
+      qs: [
+        q(
+          "The three arms of government are the executive, the legislature and the…",
+          "judiciary",
+          "army",
+          "police",
+          "press",
+        ),
+        q(
+          "Nigeria's National Assembly has the Senate and the…",
+          "House of Representatives",
+          "Council of State",
+          "Supreme Court",
+          "INEC",
+        ),
+        q("Shura in Islam means…", "consultation", "war", "tax", "prayer"),
+        q("Nigeria became independent in…", "1960", "1914", "1970", "1999"),
+      ],
+    },
+    {
+      name: "Sociology",
+      code: "SOC",
+      topics: [
+        "Introduction to Sociology",
+        "The Family",
+        "Social Problems in Nigeria",
+        "Research Methods",
+        "Religion and Society",
+        "Urban Sociology",
+      ],
+      qs: [
+        q("The smallest unit of society is the…", "family", "state", "school", "market"),
+        q(
+          "Moving from villages to cities is called…",
+          "urbanisation",
+          "migration to farms",
+          "inflation",
+          "election",
+        ),
+        q(
+          "A questionnaire is a tool for…",
+          "collecting data",
+          "building roads",
+          "counting money",
+          "prayer times",
+        ),
+        q(
+          "Islam calls keeping ties with relatives…",
+          "silat ar-rahim",
+          "zakat",
+          "hijrah",
+          "sadaqah jariyah",
+        ),
+      ],
+    },
+    {
+      name: "Mass Communication",
+      code: "MAC",
+      topics: [
+        "Introduction to Mass Communication",
+        "News Writing and Reporting",
+        "Broadcasting",
+        "Media Ethics",
+        "Public Relations and Advertising",
+        "New Media",
+      ],
+      qs: [
+        q("The five Ws of news are who, what, when, where and…", "why", "which", "whose", "whom"),
+        q(
+          "Checking a story before you publish it is part of…",
+          "media ethics",
+          "advertising",
+          "printing",
+          "broadcasting only",
+        ),
+        q(
+          "The Qur'an tells us to verify news brought by…",
+          "a sinful person",
+          "a child",
+          "a neighbour",
+          "a teacher",
+        ),
+        q(
+          "Radio and television are called…",
+          "broadcast media",
+          "print media",
+          "outdoor media",
+          "folk media",
+        ),
+      ],
+    },
+  ],
+  Medicine: [
+    {
+      name: "Medicine and Surgery",
+      code: "MED",
+      topics: [
+        "Human Anatomy",
+        "Physiology",
+        "Biochemistry",
+        "Pathology",
+        "Community Medicine",
+        "Clinical Medicine",
+      ],
+      qs: [
+        q("The organ that pumps blood round the body is the…", "heart", "liver", "lung", "kidney"),
+        q("Red blood cells carry…", "oxygen", "bile", "urine", "saliva"),
+        q(
+          "Malaria is spread by the…",
+          "female Anopheles mosquito",
+          "housefly",
+          "tsetse fly",
+          "rat",
+        ),
+        q("The adult human body has about how many bones?", "206", "106", "306", "56"),
+      ],
+    },
+    {
+      name: "Nursing Science",
+      code: "NSC",
+      topics: [
+        "Foundations of Nursing",
+        "Medical-Surgical Nursing",
+        "Maternal and Child Health",
+        "Community Health Nursing",
+        "Mental Health Nursing",
+        "Nursing Ethics",
+      ],
+      qs: [
+        q("Normal human body temperature is about…", "37 °C", "30 °C", "42 °C", "25 °C"),
+        q("Washing hands well mainly prevents…", "infection", "hunger", "tiredness", "short sight"),
+        q("ORS is given to treat…", "dehydration", "a broken bone", "a cold", "toothache"),
+        q(
+          "Keeping a patient's information private is called…",
+          "confidentiality",
+          "triage",
+          "diagnosis",
+          "dosage",
+        ),
+      ],
+    },
+    {
+      name: "Anatomy",
+      code: "ANA",
+      topics: [
+        "Gross Anatomy",
+        "Histology",
+        "Embryology",
+        "Neuroanatomy",
+        "The Skeleton",
+        "Muscles and Movement",
+      ],
+      qs: [
+        q("The longest bone in the body is the…", "femur", "humerus", "skull", "rib"),
+        q(
+          "The study of tissues under a microscope is…",
+          "histology",
+          "embryology",
+          "zoology",
+          "botany",
+        ),
+        q(
+          "The brain and spinal cord make up the…",
+          "central nervous system",
+          "digestive system",
+          "skeleton",
+          "lymph system",
+        ),
+        q(
+          "The Qur'an describes the baby forming in stages, from a drop to…",
+          "a clinging clot, then a lump of flesh",
+          "a seed",
+          "dust only",
+          "water only",
+        ),
+      ],
+    },
+    {
+      name: "Physiology",
+      code: "PHS",
+      topics: [
+        "Cell Physiology",
+        "Blood and Circulation",
+        "Respiration",
+        "Digestion",
+        "Kidneys and Excretion",
+        "Nerves and Hormones",
+      ],
+      qs: [
+        q("Gas exchange in the lungs happens in the…", "alveoli", "trachea", "stomach", "veins"),
+        q("Insulin is made by the…", "pancreas", "liver", "heart", "skin"),
+        q("The kidneys mainly…", "filter the blood", "pump blood", "digest food", "make bones"),
+        q("Most food is absorbed in the…", "small intestine", "mouth", "large intestine", "gullet"),
+      ],
+    },
+  ],
+  Pharmacy: [
+    {
+      name: "Pharmaceutics",
+      code: "PCT",
+      topics: [
+        "Introduction to Pharmacy",
+        "Dosage Forms",
+        "Tablets and Capsules",
+        "Sterile Products",
+        "Drug Storage",
+        "Pharmacy Practice",
+      ],
+      qs: [
+        q(
+          "A tablet, a syrup and an injection are all…",
+          "dosage forms",
+          "diseases",
+          "vitamins",
+          "lab tests",
+        ),
+        q(
+          "Most medicines should be stored…",
+          "in a cool, dry place",
+          "in direct sun",
+          "in the bathroom",
+          "wet",
+        ),
+        q(
+          "The person who dispenses medicines is the…",
+          "pharmacist",
+          "surgeon",
+          "radiographer",
+          "dentist",
+        ),
+        q(
+          "An expired drug should be…",
+          "thrown away safely",
+          "taken quickly",
+          "given to a friend",
+          "sold cheaply",
+        ),
+      ],
+    },
+    {
+      name: "Pharmacology",
+      code: "PCL",
+      topics: [
+        "Principles of Pharmacology",
+        "How Drugs Act",
+        "Antibiotics",
+        "Pain Relievers",
+        "Side Effects and Interactions",
+        "Drug Abuse",
+      ],
+      qs: [
+        q(
+          "Antibiotics treat infections caused by…",
+          "bacteria",
+          "viruses",
+          "fungi only",
+          "worms only",
+        ),
+        q(
+          "Paracetamol is mainly used to relieve pain and…",
+          "fever",
+          "hunger",
+          "malaria parasites",
+          "cough germs",
+        ),
+        q(
+          "Stopping an antibiotic course early can cause…",
+          "resistance",
+          "immunity",
+          "allergy cures",
+          "faster healing",
+        ),
+        q(
+          "Islam forbids what harms the body; misusing drugs is…",
+          "haram",
+          "sunnah",
+          "fard",
+          "makruh only",
+        ),
+      ],
+    },
+    {
+      name: "Pharmaceutical Chemistry",
+      code: "PCH",
+      topics: [
+        "Organic Chemistry for Pharmacy",
+        "Drug Analysis",
+        "Medicinal Chemistry",
+        "Natural Products",
+        "Quality Control",
+        "Drug Design",
+      ],
+      qs: [
+        q("Many medicines first came from…", "plants", "rocks", "plastic", "sand"),
+        q(
+          "Checking that every batch of a drug is right is…",
+          "quality control",
+          "advertising",
+          "dispensing",
+          "packaging only",
+        ),
+        q(
+          "Black seed (habbatus sauda) is mentioned in a hadith as a cure for…",
+          "every disease except death",
+          "nothing",
+          "only fever",
+          "only cough",
+        ),
+        q(
+          "The 'active ingredient' of a medicine is the part that…",
+          "does the healing work",
+          "gives the colour",
+          "makes it sweet",
+          "holds it together",
+        ),
+      ],
+    },
+  ],
+  Computing: [
+    {
+      name: "Computer Science",
+      code: "CSC",
+      topics: [
+        "Introduction to Computing",
+        "Programming Fundamentals",
+        "Data Structures",
+        "Algorithms",
+        "Databases",
+        "Operating Systems",
+      ],
+      qs: [
+        q("A step-by-step way to solve a problem is an…", "algorithm", "error", "icon", "virus"),
+        q("The 'brain' of a computer is the…", "CPU", "monitor", "keyboard", "mouse"),
+        q("SQL is used to work with…", "databases", "images", "sound", "printers"),
+        q("1 byte is made of…", "8 bits", "2 bits", "16 bits", "10 bits"),
+      ],
+    },
+    {
+      name: "Information Technology",
+      code: "IFT",
+      topics: [
+        "Computer Networks",
+        "Web Development",
+        "Mobile Apps",
+        "Cloud Computing",
+        "IT Project Management",
+        "Systems Analysis",
+      ],
+      qs: [
+        q("HTML is used to build…", "web pages", "spreadsheets", "printers", "batteries"),
+        q("Wi-Fi is a kind of…", "wireless network", "virus", "keyboard", "printer"),
+        q(
+          "Storing files on servers over the internet is…",
+          "cloud computing",
+          "printing",
+          "scanning",
+          "typing",
+        ),
+        q("An app made for phones is a…", "mobile app", "desktop game only", "router", "cable"),
+      ],
+    },
+    {
+      name: "Cyber Security",
+      code: "CYB",
+      topics: [
+        "Introduction to Cyber Security",
+        "Passwords and Authentication",
+        "Cryptography",
+        "Network Security",
+        "Ethical Hacking",
+        "Cyber Law and Ethics",
+      ],
+      qs: [
+        q(
+          "A fake message that tries to steal your password is…",
+          "phishing",
+          "coding",
+          "backup",
+          "browsing",
+        ),
+        q(
+          "The strongest password is…",
+          "long, with mixed letters, numbers and symbols",
+          "your name",
+          "123456",
+          "password",
+        ),
+        q(
+          "Turning a message into secret code is…",
+          "encryption",
+          "deletion",
+          "printing",
+          "formatting",
+        ),
+        q(
+          "Two-step verification adds…",
+          "a second check when you log in",
+          "more storage",
+          "faster internet",
+          "free data",
+        ),
+      ],
+    },
+  ],
 };
 // faculties named differently in some universities
 const ALIAS: Record<string, string> = {
@@ -923,6 +1376,13 @@ const ALIAS: Record<string, string> = {
   "Natural and Applied": "Applied",
   "Applied Sciences": "Applied",
   "Management Sciences": "Management",
+  "Environmental Sciences": "Environmental",
+  "Basic Medical": "Medicine",
+  "Health Sciences": "Medicine",
+  "College of Medicine": "Medicine",
+  Pharmaceutical: "Pharmacy",
+  "Communication and Information": "Computing",
+  "Communication and Media": "Social Sciences",
 };
 
 export const LEVELS = [100, 200, 300, 400, 500];
@@ -937,11 +1397,15 @@ export function facultyKey(faculty: string) {
     Object.keys(DEPTS)
       .filter((k) => name.includes(k))
       .sort((a, b) => b.length - a.length)
-      .find((k) => k !== "Science") ?? (name.includes("Science") ? "Science" : "Arts")
+      .find((k) => k !== "Science") ??
+    (/^Faculty of (Natural |Physical |Life )?Sciences?$/.test(name)
+      ? "Science"
+      : // a faculty the team added: its own departments, set in the admin page
+        name.replace(/^(Faculty|College|School) of /, "").trim() || "Arts")
   );
 }
 export function departmentsOf(faculty: string): Dept[] {
-  return DEPTS[facultyKey(faculty)];
+  return DEPTS[facultyKey(faculty)] ?? [];
 }
 
 /** The courses of a department at a level: three a semester, with codes. */
@@ -976,6 +1440,12 @@ export function courseQuiz(d: Dept, faculty: string, code: string): FQ[] {
 
 /** Every kind of faculty and its built-in departments (for the admin page). */
 export const FACULTY_KINDS = Object.keys(DEPTS);
+/** A university's faculties taught in its Faculties Complex: built in, and any the team added. */
+export async function complexFaculties(area: string): Promise<string[]> {
+  const built = districtById(area).moreFaculties ?? [];
+  const doc = await getContent<UniDoc>(keyOf("uni", area));
+  return [...built, ...(doc?.faculties ?? []).filter((f) => !built.includes(f))];
+}
 export const builtInDepartments = (key: string): Dept[] => DEPTS[key] ?? [];
 
 /* ---------- with what the IlmWorld team has written in the admin page ---------- */

@@ -396,6 +396,8 @@ export type District = {
   holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
   campus?: { gate: string; z: number };
+  /** a university's other faculties, all housed in its Faculties Complex */
+  moreFaculties?: string[];
 };
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
@@ -413,6 +415,8 @@ function universityArea(o: {
   avenue: string;
   homes: string;
   faculties: string[];
+  /** more faculties, taught in the Faculties Complex */
+  more?: string[];
   about: string;
   state?: string;
   city?: string;
@@ -442,6 +446,7 @@ function universityArea(o: {
     shops: 0.3,
     land: 0.12,
     campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34 },
+    moreFaculties: o.more ?? [],
     streets: [
       { id: o.road, z: 0, decor: true },
       { id: o.avenue, z: -75 },
@@ -460,6 +465,17 @@ function universityArea(o: {
         floors: 3,
         about: `${f}, ${o.uni}.`,
       })),
+      {
+        id: `${o.id}-complex`,
+        kind: "faculty",
+        name: `${o.short} Faculties Complex`,
+        street: o.avenue,
+        x: -8,
+        width: 36,
+        depth: 26,
+        floors: 4,
+        about: `The Faculties Complex of ${o.uni}: lecture halls for its other faculties. Choose your faculty inside.`,
+      },
       {
         id: `${o.id}-mosque`,
         kind: "masjid",
@@ -1246,6 +1262,11 @@ export const DISTRICTS: District[] = [
       "Faculty of Environmental Studies",
       "Faculty of Agriculture",
     ],
+    more: [
+      "Faculty of Computing",
+      "Faculty of Management Sciences",
+      "Faculty of Basic Medical Sciences",
+    ],
     about:
       "Where LASUSTECH Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
@@ -1267,6 +1288,15 @@ export const DISTRICTS: District[] = [
       "Faculty of Engineering",
       "Faculty of Law",
     ],
+    more: [
+      "Faculty of Social Sciences",
+      "Faculty of Management Sciences",
+      "Faculty of Education",
+      "Faculty of Environmental Sciences",
+      "Faculty of Pharmacy",
+      "College of Medicine",
+      "Faculty of Computing",
+    ],
     about:
       "Where UNILAG Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
@@ -1287,6 +1317,14 @@ export const DISTRICTS: District[] = [
       "Faculty of Science",
       "Faculty of Management Sciences",
       "Faculty of Education",
+    ],
+    more: [
+      "Faculty of Law",
+      "Faculty of Social Sciences",
+      "Faculty of Engineering",
+      "Faculty of Communication and Media Studies",
+      "College of Medicine",
+      "Faculty of Computing",
     ],
     about:
       "Where LASU Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
@@ -1545,6 +1583,16 @@ export const DISTRICTS: District[] = [
       "Faculty of Engineering",
       "Faculty of Education",
     ],
+    more: [
+      "Faculty of Law",
+      "Faculty of Social Sciences",
+      "Faculty of Management Sciences",
+      "Faculty of Agriculture",
+      "Faculty of Communication and Information Sciences",
+      "Faculty of Pharmaceutical Sciences",
+      "College of Health Sciences",
+      "Faculty of Environmental Sciences",
+    ],
     about:
       "Where Unilorin Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
@@ -1570,6 +1618,12 @@ export const DISTRICTS: District[] = [
       "Faculty of Humanities",
       "Faculty of Law",
       "Faculty of Education",
+    ],
+    more: [
+      "Faculty of Management Sciences",
+      "Faculty of Social Sciences",
+      "Faculty of Health Sciences",
+      "Faculty of Computing",
     ],
     about:
       "Where Al-Hikmah Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
@@ -3476,10 +3530,18 @@ export const UNIVERSITIES = [
   { area: "firstgate", name: "LASUSTECH", full: "LASUSTECH, First Gate Ikorodu" },
 ];
 /** The faculties of a university area (from its faculty buildings). */
-export const facultiesOf = (area: string) =>
-  districtById(area)
-    .landmarks.filter((l) => l.kind === "faculty" && !l.id.endsWith("-library"))
-    .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] }));
+export const facultiesOf = (area: string) => {
+  const d = districtById(area);
+  return [
+    ...d.landmarks
+      .filter((l) => l.kind === "faculty" && isFacultyBuilding(l.id))
+      .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] })),
+    ...(d.moreFaculties ?? []).map((name, i) => ({ id: `${area}-more-${i}`, name })),
+  ];
+};
+/** a faculty's own building (not the library or the Faculties Complex) */
+export const isFacultyBuilding = (id: string) =>
+  !id.endsWith("-library") && !id.endsWith("-complex");
 
 export type FQ = { q: string; o: string[]; a: number };
 const fq = (q: string, a: string, ...w: string[]): FQ => {

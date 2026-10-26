@@ -2,7 +2,7 @@
    mosque's lectures and quiz, school subject quizzes, and MSSN centre quizzes. Everything is
    saved to city_content; the game uses it straight away (built-in content until then). */
 import { useEffect, useState } from "react";
-import { DISTRICTS, type Landmark } from "./content";
+import { DISTRICTS, facultiesOf } from "./content";
 import {
   MAX_TOPICS,
   formatQs,
@@ -18,6 +18,7 @@ import {
   type MosqueDoc,
   type MosqueLecture,
   type QuizDoc,
+  type UniDoc,
   type Topic,
 } from "./learning";
 import { SUBJECTS, bandOf, quizFor } from "./school";
@@ -74,10 +75,20 @@ function Saved({ msg }: { msg: string | null }) {
 function Universities() {
   const unis = DISTRICTS.filter((d) => d.campus && d.landmarks.some((l) => l.kind === "faculty"));
   const [uni, setUni] = useState(unis[0]?.id ?? "");
-  const facs = (DISTRICTS.find((d) => d.id === uni)?.landmarks ?? []).filter(
-    (l) => l.kind === "faculty" && !l.id.endsWith("-library"),
-  );
-  const [fac, setFac] = useState<Landmark | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
+  const builtIn = facultiesOf(uni);
+  const facs = [
+    ...builtIn,
+    ...added
+      .filter((n) => !builtIn.some((b) => b.name === n))
+      .map((name) => ({ id: `${uni}-added-${name}`, name })),
+  ];
+  const [fac, setFac] = useState<{ id: string; name: string } | null>(null);
+  const [nf, setNf] = useState("");
+  useEffect(() => {
+    setAdded([]);
+    void getContent<UniDoc>(keyOf("uni", uni), true).then((d) => setAdded(d?.faculties ?? []));
+  }, [uni]);
   const [depts, setDepts] = useState<Dept[] | null>(null);
   const [dept, setDept] = useState<Dept | null>(null);
   const [level, setLevel] = useState(100);
@@ -122,9 +133,53 @@ function Universities() {
           {facs.map((f) => (
             <button key={f.id} onClick={() => setFac(f)} className={pickBtn(fac?.id === f.id)}>
               {f.name.split(" · ")[0]}
+              {added.includes(f.name) && (
+                <span
+                  role="button"
+                  title="Remove this faculty"
+                  onClick={async (ev) => {
+                    ev.stopPropagation();
+                    if (!confirm(`Remove ${f.name} from this university?`)) return;
+                    const next = added.filter((n) => n !== f.name);
+                    await setContent(keyOf("uni", uni), { faculties: next });
+                    setAdded(next);
+                    if (fac?.id === f.id) setFac(null);
+                  }}
+                  className="ml-2 opacity-60"
+                >
+                  ✕
+                </span>
+              )}
             </button>
           ))}
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={input + " max-w-[320px]"}
+            placeholder="New faculty, e.g. Faculty of Veterinary Medicine"
+            value={nf}
+            onChange={(e) => setNf(e.target.value)}
+          />
+          <button
+            disabled={nf.trim().length < 4 || facs.some((f) => f.name === nf.trim())}
+            onClick={async () => {
+              const next = [...added, nf.trim()];
+              await setContent(keyOf("uni", uni), { faculties: next });
+              setAdded(next);
+              setNf("");
+              setMsg(
+                "Faculty added. Players find it in the Faculties Complex. Now add its departments.",
+              );
+            }}
+            className={`${btn} bg-[#1f6f63] text-white disabled:opacity-40`}
+          >
+            Add faculty
+          </button>
+        </div>
+        <p className="text-[12px] opacity-65">
+          The first four faculties have their own buildings; the rest are taught in the Faculties
+          Complex on campus.
+        </p>
         {fac && (
           <div className="space-y-2">
             <div className="text-[13px] font-bold">

@@ -5,6 +5,7 @@
    - course_<CODE>        a university course: its topics (up to 12), each with notes and
                           quiz questions. Courses are shared by every university.
    - dept_<CODE>          a department's own list of courses at each level (100 to 500)
+   - uni_<area>           faculties added to a university
    - faculty_<KEY>        departments added to a kind of faculty (Arts, Science, Law…)
    - mosque_<id>          a mosque's lectures and its own quiz
    - school_<id>_<subject>_<band>   a school subject's quiz for primary, JSS or SS
@@ -15,6 +16,8 @@ export type Topic = { title: string; notes?: string; qs: QItem[] };
 export type CourseDoc = { title?: string; topics: Topic[] };
 export type CourseRef = { code: string; title: string };
 export type DeptDoc = { courses: Record<string, CourseRef[]> };
+/** faculties the team added to a university (taught in its Faculties Complex) */
+export type UniDoc = { faculties: string[] };
 export type FacultyDoc = { depts: { name: string; code: string }[] };
 export type MosqueLecture = {
   title: string;

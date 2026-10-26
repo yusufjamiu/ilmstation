@@ -60,7 +60,14 @@ import {
   type PitchNet,
   type PitchRoom,
 } from "./pitchnet";
-import { courseTopics, coursesLive, departmentsLive, LEVELS, type Dept } from "./university";
+import {
+  complexFaculties,
+  courseTopics,
+  coursesLive,
+  departmentsLive,
+  LEVELS,
+  type Dept,
+} from "./university";
 import {
   getContent,
   keyOf,
@@ -5816,6 +5823,7 @@ function CityGame({
                 library={library}
                 about={L.l.about ?? ""}
                 faculty={library ? undefined : L.l.name}
+                complexArea={L.l.id.endsWith("-complex") ? L.d.id : undefined}
                 onCorrect={() => {
                   if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
                   update((x) => ({
@@ -15073,12 +15081,15 @@ function DhikrCard({
 function InClassView({
   library,
   about,
-  faculty,
+  faculty: faculty0,
+  complexArea,
   onCorrect,
   onLeave,
 }: {
   library: boolean;
   about: string;
+  /** the Faculties Complex of this university area: choose a faculty first */
+  complexArea?: string;
   /** the faculty's name: choose a department, a level, a course and a topic, then its quiz */
   faculty?: string;
   onCorrect: () => boolean;
@@ -15092,6 +15103,12 @@ function InClassView({
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [topic, setTopic] = useState<Topic | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  const [facs, setFacs] = useState<string[] | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const faculty = complexArea ? (chosen ?? undefined) : faculty0;
+  useEffect(() => {
+    if (browsing && complexArea && !facs) void complexFaculties(complexArea).then(setFacs);
+  }, [browsing, complexArea, facs]);
   const [qi, setQi] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState(0);
@@ -15180,6 +15197,26 @@ function InClassView({
       </div>
     );
   }
+  if (complexArea && browsing && !chosen)
+    return (
+      <div className="space-y-2">
+        <p className="text-[13px] font-semibold opacity-75">Choose your faculty</p>
+        {!facs && <p className="text-[13px] opacity-70">Loading…</p>}
+        {facs?.map((f) => (
+          <button
+            key={f}
+            onClick={() => {
+              setDepts(null);
+              setChosen(f);
+            }}
+            className={pick}
+          >
+            <div className="font-bold">{f}</div>
+          </button>
+        ))}
+        {back(() => setBrowsing(false))}
+      </div>
+    );
   if (faculty && browsing) {
     if (!dept)
       return (
@@ -15197,7 +15234,7 @@ function InClassView({
               </div>
             </button>
           ))}
-          {back(() => setBrowsing(false))}
+          {back(() => (complexArea ? setChosen(null) : setBrowsing(false)))}
         </div>
       );
     if (!level)
@@ -15303,7 +15340,7 @@ function InClassView({
         Wishing you success in your studies. May Allah increase you in beneficial knowledge. 🤲
       </p>
       {about && <p className="text-[12.5px] opacity-70">{about}</p>}
-      {faculty && (
+      {(faculty || complexArea) && (
         <button
           onClick={() => setBrowsing(true)}
           className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
