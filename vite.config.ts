@@ -17,5 +17,7 @@ export default defineConfig({
   ],
   nitro: {
     preset: "vercel",
+    // the server's Firebase Admin (wallets, payments) breaks when bundled: ship it as is
+    traceDeps: ["firebase-admin*"],
   },
 });
