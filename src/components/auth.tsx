@@ -7,11 +7,11 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { doc, getDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 export type Gender = "male" | "female";
-export type Zone = "youth" | "adult";
+export type Zone = "kids" | "youth" | "adult";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 
 export type Account = {
@@ -19,7 +19,7 @@ export type Account = {
   username?: string;
   email: string;
   language: string;
-  dob: string;
+  dob?: string;
   gender: Gender;
   zone: Zone;
   interests: string[];
@@ -40,6 +40,12 @@ export async function isUsernameAvailable(u: string): Promise<boolean> {
   if (!isValidUsername(name)) return false;
   const snap = await getDoc(doc(db, "usernames", name));
   return !snap.exists();
+}
+
+/** True when an account already uses this email. Works before login. */
+export async function isEmailRegistered(email: string): Promise<boolean> {
+  const snap = await getDoc(doc(db, "emails", normaliseEmail(email)));
+  return snap.exists();
 }
 
 export const passwordRules = [
@@ -79,9 +85,20 @@ function authErrorMessage(err: unknown): string {
   }
 }
 
+/** Older accounts are added to the email list the first time they log in. */
+async function backfillEmail(uid: string, email: string) {
+  try {
+    const ref = doc(db, "emails", normaliseEmail(email));
+    if (!(await getDoc(ref)).exists()) await setDoc(ref, { uid });
+  } catch { /* best effort */ }
+}
+
 async function fetchProfile(uid: string): Promise<Account | null> {
   const snap = await getDoc(doc(db, "profiles", uid));
-  return snap.exists() ? (snap.data() as Account) : null;
+  if (!snap.exists()) return null;
+  const profile = snap.data() as Account;
+  void backfillEmail(uid, profile.email);
+  return profile;
 }
 
 export function useAuth() {
@@ -121,6 +138,7 @@ export function useAuth() {
         const batch = writeBatch(db);
         batch.set(doc(db, "profiles", cred.user.uid), fullProfile);
         if (username) batch.set(doc(db, "usernames", username), { uid: cred.user.uid });
+        batch.set(doc(db, "emails", normaliseEmail(profile.email)), { uid: cred.user.uid });
         await batch.commit();
       } catch (err) {
         await cred.user.delete().catch(() => {});

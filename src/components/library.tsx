@@ -4,7 +4,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { Bookmark, BookmarkCheck, ChevronRight, Crown, LockKeyhole, Search, Share2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase";
-import { useAuth } from "@/components/auth";
+import { useAuth, type Zone } from "@/components/auth";
 import { LockedTag, PremiumTag, UnlockDialog, usePremium } from "@/components/premium";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ function useLibraryState() {
   return [state, setState] as const;
 }
 
-const bandsFor = (zone: "youth" | "adult"): Age[] => (zone === "youth" ? ["kids", "teens"] : ["kids", "teens", "adults"]);
+const bandsFor = (zone: Zone): Age[] => (zone === "kids" ? ["kids"] : zone === "youth" ? ["kids", "teens"] : ["kids", "teens", "adults"]);
 
 function Reader({ item, state, setState, onBack, onShare }: {
   item: LibraryItem; state: LState; setState: React.Dispatch<React.SetStateAction<LState>>; onBack: () => void; onShare: () => void;

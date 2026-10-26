@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-  ArrowLeft, ArrowRight, AtSign, CalendarDays, Check, Eye, EyeOff, Gem, LockKeyhole, Search, User, X,
+  ArrowLeft, ArrowRight, AtSign, Check, Eye, EyeOff, Gem, LockKeyhole, Search, User, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme";
 import { languages, useLanguage, type Lang } from "@/components/language";
 import { QuizVisual, quizQuestionsFor, type VisualQuestion } from "@/components/quiz-visual";
 import {
-  ageFrom, isUsernameAvailable, isValidEmail, isValidUsername, normaliseEmail, normaliseUsername, passwordRules, useAuth,
+  isEmailRegistered, isUsernameAvailable, isValidEmail, isValidUsername, normaliseEmail, normaliseUsername, passwordRules, useAuth,
   type Gender, type Level, type Zone,
 } from "@/components/auth";
 import { cn } from "@/lib/utils";
@@ -129,9 +129,10 @@ const interestOptions: { label: string; topic: string }[] = [
 ];
 const quizTopics = ["Seerah", "Qur’an", "Aqeedah", "Fiqh", "Hadith", "Arabic", "Tafsir", "Dua"];
 
-const zones: Record<Zone, { name: string; blurb: string }> = {
-  youth: { name: "Youth Zone", blurb: "Guided quests built for teens — Qur’an, Seerah and everyday fiqh at a steady pace." },
-  adult: { name: "Adult Zone", blurb: "Deep dives into Islamic knowledge — Fiqh, Aqeedah, Seerah and more." },
+const zones: Record<Zone, { name: string; ages: string; blurb: string }> = {
+  kids: { name: "Kids Zone", ages: "Under 13", blurb: "Gentle, safe quests and stories made for children." },
+  youth: { name: "Teens & Young Adults Zone", ages: "13 to 24", blurb: "Guided quests for teens and young adults — Qur’an, Seerah and everyday fiqh at a steady pace." },
+  adult: { name: "Adult Zone", ages: "25 and above", blurb: "Deep dives into Islamic knowledge — Fiqh, Aqeedah, Seerah and more." },
 };
 
 const levelFor = (score: number): Level => (score >= 4 ? "Advanced" : score >= 2 ? "Intermediate" : "Beginner");
@@ -143,13 +144,13 @@ function buildQuiz(interests: string[]): (VisualQuestion & { topic: string })[] 
   return order.flatMap((topic) => { const q = quizQuestionsFor(topic)[0]; return q ? [{ ...q, topic }] : []; });
 }
 
-type Draft = { language: Lang; name: string; username: string; email: string; password: string; dob: string; gender: Gender | null; interests: string[] };
+type Draft = { language: Lang; name: string; username: string; email: string; password: string; zone: Zone | null; gender: Gender | null; interests: string[] };
 
 export function SignupFlow() {
   const { lang, set: setLanguage } = useLanguage();
   const { account, loggedIn, signUp, logOut, firstName } = useAuth();
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<Draft>({ language: lang, name: "", username: "", email: "", password: "", dob: "", gender: null, interests: [] });
+  const [draft, setDraft] = useState<Draft>({ language: lang, name: "", username: "", email: "", password: "", zone: null, gender: null, interests: [] });
   const [result, setResult] = useState<{ score: number | null; level: Level } | null>(null);
   const [signupError, setSignupError] = useState("");
   const [signingUp, setSigningUp] = useState(false);
@@ -159,14 +160,13 @@ export function SignupFlow() {
   const back = () => setStep((s) => Math.max(0, s - 1));
 
   const finish = async (score: number | null) => {
-    const age = ageFrom(draft.dob) ?? 18;
     const level = score === null ? "Beginner" : levelFor(score);
     setSignupError("");
     setSigningUp(true);
     try {
       await signUp({
         name: draft.name.trim(), username: draft.username, email: normaliseEmail(draft.email), password: draft.password, language: draft.language,
-        dob: draft.dob, gender: draft.gender ?? "male", zone: age < 18 ? "youth" : "adult", interests: draft.interests,
+        gender: draft.gender ?? "male", zone: draft.zone ?? "youth", interests: draft.interests,
         level, quizScore: score, xp: 50,
       });
     } catch (err) {
@@ -212,13 +212,13 @@ export function SignupFlow() {
     {step === 0 && <LanguageStep value={draft.language} onNext={(language) => { update({ language }); setLanguage(language); next(); }} />}
     {step === 1 && <AccountStep draft={draft} existingEmail={account?.email} serverError={accountError} onBack={back} onNext={(name, username, email) => { setAccountError(""); update({ name, username, email }); next(); }} />}
     {step === 2 && <PasswordStep onBack={back} onNext={(password) => { update({ password }); next(); }} />}
-    {step === 3 && <DetailsStep draft={draft} onBack={back} onNext={(dob, gender) => { update({ dob, gender }); next(); }} />}
+    {step === 3 && <DetailsStep draft={draft} onBack={back} onNext={(zone, gender) => { update({ zone, gender }); next(); }} />}
     {step === 4 && <InterestsStep value={draft.interests} onBack={back} onNext={(interests) => { update({ interests }); next(); }} />}
     {step === 5 && <>
       {signupError && <p role="alert" className="mb-5 border-2 border-destructive bg-destructive/10 p-3 text-sm font-semibold text-destructive">{signupError}</p>}
       <QuizStep interests={draft.interests} onBack={back} onFinish={finish} busy={signingUp} />
     </>}
-    {step === 6 && result && <WelcomeStep name={draft.name} zone={(ageFrom(draft.dob) ?? 18) < 18 ? "youth" : "adult"} interests={draft.interests} {...result} />}
+    {step === 6 && result && <WelcomeStep name={draft.name} zone={draft.zone ?? "youth"} interests={draft.interests} {...result} />}
   </AuthShell>;
 }
 
@@ -271,6 +271,17 @@ function AccountStep({ draft, existingEmail, serverError, onBack, onNext }: { dr
   const [email, setEmail] = useState(draft.email);
   const [status, setStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
   const [errors, setErrors] = useState<{ name?: string; email?: string; exists?: boolean }>({});
+  const [emailTaken, setEmailTaken] = useState(false);
+
+  useEffect(() => {
+    const value = normaliseEmail(email);
+    if (!isValidEmail(value)) { setEmailTaken(false); return undefined; }
+    let cancelled = false;
+    const id = setTimeout(() => {
+      isEmailRegistered(value).then((taken) => { if (!cancelled) setEmailTaken(taken); }).catch(() => {});
+    }, 400);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [email]);
 
   useEffect(() => {
     const value = normaliseUsername(username);
@@ -294,7 +305,7 @@ function AccountStep({ draft, existingEmail, serverError, onBack, onNext }: { dr
     if (!isValidEmail(email)) next.email = "Enter a valid email, like name@example.com.";
     else if (existingEmail && normaliseEmail(email) === existingEmail) next.exists = true;
     setErrors(next);
-    if (!next.name && !next.email && !next.exists && status === "available") onNext(name.trim(), normaliseUsername(username), email.trim());
+    if (!next.name && !next.email && !next.exists && !emailTaken && status === "available") onNext(name.trim(), normaliseUsername(username), email.trim());
   };
   return <form noValidate onSubmit={submit} className="grid gap-5">
     {serverError && <p role="alert" className="border-2 border-destructive bg-destructive/10 p-3 text-sm font-semibold text-destructive">{serverError}</p>}
@@ -307,8 +318,8 @@ function AccountStep({ draft, existingEmail, serverError, onBack, onNext }: { dr
     <Field label="Email address" icon={AtSign} error={errors.email}>
       <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" aria-invalid={!!errors.email} className={inputClass} />
     </Field>
-    {errors.exists && <p role="alert" className="border-2 border-foreground bg-muted p-3 text-sm">An account with this email already exists. <Link to="/login" className="font-bold underline underline-offset-4">Log in instead</Link></p>}
-    <StepNav onBack={onBack} disabled={status !== "available"} />
+    {(errors.exists || emailTaken) && <p role="alert" className="border-2 border-foreground bg-muted p-3 text-sm">An account with this email already exists. <Link to="/login" className="font-bold underline underline-offset-4">Log in instead</Link></p>}
+    <StepNav onBack={onBack} disabled={status !== "available" || emailTaken} />
   </form>;
 }
 
@@ -336,24 +347,25 @@ function PasswordStep({ onBack, onNext }: { onBack: () => void; onNext: (passwor
   </form>;
 }
 
-function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => void; onNext: (dob: string, gender: Gender) => void }) {
-  const [dob, setDob] = useState(draft.dob);
+function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => void; onNext: (zone: Zone, gender: Gender) => void }) {
+  const [zone, setZone] = useState<Zone | null>(draft.zone);
   const [gender, setGender] = useState<Gender | null>(draft.gender);
   const [tried, setTried] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
-  const age = dob ? ageFrom(dob) : null;
-  const validAge = age !== null && age >= 0 && age <= 120;
-  const tooYoung = validAge && age < 13;
-  const zone: Zone | null = validAge && !tooYoung ? (age < 18 ? "youth" : "adult") : null;
+  const isKid = zone === "kids";
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTried(true);
-    if (zone && gender) onNext(dob, gender);
+    if (zone && !isKid && gender) onNext(zone, gender);
   };
   return <form noValidate onSubmit={submit} className="grid gap-6">
-    <Field label="Date of birth" icon={CalendarDays} error={tried && !validAge ? "Enter your date of birth." : undefined}>
-      <input type="date" value={dob} max={today} min="1900-01-01" onChange={(e) => setDob(e.target.value)} aria-invalid={tried && !validAge} className={inputClass} />
-    </Field>
+    <fieldset>
+      <legend className="text-sm font-semibold">Your age group</legend>
+      <div role="radiogroup" aria-label="Age group" className="mt-1.5 grid gap-3">{(["kids", "youth", "adult"] as const).map((z) => { const on = zone === z; return <button key={z} type="button" role="radio" aria-checked={on} onClick={() => setZone(z)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 text-left transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
+        <span><span className="block font-semibold">{zones[z].name}</span><span className="text-xs text-muted-foreground">{zones[z].ages} · {zones[z].blurb}</span></span>
+        {on && <span className="grid size-6 shrink-0 place-items-center border-2 border-foreground bg-secondary text-secondary-foreground"><Check className="size-3.5" /></span>}
+      </button>; })}</div>
+      {tried && !zone && <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">Choose your age group to continue.</p>}
+    </fieldset>
     <fieldset>
       <legend className="text-sm font-semibold">Gender</legend>
       <div className="mt-1.5 grid grid-cols-2 gap-3">{(["male", "female"] as const).map((g) => { const on = gender === g; return <button key={g} type="button" aria-pressed={on} onClick={() => setGender(g)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 font-semibold capitalize transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
@@ -361,16 +373,11 @@ function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => vo
       </button>; })}</div>
       {tried && !gender && <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">Choose one to continue.</p>}
     </fieldset>
-    {tooYoung && <div role="alert" className="border-2 border-foreground bg-muted p-4">
+    {isKid && <div role="alert" className="border-2 border-foreground bg-muted p-4">
       <p className="font-serif text-2xl">Under 13? Join through a parent.</p>
       <p className="mt-1 text-sm text-muted-foreground">Children never sign up on their own. A parent or guardian can add you from their family hub, where they verify once and keep you safe.</p>
     </div>}
-    {zone && <div className="border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm" aria-live="polite">
-      <p className="text-xs font-bold uppercase opacity-80">Zone assigned</p>
-      <p className="mt-1 font-serif text-3xl">{zones[zone].name}</p>
-      <p className="mt-1 text-sm">{zones[zone].blurb}</p>
-    </div>}
-    <StepNav onBack={onBack} disabled={tooYoung} />
+    <StepNav onBack={onBack} disabled={isKid} />
   </form>;
 }
 

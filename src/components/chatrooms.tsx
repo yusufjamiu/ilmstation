@@ -136,7 +136,7 @@ export function ChatroomsScreen() {
 
   return <div className="min-w-0 iq-rise">
     <header>
-      <p className="text-xs font-semibold uppercase text-muted-foreground">{zone === "youth" ? "Youth Zone" : "Adult Zone"} · moderated</p>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{zone === "kids" ? "Kids Zone" : zone === "youth" ? "Teens & Young Adults Zone" : "Adult Zone"} · moderated</p>
       <h1 className="font-serif text-4xl leading-none sm:text-5xl">Chatrooms</h1>
     </header>
 
