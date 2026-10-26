@@ -805,6 +805,10 @@ export class IlmCityEngine {
       this.bikeObj = null;
     }
     this.liftRider(0);
+    if (this.bikePosed) {
+      releasePose(this.player);
+      this.bikePosed = false;
+    }
     this.bikeWheels = [];
     this.bikeKind = kind;
     this.bikeColor = color;
@@ -818,7 +822,13 @@ export class IlmCityEngine {
   }
   private liftRider(y: number) {
     if (y === this.bikeLift) return;
-    for (const c of this.player.children) if (c !== this.bikeObj) c.position.y += y - this.bikeLift;
+    // up onto the saddle, and back a little from the handlebars
+    const back = (v: number) => (v ? -0.28 : 0);
+    for (const c of this.player.children)
+      if (c !== this.bikeObj) {
+        c.position.y += y - this.bikeLift;
+        c.position.z += back(y) - back(this.bikeLift);
+      }
     this.bikeLift = y;
   }
   private tired = false;
@@ -839,11 +849,18 @@ export class IlmCityEngine {
     this.camYaw = yaw + Math.PI;
     this.snapCamera();
   }
+  /** The rider holds the handlebars while on the bicycle. */
+  private bikePosed = false;
   /** The bicycle stays outside: indoors you walk. */
   private syncBike() {
     const on = !!this.bikeObj && this.where === "out";
     if (this.bikeObj) this.bikeObj.visible = on;
-    this.liftRider(on ? 0.62 : 0);
+    this.liftRider(on ? 0.42 : 0);
+    if (on && !this.bikePosed) this.bikePosed = poseHuman(this.player, "ride");
+    else if (!on && this.bikePosed) {
+      releasePose(this.player);
+      this.bikePosed = false;
+    }
   }
   private teacherTag: { g: THREE.Object3D; tag: THREE.Object3D } | null = null;
   /** The madrasah teacher is the sheikh of that madrasah's street. */
@@ -886,6 +903,42 @@ export class IlmCityEngine {
     this.player.position.copy(this.outPos);
     this.applyLight();
     this.snapCamera();
+  }
+  /** Your parked car: how far away it is, and the area it's in (null: none here). */
+  carWhere() {
+    if (!this.car.visible) return null;
+    const p = this.player.position,
+      c = this.car.position;
+    return { dist: Math.hypot(c.x - p.x, c.z - p.z), area: this.areaAt(c.x, c.z)?.id ?? null };
+  }
+  /** A car you just bought: parked beside you, ready to drive away. */
+  deliverCar() {
+    const p = this.player.position;
+    for (const r of [5, 7, 9, 12])
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        const x = p.x + Math.cos(a) * r,
+          z = p.z + Math.sin(a) * r;
+        if (!this.free(x, z, 2.2)) continue;
+        this.car.position.set(x, 0, z);
+        this.carHeading = this.player.rotation.y - Math.PI / 2;
+        this.car.rotation.y = this.carHeading;
+        this.car.visible = true;
+        return true;
+      }
+    return false;
+  }
+  /** Walk to your parked car (the "Get in your car" button shows when you reach it). */
+  walkToCar() {
+    if (!this.car.visible || this.where !== "out" || this.driving) return false;
+    const c = this.car.position;
+    const h = this.carHeading;
+    // to the driver's door
+    this.tapTarget = new THREE.Vector3(c.x + Math.sin(h) * 1.8, 0, c.z + Math.cos(h) * 1.8);
+    this.tapZone = null;
+    this.marker.position.set(this.tapTarget.x, 0.05, this.tapTarget.z);
+    this.marker.visible = true;
+    return true;
   }
   enterCar() {
     this.driving = true;
@@ -6804,6 +6857,7 @@ export class IlmCityEngine {
     for (const c of [...fresh.children]) this.player.add(c);
     this.player.userData = { ...fresh.userData };
     this.bikeLift = 0;
+    this.bikePosed = false;
     if (this.bikeKind) {
       // the old bicycle went with the old clothes: put the rider back on it
       const k = this.bikeKind;
@@ -6856,6 +6910,32 @@ export class IlmCityEngine {
         return true;
     }
     for (const r of this.remotes.values()) if (hits(r.g.position.x, r.g.position.z)) return true;
+    // cars, danfos, keke and lorries are solid: you walk (or ride) round them, never through
+    if (this.where === "out") {
+      const pad = this.bikeKind ? 0.75 : 0.4;
+      // how far outside the vehicle's box a point is (below zero: inside it)
+      const outside = (v: Vehicle, px: number, pz: number) => {
+        const h = v.mesh.rotation.y,
+          c = Math.cos(h),
+          s = Math.sin(h);
+        const dx = px - v.mesh.position.x,
+          dz = pz - v.mesh.position.z;
+        const lx = dx * c - dz * s,
+          lz = dx * s + dz * c;
+        return Math.max(
+          Math.abs(lx) - (v.half + pad),
+          Math.abs(lz) - (VEHICLE_INFO[v.kind].width / 2 + pad),
+        );
+      };
+      for (const v of this.traffic.vehicles) {
+        const dx = v.mesh.position.x - x,
+          dz = v.mesh.position.z - z;
+        if (dx * dx + dz * dz > (v.half + 3) ** 2) continue;
+        const now = outside(v, x, z);
+        // blocked when stepping into it, or deeper into it (so you can always step out)
+        if (now < 0 && now < outside(v, ox, oz)) return true;
+      }
+    }
     return false;
   }
 
