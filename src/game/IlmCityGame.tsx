@@ -30,6 +30,8 @@ import {
   type WalletNet,
 } from "./wallet";
 import { PACKS } from "./packs";
+import { housePrice, r10 } from "./prices";
+import { NO_TRAFFIC } from "./traffic";
 import {
   MIN_LAP_MS,
   fmtTime as raceTime,
@@ -58,7 +60,22 @@ import {
   type PitchNet,
   type PitchRoom,
 } from "./pitchnet";
-import { departmentsOf, coursesOf, courseQuiz, LEVELS, type Dept } from "./university";
+import {
+  complexFaculties,
+  courseTopics,
+  coursesLive,
+  departmentsLive,
+  LEVELS,
+  type Dept,
+} from "./university";
+import {
+  getContent,
+  keyOf,
+  type MosqueDoc,
+  type QItem,
+  type QuizDoc,
+  type Topic,
+} from "./learning";
 import {
   AD_PRICES,
   requestAd,
@@ -85,7 +102,7 @@ import {
   type Online,
   type PlayerStatus,
 } from "./online";
-import { SCHOOL_POINTS, SUBJECTS, quizFor, type Q as SchoolQ } from "./school";
+import { SCHOOL_POINTS, SUBJECTS, bandOf, quizFor, type Q as SchoolQ } from "./school";
 import {
   AD_EMAIL,
   BILLBOARDS,
@@ -207,12 +224,18 @@ type Save = {
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
   fuel?: number;
+  /** unpaid flat rent the landlord has collected so far from your earnings */
+  rentPot?: number;
+  /** the team's quiz questions you've answered today */
+  quizSeen?: { day: string; keys: string[] };
   /** races already announced to you, and races whose results you have seen */
   racesSeen?: string[];
   resultsSeen?: string[];
   /** your bicycle, and whether you are riding it */
   bike?: { kind: BikeKind; color: number };
   cycling?: boolean;
+  /** a hire bicycle in Madinah, until this time */
+  hire?: number;
   path?: LifePath;
   job?: string;
   /** the day you last worked a shift */
@@ -419,41 +442,72 @@ const PREMIUM_HIJABS = [0xc9a227, 0xe6d3a0, 0xf2e6f0, 0x5a1f6a];
 /** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
 const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
 const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
+/** Taking your bicycle on a danfo to another area of your city costs this much more. */
+const BIKE_ON_BUS = 5;
+/** Hire bicycles in Madinah: an hour, or the whole day. */
+const HIRE = { hour: { ms: 3600000, price: 15 }, day: { ms: 12 * 3600000, price: 40 } };
+const HIRE_COLOR = 0x2fa84f;
+/** Which bicycle you can ride where you are, if any: your own in your home city (not in the
+    Holy Cities), a hired one in Madinah; none in Makkah. */
+function bikeHere(s: Save, area: string): { kind: BikeKind; color: number; hired: boolean } | null {
+  const d = districtById(area);
+  const city = cityOf(d);
+  if (city === "madinah")
+    return (s.hire ?? 0) > Date.now() ? { kind: "city", color: HIRE_COLOR, hired: true } : null;
+  if (d.holy || !s.bike) return null;
+  if (city !== cityOf(districtById(s.homeArea ?? "lekki"))) return null;
+  return { ...s.bike, hired: false };
+}
+/** The landlord can claim at most this many unpaid weeks. */
+const ARREARS_WEEKS = 4;
+/** A house you live in instead of the flat: bought, built, or rented with rent still paid. */
+function houseOf(s: Save): string | undefined {
+  const ok = (pid: string) => {
+    const o = s.plots?.[pid];
+    return (
+      !!o &&
+      (o.kind === "bought" || o.kind === "built" || (o.kind === "rented" && o.until > Date.now()))
+    );
+  };
+  if (s.homePlot && ok(s.homePlot)) return s.homePlot;
+  return Object.keys(s.plots ?? {}).find(ok);
+}
+/** Unpaid flat rent is not forgotten: while it is owed, half of everything you earn goes to
+    the landlord until the weeks you owe (up to four) are paid; then you can go home again. */
+function collectRent(before: Save, after: Save): Save {
+  const earned = after.coins - before.coins;
+  if (earned <= 1 || !after.profile || !after.lease || houseOf(after)) return after;
+  const now = Date.now();
+  let until = Math.max(after.lease.until, now - ARREARS_WEEKS * 7 * 86400000);
+  if (until >= now) return after;
+  const rent = flatRent(after.homeArea ?? "lekki");
+  const took = Math.floor(earned / 2);
+  let pot = (after.rentPot ?? 0) + took;
+  while (pot >= rent && until < now) {
+    until += 7 * 86400000;
+    pot -= rent;
+  }
+  // paid up: whatever is left over comes back to you
+  const back = until >= now ? pot : 0;
+  return {
+    ...after,
+    coins: after.coins - took + back,
+    rentPot: until >= now ? 0 : pot,
+    lease: { until },
+  };
+}
 /** A house's rent: by its area and size. The best areas are for players of a higher Ilm
     level; anyone below it can still rent there by paying half as much again. */
-const TIER_RENT: Record<number, number> = { 1: 2, 2: 1.4, 3: 1, 4: 0.8 };
-const FLOOR_RENT: Record<number, number> = { 1: 1, 2: 1.5, 3: 2 };
 const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
-const r10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
 /** How full each area's original houses are (0 to 1): prices rise with demand. */
 const AREA_DEMAND: Record<string, number> = {};
 /** Petrol: litres a trip uses, the tank, and the pump price (₦10 units per litre). */
 const FUEL = { trip: 10, far: 25, tank: 50, start: 20, perLitre: 0.7 };
-/** A glass tower costs a fortune: you buy the whole tower and let its flats. */
-const TOWER_PRICE = 60000;
 function houseRent(area: string, floors: number, ilm: number, type?: HomeType) {
-  const t = districtById(area).tier ?? 2;
-  // a face-me-I-face-you house is the cheapest home there is
-  const kindX = type === "faceme" ? 0.6 : 1;
-  // up to half as much again when an area is in demand
-  const demand = 1 + 0.5 * Math.min(1, AREA_DEMAND[area] ?? 0);
-  const base = r10(
-    150 *
-      (TIER_RENT[t] ?? 1) *
-      (FLOOR_RENT[Math.min(3, Math.max(1, floors))] ?? 1) *
-      demand *
-      kindX,
-  );
+  const { base, buy, tier: t } = housePrice(area, floors, type, AREA_DEMAND[area] ?? 0);
   const need = TIER_LEVEL[t] ?? 0;
   const premium = ilmLevel(ilm).i < need;
   const week = premium ? r10(base * 1.5) : base;
-  const buy = r10(
-    (type === "tower"
-      ? TOWER_PRICE
-      : (HOUSE_PRICE[Math.min(3, Math.max(1, floors))] ?? HOUSE_PRICE[1]) * kindX) *
-      (TIER_RENT[t] ?? 1) *
-      demand,
-  );
   return { week, month: r10(week * 3.4), base, premium, need: ILM_LEVELS[need], buy };
 }
 /** Building on your land, one stage at a time. */
@@ -536,8 +590,28 @@ const hm = (s: string) => {
   return h * 60 + m;
 };
 const weekday = (c: Clock) => new Date(c.key + "T12:00:00Z").getUTCDay();
+/** Lectures the IlmWorld team has added to mosques from the admin page (by mosque). */
+const LIVE_LECTURES: Record<string, Lecture[]> = {};
+/** A mosque's lectures: the built-in ones and those the team has added. */
+const lecturesOf = (mosque: string) => [
+  ...LECTURES.filter((l) => l.mosque === mosque),
+  ...(LIVE_LECTURES[mosque] ?? []),
+];
+/** Fetch the team's lectures for these mosques. */
+async function loadMosques(ids: string[]) {
+  await Promise.all(
+    ids.map(async (id) => {
+      const doc = await getContent<MosqueDoc>(keyOf("mosque", id));
+      LIVE_LECTURES[id] = (doc?.lectures ?? []).map((l, i) => ({
+        ...l,
+        id: `${id}-live-${i}`,
+        mosque: id,
+      }));
+    }),
+  );
+}
 const lecturesAt = (mosque: string, c: Clock) =>
-  LECTURES.filter((l) => l.mosque === mosque && (!l.days?.length || l.days.includes(weekday(c))));
+  lecturesOf(mosque).filter((l) => !l.days?.length || l.days.includes(weekday(c)));
 /** The lecture playing in this mosque right now, if any. */
 function lectureNow(mosque: string, c: Clock) {
   return lecturesAt(mosque, c).find((l) => c.min >= hm(l.start) && c.min < hm(l.start) + l.minutes);
@@ -992,6 +1066,8 @@ function CityGame({
   const stageTold = useRef(new Set<string>());
   const presenceAt = useRef(0);
   const needHintAt = useRef(Date.now());
+  const wornRef = useRef(false);
+  const restAt = useRef(0);
   const lastSent = useRef({ x: 0, z: 0, area: "" });
   const watchedArea = useRef<string | null>(null);
   const offArea = useRef<(() => void) | null>(null);
@@ -1100,7 +1176,8 @@ function CityGame({
     });
   }, []);
   const update = useCallback(
-    (fn: (s: Save) => Save) => {
+    (fn0: (s: Save) => Save) => {
+      const fn = (s: Save) => collectRent(s, fn0(s));
       const w = walletNet.current;
       if (w) {
         const base = saveRef.current;
@@ -1406,6 +1483,9 @@ function CityGame({
   /** you set off to the masjid to read the Qur'an: it opens when you walk in */
   const quranNext = useRef(false);
   /** the sheikh of the masjid or madrasah you are in: he asks the quiz */
+  /** where the quiz is being asked (a mosque or an MSSN centre), for its own questions */
+  const quizPlace = useRef<string | null>(null);
+  const quizTried = useRef(false);
   const quizHost = useRef("The Imam");
   const openWalletRef = useRef<(tab?: "wallet" | "send" | "buy", why?: string) => void>(() => {});
   const profileBtn = useRef<HTMLButtonElement | null>(null);
@@ -2205,7 +2285,16 @@ function CityGame({
             area={area}
             onGo={(prefix) => {
               setPanel(null);
-              if (!engine.current?.goToZone(prefix)) toast("Go outside first, then try again.");
+              const e = engine.current;
+              if (prefix === "mycar") {
+                const c = e?.carWhere();
+                if (!c) toast("Your car isn't here: it stays at home when you travel far.");
+                else if (c.dist > 150 && c.area && c.area !== e?.districtId())
+                  toast(`Your car is parked in ${districtById(c.area).name}.`);
+                else if (!e?.walkToCar()) toast("Go outside first, then try again.");
+                return;
+              }
+              if (!e?.goToZone(prefix)) toast("Go outside first, then try again.");
             }}
           />
         ),
@@ -2243,19 +2332,25 @@ function CityGame({
       const litres = far ? FUEL.far : FUEL.trip;
       const tank = saveRef.current.fuel ?? FUEL.start;
       const fromTank = byCar && tank >= litres;
-      const fare = byCar
-        ? fromTank
-          ? 0
+      // your bicycle comes along on a danfo within your city (for a little more); it stays
+      // behind for other cities, flights and the train, and hire bikes stay in Madinah
+      const sv0 = saveRef.current;
+      const bikeNow = sv0.cycling ? bikeHere(sv0, here) : null;
+      const bikeAlong = !!bikeNow && !bikeNow.hired && !far && !train && !!bikeHere(sv0, to);
+      const fare =
+        (byCar
+          ? fromTank
+            ? 0
+            : far
+              ? Math.round(INTERCITY.bus * 0.6)
+              : 8
           : far
-            ? Math.round(INTERCITY.bus * 0.6)
-            : 8
-        : far
-          ? train
-            ? INTERCITY.train
-            : INTERCITY.bus
-          : train
-            ? TRAIN_LOCAL
-            : BUS_FARE;
+            ? train
+              ? INTERCITY.train
+              : INTERCITY.bus
+            : train
+              ? TRAIN_LOCAL
+              : BUS_FARE) + (bikeAlong && !byCar ? BIKE_ON_BUS : 0);
       if (byCar && saveRef.current.coins < fare) {
         toast(
           `Your tank is nearly empty and fuel on the way costs ${N(fare)}. Fill up at a filling station.`,
@@ -2276,10 +2371,35 @@ function CityGame({
       arriveRef.current = () => {
         // by train you step off at the station; otherwise the bus or car drives in
         if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar);
+        // ihram is worn in Saudi Arabia while a pilgrimage is under way, not back home
+        {
+          const sv1 = saveRef.current;
+          if (sv1.profile)
+            e.setPlayerLook({
+              ...sv1.profile,
+              ihram:
+                !sv1.profile.female &&
+                (!!sv1.umrah?.stage || hajjIhram(sv1.hajj?.stage)) &&
+                countryOf(districtById(to)) === "Saudi Arabia",
+            });
+        }
         advance("ride");
         advance("learn");
         setDriving(false);
         setInside(false);
+        if (bikeNow && !bikeAlong) {
+          e.setBike(null);
+          setTimeout(
+            () =>
+              toast(
+                bikeNow.hired
+                  ? "You returned the hire bicycle before leaving."
+                  : `Your bicycle stays at home in ${cityOf(districtById(saveRef.current.homeArea ?? "lekki"))[0].toUpperCase() + cityOf(districtById(saveRef.current.homeArea ?? "lekki")).slice(1)}.`,
+              ),
+            2500,
+          );
+        } else if (bikeAlong && !byCar)
+          setTimeout(() => toast(`Your bicycle came on the danfo: +${N(BIKE_ON_BUS)}.`), 2500);
         update((x) => ({
           ...x,
           coins: x.coins - fare,
@@ -2287,6 +2407,9 @@ function CityGame({
           car: byCar ? e.carPos() : x.car,
           pos: undefined,
           ...(fromTank ? { fuel: Math.max(0, (x.fuel ?? FUEL.start) - litres) } : {}),
+          ...(bikeNow && !bikeAlong
+            ? { cycling: false, ...(bikeNow.hired ? { hire: 0 } : {}) }
+            : {}),
         }));
         if (fromTank && tank - litres < FUEL.trip)
           setTimeout(() => toast("Your tank is low. Fill up at a filling station.", "warn"), 2500);
@@ -2714,6 +2837,43 @@ function CityGame({
               }
               onPay={async (pts, next, msg) => {
                 if (saveRef.current.coins < pts) return;
+                const w = walletNet.current;
+                if (w) {
+                  // the server takes the money and records the house as yours, together
+                  const prev = saveRef.current.plots?.[pid];
+                  const how =
+                    next.kind === "rented" ? "rent" : next.kind === "owned" ? "land" : "buy";
+                  const days =
+                    next.kind === "rented"
+                      ? Math.round(
+                          (next.until -
+                            Math.max(Date.now(), prev?.kind === "rented" ? prev.until : 0)) /
+                            86400000,
+                        )
+                      : undefined;
+                  const r = await w.plot(pid, how, pts, {
+                    days,
+                    name: shownName(saveRef.current) ?? "Player",
+                  });
+                  if (!r.ok) {
+                    toast(
+                      r.error === "taken"
+                        ? "Another player has just taken this one. Please choose another."
+                        : r.error === "not-enough"
+                          ? "Your wallet doesn't have enough for that."
+                          : "Couldn't complete that. Please try again.",
+                      "warn",
+                    );
+                    if (r.error === "taken") setPanel(null);
+                    return;
+                  }
+                  if (typeof r.naira === "number") walletServer.current = r.naira;
+                  syncCoins();
+                  setOwn(next.kind === "rented" && r.until ? { ...next, until: r.until } : next);
+                  toast(msg, "good");
+                  setTimeout(render, 0);
+                  return;
+                }
                 if (!(await claimPlotRef.current(pid, next))) {
                   toast("Another player has just taken this one. Please choose another.", "warn");
                   setPanel(null);
@@ -2786,6 +2946,18 @@ function CityGame({
     const net = shopsNet.current;
     const o = onlineRef.current;
     if (!own || !net || !o) return true;
+    // with the server holding the money, the rent is recorded there: only the shop's name and
+    // products are sent from here
+    if (walletNet.current) {
+      await net
+        .update(sid, {
+          name: own.name,
+          products: own.products,
+          ownerName: shownName(saveRef.current) ?? "Player",
+        })
+        .catch(() => {});
+      return true;
+    }
     return net.claim({
       sid,
       owner: o.uid,
@@ -2916,6 +3088,43 @@ function CityGame({
                 if (saveRef.current.coins < pts) return;
                 const net = shopsNet.current,
                   o = onlineRef.current;
+                const w = walletNet.current;
+                if (w) {
+                  const r = await w.shop(sid, days, pts, shownName(saveRef.current) ?? "Player");
+                  if (!r.ok) {
+                    toast(
+                      r.error === "taken"
+                        ? "Another player has just rented this space. Try another one."
+                        : r.error === "not-enough"
+                          ? "Your wallet doesn't have enough for that."
+                          : "Couldn't complete that. Please try again.",
+                      "warn",
+                    );
+                    if (r.error === "taken") setPanel(null);
+                    return;
+                  }
+                  if (typeof r.naira === "number") walletServer.current = r.naira;
+                  syncCoins();
+                  const prev = saveRef.current.shops?.[sid];
+                  const next: ShopOwn = {
+                    until: r.until ?? Math.max(Date.now(), prev?.until ?? 0) + days * 86400000,
+                    name: prev?.name ?? "",
+                    products: prev?.products ?? [],
+                    salesAt: prev?.salesAt ?? Date.now(),
+                  };
+                  saveRef.current = {
+                    ...saveRef.current,
+                    shops: { ...saveRef.current.shops, [sid]: next },
+                  };
+                  update((x) => ({ ...x, shops: { ...x.shops, [sid]: next } }));
+                  paintShop(e, sid);
+                  toast(
+                    "The keys are yours! Give your business a name and add product photos.",
+                    "good",
+                  );
+                  setTimeout(render, 0);
+                  return;
+                }
                 if (net && o) {
                   const prev0 = saveRef.current.shops?.[sid];
                   const ok = await net
@@ -4186,11 +4395,63 @@ function CityGame({
     });
   };
 
+  /* ---------- leaving home: walk, bicycle or car ---------- */
+  const askRideRef = useRef(() => {});
+  askRideRef.current = () => {
+    const e = engine.current;
+    if (!e || e.scenePlace() !== "out") return;
+    const bike = bikeHere(saveRef.current, e.districtId());
+    const car = saveRef.current.impound ? null : e.carWhere();
+    const carNear = !!car && car.dist < 120;
+    if (!bike && !carNear) return;
+    const btn = "w-full rounded-xl px-4 py-3 text-left font-bold";
+    setPanel({
+      kind: "info",
+      title: "How are you going?",
+      body: (
+        <div className="space-y-2">
+          <button
+            onClick={() => setPanel(null)}
+            className={`${btn} border border-[#1f6f63]/30 bg-white`}
+          >
+            🚶 Walk
+          </button>
+          {bike && (
+            <button
+              onClick={() => {
+                setPanel(null);
+                e.setBike(bike.kind, bike.color);
+                saveRef.current = { ...saveRef.current, cycling: true };
+                update((x) => ({ ...x, cycling: true }));
+              }}
+              className={`${btn} bg-[#1f6f63] text-[#fdf8ec]`}
+            >
+              🚲 Take my bicycle
+            </button>
+          )}
+          {carNear && (
+            <button
+              onClick={() => {
+                setPanel(null);
+                if (e.walkToCar())
+                  toast("Walking to your car. Tap “Get in your car” when you reach it.");
+              }}
+              className={`${btn} bg-[#2a4a7a] text-white`}
+            >
+              🚗 Take my car
+            </button>
+          )}
+        </div>
+      ),
+    });
+  };
+
   /* ---------- bicycles and races ---------- */
   const toggleBike = useCallback(() => {
     const e = engine.current;
-    const b = saveRef.current.bike;
-    if (!e || !b) return;
+    if (!e) return;
+    const b = bikeHere(saveRef.current, e.districtId());
+    if (!b) return;
     const on = !saveRef.current.cycling;
     if (raceRef.current && !on && raceRef.current.kind === "bike") {
       toast("Finish the cycling race first, or cancel it.", "warn");
@@ -4255,6 +4516,8 @@ function CityGame({
           clearInterval(tick);
           raceRef.current.go = true;
           raceRef.current.start = performance.now();
+          // for a real race the server's clock starts now too
+          if (race && walletNet.current) void walletNet.current.raceStart(race.id).catch(() => {});
           setRaceNow({ text: "GO!", ms: 0 });
         }
       }, 1000);
@@ -4295,6 +4558,28 @@ function CityGame({
             }
             const race = r.race;
             const o = onlineRef.current;
+            const w = walletNet.current;
+            if (race && w) {
+              // the server times the race (its clock started at GO) and keeps your best
+              void w
+                .raceFinish(race.id, shownName(saveRef.current) ?? "Player")
+                .then((res) =>
+                  toast(
+                    !res.ok
+                      ? res.error === "too-fast"
+                        ? "That time is too fast to be real: it doesn't count."
+                        : res.error === "closed"
+                          ? "This race has closed: the time doesn't count."
+                          : "Your time couldn't be recorded. Please run it again."
+                      : res.improved
+                        ? `Finished in ${raceTime(res.ms ?? ms)}: your best time in ${race.title}!`
+                        : `Finished in ${raceTime(res.ms ?? ms)}. Your best is still ${raceTime(res.best ?? ms)}.`,
+                    res.ok ? "good" : "warn",
+                  ),
+                )
+                .catch(() => toast("Your time couldn't be recorded. Please run it again.", "warn"));
+              return;
+            }
             if (!race || !o) {
               toast(`Finished! Your time: ${raceTime(ms)}`, "good");
               return;
@@ -4419,6 +4704,14 @@ function CityGame({
   /** houses in view that other players have (plot → their name) */
   const takenRef = useRef(new Map<string, string>());
   const [areaNow, setAreaNow] = useState<string | null>(null);
+  // the team's lectures for the mosques of the area you're in
+  useEffect(() => {
+    if (!areaNow || !onlineReady) return;
+    const ids = districtById(areaNow)
+      .landmarks.filter((l) => l.kind === "masjid" || l.kind === "haram" || l.kind === "nabawi")
+      .map((l) => l.id);
+    void loadMosques(ids);
+  }, [areaNow, onlineReady]);
   useEffect(() => {
     const iv = setInterval(() => {
       const a = engine.current?.districtId();
@@ -4661,7 +4954,7 @@ function CityGame({
       const me = onlineRef.current?.uid ?? "";
       const mix = (id: string) => flatFor(me + id).seed;
       const houses = e.plots
-        .filter((q) => q.district === area && q.kind === "house" && q.toLet)
+        .filter((q) => q.district === area && q.kind === "house" && q.toLet && q.type !== "tower")
         .sort((a, b) => (b.floors ?? 1) - (a.floors ?? 1) || mix(a.id) - mix(b.id));
       let got: { id: string; floors: number } | null = null;
       // the first phase with a free house; a few tries per phase, then the next phase
@@ -4671,7 +4964,11 @@ function CityGame({
           const id = e.phasedId(q.id, n);
           if (saveRef.current.plots?.[id] || takenRef.current.has(id)) continue;
           if (++tries > 6) break;
-          if (await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 })) {
+          const w = walletNet.current;
+          const ok = w
+            ? (await w.richHouse(id, shownName(saveRef.current) ?? "Player")).ok
+            : await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 });
+          if (ok) {
             got = { id, floors: q.floors ?? 1 };
             break;
           }
@@ -4741,10 +5038,19 @@ function CityGame({
       });
       return false;
     }
-    const until = Math.max(Date.now(), sv.lease?.until ?? 0) + WEEK;
-    update((x) => ({ ...x, coins: x.coins - rent, lease: { until } }));
-    toast(`Rent paid: −${N(rent)}. Your flat is paid for another week. Alhamdulillah!`, "good");
-    return true;
+    // unpaid weeks (up to four) are paid first
+    const now = Date.now();
+    const from = Math.max(sv.lease?.until ?? now, now - ARREARS_WEEKS * WEEK);
+    const until = from + WEEK;
+    update((x) => ({ ...x, coins: x.coins - rent, lease: { until }, rentPot: 0 }));
+    toast(
+      until > now
+        ? `Rent paid: −${N(rent)}. Your flat is paid until ${new Date(until).toLocaleDateString()}. Alhamdulillah!`
+        : `Rent paid: −${N(rent)}. You still owe ${Math.ceil((now - until) / WEEK)} more week(s) before you can go in.`,
+      until > now ? "good" : "warn",
+    );
+    // true only when the flat is paid up and you can go in
+    return until > now;
   }, [update, toast]);
   const payRentRef = useRef(payRent);
   payRentRef.current = payRent;
@@ -4841,6 +5147,19 @@ function CityGame({
             Your landlord says: "Assalamu alaikum. The rent for your flat in{" "}
             {districtById(area).name} is {N(rent)} a week. Please pay before you go in."
           </p>
+          {(() => {
+            const until = saveRef.current.lease?.until ?? Date.now();
+            const weeks = Math.min(
+              ARREARS_WEEKS,
+              Math.ceil(Math.max(0, Date.now() - until) / (7 * 86400000)),
+            );
+            return weeks > 1 ? (
+              <p className="rounded-xl bg-[#fdf3dc] p-3 text-[13px]">
+                You owe {weeks} weeks ({N(weeks * rent)}). Until it's paid, half of everything you
+                earn goes to the landlord.
+              </p>
+            ) : null;
+          })()}
           <p className="text-[13px] opacity-75">You have {N(saveRef.current.coins)}.</p>
           <button
             onClick={() => {
@@ -4853,6 +5172,14 @@ function CityGame({
           >
             Pay {N(rent)} for one week
           </button>
+          {saveRef.current.coins < rent && (
+            <button
+              onClick={() => openWalletRef.current("buy", `your rent: ${N(rent)}`)}
+              className="w-full rounded-xl bg-[#e6b84a] py-3 font-bold text-[#2a1c05]"
+            >
+              Top up your wallet with Paystack
+            </button>
+          )}
           <p className="text-[12.5px] opacity-70">
             Short of money? Work a shift (👤 Profile → Work), pray in the masjid or take a quiz.
           </p>
@@ -5306,6 +5633,7 @@ function CityGame({
         id === "exit" ||
         id === "eat" ||
         id === "pray" ||
+        id === "masjid-rest" ||
         id === "prayermat" ||
         id === "bath" ||
         id === "quran" ||
@@ -5448,6 +5776,7 @@ function CityGame({
                   name={shownName(saveRef.current) ?? "Player"}
                 />
                 <ClassView
+                  schoolId={l.id}
                   subjects={l.subjects}
                   cls={cls}
                   school={l.name}
@@ -5494,6 +5823,7 @@ function CityGame({
                 library={library}
                 about={L.l.about ?? ""}
                 faculty={library ? undefined : L.l.name}
+                complexArea={L.l.id.endsWith("-complex") ? L.d.id : undefined}
                 onCorrect={() => {
                   if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
                   update((x) => ({
@@ -6143,6 +6473,8 @@ function CityGame({
               uid={onlineRef.current?.uid ?? null}
               onQuiz={() => {
                 setPanel(null);
+                quizPlace.current = keyOf("mssn", L.l.id);
+                quizHost.current = "The MSSN";
                 setTimeout(() => onActionRef.current("quiz"), 50);
               }}
               onRegister={(faculty) => {
@@ -6284,22 +6616,80 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("bikehire:")) {
+        const until = saveRef.current.hire ?? 0;
+        const buy = (k: keyof typeof HIRE) => {
+          const h = HIRE[k];
+          if (saveRef.current.coins < h.price) {
+            toast(`The hire is ${N(h.price)}. You have ${N(saveRef.current.coins)}.`, "warn");
+            return;
+          }
+          const hire = Math.max(Date.now(), saveRef.current.hire ?? 0) + h.ms;
+          saveRef.current = { ...saveRef.current, hire, cycling: true };
+          update((x) => ({ ...x, coins: x.coins - h.price, hire, cycling: true }));
+          e.setBike("city", HIRE_COLOR);
+          setPanel(null);
+          toast(
+            `Bismillah! Your hire bicycle is yours until ${new Date(hire).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Park it outside when you go into the masjid.`,
+            "good",
+          );
+        };
+        setPanel({
+          kind: "info",
+          title: "🚲 Madinah Bike",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Hire a bicycle to get around Madinah. Ride it anywhere in the city; park it outside
+                when you enter a masjid. Bicycles can't be taken to Makkah or other cities.
+              </p>
+              {until > Date.now() && (
+                <p className="rounded-xl bg-[#e8f3ef] p-3 text-[13px] font-bold text-[#1d6b3a]">
+                  You have a bicycle until{" "}
+                  {new Date(until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+                </p>
+              )}
+              <button
+                onClick={() => buy("hour")}
+                className="w-full rounded-xl bg-[#2fa84f] px-4 py-3 text-left font-bold text-white"
+              >
+                1 hour · {N(HIRE.hour.price)}
+              </button>
+              <button
+                onClick={() => buy("day")}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-white"
+              >
+                The whole day (12 hours) · {N(HIRE.day.price)}
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      if (id === "keke" && NO_TRAFFIC.has(e.districtId())) {
+        toast(
+          "No taxis inside Mina and Arafat in the days of Hajj: pilgrims walk. Taxis wait at the gate.",
+        );
+        return;
+      }
       if (id === "keke") {
         const area = e.districtId();
+        // a taxi in Makkah or Madinah costs more than a keke at home
+        const kfare = districtById(area).holy ? 10 : 3;
         setPanel({
           kind: "info",
           title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Keke",
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
-                Any place in {fullName(districtById(area))} for {N(3)}.
+                Any place in {fullName(districtById(area))} for {N(kfare)}.
               </p>
               <PlacesView
                 area={area}
                 onGo={(prefix) => {
-                  if (saveRef.current.coins < 3) {
+                  if (saveRef.current.coins < kfare) {
                     toast(
-                      `The ${districtById(area).holy ? "taxi" : "keke"} fare is ₦30. Earn money at a mosque or school.`,
+                      `The ${districtById(area).holy ? "taxi" : "keke"} fare is ${N(kfare)}. Earn money at a mosque or school.`,
                       "warn",
                     );
                     return;
@@ -6308,7 +6698,7 @@ function CityGame({
                   if (e.kekeTo(prefix)) {
                     tuneRef.current();
                     sayDhikr("ride");
-                    update((x) => ({ ...x, coins: x.coins - 3 }));
+                    update((x) => ({ ...x, coins: x.coins - kfare }));
                     advance("ride");
                     toast("Off we go! Hold on tight.", "good");
                   } else
@@ -6388,10 +6778,18 @@ function CityGame({
         toast(`You got off in ${districtById(id.slice(8)).name}.`, "good");
         return;
       }
+      if (id.startsWith("door:masjid:") && saveRef.current.cycling) {
+        // bicycles are parked outside the masjid
+        e.setBike(null);
+        saveRef.current = { ...saveRef.current, cycling: false };
+        update((x) => ({ ...x, cycling: false }));
+        toast("You parked your bicycle outside the masjid. Tap 🚲 Ride when you come out.");
+      }
       if (id.startsWith("door:masjid:")) {
         advance("masjid");
         const lid = id.slice(12);
         quizHost.current = hostOf(lid);
+        quizPlace.current = keyOf("mosque", lid);
         const name = landmarkName(lid);
         // the two Holy Mosques: you walk into the real courtyard, not a small prayer hall
         const holyMosque = lid === "masjid-al-haram" || lid === "masjid-an-nabawi";
@@ -6537,7 +6935,7 @@ function CityGame({
           setInside(true);
           sayDhikr("enterHome");
         };
-        if (!saveRef.current.homePlot && (saveRef.current.lease?.until ?? 0) < Date.now()) {
+        if ((saveRef.current.lease?.until ?? 0) < Date.now()) {
           rentDue(go);
           return;
         }
@@ -6665,10 +7063,15 @@ function CityGame({
                   update((x) => ({ ...x, coins: x.coins - price, ride: { kind, color } }));
                   e.setCar(kind, color);
                   setPanel(null);
+                  // the new car waits right outside the showroom
+                  const here = e.deliverCar();
                   toast(
-                    `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
+                    here
+                      ? `Your new ${VEHICLE_INFO[kind].name} is parked right beside you. Tap “Get in your car”. Drive safely, bismillah!`
+                      : `Your new ${VEHICLE_INFO[kind].name} is parked where your old car was. Drive safely, bismillah!`,
                     "good",
                   );
+                  if (here) e.walkToCar();
                 }}
               />
             </>
@@ -6730,8 +7133,15 @@ function CityGame({
         e.exitInterior();
         setInside(false);
         tuneRef.current();
-        if (was === "home") sayDhikr("leaveHome");
-        else if (was === "masjid") sayDhikr("leaveMasjid");
+        if (was === "home") {
+          // out of the house you walk; with a bicycle or a car you're asked how you're going
+          if (saveRef.current.cycling) {
+            e.setBike(null);
+            saveRef.current = { ...saveRef.current, cycling: false };
+            update((x) => ({ ...x, cycling: false }));
+          }
+          sayDhikr("leaveHome", () => askRideRef.current());
+        } else if (was === "masjid") sayDhikr("leaveMasjid");
         return;
       }
       if (id === "car") {
@@ -6959,7 +7369,7 @@ function CityGame({
           title: "Radio · lectures",
           body: (
             <div className="space-y-2">
-              {LECTURES.map((l) => (
+              {[...LECTURES, ...Object.values(LIVE_LECTURES).flat()].map((l) => (
                 <button
                   key={l.id}
                   onClick={() => openLecture(l, false)}
@@ -6982,6 +7392,35 @@ function CityGame({
           done: () => {
             need({ energy: 15 });
             toast("A short rest. SubhanAllah.", "good");
+          },
+        });
+        return;
+      }
+      if (id === "masjid-rest") {
+        // a short free rest for anyone, home or not: enough to carry on, not a night's sleep
+        const last = restAt.current;
+        if (Date.now() - last < 2 * 3600000) {
+          toast("You rested here not long ago. For proper sleep you need a home or a hotel.");
+          return;
+        }
+        if ((saveRef.current.needs ?? freshNeeds()).energy >= 45) {
+          toast("You're not tired yet. Rest here when you need it.");
+          return;
+        }
+        setPanel({
+          kind: "busy",
+          title: "Resting quietly in the masjid",
+          ms: 3000,
+          done: () => {
+            restAt.current = Date.now();
+            update((x) => ({
+              ...x,
+              needs: { ...(x.needs ?? freshNeeds()), energy: 45 },
+            }));
+            toast(
+              "A short rest. Enough to carry on, but a full night's sleep needs a home or a hotel.",
+              "good",
+            );
           },
         });
         return;
@@ -7033,6 +7472,38 @@ function CityGame({
       if (id === "quiz") {
         if (s.asked.length >= QUIZ_CAP) {
           toast("You answered all 5 questions today. Come back tomorrow, in shaa Allah.");
+          return;
+        }
+        // this mosque's (or MSSN centre's) own questions first, as the team wrote them
+        const place = quizPlace.current;
+        if (place && !quizTried.current) {
+          quizTried.current = true;
+          void getContent<{ quiz?: QItem[] }>(place).then((doc) => {
+            const today = clockRef.current.key;
+            const seen =
+              saveRef.current.quizSeen?.day === today ? saveRef.current.quizSeen.keys : [];
+            const items = (doc?.quiz ?? [])
+              .map((q, i) => ({ q, k: `${place}:${i}` }))
+              .filter((x) => !seen.includes(x.k));
+            if (!items.length) {
+              onActionRef.current("quiz");
+              quizTried.current = false;
+              return;
+            }
+            const pickd = items[Math.floor(Math.random() * items.length)];
+            update((x) => ({
+              ...x,
+              asked: [...x.asked, -1],
+              quizSeen: { day: today, keys: [...seen, pickd.k] },
+            }));
+            setPanel({
+              kind: "quiz",
+              q: { ...pickd.q, e: pickd.q.e ?? "" },
+              qi: -1,
+              host: quizHost.current,
+            });
+            quizTried.current = false;
+          });
           return;
         }
         const pool = QUESTIONS.map((_, i) => i).filter((i) => !s.asked.includes(i));
@@ -7158,10 +7629,15 @@ function CityGame({
     if (import.meta.env.DEV) Object.assign(window, { __ilmcity: e, __districts: DISTRICTS });
     e.setAds(adsRef.current);
     e.setClock(clockRef.current);
+    // pilgrims who stopped playing in Saudi Arabia carry on there, still in ihram
+    const abroad =
+      !!saveRef.current.district &&
+      countryOf(districtById(saveRef.current.district)) === "Saudi Arabia";
+    const pilgrim = !!saveRef.current.umrah?.stage || hajjIhram(saveRef.current.hajj?.stage);
     if (saveRef.current.profile)
       e.setPlayerLook({
         ...saveRef.current.profile,
-        ihram: !!saveRef.current.umrah?.stage || hajjIhram(saveRef.current.hajj?.stage),
+        ihram: pilgrim && abroad && !saveRef.current.profile.female,
       });
     e.setHomeItems(saveRef.current.items ?? []);
     {
@@ -7176,38 +7652,63 @@ function CityGame({
       e.onSlowPhone = () => {};
     }
     if (saveRef.current.ride) e.setCar(saveRef.current.ride.kind, saveRef.current.ride.color);
-    if (saveRef.current.bike && saveRef.current.cycling)
-      e.setBike(saveRef.current.bike.kind, saveRef.current.bike.color);
+    {
+      const b = bikeHere(
+        saveRef.current,
+        saveRef.current.district ?? saveRef.current.homeArea ?? "lekki",
+      );
+      if (b && saveRef.current.cycling) e.setBike(b.kind, b.color);
+    }
     if (saveRef.current.impound) e.setImpounded(true);
     e.onIncident = (kind, who) => incidentRef.current(kind, who);
     // every visit starts at home: you are only out in the city while you are playing
     {
       const sv = saveRef.current;
-      if (sv.profile) {
+      if (sv.profile && abroad) {
+        // in Makkah or Madinah you carry on where you were (at today's Hajj site, if any)
+        const st = sv.hajj?.stage;
+        const area = (st && HAJJ[st].area) || sv.district!;
+        e.startIn(area);
+        setInside(false);
+        setTimeout(
+          () =>
+            toast(
+              pilgrim
+                ? `You're still on your ${st ? "Hajj" : "Umrah"}, in ${districtById(area).name}. Carry on from My Day.`
+                : `Welcome back to ${districtById(area).name}.`,
+            ),
+          2500,
+        );
+      } else if (sv.profile) {
         const home = sv.homeArea ?? sv.district ?? "lekki";
         const nm = districtById(home).name;
-        if (sv.homePlot && e.plotInfo(sv.homePlot))
-          e.startAtPlot(sv.homePlot, `Family house · ${nm}`);
-        else {
+        // a house counts as home only while it is yours: bought, built, or rent still paid
+        const house = houseOf(sv);
+        const left = (sv.lease?.until ?? (sv.homePlot ? 0 : Infinity)) - Date.now();
+        if (house && e.plotInfo(house))
+          e.startAtPlot(house, house === sv.homePlot ? `Family house · ${nm}` : "Your house");
+        else if (left < 0) {
+          // rent unpaid: you wake up outside the estate gate, not in the flat
           e.startAtHome(home, flatName(home));
-          const left = (sv.lease?.until ?? Infinity) - Date.now();
-          if (left < 0)
-            setTimeout(
-              () =>
-                toast(
-                  `🏠 Your rent of ${N(flatRent(home))} is due. Pay it in 👤 Profile, or before you come back in.`,
-                  "warn",
-                ),
-              2500,
-            );
-          else if (left < 86400000)
+          e.exitInterior();
+          setTimeout(
+            () =>
+              toast(
+                `🏠 Your rent of ${N(flatRent(home))} a week is not paid, so you're outside. Until it's paid, half of what you earn goes to your landlord. Pay in 👤 Profile → Pay rent.`,
+                "warn",
+              ),
+            2500,
+          );
+        } else {
+          e.startAtHome(home, flatName(home));
+          if (left < 86400000)
             setTimeout(
               () =>
                 toast(`🏠 Rent of ${N(flatRent(home))} is due tomorrow. 👤 Profile → Pay rent.`),
               2500,
             );
         }
-        setInside(true);
+        setInside(e.scenePlace() !== "out");
       }
     }
     const startedAt = performance.now();
@@ -7264,7 +7765,30 @@ function CityGame({
             n[k] = Math.max(0, n[k] - NEED_DECAY[k] / 60);
           return { ...x, needs: n };
         });
+        // a hire bicycle runs out, or you are somewhere bicycles can't go: you get off
+        if (saveRef.current.cycling && !bikeHere(saveRef.current, e.districtId())) {
+          e.setBike(null);
+          const hired = cityOf(districtById(e.districtId())) === "madinah";
+          saveRef.current = { ...saveRef.current, cycling: false };
+          update((x) => ({ ...x, cycling: false }));
+          toast(
+            hired
+              ? "Your bicycle hire has ended. Hire again at a Madinah Bike dock."
+              : "No bicycles here.",
+          );
+        }
         const n = saveRef.current.needs;
+        // with no sleep you are worn out: slow until you rest at home or in a hotel
+        const worn = !!n && n.energy < 15;
+        if (worn !== wornRef.current) {
+          wornRef.current = worn;
+          e.setTired(worn);
+          if (worn)
+            toast(
+              "😴 You're worn out and moving slowly. Sleep at home, book a hotel, or rest a little in any masjid (free).",
+              "warn",
+            );
+        }
         if (n && Date.now() - needHintAt.current > 240000) {
           const low = NEED_META.find((m) => n[m.id] < 25);
           if (low) {
@@ -7935,7 +8459,7 @@ function CityGame({
               📱 Phone
             </button>
           )}
-          {save.bike && !driving && !inside && (
+          {!!bikeHere(save, areaNow ?? save.district ?? "lekki") && !driving && !inside && (
             <button
               onClick={() => toggleBike()}
               className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
@@ -8408,6 +8932,9 @@ function CityGame({
                 msg = `Welcome, ${look.name}! Every family house here is taken, so you start in a furnished flat with ₦6,000.`;
             } else if (path === "trader") {
               const sid = e.shopIds().find((id) => id.startsWith(area + "-") && !/-m\d+$/.test(id));
+              // the free week is recorded by the server, once per player
+              if (sid && walletNet.current)
+                void walletNet.current.starterShop(sid, look.name).catch(() => {});
               if (sid) {
                 shops = {
                   ...shops,
@@ -9047,7 +9574,7 @@ function LearnChoice({
   onQuiz: () => void;
   pray?: { label: string; run: () => void };
 }) {
-  const all = LECTURES.filter((l) => l.mosque === mosque);
+  const all = lecturesOf(mosque);
   const next = lectureNext(mosque, clock);
   return (
     <div className="space-y-3">
@@ -9986,10 +10513,12 @@ const landmarkById = (lid: string) => {
 function ClassView({
   cls,
   school,
+  schoolId,
   earnedToday,
   onCorrect,
   subjects,
 }: {
+  schoolId: string;
   subjects?: string[];
   cls: string;
   school: string;
@@ -10014,6 +10543,16 @@ function ClassView({
             onClick={() => {
               setSub(s.id);
               setQs(quizFor(s.id, cls));
+              // this school's own questions for the subject and class, if the team wrote them
+              void getContent<QuizDoc>(keyOf("school", schoolId, s.id, bandOf(cls))).then((d) => {
+                if (d?.quiz?.length)
+                  setQs(
+                    [...d.quiz]
+                      .sort(() => Math.random() - 0.5)
+                      .slice(0, 10)
+                      .map((q) => ({ q: q.q, o: q.o, a: q.a })),
+                  );
+              });
               setI(0);
               setPicked(null);
               setScore(0);
@@ -11225,6 +11764,13 @@ function placesIn(id: string): Place[] {
       name: "IlmMotors",
       sub: "Buy a car or a bicycle",
       prefix: `dealer:${D.id}`,
+    });
+  if (!D.holy)
+    out.push({
+      icon: "🚗",
+      name: "My car",
+      sub: "Walk to where your car is parked",
+      prefix: "mycar",
     });
   if (!D.parent && !D.holy)
     out.push({
@@ -14535,28 +15081,55 @@ function DhikrCard({
 function InClassView({
   library,
   about,
-  faculty,
+  faculty: faculty0,
+  complexArea,
   onCorrect,
   onLeave,
 }: {
   library: boolean;
   about: string;
-  /** the faculty's name: choose a department, a level and a course, then take its quiz */
+  /** the Faculties Complex of this university area: choose a faculty first */
+  complexArea?: string;
+  /** the faculty's name: choose a department, a level, a course and a topic, then its quiz */
   faculty?: string;
   onCorrect: () => boolean;
   onLeave: () => void;
 }) {
+  const [depts, setDepts] = useState<Dept[] | null>(null);
   const [dept, setDept] = useState<Dept | null>(null);
   const [level, setLevel] = useState<number | null>(null);
+  const [courses, setCourses] = useState<{ code: string; title: string }[] | null>(null);
   const [course, setCourse] = useState<{ code: string; title: string } | null>(null);
+  const [topics, setTopics] = useState<Topic[] | null>(null);
+  const [topic, setTopic] = useState<Topic | null>(null);
   const [browsing, setBrowsing] = useState(false);
-  const quiz = useMemo(
-    () => (dept && course && faculty ? courseQuiz(dept, faculty, course.code) : undefined),
-    [dept, course, faculty],
-  );
+  const [facs, setFacs] = useState<string[] | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const faculty = complexArea ? (chosen ?? undefined) : faculty0;
+  useEffect(() => {
+    if (browsing && complexArea && !facs) void complexFaculties(complexArea).then(setFacs);
+  }, [browsing, complexArea, facs]);
   const [qi, setQi] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState(0);
+  useEffect(() => {
+    if (browsing && faculty && !depts) void departmentsLive(faculty).then(setDepts);
+  }, [browsing, faculty, depts]);
+  useEffect(() => {
+    setCourses(null);
+    if (dept && level) void coursesLive(dept, level).then(setCourses);
+  }, [dept, level]);
+  useEffect(() => {
+    setTopics(null);
+    if (dept && course && faculty) void courseTopics(dept, faculty, course).then(setTopics);
+  }, [dept, course, faculty]);
+  const quiz = topic?.qs;
+  const pick = "w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left";
+  const back = (fn: () => void) => (
+    <button onClick={fn} className="text-[12.5px] underline opacity-70">
+      ← Back
+    </button>
+  );
   if (quiz && qi !== null) {
     if (qi >= quiz.length)
       return (
@@ -14565,18 +15138,18 @@ function InClassView({
             {score} / {quiz.length}
           </div>
           <p>
-            {course?.code} · {course?.title}
+            {course?.code} · {topic?.title}
           </p>
           <p>{score === quiz.length ? "Excellent! Masha Allah." : "Well done. Keep studying!"}</p>
           <button
             onClick={() => {
-              setCourse(null);
+              setTopic(null);
               setQi(null);
               setScore(0);
             }}
             className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
           >
-            Take another course
+            Another topic
           </button>
           <button
             onClick={onLeave}
@@ -14590,7 +15163,7 @@ function InClassView({
     return (
       <div className="space-y-2">
         <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
-          {course?.code} · question {qi + 1} of {quiz.length}
+          {course?.code} · {topic?.title} · question {qi + 1} of {quiz.length}
         </div>
         <p className="text-[16px] font-semibold">{q.q}</p>
         {q.o.map((o, k) => (
@@ -14609,6 +15182,7 @@ function InClassView({
             {o}
           </button>
         ))}
+        {picked !== null && q.e && <p className="rounded-xl bg-white p-3 text-[13px]">{q.e}</p>}
         {picked !== null && (
           <button
             onClick={() => {
@@ -14623,28 +15197,50 @@ function InClassView({
       </div>
     );
   }
-  if (faculty && browsing) {
-    const pick = "w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left";
-    const back = (fn: () => void) => (
-      <button onClick={fn} className="text-[12.5px] underline opacity-70">
-        ← Back
-      </button>
+  if (complexArea && browsing && !chosen)
+    return (
+      <div className="space-y-2">
+        <p className="text-[13px] font-semibold opacity-75">Choose your faculty</p>
+        {!facs && <p className="text-[13px] opacity-70">Loading…</p>}
+        {facs?.length === 0 && (
+          <p className="text-[13px] opacity-70">
+            New faculties will open here soon, in shaa Allah. Every faculty now has its own building
+            on campus.
+          </p>
+        )}
+        {facs?.map((f) => (
+          <button
+            key={f}
+            onClick={() => {
+              setDepts(null);
+              setChosen(f);
+            }}
+            className={pick}
+          >
+            <div className="font-bold">{f}</div>
+          </button>
+        ))}
+        {back(() => setBrowsing(false))}
+      </div>
     );
+  if (faculty && browsing) {
     if (!dept)
       return (
         <div className="space-y-2">
           <p className="text-[13px] font-semibold opacity-75">
             {faculty.split(" · ")[0]}: choose your department
           </p>
-          {departmentsOf(faculty).map((d) => (
-            <button key={d.name} onClick={() => setDept(d)} className={pick}>
+          {!depts && <p className="text-[13px] opacity-70">Loading…</p>}
+          {depts?.map((d) => (
+            <button key={d.code} onClick={() => setDept(d)} className={pick}>
               <div className="font-bold">Department of {d.name}</div>
               <div className="text-[12px] opacity-65">
-                {d.code} · {d.topics.slice(0, 3).join(", ")}…
+                {d.code}
+                {d.topics.length ? ` · ${d.topics.slice(0, 3).join(", ")}…` : ""}
               </div>
             </button>
           ))}
-          {back(() => setBrowsing(false))}
+          {back(() => (complexArea ? setChosen(null) : setBrowsing(false)))}
         </div>
       );
     if (!level)
@@ -14667,31 +15263,75 @@ function InClassView({
           {back(() => setDept(null))}
         </div>
       );
-    if (!course || qi === null)
+    if (!course)
       return (
         <div className="space-y-2">
           <p className="text-[13px] font-semibold opacity-75">
             {dept.name} · {level} Level: pick a course
           </p>
-          {coursesOf(dept, level).map((c) => (
-            <button
-              key={c.code}
-              onClick={() => {
-                setCourse(c);
-                setQi(0);
-                setPicked(null);
-                setScore(0);
-              }}
-              className={pick}
-            >
+          {!courses && <p className="text-[13px] opacity-70">Loading…</p>}
+          {courses && !courses.length && (
+            <p className="text-[13px] opacity-70">No courses at this level yet.</p>
+          )}
+          {courses?.map((c) => (
+            <button key={c.code} onClick={() => setCourse(c)} className={pick}>
               <div className="text-[12px] font-bold text-[#1f6f63]">{c.code}</div>
               <div className="font-semibold">{c.title}</div>
-              <div className="text-[12px] opacity-65">5 questions · tap to take the quiz</div>
             </button>
           ))}
           {back(() => setLevel(null))}
         </div>
       );
+    if (!topic)
+      return (
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold opacity-75">
+            {course.code} · {course.title}: topics
+          </p>
+          {!topics && <p className="text-[13px] opacity-70">Loading…</p>}
+          {topics && !topics.length && (
+            <p className="text-[13px] opacity-70">This course has no topics yet.</p>
+          )}
+          {topics?.map((t, i) => (
+            <button key={i} onClick={() => setTopic(t)} className={pick}>
+              <div className="text-[12px] font-bold text-[#1f6f63]">Topic {i + 1}</div>
+              <div className="font-semibold">{t.title}</div>
+              <div className="text-[12px] opacity-65">
+                {t.notes ? "Notes · " : ""}
+                {t.qs.length} question{t.qs.length === 1 ? "" : "s"}
+              </div>
+            </button>
+          ))}
+          {back(() => setCourse(null))}
+        </div>
+      );
+    return (
+      <div className="space-y-3">
+        <div className="text-[12px] font-semibold uppercase tracking-wide text-[#1f6f63]">
+          {course.code} · {topic.title}
+        </div>
+        {topic.notes ? (
+          <div className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-[14px] leading-relaxed">
+            {topic.notes}
+          </div>
+        ) : (
+          <p className="text-[13px] opacity-70">Test yourself on this topic.</p>
+        )}
+        {topic.qs.length > 0 && (
+          <button
+            onClick={() => {
+              setQi(0);
+              setPicked(null);
+              setScore(0);
+            }}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
+          >
+            Take the quiz · {topic.qs.length} question{topic.qs.length === 1 ? "" : "s"}
+          </button>
+        )}
+        {back(() => setTopic(null))}
+      </div>
+    );
   }
   return (
     <div className="space-y-3 text-center">
@@ -14706,7 +15346,7 @@ function InClassView({
         Wishing you success in your studies. May Allah increase you in beneficial knowledge. 🤲
       </p>
       {about && <p className="text-[12.5px] opacity-70">{about}</p>}
-      {faculty && (
+      {(faculty || complexArea) && (
         <button
           onClick={() => setBrowsing(true)}
           className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"

@@ -260,6 +260,13 @@ export const STREETS: Record<string, Street> = {
     bio: COMING_SOON,
   },
   sakinah: { id: "sakinah", name: "Sakinah Close", bio: HOMES },
+  graavenue: {
+    id: "graavenue",
+    name: "GRA Avenue",
+    bio: "The main road of Ikeja GRA: glass towers, storey buildings and duplexes for players to rent and buy.",
+  },
+  grafirdaus: { id: "grafirdaus", name: "Firdaus Crescent", bio: HOMES },
+  granoor: { id: "granoor", name: "Noor Close", bio: HOMES },
   mgavenue: {
     id: "mgavenue",
     name: "Manaar Gardens Avenue",
@@ -406,6 +413,8 @@ function universityArea(o: {
   avenue: string;
   homes: string;
   faculties: string[];
+  /** more faculties: each gets its own building too (up to 12 in all) */
+  more?: string[];
   about: string;
   state?: string;
   city?: string;
@@ -417,7 +426,13 @@ function universityArea(o: {
   link?: "north" | "east" | "south";
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
-  const fx = [-112, -24, 26, 70];
+  // every faculty has its own building: eight along the south of MSSN Avenue, four more on
+  // the north side; the Faculties Complex (for faculties the team adds) sits near the gate
+  const slots: { x: number; side: "n" | "s" }[] = [
+    ...[-26, 26, -50, 50, -74, 74, -98, 98].map((x) => ({ x, side: "s" as const })),
+    ...[-52, 26, -76, 116].map((x) => ({ x, side: "n" as const })),
+  ];
+  const allFaculties = [...o.faculties, ...(o.more ?? [])].slice(0, slots.length);
   return {
     id: o.id,
     name: o.name,
@@ -441,32 +456,43 @@ function universityArea(o: {
       { id: o.homes, z: 75 },
     ],
     landmarks: [
-      ...o.faculties.slice(0, 4).map((f, i): Landmark => ({
+      ...allFaculties.map((f, i): Landmark => ({
         id: `${o.id}-fac-${i}`,
         kind: "faculty",
         name: `${f} · ${o.short}`,
         street: o.avenue,
-        side: "s",
-        x: fx[i],
-        width: 30,
-        depth: 28,
+        side: slots[i].side,
+        x: slots[i].x,
+        width: 22,
+        depth: 26,
         floors: 3,
         about: `${f}, ${o.uni}.`,
       })),
+      {
+        id: `${o.id}-complex`,
+        kind: "faculty",
+        name: `${o.short} Faculties Complex`,
+        street: o.avenue,
+        x: -28,
+        width: 22,
+        depth: 26,
+        floors: 4,
+        about: `The Faculties Complex of ${o.uni}: lecture halls for its newest faculties. Choose your faculty inside.`,
+      },
       {
         id: `${o.id}-mosque`,
         kind: "masjid",
         name: `${o.short} Central Mosque`,
         street: o.avenue,
-        x: 48,
+        x: 56,
       },
       {
         id: `${o.id}-library`,
         kind: "faculty",
         name: `${o.short} Library`,
         street: o.avenue,
-        x: 108,
-        width: 26,
+        x: 88,
+        width: 22,
         depth: 30,
         floors: 2,
         about: `The main library of ${o.uni}: quiet reading rooms, books and journals.`,
@@ -476,8 +502,8 @@ function universityArea(o: {
         kind: "field",
         name: `${o.short} Sports Field`,
         street: o.avenue,
-        x: -74,
-        width: 58,
+        x: -110,
+        width: 44,
         depth: 44,
       },
       {
@@ -485,9 +511,9 @@ function universityArea(o: {
         kind: "office",
         name: `MSSN ${o.short} Secretariat`,
         street: o.avenue,
-        x: 112,
+        x: 122,
         side: "s",
-        width: 28,
+        width: 22,
         depth: 18,
         floors: 1,
         brand: { color: 0x1f6f63, accent: 0xfdf8ec },
@@ -498,9 +524,9 @@ function universityArea(o: {
         kind: "hangout",
         name: `MSSN ${o.short} Meeting Point`,
         street: o.avenue,
-        x: -62,
+        x: -122,
         side: "s",
-        width: 30,
+        width: 22,
         depth: 18,
         about: o.about,
       },
@@ -1239,6 +1265,11 @@ export const DISTRICTS: District[] = [
       "Faculty of Environmental Studies",
       "Faculty of Agriculture",
     ],
+    more: [
+      "Faculty of Computing",
+      "Faculty of Management Sciences",
+      "Faculty of Basic Medical Sciences",
+    ],
     about:
       "Where LASUSTECH Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
@@ -1260,6 +1291,15 @@ export const DISTRICTS: District[] = [
       "Faculty of Engineering",
       "Faculty of Law",
     ],
+    more: [
+      "Faculty of Social Sciences",
+      "Faculty of Management Sciences",
+      "Faculty of Education",
+      "Faculty of Environmental Sciences",
+      "Faculty of Pharmacy",
+      "College of Medicine",
+      "Faculty of Computing",
+    ],
     about:
       "Where UNILAG Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
@@ -1280,6 +1320,14 @@ export const DISTRICTS: District[] = [
       "Faculty of Science",
       "Faculty of Management Sciences",
       "Faculty of Education",
+    ],
+    more: [
+      "Faculty of Law",
+      "Faculty of Social Sciences",
+      "Faculty of Engineering",
+      "Faculty of Communication and Media Studies",
+      "College of Medicine",
+      "Faculty of Computing",
     ],
     about:
       "Where LASU Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
@@ -1323,6 +1371,29 @@ export const DISTRICTS: District[] = [
         street: "mmiaroad",
         x: 60,
       },
+    ],
+  },
+
+  /* ---------------- Ikeja GRA: towers, storey buildings and duplexes ---------------- */
+  {
+    id: "ikejagra",
+    tier: 1,
+    name: "GRA",
+    state: "Lagos",
+    origin: { x: 130, z: -975 },
+    half: { x: 120, z: 110 },
+    highway: "GRA Road",
+    parent: "lagosairport",
+    busStop: "Ikeja GRA",
+    land: 0.05,
+    shops: 0.06,
+    streets: [
+      { id: "graavenue", z: 0, decor: true },
+      { id: "grafirdaus", z: -70, decor: true },
+      { id: "granoor", z: 70, decor: true },
+    ],
+    landmarks: [
+      { id: "gra-mosque", kind: "masjid", name: "GRA Central Mosque", street: "graavenue", x: -40 },
     ],
   },
 
@@ -1515,6 +1586,16 @@ export const DISTRICTS: District[] = [
       "Faculty of Engineering",
       "Faculty of Education",
     ],
+    more: [
+      "Faculty of Law",
+      "Faculty of Social Sciences",
+      "Faculty of Management Sciences",
+      "Faculty of Agriculture",
+      "Faculty of Communication and Information Sciences",
+      "Faculty of Pharmaceutical Sciences",
+      "College of Health Sciences",
+      "Faculty of Environmental Sciences",
+    ],
     about:
       "Where Unilorin Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
@@ -1540,6 +1621,12 @@ export const DISTRICTS: District[] = [
       "Faculty of Humanities",
       "Faculty of Law",
       "Faculty of Education",
+    ],
+    more: [
+      "Faculty of Management Sciences",
+      "Faculty of Social Sciences",
+      "Faculty of Health Sciences",
+      "Faculty of Computing",
     ],
     about:
       "Where Al-Hikmah Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
@@ -2101,7 +2188,7 @@ export const halfOf = (d: District) => d.half ?? { x: 112, z: 100 };
 /** The look of an area's houses, so no two kinds of place look the same. */
 /** Lekki and Ikeja: glass towers, storey buildings and duplexes; the newcomers' flats are in
     a tower too. */
-export const isPrimeArea = (id: string) => ["lekki", "badore", "ikeja"].includes(id);
+export const isPrimeArea = (id: string) => ["lekki", "badore", "ikeja", "ikejagra"].includes(id);
 export function houseStyleOf(d: District): import("./buildings").HouseStyle {
   if (d.id === "mina" || d.id === "arafat") return "tents";
   if (d.holy) return d.id === "haram" || d.id === "nabawi" ? "tower" : "saudi";
@@ -3446,10 +3533,17 @@ export const UNIVERSITIES = [
   { area: "firstgate", name: "LASUSTECH", full: "LASUSTECH, First Gate Ikorodu" },
 ];
 /** The faculties of a university area (from its faculty buildings). */
-export const facultiesOf = (area: string) =>
-  districtById(area)
-    .landmarks.filter((l) => l.kind === "faculty" && !l.id.endsWith("-library"))
-    .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] }));
+export const facultiesOf = (area: string) => {
+  const d = districtById(area);
+  return [
+    ...d.landmarks
+      .filter((l) => l.kind === "faculty" && isFacultyBuilding(l.id))
+      .map((l) => ({ id: l.id, name: l.name.split(" · ")[0] })),
+  ];
+};
+/** a faculty's own building (not the library or the Faculties Complex) */
+export const isFacultyBuilding = (id: string) =>
+  !id.endsWith("-library") && !id.endsWith("-complex");
 
 export type FQ = { q: string; o: string[]; a: number };
 const fq = (q: string, a: string, ...w: string[]): FQ => {

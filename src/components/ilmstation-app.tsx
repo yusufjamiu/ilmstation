@@ -51,7 +51,7 @@ function AchievementsTab() {
 import { cn } from "@/lib/utils";
 
 type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings";
-type QuizStep = "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
+type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
 const navGroups = [
@@ -155,7 +155,7 @@ function YouRank() { const { rows } = useLeaderboard(); return <>{rows.slice(0, 
 function Rank({ n, name, xp, active }: { n: string; name: string; xp: string; active?: boolean }) { return <div className={cn("mt-2 flex items-center justify-between px-2 py-1 text-sm", active && "border-2 border-foreground bg-primary shadow-brutal-sm")}><span><b className="mr-2 font-serif">{n}</b>{name}</span><span className="font-serif text-lg">{xp}</span></div>; }
 
 function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?: ShareCard) => void }) {
-  const [step, setStep] = useState<QuizStep>("topics"); const [topic, setTopic] = useState("Aqeedah"); const [difficulty, setDifficulty] = useState("Intermediate"); const [answer, setAnswer] = useState<string>(); const [question, setQuestion] = useState(1);
+  const [step, setStep] = useState<QuizStep>("choose"); const [topic, setTopic] = useState("Aqeedah"); const [difficulty, setDifficulty] = useState("Intermediate"); const [answer, setAnswer] = useState<string>(); const [question, setQuestion] = useState(1);
   const [correct, setCorrect] = useState(0);
   const questions = quizQuestionsFor(topic);
   const active = questions[question - 1];
@@ -163,7 +163,23 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
   const [locked, setLocked] = useState<{id:string;title:string;cost:number}>();
   const { canAccess } = usePremium();
   const reset = () => { setStep("topics"); setAnswer(undefined); setQuestion(1); setCorrect(0); };
-  return <Frame eyebrow="Play & learn" title="Quick Quiz" actions={step !== "topics" ? <Button variant="outline" onClick={reset}>Exit quiz</Button> : <Button onClick={() => go("challenge")}><Swords /> Challenge a friend</Button>}>
+  if (step === "choose") return <Frame eyebrow="Play & learn" title="Play">
+    <div className="grid gap-5 md:grid-cols-2">
+      <button onClick={() => setStep("topics")} className="border-2 border-foreground bg-primary p-6 text-left shadow-brutal transition hover:-translate-y-0.5">
+        <small className="text-xs font-bold uppercase">Test yourself</small>
+        <strong className="mt-2 block font-serif text-4xl font-normal">Quick Quiz</strong>
+        <p className="mt-2 text-sm">Aqeedah, Hadith, Seerah, Fiqh, Arabic, Qur’an and more. Short quizzes, XP for every right answer, and challenges with friends.</p>
+        <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold">Choose a topic <ChevronRight className="size-4" /></span>
+      </button>
+      <a href="/world" className="block border-2 border-foreground bg-[#10201e] p-6 text-left text-[#fdf8ec] shadow-brutal transition hover:-translate-y-0.5">
+        <small className="text-xs font-bold uppercase text-[#e6b84a]">New · 3D world</small>
+        <strong className="mt-2 block font-serif text-4xl font-normal">IlmWorld</strong>
+        <p className="mt-2 text-sm opacity-90">Live a Muslim life in Lagos and Ilorin, with Makkah and Madinah for Hajj and Umrah: pray at the masjid, learn, work, rent a home, race at the arena, and meet other players.</p>
+        <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#e6b84a]">Enter IlmWorld <ChevronRight className="size-4" /></span>
+      </a>
+    </div>
+  </Frame>;
+  return <Frame eyebrow="Play & learn" title="Quick Quiz" actions={step !== "topics" ? <Button variant="outline" onClick={reset}>Exit quiz</Button> : <><Button variant="outline" onClick={() => setStep("choose")}>Back</Button><Button onClick={() => go("challenge")}><Swords /> Challenge a friend</Button></>}>
     {step === "topics" && <Panel title="Choose a topic" tag="8 paths"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{topics.map((t,i) => { const open = canAccess(`topic-${t}`, i > 5 ? "premium" : "free"); return <button key={t} onClick={() => { if(!open) { setLocked({id:`topic-${t}`,title:`${t} topic`,cost:500}); return; } setTopic(t); setStep("difficulty"); }} className={cn("border-2 border-foreground p-5 text-left shadow-brutal-sm hover:bg-primary", !open && "bg-muted")}><span className="font-serif text-2xl">{t}</span><p className="mt-2 text-xs text-muted-foreground">{!open ? <><LockKeyhole className="mr-1 inline size-3" /> Premium · </> : null}{quizQuestionsFor(t).length} questions</p></button>})}</div><UnlockDialog item={locked} onOpenChange={(o)=>{if(!o)setLocked(undefined)}}/></Panel>}
     {step === "difficulty" && <Panel title="Set the difficulty" tag={topic}><div className="grid gap-4 md:grid-cols-3">{[["Beginner","1× XP"],["Intermediate","1.5× XP"],["Advanced","2× XP"]].map(([a,b]) => <button key={a} onClick={() => setDifficulty(a ?? "Beginner")} className={cn("border-2 border-foreground p-6 text-left", difficulty === a ? "bg-primary shadow-brutal" : "bg-background")}><span className="font-serif text-3xl">{a}</span><p className="mt-2">{b}</p></button>)}</div><Button className="mt-6" onClick={() => setStep("lobby")}>Continue</Button></Panel>}
     {step === "lobby" && <Panel title="Ready when you are" tag={`${topic} · ${difficulty}`}><div className="grid gap-6 md:grid-cols-2"><div><h2 className="font-serif text-4xl">{topic} practice</h2><p className="mt-3 text-muted-foreground">Identify clues, think through the choices, and learn from every answer.</p></div><div className="grid grid-cols-2 border-2 border-foreground"><Stat label="Questions" value={String(questions.length)}/><Stat label="Format" value="Visual + text"/><Stat label="Reward" value="+15 per answer"/><Stat label="Difficulty" value={difficulty}/></div></div><Button className="mt-6" onClick={() => setStep("question")}><Play /> Start quiz</Button></Panel>}
