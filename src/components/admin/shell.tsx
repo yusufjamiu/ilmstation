@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   BookOpenCheck, CalendarDays, CreditCard, ExternalLink, HandHeart, LayoutDashboard, LogOut, MapPin, Megaphone,
@@ -7,9 +7,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme";
 import { cn } from "@/lib/utils";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { seedAdmins, seedReports, seedSponsors, type Admin, type AdminRole, type Report, type Sponsor } from "./data";
 import { useAdminStore } from "./store";
-import { Choice, Field, inputCls } from "./ui";
 import { Dashboard } from "./dashboard";
 import { UsersSection } from "./users";
 import { ContentSection } from "./content";
@@ -52,16 +53,15 @@ const access: Record<AdminRole, Section[]> = {
   support: ["dashboard", "users", "billing"],
 };
 
-type Session = { id: string; name: string; role: AdminRole } | null;
+export type AdminSession = { id: string; name: string; role: AdminRole };
+type Session = AdminSession | null;
 
-export function AdminApp({ section, onNavigate }: { section: Section; onNavigate: (s: Section) => void }) {
-  const [session, setSession] = useAdminStore<Session>("session", null);
-  // The session lives in localStorage, so wait for the client before deciding to show the login.
-  const [ready, setReady] = useState(false);
-  useEffect(() => setReady(true), []);
-  if (!ready) return <div className="min-h-screen bg-background" />;
-  if (!session) return <Login onLogin={setSession} />;
-  return <Shell session={session} section={section} onNavigate={onNavigate} onLogout={() => setSession(null)} />;
+export const isAdminRole = (r: unknown): r is AdminRole => typeof r === "string" && r in access;
+
+/** The /admin route has already checked Firebase (signed in + listed in "admins"). */
+export function AdminApp({ session, section, onNavigate }: { session: AdminSession; section: Section; onNavigate: (s: Section) => void }) {
+  const logout = async () => { await signOut(auth); window.location.href = "/"; };
+  return <Shell session={session} section={section} onNavigate={onNavigate} onLogout={logout} />;
 }
 
 function Shell({ session, section, onNavigate, onLogout }: { session: NonNullable<Session>; section: Section; onNavigate: (s: Section) => void; onLogout: () => void }) {
@@ -106,7 +106,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
       <div className="min-w-0 flex-1">
         <header className="mb-6 flex items-center gap-2">
           <Button variant="outline" size="icon" className="lg:hidden" aria-label="Open menu" onClick={() => setMenu(true)}><Menu /></Button>
-          <span className="hidden items-center gap-1 border-2 border-foreground bg-muted px-2 py-1 text-xs font-bold uppercase sm:flex"><ShieldCheck className="size-4" /> Demo · frontend only</span>
+          <span className="hidden items-center gap-1 border-2 border-foreground bg-muted px-2 py-1 text-xs font-bold uppercase sm:flex"><ShieldCheck className="size-4" /> Sample data</span>
           <div className="ml-auto flex items-center gap-2">
             <Button asChild variant="outline" className="hidden md:inline-flex"><Link to="/">Website <ExternalLink /></Link></Button>
             <Button asChild variant="outline" className="hidden md:inline-flex"><Link to="/app">App <ExternalLink /></Link></Button>
@@ -135,32 +135,4 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
       </div>
     </div>
   </div>;
-}
-
-const DEMO_PASSWORD = "bismillah";
-
-function Login({ onLogin }: { onLogin: (s: Session) => void }) {
-  const [admins] = useAdminStore<Admin[]>("admins", seedAdmins);
-  const [id, setId] = useState(seedAdmins[0]!.id);
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const admin = admins.find((a) => a.id === id);
-    if (!admin) { setError("Choose an admin account"); return; }
-    if (password !== DEMO_PASSWORD) { setError("Incorrect password"); return; }
-    onLogin({ id: admin.id, name: admin.name, role: admin.role });
-  };
-  return <main className="grid min-h-screen place-items-center bg-background px-4 py-10 text-foreground">
-    <form onSubmit={submit} className="w-full max-w-md border-2 border-foreground bg-card p-6 shadow-brutal">
-      <div className="flex items-center gap-3"><span className="grid size-11 place-items-center bg-foreground font-serif text-2xl text-background">I</span><div><h1 className="font-serif text-3xl leading-none">IlmStation Admin</h1><p className="text-xs font-bold uppercase text-muted-foreground">App + Web control room</p></div></div>
-      <div className="mt-6 grid gap-3">
-        <Field label="Sign in as"><Choice label="Admin account" className="w-full" value={id} onChange={setId} options={admins.map((a) => [a.id, `${a.name} · ${a.role}`] as const)} /></Field>
-        <Field label="Password"><input type="password" autoComplete="current-password" className={inputCls} value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} /></Field>
-        {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
-        <Button type="submit" className="mt-2">Sign in</Button>
-      </div>
-      <p className="mt-5 border-t-2 border-foreground pt-4 text-xs text-muted-foreground">Demo gate only — no real authentication yet. Password: <code className="font-bold text-foreground">{DEMO_PASSWORD}</code>. Try different roles to see what each can access.</p>
-    </form>
-  </main>;
 }

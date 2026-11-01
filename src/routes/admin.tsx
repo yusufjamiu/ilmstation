@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { AdminApp, sections, type Section } from "@/components/admin/shell";
+import { AdminApp, isAdminRole, sections, type AdminSession, type Section } from "@/components/admin/shell";
 
 type Search = { section?: Section | undefined };
 
@@ -22,9 +22,11 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-type Gate = { status: "loading" | "signed-out" | "denied" | "ok"; role?: string };
+type Gate =
+  | { status: "loading" | "signed-out" | "denied" | "no-role" }
+  | { status: "ok"; session: AdminSession };
 
-/** Real check: signed in with Firebase AND listed in the "admins" collection. */
+/** Real check: signed in with Firebase AND listed in "admins" with a valid role. */
 function useAdminGate(): Gate {
   const [gate, setGate] = useState<Gate>({ status: "loading" });
   useEffect(() => {
@@ -32,7 +34,10 @@ function useAdminGate(): Gate {
       if (!u) return setGate({ status: "signed-out" });
       try {
         const snap = await getDoc(doc(db, "admins", u.uid));
-        setGate(snap.exists() ? { status: "ok", role: snap.data().role } : { status: "denied" });
+        if (!snap.exists()) return setGate({ status: "denied" });
+        const role = snap.data().role;
+        if (!isAdminRole(role)) return setGate({ status: "no-role" });
+        setGate({ status: "ok", session: { id: u.uid, name: u.displayName || u.email || "Admin", role } });
       } catch {
         setGate({ status: "denied" });
       }
@@ -62,6 +67,8 @@ function AdminPage() {
     return <Notice title="Admins only"><Link to="/login" className="font-semibold underline">Log in with your IlmStation account</Link></Notice>;
   if (gate.status === "denied")
     return <Notice title="No access"><p className="text-sm">This account isn't an admin.</p></Notice>;
+  if (gate.status === "no-role")
+    return <Notice title="Role not set"><p className="text-sm">Add a "role" field (owner, editor, moderator or support) to your admins document in Firebase.</p></Notice>;
 
-  return <AdminApp section={section ?? "dashboard"} onNavigate={(s) => navigate({ search: { section: s === "dashboard" ? undefined : s } })} />;
+  return <AdminApp session={gate.session} section={section ?? "dashboard"} onNavigate={(s) => navigate({ search: { section: s === "dashboard" ? undefined : s } })} />;
 }
