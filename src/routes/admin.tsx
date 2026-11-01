@@ -1,4 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { AdminApp, sections, type Section } from "@/components/admin/shell";
 
 type Search = { section?: Section | undefined };
@@ -18,8 +22,46 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
+type Gate = { status: "loading" | "signed-out" | "denied" | "ok"; role?: string };
+
+/** Real check: signed in with Firebase AND listed in the "admins" collection. */
+function useAdminGate(): Gate {
+  const [gate, setGate] = useState<Gate>({ status: "loading" });
+  useEffect(() => {
+    return onAuthStateChanged(auth, async (u) => {
+      if (!u) return setGate({ status: "signed-out" });
+      try {
+        const snap = await getDoc(doc(db, "admins", u.uid));
+        setGate(snap.exists() ? { status: "ok", role: snap.data().role } : { status: "denied" });
+      } catch {
+        setGate({ status: "denied" });
+      }
+    });
+  }, []);
+  return gate;
+}
+
+function Notice({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-background p-6 text-foreground">
+      <div className="max-w-sm border-2 border-foreground bg-card p-8 text-center">
+        <p className="font-serif text-2xl">{title}</p>
+        {children && <div className="mt-4">{children}</div>}
+      </div>
+    </div>
+  );
+}
+
 function AdminPage() {
+  const gate = useAdminGate();
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
+
+  if (gate.status === "loading") return <Notice title="Checking access…" />;
+  if (gate.status === "signed-out")
+    return <Notice title="Admins only"><Link to="/login" className="font-semibold underline">Log in with your IlmStation account</Link></Notice>;
+  if (gate.status === "denied")
+    return <Notice title="No access"><p className="text-sm">This account isn't an admin.</p></Notice>;
+
   return <AdminApp section={section ?? "dashboard"} onNavigate={(s) => navigate({ search: { section: s === "dashboard" ? undefined : s } })} />;
 }
