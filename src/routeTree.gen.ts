@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as CentresRouteImport } from './routes/centres'
 import { Route as ChatroomsRouteImport } from './routes/chatrooms'
@@ -25,6 +26,11 @@ import { Route as AdminWorldRouteImport } from './routes/admin.world'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -78,13 +84,14 @@ const WorldRoute = WorldRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminWorldRoute = AdminWorldRouteImport.update({
-  id: '/admin/world',
-  path: '/admin/world',
-  getParentRoute: () => rootRouteImport,
+  id: '/world',
+  path: '/world',
+  getParentRoute: () => AdminRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
@@ -114,6 +122,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/app'
     | '/centres'
     | '/chatrooms'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/app'
     | '/centres'
     | '/chatrooms'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/app'
     | '/centres'
     | '/chatrooms'
@@ -173,6 +185,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   AppRoute: typeof AppRoute
   CentresRoute: typeof CentresRoute
   ChatroomsRoute: typeof ChatroomsRoute
@@ -183,7 +196,6 @@ export interface RootRouteChildren {
   SignupRoute: typeof SignupRoute
   SponsorshipRoute: typeof SponsorshipRoute
   WorldRoute: typeof WorldRoute
-  AdminWorldRoute: typeof AdminWorldRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -193,6 +205,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app': {
@@ -267,16 +286,27 @@ declare module '@tanstack/react-router' {
     }
     '/admin/world': {
       id: '/admin/world'
-      path: '/admin/world'
+      path: '/world'
       fullPath: '/admin/world'
       preLoaderRoute: typeof AdminWorldRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AdminRoute
     }
   }
 }
 
+interface AdminRouteChildren {
+  AdminWorldRoute: typeof AdminWorldRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminWorldRoute: AdminWorldRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   AppRoute: AppRoute,
   CentresRoute: CentresRoute,
   ChatroomsRoute: ChatroomsRoute,
@@ -287,7 +317,6 @@ const rootRouteChildren: RootRouteChildren = {
   SignupRoute: SignupRoute,
   SponsorshipRoute: SponsorshipRoute,
   WorldRoute: WorldRoute,
-  AdminWorldRoute: AdminWorldRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
