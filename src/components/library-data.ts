@@ -22,6 +22,14 @@ export type LibraryItem = {
   translation?: string;
   /** The text, one paragraph per entry. Items without a body show "text coming". */
   body?: string[];
+  /** Uploaded from the admin (saved in Firebase). */
+  coverUrl?: string;
+  pdfUrl?: string;
+  audioStatus?: "available" | "soon" | "none";
+  audio?: { title: string; url: string; mins?: number }[];
+  comments?: boolean;
+  status?: "draft" | "published";
+  createdAt?: number;
 };
 
 export const CORNERS: Record<string, Gender> = { "Sisters' Corner": "female", "Brothers' Corner": "male" };

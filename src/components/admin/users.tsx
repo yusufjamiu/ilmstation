@@ -1,76 +1,125 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Ban, Eye, RotateCcw, UserCheck, UserPlus } from "lucide-react";
+import { Ban, Eye, RotateCcw, UserCheck } from "lucide-react";
+import { collection, doc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { planNames, seedUsers, type AdminUser, type Plan, type Role, type UserStatus } from "./data";
-import { uid, useAdminStore } from "./store";
-import { Choice, DataTable, Field, inputCls, Page, Pill, SearchBox, useAudit, useConfirm, type Column } from "./ui";
+import { planNames, type Plan, type Role } from "./data";
+import { Choice, DataTable, Field, Page, Pill, SearchBox, useAudit, useConfirm, type Column } from "./ui";
 
+type Status = "active" | "suspended";
+type User = {
+  id: string; name: string; email: string; username: string; zone: string; gender: string;
+  level: string; xp: number; joined: string; plan: Plan; role: Role; status: Status;
+};
+
+const zoneNames: Record<string, string> = { kids: "Kids", youth: "Teens & Young Adults", adult: "Adult" };
 const planOptions = [["all", "All plans"], ...Object.entries(planNames)] as [Plan | "all", string][];
-const roleOptions = [["all", "All roles"], ["learner", "Learner"], ["guardian", "Guardian"], ["teacher", "Teacher"]] as const;
-const statusOptions = [["all", "Any status"], ["active", "Active"], ["suspended", "Suspended"], ["invited", "Invited"]] as const;
+const zoneOptions = [["all", "All zones"], ["kids", "Kids"], ["youth", "Teens & Young Adults"], ["adult", "Adult"]] as const;
+const statusOptions = [["all", "Any status"], ["active", "Active"], ["suspended", "Suspended"]] as const;
+const roleOptions = [["learner", "Learner"], ["guardian", "Guardian"], ["teacher", "Teacher"]] as [Role, string][];
+
+/** Real users: "profiles" (what they signed up with) + "userAdmin" (what admins set). */
+async function loadUsers(): Promise<User[]> {
+  const [profiles, extras] = await Promise.all([getDocs(collection(db, "profiles")), getDocs(collection(db, "userAdmin"))]);
+  const extra = new Map(extras.docs.map((d) => [d.id, d.data()]));
+  return profiles.docs.map((d) => {
+    const p = d.data();
+    const x = extra.get(d.id) ?? {};
+    return {
+      id: d.id,
+      name: p.name ?? "—",
+      email: p.email ?? "—",
+      username: p.username ?? "",
+      zone: p.zone ?? "",
+      gender: p.gender ?? "",
+      level: p.level ?? "",
+      xp: Number(p.xp ?? 0),
+      joined: String(p.createdAt ?? "").slice(0, 10),
+      plan: (x.plan as Plan) ?? "free",
+      role: (x.role as Role) ?? "learner",
+      status: (x.status as Status) ?? "active",
+    };
+  }).sort((a, b) => b.joined.localeCompare(a.joined));
+}
 
 export function UsersSection() {
-  const [users, setUsers] = useAdminStore<AdminUser[]>("users", seedUsers);
+  const [users, setUsers] = useState<User[] | null>(null);
+  const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [plan, setPlan] = useState<Plan | "all">("all");
-  const [role, setRole] = useState<Role | "all">("all");
-  const [status, setStatus] = useState<UserStatus | "all">("all");
-  const [open, setOpen] = useState<AdminUser | null>(null);
-  const [inviting, setInviting] = useState(false);
+  const [zone, setZone] = useState<string>("all");
+  const [status, setStatus] = useState<Status | "all">("all");
+  const [open, setOpen] = useState<User | null>(null);
   const { record } = useAudit();
   const { ask, dialog } = useConfirm();
 
-  const rows = useMemo(() => users.filter((u) =>
-    (plan === "all" || u.plan === plan) && (role === "all" || u.role === role) && (status === "all" || u.status === status) &&
-    `${u.name} ${u.email} ${u.city}`.toLowerCase().includes(q.toLowerCase())), [users, q, plan, role, status]);
+  const refresh = () => {
+    setError("");
+    loadUsers().then(setUsers).catch(() => setError("Couldn't load users. Check that admins can read profiles in your Firestore rules."));
+  };
+  useEffect(refresh, []);
 
-  const update = (id: string, patch: Partial<AdminUser>, msg: string) => {
-    setUsers((list) => list.map((u) => (u.id === id ? { ...u, ...patch } : u)));
-    setOpen((o) => (o?.id === id ? { ...o, ...patch } : o));
-    record(msg); toast.success(msg);
+  const rows = useMemo(() => (users ?? []).filter((u) =>
+    (plan === "all" || u.plan === plan) && (zone === "all" || u.zone === zone) && (status === "all" || u.status === status) &&
+    `${u.name} ${u.email} ${u.username}`.toLowerCase().includes(q.toLowerCase())), [users, q, plan, zone, status]);
+
+  const update = async (id: string, patch: Partial<Pick<User, "plan" | "role" | "status">>, msg: string) => {
+    try {
+      await setDoc(doc(db, "userAdmin", id), { ...patch, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid ?? null }, { merge: true });
+      setUsers((list) => list?.map((u) => (u.id === id ? { ...u, ...patch } : u)) ?? list);
+      setOpen((o) => (o?.id === id ? { ...o, ...patch } : o));
+      record(msg); toast.success(msg);
+    } catch {
+      toast.error("Couldn't save. Check your Firestore rules for userAdmin.");
+    }
   };
 
-  const columns: Column<AdminUser>[] = [
+  const columns: Column<User>[] = [
     { key: "name", label: "User", render: (u) => <div className="min-w-0"><p className="font-semibold">{u.name}</p><p className="truncate text-xs text-muted-foreground">{u.email}</p></div> },
-    { key: "role", label: "Role", render: (u) => <span className="capitalize">{u.role}</span> },
+    { key: "zone", label: "Zone", render: (u) => zoneNames[u.zone] ?? "—" },
+    { key: "gender", label: "Gender", render: (u) => <span className="capitalize">{u.gender || "—"}</span>, mobile: false },
     { key: "plan", label: "Plan", render: (u) => planNames[u.plan] },
-    { key: "city", label: "City", render: (u) => u.city, mobile: false },
-    { key: "streak", label: "Streak", render: (u) => <span className="tabular-nums">{u.streak} d</span>, className: "text-right" },
-    { key: "active", label: "Last active", render: (u) => <span className="tabular-nums">{u.lastActive}</span>, mobile: false },
+    { key: "xp", label: "XP", render: (u) => <span className="tabular-nums">{u.xp.toLocaleString()}</span>, className: "text-right" },
+    { key: "joined", label: "Joined", render: (u) => <span className="tabular-nums">{u.joined || "—"}</span>, mobile: false },
     { key: "status", label: "Status", render: (u) => <Pill value={u.status} /> },
   ];
 
-  return <Page eyebrow="People" title="Users" actions={<Button onClick={() => setInviting(true)}><UserPlus /> Invite user</Button>}>
+  return <Page eyebrow="People" title="Users" actions={<Button variant="outline" onClick={refresh}><RotateCcw /> Refresh</Button>}>
     <div className="mb-4 flex flex-wrap gap-2">
-      <SearchBox value={q} onChange={setQ} placeholder="Search name, email or city" />
+      <SearchBox value={q} onChange={setQ} placeholder="Search name, email or username" />
+      <Choice label="Filter by zone" value={zone} onChange={setZone} options={zoneOptions as unknown as [string, string][]} />
       <Choice label="Filter by plan" value={plan} onChange={setPlan} options={planOptions} />
-      <Choice label="Filter by role" value={role} onChange={setRole} options={roleOptions} />
-      <Choice label="Filter by status" value={status} onChange={setStatus} options={statusOptions} />
+      <Choice label="Filter by status" value={status} onChange={setStatus} options={statusOptions as unknown as [Status | "all", string][]} />
     </div>
-    <p className="mb-3 text-sm text-muted-foreground">{rows.length} of {users.length} users</p>
-    <DataTable rows={rows} columns={columns} empty="No users match these filters." actions={(u) => <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(u)}><Eye /> View</Button>
-      {u.status === "suspended"
-        ? <Button size="sm" variant="secondary" onClick={() => update(u.id, { status: "active" }, `Reinstated ${u.name}`)}><UserCheck /> Reinstate</Button>
-        : <Button size="sm" variant="outline" onClick={() => ask({ title: `Suspend ${u.name}?`, body: "They will be signed out of the app and website until reinstated.", confirm: "Suspend", destructive: true, run: () => update(u.id, { status: "suspended" }, `Suspended ${u.name}`) })}><Ban /> Suspend</Button>}
-    </>} />
+
+    {error && <p role="alert" className="mb-3 border-2 border-destructive p-3 text-sm font-semibold text-destructive">{error}</p>}
+    {!users && !error && <p className="text-sm text-muted-foreground">Loading users…</p>}
+
+    {users && <>
+      <p className="mb-3 text-sm text-muted-foreground">{rows.length} of {users.length} users</p>
+      <DataTable rows={rows} columns={columns} empty="No users match these filters." actions={(u) => <>
+        <Button size="sm" variant="outline" onClick={() => setOpen(u)}><Eye /> View</Button>
+        {u.status === "suspended"
+          ? <Button size="sm" variant="secondary" onClick={() => update(u.id, { status: "active" }, `Reinstated ${u.name}`)}><UserCheck /> Reinstate</Button>
+          : <Button size="sm" variant="outline" onClick={() => ask({ title: `Suspend ${u.name}?`, body: "They will be marked as suspended.", confirm: "Suspend", destructive: true, run: () => { void update(u.id, { status: "suspended" }, `Suspended ${u.name}`); } })}><Ban /> Suspend</Button>}
+      </>} />
+    </>}
 
     <Dialog open={!!open} onOpenChange={(o) => { if (!o) setOpen(null); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         {open && <>
-          <DialogHeader><DialogTitle className="font-serif text-3xl font-normal">{open.name}</DialogTitle><DialogDescription>{open.email} · joined {open.joined}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-serif text-3xl font-normal">{open.name}</DialogTitle><DialogDescription>{open.email}{open.username && ` · @${open.username}`} · joined {open.joined || "—"}</DialogDescription></DialogHeader>
           <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-            {[["XP", open.xp.toLocaleString()], ["Streak", `${open.streak} days`], ["Hifz", open.hifzJuz ? `${open.hifzJuz} juz` : "Not started"], ["Kids", open.kids], ["City", open.city], ["Last active", open.lastActive]].map(([l, v]) => <div key={String(l)} className="border-2 border-foreground p-2"><dt className="text-xs uppercase text-muted-foreground">{l}</dt><dd className="font-semibold">{v}</dd></div>)}
+            {[["XP", open.xp.toLocaleString()], ["Zone", zoneNames[open.zone] ?? "—"], ["Gender", open.gender || "—"], ["Level", open.level || "—"], ["Status", open.status], ["Plan", planNames[open.plan]]].map(([l, v]) =>
+              <div key={l} className="border-2 border-foreground p-2"><dt className="text-xs uppercase text-muted-foreground">{l}</dt><dd className="font-semibold capitalize">{v}</dd></div>)}
           </dl>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Plan"><Choice label="Plan" className="w-full" value={open.plan} onChange={(p) => update(open.id, { plan: p }, `Moved ${open.name} to ${planNames[p]}`)} options={Object.entries(planNames) as [Plan, string][]} /></Field>
-            <Field label="Role"><Choice label="Role" className="w-full" value={open.role} onChange={(r) => update(open.id, { role: r }, `Changed ${open.name}'s role to ${r}`)} options={roleOptions.slice(1) as unknown as [Role, string][]} /></Field>
+            <Field label="Role"><Choice label="Role" className="w-full" value={open.role} onChange={(r) => update(open.id, { role: r }, `Changed ${open.name}'s role to ${r}`)} options={roleOptions} /></Field>
           </div>
           <DialogFooter className="flex-wrap gap-2">
-            <Button variant="outline" onClick={() => update(open.id, { streak: 0 }, `Reset streak for ${open.name}`)}><RotateCcw /> Reset streak</Button>
-            <Button variant="outline" onClick={() => { record(`Sent password reset to ${open.email}`); toast.success(`Password reset sent to ${open.email} (demo)`); }}>Send password reset</Button>
             {open.status !== "suspended"
               ? <Button variant="destructive" onClick={() => update(open.id, { status: "suspended" }, `Suspended ${open.name}`)}><Ban /> Suspend</Button>
               : <Button variant="secondary" onClick={() => update(open.id, { status: "active" }, `Reinstated ${open.name}`)}><UserCheck /> Reinstate</Button>}
@@ -78,31 +127,6 @@ export function UsersSection() {
         </>}
       </DialogContent>
     </Dialog>
-
-    <InviteDialog open={inviting} onOpenChange={setInviting} onInvite={(u) => { setUsers((l) => [u, ...l]); record(`Invited ${u.email}`); toast.success(`Invite sent to ${u.email} (demo)`); }} />
     {dialog}
   </Page>;
-}
-
-function InviteDialog({ open, onOpenChange, onInvite }: { open: boolean; onOpenChange: (o: boolean) => void; onInvite: (u: AdminUser) => void }) {
-  const [form, setForm] = useState({ name: "", email: "", role: "learner" as Role, plan: "free" as Plan });
-  const submit = () => {
-    if (!form.name.trim()) { toast.error("Add a name"); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { toast.error("Add a valid email"); return; }
-    const today = new Date().toISOString().slice(0, 10);
-    onInvite({ id: uid(), ...form, status: "invited", city: "—", joined: today, lastActive: today, streak: 0, xp: 0, kids: 0, hifzJuz: 0 });
-    setForm({ name: "", email: "", role: "learner", plan: "free" }); onOpenChange(false);
-  };
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent>
-    <DialogHeader><DialogTitle>Invite a user</DialogTitle><DialogDescription>They’ll get an email to set up their IlmStation account.</DialogDescription></DialogHeader>
-    <div className="grid gap-3">
-      <Field label="Full name"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-      <Field label="Email"><input type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Role"><Choice label="Role" className="w-full" value={form.role} onChange={(role) => setForm({ ...form, role })} options={roleOptions.slice(1) as unknown as [Role, string][]} /></Field>
-        <Field label="Plan"><Choice label="Plan" className="w-full" value={form.plan} onChange={(plan) => setForm({ ...form, plan })} options={Object.entries(planNames) as [Plan, string][]} /></Field>
-      </div>
-    </div>
-    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={submit}>Send invite</Button></DialogFooter>
-  </DialogContent></Dialog>;
 }

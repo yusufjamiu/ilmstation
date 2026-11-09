@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { Bookmark, BookmarkCheck, ChevronRight, Crown, LockKeyhole, Search, Share2, Wallet } from "lucide-react";
+import { collection, doc, getDoc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { Bookmark, BookmarkCheck, ChevronRight, Crown, ExternalLink, Headphones, LockKeyhole, Pause, Play, RotateCcw, RotateCw, Search, Share2, SkipBack, SkipForward, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase";
 import { useAuth, type Zone } from "@/components/auth";
@@ -9,8 +9,9 @@ import { LockedTag, PremiumTag, UnlockDialog, usePremium } from "@/components/pr
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, CORNERS, LIBRARY, type Age, type LibraryItem } from "@/components/library-data";
+import { BookTalk } from "@/components/book-talk";
 
-type Progress = { pos: number; total: number; at: number };
+type Progress = { pos: number; total: number; at: number; secs?: number };
 type LState = { bookmarks: string[]; progress: Record<string, Progress>; finished: string[] };
 const EMPTY: LState = { bookmarks: [], progress: {}, finished: [] };
 const FINISH_POINTS = 20;
@@ -47,7 +48,94 @@ function useLibraryState() {
   return [state, setState] as const;
 }
 
+/** Built-in items plus published items uploaded from the admin. */
+function useLibraryItems(): LibraryItem[] {
+  const [remote, setRemote] = useState<LibraryItem[]>([]);
+  useEffect(() => onSnapshot(query(collection(db, "library"), where("status", "==", "published")),
+    (snap) => setRemote(snap.docs.map((d) => ({ ...(d.data() as Omit<LibraryItem, "id">), id: d.id })).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))),
+    () => setRemote([])), []);
+  return useMemo(() => [...remote, ...LIBRARY.filter((i) => !remote.some((r) => r.id === i.id))], [remote]);
+}
+
+/** Each book's average rating (kept up to date by the server). */
+function useLibraryStats(): Record<string, { avg: number; count: number }> {
+  const [stats, setStats] = useState<Record<string, { avg: number; count: number }>>({});
+  useEffect(() => onSnapshot(collection(db, "libraryStats"),
+    (snap) => setStats(Object.fromEntries(snap.docs.map((d) => [d.id, { avg: Number(d.get("avg")) || 0, count: Number(d.get("count")) || 0 }]))),
+    () => {}), []);
+  return stats;
+}
+
+const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const SPEEDS = [1, 1.25, 1.5, 2];
+
+function AudioSection({ item, state, setState }: { item: LibraryItem; state: LState; setState: React.Dispatch<React.SetStateAction<LState>> }) {
+  if (item.audioStatus === "soon") return <p className="mt-6 inline-flex items-center gap-2 border-2 border-foreground px-3 py-2 text-sm font-semibold"><Headphones className="size-4" /> Audio coming soon</p>;
+  if (item.audioStatus !== "available" || !item.audio?.length) return null;
+  return <AudioPlayer item={item} tracks={item.audio} state={state} setState={setState} />;
+}
+
+/** Chapter-by-chapter player that remembers the chapter and minute. */
+function AudioPlayer({ item, tracks, state, setState }: { item: LibraryItem; tracks: NonNullable<LibraryItem["audio"]>; state: LState; setState: React.Dispatch<React.SetStateAction<LState>> }) {
+  const key = `audio:${item.id}`;
+  const saved = state.progress[key];
+  const [idx, setIdx] = useState(Math.min(saved?.pos ?? 0, tracks.length - 1));
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  const el = useRef<HTMLAudioElement | null>(null);
+  const resumeAt = useRef(saved?.secs ?? 0);
+  const autoplay = useRef(false);
+  const lastSave = useRef(0);
+  const track = tracks[idx]!;
+
+  const save = (i: number, secs: number) => setState((s) => ({ ...s, progress: { ...s.progress, [key]: { pos: i, total: tracks.length, secs, at: Date.now() } } }));
+  const go = (i: number, play: boolean) => {
+    if (i < 0 || i >= tracks.length) return;
+    resumeAt.current = 0; autoplay.current = play; setIdx(i); setTime(0); save(i, 0);
+  };
+  const toggle = () => { const a = el.current; if (!a) return; if (a.paused) void a.play().catch(() => toast("Couldn't play this audio.")); else a.pause(); };
+  const skip = (d: number) => { const a = el.current; if (a) a.currentTime = Math.max(0, Math.min(a.duration || 0, a.currentTime + d)); };
+  useEffect(() => { if (el.current) el.current.playbackRate = speed; }, [speed, idx]);
+
+  return <section className="mt-8 border-2 border-foreground bg-muted/30 p-4">
+    <p className="flex items-center gap-2 text-xs font-bold uppercase"><Headphones className="size-4" /> Listen · {tracks.length > 1 ? `Chapter ${idx + 1} of ${tracks.length}` : "Audio"}</p>
+    <p className="mt-1 font-serif text-2xl">{track.title}</p>
+    <audio ref={el} src={track.url} preload="metadata"
+      onLoadedMetadata={(e) => { const a = e.currentTarget; setDur(a.duration || 0); a.playbackRate = speed; if (resumeAt.current) { a.currentTime = resumeAt.current; resumeAt.current = 0; } if (autoplay.current) { autoplay.current = false; void a.play().catch(() => setPlaying(false)); } }}
+      onTimeUpdate={(e) => { const t = e.currentTarget.currentTime; setTime(t); if (Date.now() - lastSave.current > 5000) { lastSave.current = Date.now(); save(idx, t); } }}
+      onPlay={() => setPlaying(true)}
+      onPause={() => { setPlaying(false); save(idx, el.current?.currentTime ?? 0); }}
+      onEnded={() => { if (idx < tracks.length - 1) go(idx + 1, true); else setPlaying(false); }} />
+    <input type="range" min={0} max={dur || 0} step={1} value={time} aria-label="Position" onChange={(e) => { if (el.current) el.current.currentTime = Number(e.target.value); }} className="mt-3 w-full" />
+    <div className="flex justify-between text-xs tabular-nums text-muted-foreground"><span>{fmt(time)}</span><span>{fmt(dur)}</span></div>
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <Button size="icon" variant="outline" aria-label="Previous chapter" disabled={idx === 0} onClick={() => go(idx - 1, playing)}><SkipBack /></Button>
+      <Button size="icon" variant="outline" aria-label="Back 15 seconds" onClick={() => skip(-15)}><RotateCcw /></Button>
+      <Button size="icon" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>{playing ? <Pause /> : <Play />}</Button>
+      <Button size="icon" variant="outline" aria-label="Forward 15 seconds" onClick={() => skip(15)}><RotateCw /></Button>
+      <Button size="icon" variant="outline" aria-label="Next chapter" disabled={idx === tracks.length - 1} onClick={() => go(idx + 1, playing)}><SkipForward /></Button>
+      <Button size="sm" variant="outline" aria-label="Playback speed" onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]!)}>{speed}×</Button>
+    </div>
+    {tracks.length > 1 && <ol className="mt-4 max-h-64 overflow-y-auto border-t-2 border-foreground">
+      {tracks.map((t, i) => <li key={i}><button type="button" onClick={() => go(i, true)} className={cn("flex w-full justify-between gap-2 border-b border-foreground/30 px-2 py-2 text-left text-sm", i === idx && "bg-primary font-semibold")}>
+        <span>{i + 1}. {t.title}</span>{t.mins ? <span className="tabular-nums text-muted-foreground">{t.mins} min</span> : null}
+      </button></li>)}
+    </ol>}
+  </section>;
+}
+
 const bandsFor = (zone: Zone): Age[] => (zone === "kids" ? ["kids"] : zone === "youth" ? ["kids", "teens"] : ["kids", "teens", "adults"]);
+
+const PdfReader = lazy(() => import("@/components/pdf-reader"));
+function ClientPdf(props: { url: string; startPage: number; onPage: (page: number, total: number) => void }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  const wait = <p className="text-sm text-muted-foreground">Loading book…</p>;
+  if (!ready) return wait;
+  return <Suspense fallback={wait}><PdfReader {...props} /></Suspense>;
+}
 
 function Reader({ item, state, setState, onBack, onShare }: {
   item: LibraryItem; state: LState; setState: React.Dispatch<React.SetStateAction<LState>>; onBack: () => void; onShare: () => void;
@@ -59,6 +147,24 @@ function Reader({ item, state, setState, onBack, onShare }: {
   const saved = state.progress[item.id];
   const [pos, setPos] = useState(saved?.pos ?? 0);
   const isSaved = state.bookmarks.includes(item.id);
+  const talkNote = (() => {
+    if (state.finished.includes(item.id)) return "finished it";
+    const pp = state.progress[item.id];
+    if (item.pdfUrl && pp) return `on page ${pp.pos + 1} of ${pp.total}`;
+    const ap = state.progress[`audio:${item.id}`];
+    if (ap) return `on chapter ${ap.pos + 1} of ${ap.total}`;
+    if (pp?.total) return `${Math.round(((pp.pos + 1) / pp.total) * 100)}% through`;
+    return "";
+  })();
+  const savePdf = (page: number, total: number) => setState((s) => {
+    const finishedNow = page >= total && !s.finished.includes(item.id);
+    if (finishedNow) { addPoints(FINISH_POINTS); toast.success(`Finished! +${FINISH_POINTS} points`); }
+    return {
+      ...s,
+      progress: { ...s.progress, [item.id]: { pos: page - 1, total, at: Date.now() } },
+      finished: finishedNow ? [...s.finished, item.id] : s.finished,
+    };
+  });
 
   // go back to where the reader stopped, then start tracking
   useEffect(() => {
@@ -126,14 +232,21 @@ function Reader({ item, state, setState, onBack, onShare }: {
             </div>
             <p className="mt-6 text-xs text-muted-foreground">{pct}% read · your place is saved automatically</p>
           </>
+        ) : item.pdfUrl ? (
+          <div>
+            <ClientPdf url={item.pdfUrl} startPage={(saved?.pos ?? 0) + 1} onPage={savePdf} />
+            <a href={item.pdfUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm font-bold underline"><ExternalLink className="size-4" /> Open full screen</a>
+          </div>
         ) : (
-          <p className="max-w-xl leading-7">The full text of this {item.kind} isn’t in the library yet. It will appear here once it has been added.</p>
+          <p className="max-w-xl leading-7">{item.audioStatus === "available" ? "This title is available to listen to below." : `The full text of this ${item.kind} isn’t in the library yet. It will appear here once it has been added.`}</p>
         )}
+        <AudioSection item={item} state={state} setState={setState} />
         <div className="mt-8 flex gap-3">
           <Button onClick={toggleSave}>{isSaved ? <BookmarkCheck /> : <Bookmark />} {isSaved ? "Saved" : "Save"}</Button>
           <Button variant="outline" onClick={onShare}><Share2 /> Share</Button>
         </div>
       </section>
+      <BookTalk item={item} note={talkNote} canRate={state.finished.includes(item.id) || (state.progress[item.id]?.pos ?? 0) >= 1 || !!state.progress[`audio:${item.id}`]?.secs} />
     </div>
   );
 }
@@ -142,6 +255,8 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
   const { account } = useAuth();
   const { premium, points, canAccess } = usePremium();
   const [state, setState] = useLibraryState();
+  const all = useLibraryItems();
+  const stats = useLibraryStats();
   const [openId, setOpenId] = useState<string>();
   const [cat, setCat] = useState<string>("All");
   const [query, setQuery] = useState("");
@@ -152,15 +267,15 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
   const bands = bandsFor(zone);
 
   const visible = useMemo(
-    () => LIBRARY.filter((i) => bands.includes(i.age) && (!i.audience || i.audience === gender)),
-    [zone, gender], // eslint-disable-line react-hooks/exhaustive-deps
+    () => all.filter((i) => bands.includes(i.age) && (!i.audience || i.audience === gender)),
+    [all, zone, gender], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const chips = useMemo(
     () => [...CATEGORIES].filter((c) => (!CORNERS[c] || CORNERS[c] === gender) && visible.some((i) => i.cats.includes(c))).sort((a, b) => a.localeCompare(b)),
     [visible, gender],
   );
 
-  const open = LIBRARY.find((i) => i.id === openId);
+  const open = all.find((i) => i.id === openId);
   if (open) return <Reader item={open} state={state} setState={setState} onBack={() => setOpenId(undefined)} onShare={onShare} />;
 
   const q = query.trim().toLowerCase();
@@ -169,7 +284,7 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
     if (cat !== "All" && cat !== "Saved" && !i.cats.includes(cat)) return false;
     return !q || i.title.toLowerCase().includes(q) || (i.author ?? "").toLowerCase().includes(q);
   });
-  const continuing = visible.filter((i) => state.progress[i.id] && !state.finished.includes(i.id) && i.body?.length);
+  const continuing = visible.filter((i) => state.progress[i.id] && !state.finished.includes(i.id) && (i.body?.length || i.pdfUrl));
 
   const openItem = (i: LibraryItem) => (canAccess(i.id, i.tier) ? setOpenId(i.id) : setLocked({ id: i.id, title: i.title, cost: i.cost }));
 
@@ -237,9 +352,13 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
                     {i.tier === "premium" && (free ? <PremiumTag /> : <LockedTag cost={i.cost} />)}
                     {done && <span className="border border-foreground px-1">Finished</span>}
                     {state.bookmarks.includes(i.id) && <BookmarkCheck className="size-3.5" />}
+                    {i.audioStatus === "available" && <span className="inline-flex items-center gap-1 border border-foreground px-1"><Headphones className="size-3" /> Audio</span>}
+                    {i.audioStatus === "soon" && <span className="border border-foreground px-1">Audio soon</span>}
                   </span>
+                  {i.coverUrl && <img src={i.coverUrl} alt="" loading="lazy" className="mt-3 h-40 w-28 border-2 border-foreground object-cover" />}
                   <h2 className={cn("mt-3 font-serif text-3xl", !free && "opacity-70")}>{i.title}</h2>
                   {i.author && <p className="mt-1 text-sm text-muted-foreground">{i.author}</p>}
+                  {stats[i.id]?.count ? <p className="mt-1 text-sm font-semibold">★ {stats[i.id]!.avg.toFixed(1)} <span className="font-normal text-muted-foreground">({stats[i.id]!.count})</span></p> : null}
                   <span className="mt-5 flex items-center text-sm font-bold">
                     {free ? <>{i.kind === "book" ? "Open book" : "Read article"} <ChevronRight className="size-4" /></> : <><LockKeyhole className="mr-1 size-4" /> Unlock to read</>}
                   </span>

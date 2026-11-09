@@ -1,16 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Flag, Search, Send, Trash2 } from "lucide-react";
+import { Copy, Flag, Pencil, Reply, Search, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { onAuthStateChanged } from "firebase/auth";
-import { addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, increment, limit, onSnapshot, orderBy, query, writeBatch } from "firebase/firestore";
+import { addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, increment, limit, onSnapshot, orderBy, query, updateDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type RoomDoc = { id: string; name: string; topic: string; note: string; zone: "youth" | "adult"; audience: "all" | "male" | "female"; active: boolean; order: number; memberCount: number };
+export type RoomZone = "kids" | "youth" | "adult";
+export type RoomGender = "male" | "female";
+export type RoomDoc = { id: string; name: string; topic: string; note: string; zone?: RoomZone; audience?: "all" | RoomGender; zones?: RoomZone[]; genders?: RoomGender[]; postMode?: "everyone" | "admins"; active: boolean; order: number; memberCount: number };
+
+/** New rooms list zones/genders; older rooms used a single zone and audience. */
+export const roomZones = (r: RoomDoc): RoomZone[] => r.zones ?? (r.zone ? [r.zone] : []);
+export const roomGenders = (r: RoomDoc): RoomGender[] => r.genders ?? (!r.audience || r.audience === "all" ? ["male", "female"] : [r.audience]);
+export const canSeeRoom = (r: RoomDoc, zone: string, gender: string) => r.active && roomZones(r).includes(zone as RoomZone) && roomGenders(r).includes(gender as RoomGender);
+export const roomTag = (r: RoomDoc) => { const g = roomGenders(r); return [g.length === 1 ? (g[0] === "female" ? "Sisters only" : "Brothers only") : "", r.postMode === "admins" ? "Admins post" : ""].filter(Boolean).join(" · "); };
+const LINK = /(https?:\/\/\S+|www\.\S+|wa\.me\/\S*|t\.me\/\S*)/gi;
+const youtubeId = (text: string) => text.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/)?.[1];
 type Row = { key: string; name: string; topic: string; note: string; audience: RoomDoc["audience"] };
-type Msg = { id: string; uid: string; name: string; text: string; createdAt: number };
+type Msg = { id: string; uid: string; name: string; text: string; createdAt: number; editedAt?: number; replyTo?: { id: string; name: string; text: string } };
 
 export const audienceLabel = (a: RoomDoc["audience"]) => (a === "female" ? "Sisters only" : a === "male" ? "Brothers only" : "");
 
@@ -61,12 +71,16 @@ export function ChatroomsScreen() {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Msg | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
   const lastSent = useRef(0);
   const bottom = useRef<HTMLDivElement | null>(null);
 
-  const visible = useMemo(() => rooms.filter((r) => r.active && r.zone === zone && (r.audience === "all" || r.audience === gender) && `${r.name} ${r.topic}`.toLowerCase().includes(find.toLowerCase())), [rooms, zone, gender, find]);
+  const visible = useMemo(() => rooms.filter((r) => (isAdmin || canSeeRoom(r, zone, gender)) && `${r.name} ${r.topic}`.toLowerCase().includes(find.toLowerCase())), [rooms, zone, gender, find, isAdmin]);
   const room = visible.find((r) => r.id === pick) ?? visible[0];
   const isJoined = !!room && joined.includes(room.id);
+  const canPost = isJoined && (room?.postMode !== "admins" || isAdmin);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setMyId(u?.uid ?? null)), []);
   useEffect(() => {
@@ -77,7 +91,7 @@ export function ChatroomsScreen() {
 
   const roomId = room?.id;
   useEffect(() => {
-    setMsgs([]); setError("");
+    setMsgs([]); setError(""); setEditing(null); setMenuFor(null); setReplyingTo(null);
     if (!myId || !roomId) return undefined;
     return onSnapshot(query(collection(db, "rooms", roomId, "messages"), orderBy("createdAt", "desc"), limit(100)),
       (snap) => setMsgs(snap.docs.map((d) => ({ ...(d.data() as Omit<Msg, "id">), id: d.id })).reverse()),
@@ -117,13 +131,25 @@ export function ChatroomsScreen() {
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const value = text.trim();
-    if (!value || !myId || !roomId || !isJoined) return;
+    if (!value || !myId || !roomId || !canPost) return;
+    if (!isAdmin && /(https?:\/\/|www\.|wa\.me|t\.me)/i.test(value)) { toast("Links aren't allowed in chatrooms."); return; }
+    if (editing) {
+      const m = editing; setEditing(null); setText("");
+      try { await updateDoc(doc(db, "rooms", roomId, "messages", m.id), { text: value.slice(0, 500), editedAt: Date.now() }); }
+      catch { toast("We couldn't edit that message. Try again."); }
+      return;
+    }
     if (Date.now() - lastSent.current < 3000) { toast("Please wait a moment between messages."); return; }
     lastSent.current = Date.now();
     setText("");
+    const r = replyingTo;
+    setReplyingTo(null);
     try {
-      await addDoc(collection(db, "rooms", roomId, "messages"), { uid: myId, name: account?.username || account?.name?.split(/\s+/)[0] || "Learner", text: value.slice(0, 500), createdAt: Date.now() });
-    } catch { setText(value); toast("We couldn't send that message. Try again."); }
+      await addDoc(collection(db, "rooms", roomId, "messages"), {
+        uid: myId, name: account?.username || account?.name?.split(/\s+/)[0] || "Learner", text: value.slice(0, 500), createdAt: Date.now(),
+        ...(r ? { replyTo: { id: r.id, name: r.name, text: r.text.replace(LINK, "[link]").slice(0, 120) } } : {}),
+      });
+    } catch { setText(value); setReplyingTo(r); toast("We couldn't send that message. Try again."); }
   }
   async function report(m: Msg) {
     if (!myId || !roomId) return;
@@ -132,7 +158,9 @@ export function ChatroomsScreen() {
       toast.success("Thank you. We'll review this message.");
     } catch { toast("We couldn't send that report. Try again."); }
   }
-  const remove = (m: Msg) => roomId ? deleteDoc(doc(db, "rooms", roomId, "messages", m.id)).catch(() => toast("Something went wrong. Try again.")) : undefined;
+  const remove = (m: Msg) => { setMenuFor(null); if (!roomId || !window.confirm("Delete this message?")) return; void deleteDoc(doc(db, "rooms", roomId, "messages", m.id)).catch(() => toast("We couldn't delete that message. Try again.")); };
+  const copy = (m: Msg) => { setMenuFor(null); void navigator.clipboard.writeText(m.text).then(() => toast.success("Copied")).catch(() => toast("Couldn't copy.")); };
+  const startEdit = (m: Msg) => { setMenuFor(null); setEditing(m); setText(m.text); };
 
   return <div className="min-w-0 iq-rise">
     <header>
@@ -148,7 +176,7 @@ export function ChatroomsScreen() {
         <div className="p-3"><label className="flex h-10 items-center gap-2 border-2 border-foreground px-3"><Search className="size-4 shrink-0" /><input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find a room" aria-label="Find a room" className="w-full bg-transparent outline-none" /></label></div>
         <ul className="max-h-60 overflow-y-auto border-t-2 border-foreground md:max-h-[60vh]">
           {visible.map((r) => <li key={r.id}><button type="button" onClick={() => setPick(r.id)} className={cn("flex w-full items-start justify-between gap-2 border-b-2 border-foreground px-4 py-3 text-left", room?.id === r.id ? "bg-primary" : "bg-background hover:bg-muted")}>
-            <span className="min-w-0"><b className="block font-serif text-xl font-normal leading-tight">{r.name}</b><small className="text-xs text-muted-foreground">{r.memberCount ?? 0} members · {r.topic}{audienceLabel(r.audience) ? ` · ${audienceLabel(r.audience)}` : ""}</small></span>
+            <span className="min-w-0"><b className="block font-serif text-xl font-normal leading-tight">{r.name}</b><small className="text-xs text-muted-foreground">{r.memberCount ?? 0} members · {r.topic}{isAdmin ? ` · ${roomZones(r).map((z) => (z === "kids" ? "Kids" : z === "youth" ? "Teens" : "Adult")).join(" + ")}` : ""}{roomTag(r) ? ` · ${roomTag(r)}` : ""}</small></span>
             {joined.includes(r.id) && <span className="mt-1 size-2.5 shrink-0 bg-secondary" aria-label="Joined" />}
           </button></li>)}
           {!visible.length && <li className="p-4 text-sm text-muted-foreground">No rooms match.</li>}
@@ -163,21 +191,28 @@ export function ChatroomsScreen() {
         <div className="h-[50vh] min-h-64 space-y-3 overflow-y-auto bg-muted/30 p-4">
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
           {!error && msgs.length === 0 && <p className="text-sm text-muted-foreground">No messages yet. Join the room and start with a salam.</p>}
-          {msgs.map((m) => { const mine = m.uid === myId; return <div key={m.id} className={cn("flex", mine && "justify-end")}>
-            <div className={cn("max-w-[85%] border-2 border-foreground px-3 py-2", mine ? "bg-primary" : "bg-background")}>
-              <p className="text-xs font-bold">{mine ? "You" : m.name} <span className="font-normal text-muted-foreground">{new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></p>
+          {msgs.map((m) => { const mine = m.uid === myId; return <div key={m.id} id={`msg-${m.id}`} className={cn("flex", mine && "justify-end")}>
+            <div role="button" tabIndex={0} onClick={() => setMenuFor(menuFor === m.id ? null : m.id)} onKeyDown={(e) => { if (e.key === "Enter") setMenuFor(menuFor === m.id ? null : m.id); }} className={cn("max-w-[85%] cursor-pointer border-2 border-foreground px-3 py-2", mine ? "bg-primary" : "bg-background", menuFor === m.id && "ring-2 ring-ring")}>
+              <p className="text-xs font-bold">{mine ? "You" : m.name} <span className="font-normal text-muted-foreground">{new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{m.editedAt ? " · edited" : ""}</span></p>
+              {m.replyTo && <button type="button" onClick={(e) => { e.stopPropagation(); document.getElementById(`msg-${m.replyTo?.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }} className="mt-1 block w-full border-l-4 border-foreground bg-foreground/10 px-2 py-1 text-left text-xs"><b>{m.replyTo.name}</b><span className="line-clamp-2 block">{m.replyTo.text}</span></button>}
               <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">{m.text}</p>
-              <div className="mt-1 flex gap-3 text-xs text-muted-foreground">
-                {!mine && <button type="button" onClick={() => void report(m)} className="flex items-center gap-1 hover:text-foreground"><Flag className="size-3" /> Report</button>}
-                {isAdmin && <button type="button" onClick={() => void remove(m)} className="flex items-center gap-1 hover:text-destructive"><Trash2 className="size-3" /> Delete</button>}
-              </div>
+              {room.postMode === "admins" && youtubeId(m.text) && <div className="mt-2 aspect-video w-[min(560px,75vw)] border-2 border-foreground"><iframe className="h-full w-full" src={`https://www.youtube-nocookie.com/embed/${youtubeId(m.text)}?rel=0`} title="Video" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div>}
+              {menuFor === m.id && <div className="mt-2 flex flex-wrap gap-3 border-t border-foreground/30 pt-2 text-xs font-semibold" onClick={(e) => e.stopPropagation()}>
+                {canPost && <button type="button" onClick={() => { setMenuFor(null); setEditing(null); setReplyingTo(m); }} className="flex items-center gap-1"><Reply className="size-3" /> Reply</button>}
+                <button type="button" onClick={() => copy(m)} className="flex items-center gap-1"><Copy className="size-3" /> Copy</button>
+                {mine && Date.now() - m.createdAt < 15 * 60 * 1000 && <button type="button" onClick={() => startEdit(m)} className="flex items-center gap-1"><Pencil className="size-3" /> Edit</button>}
+                {(mine || isAdmin) && <button type="button" onClick={() => remove(m)} className="flex items-center gap-1 text-destructive"><Trash2 className="size-3" /> Delete</button>}
+                {!mine && <button type="button" onClick={() => { setMenuFor(null); void report(m); }} className="flex items-center gap-1"><Flag className="size-3" /> Report</button>}
+              </div>}
             </div>
           </div>; })}
           <div ref={bottom} />
         </div>
+        {replyingTo && <div className="flex items-center justify-between gap-2 border-t-2 border-foreground bg-muted px-3 py-2 text-xs"><span className="min-w-0 truncate"><b>Replying to {replyingTo.uid === myId ? "yourself" : replyingTo.name}:</b> {replyingTo.text}</span><button type="button" onClick={() => setReplyingTo(null)} className="flex shrink-0 items-center gap-1 font-semibold"><X className="size-3" /> Cancel</button></div>}
+        {editing && <div className="flex items-center justify-between border-t-2 border-foreground bg-muted px-3 py-2 text-xs font-semibold"><span>Editing your message</span><button type="button" onClick={() => { setEditing(null); setText(""); }} className="flex items-center gap-1"><X className="size-3" /> Cancel</button></div>}
         <form onSubmit={(e) => void send(e)} className="flex gap-2 border-t-2 border-foreground p-3">
-          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={500} disabled={!isJoined} placeholder={isJoined ? `Message ${room.name}` : "Join this room to write a message"} aria-label="Message" className="h-10 min-w-0 flex-1 border-2 border-foreground bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60" />
-          <Button type="submit" disabled={!isJoined || !text.trim()}><Send /> Send</Button>
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={500} disabled={!canPost} placeholder={!isJoined ? "Join this room to write a message" : !canPost ? "Only admins post in this room" : room.postMode === "admins" ? "Post a message or a YouTube link" : `Message ${room.name}`} aria-label="Message" className="h-10 min-w-0 flex-1 border-2 border-foreground bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60" />
+          <Button type="submit" disabled={!canPost || !text.trim()}><Send /> {editing ? "Save" : "Send"}</Button>
         </form>
       </section> : <p className="p-6 text-sm text-muted-foreground">{loaded ? "No rooms are available for you yet." : "Loading rooms…"}</p>}
     </div>}

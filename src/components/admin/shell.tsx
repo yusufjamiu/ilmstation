@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   BookOpenCheck, CalendarDays, CreditCard, ExternalLink, HandHeart, LayoutDashboard, LogOut, MapPin, Megaphone,
-  Flag, Gift, Landmark, Menu, MessagesSquare, Settings, ShieldCheck, Trophy, Tv, Users, X,
+  Flag, Gift, Landmark, LibraryBig, Menu, MessagesSquare, Settings, ShieldCheck, Trophy, Tv, Users, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme";
@@ -14,6 +14,7 @@ import { useAdminStore } from "./store";
 import { Dashboard } from "./dashboard";
 import { UsersSection } from "./users";
 import { ContentSection } from "./content";
+import { LibrarySection } from "./library";
 import { EventsSection } from "./events";
 import { CentresSection } from "./centres";
 import { CommunitySection } from "./community";
@@ -24,12 +25,13 @@ import { WorldAdvertsSection, WorldAwardSection, WorldQuizzesSection, WorldRaces
 import { WorldContentSection } from "./world-content";
 import { seedAdverts, type Advert } from "./world-data";
 
-export const sections = ["dashboard", "users", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "settings"] as const;
+export const sections = ["dashboard", "users", "library", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "settings"] as const;
 export type Section = (typeof sections)[number];
 
 const nav: { id: Section; label: string; icon: typeof Users; group: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, group: "Overview" },
   { id: "users", label: "Users", icon: Users, group: "App" },
+  { id: "library", label: "Library", icon: LibraryBig, group: "App" },
   { id: "content", label: "Quiz content", icon: BookOpenCheck, group: "App" },
   { id: "billing", label: "Plans & billing", icon: CreditCard, group: "App" },
   { id: "events", label: "Events & pricing", icon: CalendarDays, group: "Web" },
@@ -48,7 +50,7 @@ const nav: { id: Section; label: string; icon: typeof Users; group: string }[] =
 /** Which sections each admin role can open. Frontend-only: a real build enforces this on the server. */
 const access: Record<AdminRole, Section[]> = {
   owner: [...sections],
-  editor: ["dashboard", "content", "events", "centres", "sponsors", "world-award", "world-quizzes", "world-races", "world-content", "announcements"],
+  editor: ["dashboard", "library", "content", "events", "centres", "sponsors", "world-award", "world-quizzes", "world-races", "world-content", "announcements"],
   moderator: ["dashboard", "users", "community", "world-adverts", "announcements"],
   support: ["dashboard", "users", "billing"],
 };
@@ -118,6 +120,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
         <main className="pb-12">
           {current === "dashboard" && <Dashboard go={go} />}
           {current === "users" && <UsersSection />}
+          {current === "library" && <LibrarySection />}
           {current === "content" && <ContentSection />}
           {current === "events" && <EventsSection />}
           {current === "centres" && <CentresSection />}

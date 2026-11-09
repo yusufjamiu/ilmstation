@@ -85,6 +85,16 @@ function authErrorMessage(err: unknown): string {
   }
 }
 
+/** True when an admin has suspended this account (userAdmin/{uid}.status). */
+async function isSuspended(uid: string): Promise<boolean> {
+  try {
+    const snap = await getDoc(doc(db, "userAdmin", uid));
+    return snap.exists() && snap.data().status === "suspended";
+  } catch {
+    return false;
+  }
+}
+
 /** Older accounts are added to the email list the first time they log in. */
 async function backfillEmail(uid: string, email: string) {
   try {
@@ -108,6 +118,7 @@ export function useAuth() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u && (await isSuspended(u.uid))) { await signOut(auth); return; }
       setUser(u);
       if (u) {
         const profile = await fetchProfile(u.uid);
@@ -152,6 +163,10 @@ export function useAuth() {
     logIn: async (email: string, password: string): Promise<string | null> => {
       try {
         const cred = await signInWithEmailAndPassword(auth, email, password);
+        if (await isSuspended(cred.user.uid)) {
+          await signOut(auth);
+          return "This account has been suspended. Contact admin@ilmstation.com.";
+        }
         const profile = await fetchProfile(cred.user.uid);
         setAccount(profile);
         return null;

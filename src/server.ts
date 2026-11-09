@@ -96,6 +96,9 @@ export default {
       return import("./lib/pay-server").then((m) => m.handlePay(request, url.pathname));
     if (url.pathname === "/api/money")
       return import("./lib/money-server").then((m) => m.handleMoney(request));
+    // Library: star ratings and each book's average
+    if (url.pathname === "/api/rate")
+      return import("./lib/rate-server").then((m) => m.handleRate(request));
     const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
     if (host.startsWith("play.") && url.pathname === "/")
       return new Response(null, { status: 302, headers: { location: "/world" + url.search } });
