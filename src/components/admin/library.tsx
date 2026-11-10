@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
@@ -7,7 +7,7 @@ import { db, storage } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CATEGORIES, type Age, type LibraryItem } from "@/components/library-data";
-import { Field, inputCls, Page, useAudit, useConfirm } from "./ui";
+import { Choice, Field, inputCls, Page, SearchBox, useAudit, useConfirm } from "./ui";
 
 type Track = { title: string; url: string; mins?: number };
 type AudioStatus = "available" | "soon" | "none";
@@ -60,12 +60,22 @@ export function LibrarySection() {
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [busy, setBusy] = useState("");
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState<string>("all");
+  const [status, setStatus] = useState<string>("all");
+  const [audio, setAudio] = useState<string>("all");
   const { record } = useAudit();
   const { ask, dialog } = useConfirm();
 
   useEffect(() => onSnapshot(collection(db, "library"),
     (snap) => setItems(snap.docs.map((d) => ({ ...(d.data() as Omit<LibraryItem, "id">), id: d.id })).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))),
     () => setItems([])), []);
+
+  const rows = useMemo(() => (items ?? []).filter((i) =>
+    (cat === "all" || (i.cats ?? []).includes(cat)) &&
+    (status === "all" || (i.status ?? "draft") === status) &&
+    (audio === "all" || (i.audioStatus ?? "none") === audio) &&
+    `${i.title} ${i.author ?? ""}`.toLowerCase().includes(q.trim().toLowerCase())), [items, q, cat, status, audio]);
 
   const close = () => {
     if (busy) return toast("Wait for the upload to finish.");
@@ -143,11 +153,19 @@ export function LibrarySection() {
   });
 
   return <Page eyebrow="App · library" title="Library" actions={<Button onClick={() => setForm(newForm())}><Plus /> Add book</Button>}>
+    <div className="mb-4 flex flex-wrap gap-2">
+      <SearchBox value={q} onChange={setQ} placeholder="Search title or author" />
+      <Choice label="Filter by category" value={cat} onChange={setCat} options={[["all", "All categories"], ...CATEGORIES.map((c) => [c, c] as [string, string])]} />
+      <Choice label="Filter by status" value={status} onChange={setStatus} options={[["all", "Any status"], ["published", "Published"], ["draft", "Drafts"]]} />
+      <Choice label="Filter by audio" value={audio} onChange={setAudio} options={[["all", "Any audio"], ["available", "Audio available"], ["soon", "Audio coming soon"], ["none", "No audio"]]} />
+    </div>
+    {items && items.length > 0 && <p className="mb-3 text-sm text-muted-foreground">{rows.length} of {items.length} books</p>}
     {!items ? <p className="text-sm text-muted-foreground">Loading…</p> : items.length === 0 ? <p className="text-sm text-muted-foreground">No uploaded books yet. Click “Add book” to upload the first one.</p> :
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{items.map((i) => <article key={i.id} className="flex gap-3 border-2 border-foreground bg-card p-4 shadow-brutal-sm">
+    rows.length === 0 ? <p className="text-sm text-muted-foreground">No books match these filters.</p> :
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{rows.map((i) => <article key={i.id} className="flex gap-3 border-2 border-foreground bg-card p-4 shadow-brutal-sm">
       {i.coverUrl ? <img src={i.coverUrl} alt="" className="h-32 w-24 shrink-0 border-2 border-foreground object-cover" /> : <div className="grid h-32 w-24 shrink-0 place-items-center border-2 border-dashed border-foreground text-xs text-muted-foreground">No cover</div>}
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-bold uppercase text-muted-foreground">{i.status === "published" ? "Published" : "Draft"} · {i.cats?.[0]}</p>
+        <p className="text-xs font-bold uppercase text-muted-foreground">{i.status === "published" ? "Published" : "Draft"} · {(i.cats ?? []).join(", ")}</p>
         <h3 className="font-serif text-xl leading-tight">{i.title}</h3>
         {i.author && <p className="text-xs text-muted-foreground">{i.author}</p>}
         <p className="mt-2 text-xs">{i.pdfUrl ? "PDF ✓" : "No PDF"} · Audio: {AUDIO_LABEL[i.audioStatus ?? "none"]}{i.audio?.length ? ` (${i.audio.length})` : ""}</p>

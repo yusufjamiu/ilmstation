@@ -39,14 +39,17 @@ export async function handleRate(request: Request): Promise<Response> {
   const statsRef = db.doc(`libraryStats/${bookId}`);
   try {
     await db.runTransaction(async (t) => {
-      const [rev, st] = await Promise.all([t.get(reviewRef), t.get(statsRef)]);
-      // ratings saved before the server existed were never counted: treat them as new
-      const counted = rev.exists && rev.get("counted") === true;
-      const old = counted ? Number(rev.get("stars")) || 0 : 0;
-      const sum = (st.exists ? Number(st.get("sum")) || 0 : 0) - old + stars;
-      const count = (st.exists ? Number(st.get("count")) || 0 : 0) + (counted ? 0 : 1);
+      // recount every rating for this book, so old ratings are always included
+      const all = await t.get(db.collection(`library/${bookId}/reviews`));
+      let sum = stars;
+      let count = 1;
+      all.docs.forEach((d) => {
+        if (d.id === uid) return;
+        const v = Number(d.get("stars")) || 0;
+        if (v >= 1 && v <= 5) { sum += v; count += 1; }
+      });
       t.set(reviewRef, { uid, stars, counted: true, updatedAt: Date.now() });
-      t.set(statsRef, { sum, count, avg: count ? Math.round((sum / count) * 10) / 10 : 0, updatedAt: Date.now() });
+      t.set(statsRef, { sum, count, avg: Math.round((sum / count) * 10) / 10, updatedAt: Date.now() });
     });
   } catch {
     return reply(500, { error: "failed" });
