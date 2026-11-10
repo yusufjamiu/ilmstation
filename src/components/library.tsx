@@ -284,7 +284,7 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
     if (cat !== "All" && cat !== "Saved" && !i.cats.includes(cat)) return false;
     return !q || i.title.toLowerCase().includes(q) || (i.author ?? "").toLowerCase().includes(q);
   });
-  const continuing = visible.filter((i) => state.progress[i.id] && !state.finished.includes(i.id) && (i.body?.length || i.pdfUrl));
+  const continuing = visible.filter((i) => state.progress[i.id] && !state.finished.includes(i.id) && (i.body?.length || i.pdfUrl)).sort((a, b) => (state.progress[b.id]?.at ?? 0) - (state.progress[a.id]?.at ?? 0)).slice(0, 4);
 
   const openItem = (i: LibraryItem) => (canAccess(i.id, i.tier) ? setOpenId(i.id) : setLocked({ id: i.id, title: i.title, cost: i.cost }));
 
@@ -324,12 +324,12 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
         {cat === "All" && !q && continuing.length > 0 && (
           <div className="mt-6">
             <h2 className="font-serif text-2xl">Continue reading</h2>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="mt-3 flex snap-x gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible">
               {continuing.map((i) => {
                 const p = state.progress[i.id]!;
                 return (
-                  <button key={i.id} onClick={() => openItem(i)} className="border-2 border-foreground p-4 text-left shadow-brutal">
-                    <span className="font-serif text-xl">{i.title}</span>
+                  <button key={i.id} onClick={() => openItem(i)} className="w-[85%] shrink-0 snap-start border-2 border-foreground p-4 text-left shadow-brutal md:w-auto">
+                    <span className="flex gap-3">{i.coverUrl && <img src={i.coverUrl} alt="" className="h-16 w-11 shrink-0 border border-foreground object-cover" />}<span className="min-w-0"><span className="block font-serif text-xl">{i.title}</span><span className="text-xs text-muted-foreground">{i.pdfUrl ? `Page ${p.pos + 1} of ${p.total}` : `${Math.round(((p.pos + 1) / p.total) * 100)}% read`}</span></span></span>
                     <span className="mt-3 block h-2 border border-foreground"><span className="block h-full bg-secondary" style={{ width: `${Math.round(((p.pos + 1) / p.total) * 100)}%` }} /></span>
                   </button>
                 );
