@@ -143,7 +143,7 @@ export const seedFlags: Flag[] = [
   { key: "maintenance", label: "Maintenance mode", description: "Show a maintenance banner everywhere.", surface: "both", on: false },
 ];
 
-export type AdminRole = "owner" | "editor" | "moderator" | "support";
+export type AdminRole = "owner" | "admin" | "editor" | "moderator" | "support";
 export type Admin = { id: string; name: string; email: string; role: AdminRole; lastSeen: string };
 export const seedAdmins: Admin[] = [
   { id: "ad1", name: "Yusuf Jamiu", email: "yusuf@ilmstation.app", role: "owner", lastSeen: "2026-10-26" },
@@ -153,6 +153,7 @@ export const seedAdmins: Admin[] = [
 ];
 export const roleAccess: Record<AdminRole, string> = {
   owner: "Everything, including admins and billing",
+  admin: "Everything, including the team, except changing or removing owners",
   editor: "Content, events, centres, announcements, IlmWorld (except adverts)",
   moderator: "Chatrooms, reports, user suspension, IlmWorld adverts",
   support: "Users and payments (read + refunds)",

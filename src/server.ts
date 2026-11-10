@@ -99,6 +99,11 @@ export default {
     // Library: star ratings and each book's average
     if (url.pathname === "/api/rate")
       return import("./lib/rate-server").then((m) => m.handleRate(request));
+    // Ramadan prize quiz: marked on the server
+    if (url.pathname === "/api/ramadan-quiz")
+      return import("./lib/ramadan-server").then((m) => m.handleRamadanQuiz(request));
+    if (url.pathname === "/api/ramadan-payout")
+      return import("./lib/ramadan-server").then((m) => m.handleRamadanPayout(request));
     const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host;
     if (host.startsWith("play.") && url.pathname === "/")
       return new Response(null, { status: 302, headers: { location: "/world" + url.search } });

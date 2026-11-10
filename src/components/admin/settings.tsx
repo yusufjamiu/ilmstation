@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { roleAccess, seedAdmins, seedAnnouncements, seedFlags, type Admin, type AdminRole, type Announcement, type Flag, type Surface } from "./data";
 import { resetAdminData, uid, useAdminStore } from "./store";
 import { Choice, DataTable, Field, inputCls, Page, Panel, Pill, Toggle, useAudit, useConfirm } from "./ui";
+import { TeamPanel } from "./team";
 
 const surfaces = [["both", "App + Web"], ["app", "App only"], ["web", "Web only"]] as const;
 const audiences = [["everyone", "Everyone"], ["premium", "Premium members"], ["guardians", "Guardians"], ["kids", "Kids Mode"]] as const;
@@ -94,22 +95,7 @@ export function SettingsSection({ role }: { role: AdminRole }) {
         </li>)}</ul>
       </Panel>
 
-      <Panel title="Team & roles" tag={isOwner ? undefined : "Owner only"}>
-        <DataTable rows={admins} columns={[
-          { key: "n", label: "Admin", render: (a) => <div><p className="font-semibold">{a.name}</p><p className="text-xs text-muted-foreground">{a.email}</p></div> },
-          { key: "r", label: "Role", render: (a) => isOwner && a.role !== "owner"
-            ? <Choice label={`Role for ${a.name}`} className="min-h-8 text-xs" value={a.role} onChange={(r) => { setAdmins((l) => l.map((x) => (x.id === a.id ? { ...x, role: r } : x))); record(`Changed ${a.name} to ${r}`); }} options={(Object.keys(roleAccess) as AdminRole[]).filter((r) => r !== "owner").map((r) => [r, r] as const)} />
-            : <span className="capitalize">{a.role}</span> },
-          { key: "s", label: "Last seen", render: (a) => <span className="tabular-nums">{a.lastSeen}</span> },
-        ]} actions={isOwner ? (a) => a.role !== "owner" ? <Button size="sm" variant="outline" aria-label={`Remove ${a.name}`} onClick={() => ask({ title: `Remove ${a.name}?`, body: "They will lose admin access immediately.", confirm: "Remove", destructive: true, run: () => { setAdmins((l) => l.filter((x) => x.id !== a.id)); record(`Removed admin ${a.name}`); } })}><Trash2 /></Button> : null : undefined} />
-        {isOwner && <div className="mt-4 grid gap-2 border-t-2 border-foreground pt-4 sm:grid-cols-[1fr_1fr_auto_auto]">
-          <input className={inputCls} placeholder="Name" aria-label="New admin name" value={invite.name} onChange={(e) => setInvite({ ...invite, name: e.target.value })} />
-          <input className={inputCls} placeholder="Email" aria-label="New admin email" value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} />
-          <Choice label="New admin role" value={invite.role} onChange={(r) => setInvite({ ...invite, role: r })} options={(["editor", "moderator", "support"] as const).map((r) => [r, r] as const)} />
-          <Button onClick={addAdmin}><UserPlus /> Invite</Button>
-        </div>}
-        <dl className="mt-4 grid gap-1 text-xs">{(Object.entries(roleAccess) as [AdminRole, string][]).map(([r, d]) => <div key={r} className="flex gap-2"><dt className="w-20 shrink-0 font-bold uppercase">{r}</dt><dd className="text-muted-foreground">{d}</dd></div>)}</dl>
-      </Panel>
+      <TeamPanel role={role} />
     </div>
 
     <Panel title="Audit log" tag={`${log.length} entries`} className="mt-5">
