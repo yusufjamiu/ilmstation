@@ -99,6 +99,8 @@ export default {
     // Library: star ratings and each book's average
     if (url.pathname === "/api/rate")
       return import("./lib/rate-server").then((m) => m.handleRate(request));
+    if (url.pathname === "/api/xp")
+      return import("./lib/xp-server").then((m) => m.handleXp(request));
     // Ramadan prize quiz: marked on the server
     if (url.pathname === "/api/ramadan-quiz")
       return import("./lib/ramadan-server").then((m) => m.handleRamadanQuiz(request));

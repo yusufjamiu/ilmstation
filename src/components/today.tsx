@@ -7,6 +7,7 @@ import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { awardXp } from "@/lib/xp";
 import { LIBRARY, type LibraryItem } from "@/components/library-data";
 import { CityPicker, DEFAULT_CITY, type City } from "@/components/ramadan";
 import type { ShareCard } from "@/components/share-actions";
@@ -47,7 +48,7 @@ export function useStreak(): StreakInfo | null {
       const count = cur.last === addDays(today, -1) ? cur.count + 1 : 1;
       const next: StreakInfo = { count, best: Math.max(cur.best ?? 0, count), last: today, days: [...(cur.days ?? []).filter((x) => x >= addDays(today, -60)), today] };
       setS(next);
-      void setDoc(ref, { streak: next }, { merge: true }).catch(() => {});
+      void setDoc(ref, { streak: next }, { merge: true }).then(() => awardXp("daily")).catch(() => {});
       if (count > 1) toast.success(`🔥 ${count} day streak! Keep it going.`);
     }).catch(() => {});
   }, [uid]);
@@ -63,9 +64,15 @@ export function levelFor(xp: number) {
   const next = LEVELS[i + 1]?.[0] ?? null;
   return { n: i + 1, name, xp, next, pct: next ? Math.round(((xp - min) / (next - min)) * 100) : 100 };
 }
-export function LevelCard() {
+export function useMyXp() {
+  const uid = useUid();
   const { account } = useAuth();
-  const l = levelFor(account?.xp ?? 0);
+  const [xp, setXp] = useState<number | null>(null);
+  useEffect(() => { if (!uid) return undefined; return onSnapshot(doc(db, "players", uid), (s) => setXp(Number(s.get("xp") ?? 50)), () => {}); }, [uid]);
+  return xp ?? account?.xp ?? 0;
+}
+export function LevelCard() {
+  const l = levelFor(useMyXp());
   return <div className="m-3 border-2 border-foreground bg-foreground p-3 text-background">
     <p className="text-xs uppercase text-background/60">Level {l.n}</p>
     <p className="font-serif text-2xl">{l.name}</p>
@@ -203,17 +210,18 @@ export function DailyWisdom({ onShare, w: given }: { onShare: (card: ShareCard) 
   const save = () => {
     if (!uid) { toast("Log in to save wisdom."); return; }
     void setDoc(doc(db, "profiles", uid), { savedWisdom: arrayUnion(w.id) }, { merge: true })
-      .then(() => toast.success("Saved")).catch(() => toast("Couldn't save. Try again."));
+      .then(() => { toast.success("Saved"); void awardXp("wisdom"); }).catch(() => toast("Couldn't save. Try again."));
   };
   const copy = () => {
     void navigator.clipboard.writeText(`${w.arabic ? `${w.arabic}\n\n` : ""}“${w.text}”\n— ${w.source}\n\nvia IlmStation · ilmstation.com`)
-      .then(() => toast.success("Copied")).catch(() => toast("Couldn't copy."));
+      .then(() => { toast.success("Copied"); void awardXp("wisdom"); }).catch(() => toast("Couldn't copy."));
   };
   const download = async () => {
     setBusy(true);
     try {
       const f = await wisdomImage(w);
       if (!f) return;
+      void awardXp("wisdom");
       if (navigator.canShare?.({ files: [f] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
         try { await navigator.share({ files: [f], text: "Daily Wisdom · via IlmStation · ilmstation.com" }); } catch { /* cancelled */ }
       } else {

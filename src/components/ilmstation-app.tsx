@@ -54,6 +54,7 @@ function AchievementsTab() {
   </div>;
 }
 import { cn } from "@/lib/utils";
+import { awardXp } from "@/lib/xp";
 
 type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards";
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
@@ -187,6 +188,8 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
   const [locked, setLocked] = useState<{id:string;title:string;cost:number}>();
   const { canAccess } = usePremium();
   const reset = () => { setStep("topics"); setAnswer(undefined); setQuestion(1); setCorrect(0); };
+  // XP when a quiz finishes (the server caps it per day)
+  useEffect(() => { if (step === "results" && correct > 0) void awardXp("quiz", { correct, total: questions.length, difficulty }); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
   if (step === "choose") return <Frame eyebrow="Play & learn" title="Play">
     <div className="grid gap-5 md:grid-cols-2">
       <button onClick={() => setStep("topics")} className="border-2 border-foreground bg-primary p-6 text-left shadow-brutal transition hover:-translate-y-0.5">

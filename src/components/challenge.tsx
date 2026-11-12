@@ -1,3 +1,4 @@
+import { awardXp } from "@/lib/xp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Clock, Search, Send, Share2, Swords, Trophy, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -200,10 +201,10 @@ export function ChallengeScreen() {
     const m = meRef.current;
     const mine = youRef.current;
     const theirs = liveNow?.scores?.[rival.id] ?? 0;
-    const gained = Math.round(mine / 10) + (mine > theirs ? Math.round((20 + 2 * rounds) * levelMult(level) * clockMult(seconds)) : mine === theirs ? 10 : 0); setEarned(gained); const xp = m.xp + gained;
-    if (mine > theirs) { const s = m.streak + 1; void setDoc(doc(db, "players", myId), { xp, wins: m.wins + 1, streak: s, bestRun: Math.max(m.bestRun, s) }, { merge: true }).catch(() => {}); }
-    else if (mine === theirs) void setDoc(doc(db, "players", myId), { xp }, { merge: true }).catch(() => {});
-    else if (mine < theirs) void setDoc(doc(db, "players", myId), { xp, losses: m.losses + 1, streak: 0 }, { merge: true }).catch(() => {});
+    const gained = Math.round(mine / 10) + (mine > theirs ? Math.round((20 + 2 * rounds) * levelMult(level) * clockMult(seconds)) : mine === theirs ? 10 : 0); setEarned(gained); void awardXp("duel", { xp: gained });
+    if (mine > theirs) { const s = m.streak + 1; void setDoc(doc(db, "players", myId), { wins: m.wins + 1, streak: s, bestRun: Math.max(m.bestRun, s) }, { merge: true }).catch(() => {}); }
+    else if (mine === theirs) void 0;
+    else if (mine < theirs) void setDoc(doc(db, "players", myId), { losses: m.losses + 1, streak: 0 }, { merge: true }).catch(() => {});
   }, [phase, opponentDone]);
   const onlineCount = players.filter((r) => r.presence === "online").length;
 
