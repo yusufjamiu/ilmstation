@@ -1,3 +1,4 @@
+import { useSponsorConfig } from "@/components/sponsor-tiers";
 import { FormEvent, useEffect, useState } from "react";
 import {
   ArrowLeft, BadgeCheck, Baby, Bell, BookOpen, Check, ChevronRight, Clock, Copy, Eye, Gift,
@@ -501,19 +502,21 @@ const tiers = [
 ] as const;
 
 export function SponsorshipSection() {
+  const cfg = useSponsorConfig();
+  const shown = cfg.tiers.filter((t) => t.active !== false);
   return <section id="sponsorship" className="border-y-2 border-foreground bg-muted">
     <div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div><p className="text-xs font-bold uppercase text-muted-foreground">Sadaqah jariyah</p><h2 className="font-serif text-5xl">Sponsor a learner’s whole year.</h2></div>
-        <p className="max-w-md text-muted-foreground">₦5,000 a month keeps one child in structured, teacher-guided learning — and the reward continues with every ayah they carry.</p>
+        <div><p className="text-xs font-bold uppercase text-muted-foreground">{cfg.eyebrow}</p><h2 className="font-serif text-5xl">{cfg.headline}</h2></div>
+        <p className="max-w-md text-muted-foreground">{cfg.intro}</p>
       </div>
-      <div className="mt-8 grid gap-4 lg:grid-cols-3">{tiers.map((t) => <article key={t.id} className={cn("flex flex-col border-2 border-foreground p-6 shadow-brutal", t.tint)}>
+      <div className={cn("mt-8 grid gap-4", shown.length >= 3 ? "lg:grid-cols-3" : shown.length === 2 ? "lg:grid-cols-2" : "")}>{shown.map((t) => <article key={t.id} className={cn("flex flex-col border-2 border-foreground p-6 shadow-brutal", t.highlight ? "bg-primary" : "bg-background")}>
         <p className="text-xs font-bold uppercase">{t.name}</p>
         <p className="mt-3 font-serif text-5xl leading-none">{t.amount}</p>
         <small className="mt-1 font-semibold">{t.per}</small>
-        <p className="mt-4 border-t-2 border-foreground pt-4 font-serif text-xl leading-tight">{t.covers}</p>
+        {t.covers && <p className="mt-4 border-t-2 border-foreground pt-4 font-serif text-xl leading-tight">{t.covers}</p>}
         <ul className="mt-4 grid flex-1 gap-2 text-sm">{t.perks.map((p) => <li key={p} className="flex gap-2"><Check className="mt-0.5 size-4 shrink-0" />{p}</li>)}</ul>
-        <Button asChild className="mt-6 w-full" variant={t.id === "circle" ? "secondary" : "default"}><a href="/sponsorship">Sponsor this <ChevronRight /></a></Button>
+        <Button asChild className="mt-6 w-full" variant={t.highlight ? "secondary" : "default"}><a href="/sponsorship">Sponsor this <ChevronRight /></a></Button>
       </article>)}</div>
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-2 border-foreground bg-foreground p-6 text-background shadow-brutal">
         <p className="font-serif text-3xl">Organisations, masjids, and CSR teams welcome.</p>

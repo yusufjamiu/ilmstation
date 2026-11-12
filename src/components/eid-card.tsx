@@ -99,6 +99,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, font: (px: number) => 
   let px = max;
   for (; px > 40; px -= 6) { ctx.font = font(px); if (ctx.measureText(text).width <= width) break; }
   ctx.font = font(px);
+  return px;
 }
 
 /* ---- ornaments ---- */
@@ -176,25 +177,34 @@ type Texts = { to: string; message: string; from: string };
 
 function drawText(ctx: CanvasRenderingContext2D, t: { fg: string; accent: string; gold?: boolean; arabic: string; offset: number; hideTitle?: boolean; shadow?: boolean; mark?: boolean }, o: Occasion, f: Texts, fonts: Fonts) {
   ctx.save();
-  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
   if (t.shadow) { ctx.shadowColor = isLight(t.fg) ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.6)"; ctx.shadowBlur = 14; }
-  let y: number;
+  const arFont = (px: number) => `700 ${px}px ${t.arabic}`;
+  const enFont = (px: number) => `600 ${px}px ${fonts.serif}`;
+  const arPx = t.hideTitle ? 0 : fit(ctx, o.ar, arFont, 160, 900);
+  const enPx = t.hideTitle ? 0 : fit(ctx, o.en, enFont, 62, 900);
+  ctx.font = `42px ${fonts.sans}`;
+  const msg = wrap(ctx, f.message.trim(), 820).slice(0, 6);
+  const to = f.to.trim(), from = f.from.trim();
+  // measure everything, then centre it in the space below the moon/ornaments
+  const h = (t.hideTitle ? 0 : arPx * 1.25 + 16 + enPx * 1.3 + 56) + (to ? 80 : 0) + msg.length * 62 + (from ? 86 : 0);
+  const top = 340, bottom = H - 150;
+  let y = Math.max(top - 60, (top + bottom) / 2 - h / 2 + t.offset);
   if (!t.hideTitle) {
     if (t.gold) {
       const gg = ctx.createLinearGradient(W / 2 - 420, 0, W / 2 + 420, 0);
       gg.addColorStop(0, "#b8860b"); gg.addColorStop(0.5, "#ffe9a8"); gg.addColorStop(1, "#b8860b");
       ctx.fillStyle = gg;
     } else ctx.fillStyle = t.fg;
-    fit(ctx, o.ar, (px) => `700 ${px}px ${t.arabic}`, 160, 900); ctx.fillText(o.ar, W / 2, 500 + t.offset);
-    ctx.fillStyle = t.accent; fit(ctx, o.en, (px) => `600 ${px}px ${fonts.serif}`, 62, 900); ctx.fillText(o.en, W / 2, 590 + t.offset);
-    y = 720 + t.offset;
-  } else y = 600 + t.offset;
+    ctx.font = arFont(arPx); ctx.fillText(o.ar, W / 2, y); y += arPx * 1.25 + 16;
+    ctx.fillStyle = t.accent; ctx.font = enFont(enPx); ctx.fillText(o.en, W / 2, y); y += enPx * 1.3 + 56;
+  }
   ctx.fillStyle = t.fg;
-  if (f.to.trim()) { ctx.font = `600 46px ${fonts.serif}`; ctx.fillText(`Dear ${f.to.trim()},`, W / 2, y); y += 80; }
+  if (to) { ctx.font = `600 46px ${fonts.serif}`; ctx.fillText(`Dear ${to},`, W / 2, y); y += 80; }
   ctx.font = `42px ${fonts.sans}`;
-  for (const l of wrap(ctx, f.message.trim(), 820).slice(0, t.offset > 0 ? 3 : 6)) { ctx.fillText(l, W / 2, y); y += 62; }
-  if (f.from.trim()) { ctx.font = `italic 46px ${fonts.serif}`; ctx.fillText(`— ${f.from.trim()}`, W / 2, Math.min(Math.max(y + 40, H - 230), H - 150)); }
-  if (t.mark !== false) { ctx.globalAlpha = 0.8; ctx.font = `30px ${fonts.sans}`; ctx.fillText("Made with IlmStation · ilmstation.com", W / 2, H - 80); }
+  for (const l of msg) { ctx.fillText(l, W / 2, y); y += 62; }
+  if (from) { y += 36; ctx.font = `italic 46px ${fonts.serif}`; ctx.fillText(`— ${from}`, W / 2, y); }
+  if (t.mark !== false) { ctx.textBaseline = "alphabetic"; ctx.globalAlpha = 0.8; ctx.font = `30px ${fonts.sans}`; ctx.fillText("Made with IlmStation · ilmstation.com", W / 2, H - 80); }
   ctx.restore();
 }
 

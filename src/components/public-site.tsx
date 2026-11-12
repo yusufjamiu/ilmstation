@@ -1,3 +1,5 @@
+import { Gamepad2, Headphones, MoonStar } from "lucide-react";
+import { roomGenders, roomZones, useRooms } from "@/components/chatrooms";
 import { FormEvent, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -41,7 +43,7 @@ function PublicHeader() {
   const [open, setOpen] = useState(false);
   const { t } = useLanguage();
   const { loggedIn } = useAuth();
-  const links = [["/", "Home"], ["/events", "Events"], ["/centres", "Centres"], ["/chatrooms", "Chatrooms"], ["/sponsorship", "Sponsor"]] as const;
+  const links = [["/", "Home"], ["/world", "IlmWorld"], ["/chatrooms", "Chatrooms"], ["/sponsorship", "Sponsor"]] as const;
   return <header className="sticky top-0 z-30 border-b-2 border-foreground bg-background">
     <div className="mx-auto flex h-18 max-w-[1440px] items-center px-4 sm:px-6">
       <Link to="/" className="flex min-w-0 items-center gap-2 sm:gap-3"><span className="grid size-10 shrink-0 place-items-center bg-foreground font-serif text-2xl text-background">I</span><span className="min-w-0"><strong className="block truncate font-serif text-xl font-normal leading-none">IlmStation</strong><small className="hidden text-[10px] uppercase text-muted-foreground sm:block">Seek · Learn · Grow</small></span></Link>
@@ -62,7 +64,7 @@ function PublicHeader() {
 }
 
 export function PublicShell({children,flush=false}:{children:React.ReactNode;flush?:boolean}) {
-  return <div className="min-h-screen bg-background text-foreground"><PublicHeader/>{children}<footer className={cn("border-t-2 border-foreground bg-foreground text-background",!flush&&"mt-20")}><div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-6 px-4 py-10 sm:flex-row sm:px-6"><div><p className="font-serif text-3xl">IlmStation</p><p className="mt-1 text-sm text-background/70">Knowledge pursued with purpose.</p></div><div className="flex flex-wrap gap-6 text-sm"><Link to="/events">Events</Link><Link to="/centres">Centres</Link><Link to="/chatrooms">Chatrooms</Link><Link to="/sponsorship">Sponsor a learner</Link><Link to="/app">Dashboard</Link></div></div></footer></div>;
+  return <div className="min-h-screen bg-background text-foreground"><PublicHeader/>{children}<footer className={cn("border-t-2 border-foreground bg-foreground text-background",!flush&&"mt-20")}><div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-6 px-4 py-10 sm:flex-row sm:px-6"><div><p className="font-serif text-3xl">IlmStation</p><p className="mt-1 text-sm text-background/70">Knowledge pursued with purpose.</p></div><div className="grid gap-3 text-sm sm:text-right"><div className="flex flex-wrap gap-6 sm:justify-end"><Link to="/world">IlmWorld</Link><Link to="/chatrooms">Chatrooms</Link><Link to="/sponsorship">Sponsor a learner</Link><Link to="/app">Dashboard</Link></div><a href="mailto:admin@ilmstation.com" className="text-background/70 hover:text-background">admin@ilmstation.com</a><p className="text-xs text-background/50">© {new Date().getFullYear()} IlmStation</p></div></div></footer></div>;
 }
 
 function DateTile({day,month}:{day:string;month:string}) { return <div className="grid h-20 w-18 shrink-0 place-items-center border-2 border-foreground bg-primary text-center shadow-brutal-sm"><span><b className="block font-serif text-3xl leading-none">{day}</b><small className="font-bold">{month}</small></span></div>; }
@@ -112,50 +114,146 @@ function FaqItem({ q, a, open, onToggle }: { q: string; a: string; open: boolean
   </div>;
 }
 
+const realFeatures = [
+  { icon: Flame, title: "Quizzes & daily streaks", body: "Short quizzes on Aqeedah, Hadith, Seerah, Fiqh, Arabic and more, with a streak that rewards showing up every day." },
+  { icon: Headphones, title: "Library with audio", body: "Books and articles that remember your page, plus audiobooks and lecture series chapter by chapter." },
+  { icon: BookOpen, title: "Hifz tracker", body: "Memorise at your own pace with revision and gentle daily targets." },
+  { icon: ScrollText, title: "Daily Wisdom", body: "An ayah, hadith or word of the scholars each day, ready to save, copy or share as a beautiful card." },
+  { icon: MessageCircle, title: "Moderated chatrooms", body: "Topic rooms by age group, with sisters’ and brothers’ circles, kept text-only and respectful." },
+  { icon: Sparkles, title: "Cards for every occasion", body: "Make Eid, Ramadan, Jumu’ah, nikah, new baby and condolence cards and share them on WhatsApp." },
+] as const;
+
+const realFaqs = [
+  { q: "Is IlmStation free to use?", a: "Yes, it’s free to start: daily wisdom, quizzes, chatrooms, free library books, cards and the Ramadan programme. Premium unlocks premium readings, designer cards and more, and some items can also be unlocked with the points you earn." },
+  { q: "Do I need to know Arabic to start?", a: "No. Everything has English, and the Arabic is there for when you’re ready." },
+  { q: "What is IlmWorld?", a: "A 3D Muslim life game inside IlmStation. Live in Lagos, Ilorin, Makkah or Madinah: pray at the masjid, learn, work, rent a home, race at the arena and meet other players." },
+  { q: "How does the Ramadan prize quiz work?", a: "Each day of Ramadan you finish the lesson, dua and reminder, then take the quiz. Answers are revealed after Tarawih, and the first correct entries win prizes from that day’s sponsors. It’s free to enter, for Teens and Adults." },
+  { q: "Is it suitable for children?", a: "Yes. Kids Zone users only see books and rooms made for their age, they can’t join book discussions or the prize quiz, and kids rooms are moderated by our team." },
+  { q: "Can I learn entirely online?", a: "Yes. IlmStation works fully online on your phone or computer." },
+] as const;
+
+const featureScreen: Record<string, string> = {
+  "Quizzes & daily streaks": "play", "Library with audio": "library", "Hifz tracker": "hifz",
+  "Daily Wisdom": "home", "Moderated chatrooms": "chatrooms", "Cards for every occasion": "cards",
+};
+
 export function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | undefined>(0);
+  const { loggedIn } = useAuth();
+  const appLink = (s: string) => (loggedIn ? `/app?s=${s}` : "/signup");
+  const { rooms: liveRooms } = useRooms();
+  const openRooms = liveRooms.filter((r) => r.active && roomGenders(r).length === 2 && (roomZones(r).includes("adult") || roomZones(r).includes("youth")))
+    .sort((a, b) => (b.memberCount ?? 0) - (a.memberCount ?? 0)).slice(0, 3);
+
   return <PublicShell flush><main>
-    <section className="border-b-2 border-foreground"><div className="mx-auto grid max-w-[1440px] lg:grid-cols-[1.25fr_.75fr]"><div className="px-4 py-16 sm:px-8 sm:py-24 lg:border-r-2 lg:border-foreground lg:px-14"><p className="mb-5 text-xs font-bold uppercase">A living school for everyday Muslims</p><h1 className="max-w-4xl break-words font-serif text-5xl leading-[.92] sm:text-7xl lg:text-8xl">Seek knowledge.<br/><em className="text-secondary">Grow together.</em></h1><p className="mt-7 max-w-2xl text-lg leading-8 text-muted-foreground">Daily learning, trusted teachers, local centres, and thoughtful conversations—connected in one purposeful journey.</p><div className="mt-8 flex flex-wrap gap-3"><Button asChild size="lg"><Link to="/app">Start today’s quest <ArrowRight/></Link></Button><Button asChild size="lg" variant="outline"><Link to="/events">See upcoming events</Link></Button></div></div><div className="grid grid-cols-2 bg-primary"><div className="flex min-h-40 flex-col justify-end border-b-2 border-r-2 border-foreground p-6"><b className="font-serif text-5xl">12k+</b><span className="text-sm font-semibold">active learners</span></div><div className="flex min-h-40 flex-col justify-end border-b-2 border-foreground p-6"><b className="font-serif text-5xl">48</b><span className="text-sm font-semibold">guided paths</span></div><div className="col-span-2 flex min-h-fit flex-col justify-between bg-secondary p-7 text-secondary-foreground sm:min-h-52"><p className="font-arabic text-3xl sm:text-4xl" dir="rtl">وَقُل رَّبِّ زِدْنِي عِلْمًا</p><div><p className="font-serif text-3xl">“My Lord, increase me in knowledge.”</p><small>Qur’an 20:114</small></div></div></div></div></section>
+    {/* hero */}
+    <section className="border-b-2 border-foreground"><div className="mx-auto grid max-w-[1440px] lg:grid-cols-[1.25fr_.75fr]">
+      <div className="px-4 py-16 sm:px-8 sm:py-24 lg:border-r-2 lg:border-foreground lg:px-14">
+        <p className="mb-5 text-xs font-bold uppercase">A living school for everyday Muslims</p>
+        <h1 className="max-w-4xl break-words font-serif text-5xl leading-[.92] sm:text-7xl lg:text-8xl">Seek knowledge.<br/><em className="text-secondary">Grow together.</em></h1>
+        <p className="mt-7 max-w-2xl text-lg leading-8 text-muted-foreground">Daily lessons, quizzes, a library with audio, moderated chatrooms and a 3D Muslim world, in one purposeful journey.</p>
+        <div className="mt-8 flex flex-wrap gap-3"><Button asChild size="lg"><Link to="/app">Start today’s quest <ArrowRight/></Link></Button><Button asChild size="lg" variant="outline"><a href="/world">Explore IlmWorld <Gamepad2/></a></Button></div>
+      </div>
+      <div className="grid grid-cols-2 bg-primary">
+        <div className="flex min-h-40 flex-col justify-end border-b-2 border-r-2 border-foreground p-6"><b className="font-serif text-5xl">Free</b><span className="text-sm font-semibold">to start learning</span></div>
+        <div className="flex min-h-40 flex-col justify-end border-b-2 border-foreground p-6"><b className="font-serif text-5xl">3 zones</b><span className="text-sm font-semibold">Kids · Teens · Adults</span></div>
+        <div className="col-span-2 flex min-h-fit flex-col justify-between bg-secondary p-7 text-secondary-foreground sm:min-h-52"><p className="font-arabic text-3xl sm:text-4xl" dir="rtl">وَقُل رَّبِّ زِدْنِي عِلْمًا</p><div><p className="font-serif text-3xl">“My Lord, increase me in knowledge.”</p><small>Qur’an 20:114</small></div></div>
+      </div>
+    </div></section>
 
-    <section className="border-b-2 border-foreground"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase text-muted-foreground">Simple by design</p><h2 className="font-serif text-5xl">How IlmStation works</h2></div></div><div className="mt-8 grid gap-px border-2 border-foreground bg-foreground shadow-brutal md:grid-cols-3">{[["01","Pick your path","Choose a guided path—foundations, Qur’an, Arabic, Seerah—or let your daily quest choose for you."],["02","Learn a little, daily","Short lessons, honest streaks, and spaced revision. Ten focused minutes beats an hour you never take."],["03","Grow with company","Reflect in chatrooms, attend live events, and sit in a circle at a centre near you."]].map(([n,t,b])=><div key={n} className="bg-background p-6 sm:p-8"><b className="font-serif text-5xl text-secondary">{n}</b><h3 className="mt-4 font-serif text-2xl">{t}</h3><p className="mt-3 leading-7 text-muted-foreground">{b}</p></div>)}</div></div></section>
+    {/* how it works */}
+    <section className="border-b-2 border-foreground"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6">
+      <p className="text-xs font-bold uppercase text-muted-foreground">Simple by design</p><h2 className="font-serif text-5xl">How IlmStation works</h2>
+      <div className="mt-8 grid gap-px border-2 border-foreground bg-foreground shadow-brutal md:grid-cols-3">{[
+        ["01", "Join your zone", "Sign up free and choose your zone: Kids, Teens & Young Adults, or Adult. You only see what’s right for you."],
+        ["02", "Learn a little, daily", "A daily wisdom, a quick quiz, a few pages or an audio chapter. Ten focused minutes keeps your streak alive."],
+        ["03", "Grow with company", "Reflect in moderated chatrooms, discuss books with other readers, and live it out in IlmWorld."],
+      ].map(([n, t, b]) => <div key={n} className="bg-background p-6 sm:p-8"><b className="font-serif text-5xl text-secondary">{n}</b><h3 className="mt-4 font-serif text-2xl">{t}</h3><p className="mt-3 leading-7 text-muted-foreground">{b}</p></div>)}</div>
+    </div></section>
 
-    <section className="border-b-2 border-foreground bg-muted"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase text-muted-foreground">One companion, the whole journey</p><h2 className="font-serif text-5xl">Everything you need to keep going</h2></div><Button asChild variant="outline"><Link to="/app">Explore the dashboard <ArrowRight/></Link></Button></div><div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{features.map((f,i)=><article key={f.title} className={cn("flex flex-col border-2 border-foreground p-6 shadow-brutal", i%3===0&&"bg-primary", i%3===1&&"bg-background", i%3===2&&"bg-secondary text-secondary-foreground")}><span className="grid size-12 place-items-center border-2 border-foreground bg-background text-foreground shadow-brutal-sm"><f.icon className="size-6 shrink-0" strokeWidth={2}/></span><h3 className="mt-5 font-serif text-2xl">{f.title}</h3><p className="mt-3 flex-1 text-sm leading-6">{f.body}</p><Link to="/app" className="mt-5 inline-flex items-center gap-1 text-sm font-bold underline underline-offset-4">Try it now <ArrowRight className="size-4"/></Link></article>)}</div></div></section>
+    {/* IlmWorld */}
+    <section className="border-b-2 border-foreground bg-[#10201e] text-[#fdf8ec]"><div className="mx-auto grid max-w-[1440px] gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.1fr_.9fr] lg:items-center">
+      <div>
+        <p className="text-xs font-bold uppercase text-[#e6b84a]">New · 3D world</p>
+        <h2 className="mt-2 font-serif text-5xl leading-tight sm:text-6xl">IlmWorld: live a Muslim life, learn as you go.</h2>
+        <p className="mt-5 max-w-xl text-lg leading-8 opacity-90">Walk the streets of Lagos and Ilorin, visit Makkah and Madinah for Hajj and Umrah, pray at the masjid, attend lectures, rent a home, run a shop, race at the arena and meet real players.</p>
+        <Button asChild size="lg" className="mt-8 border-2 border-[#fdf8ec] bg-[#e6b84a] text-[#10201e] shadow-[4px_4px_0_0_#fdf8ec]"><a href="/world">Enter IlmWorld <ArrowRight/></a></Button>
+      </div>
+      <div className="grid grid-cols-2 gap-3">{[["🕌", "Pray at the masjid"], ["🏠", "Rent & furnish a home"], ["🛒", "Run a market stall"], ["🏃", "Race at the arena"], ["🕋", "Hajj & Umrah"], ["🎓", "Lectures & quizzes"]].map(([e, t]) =>
+        <div key={t} className="border-2 border-[#fdf8ec]/40 p-4"><span className="text-3xl">{e}</span><p className="mt-2 text-sm font-semibold">{t}</p></div>)}</div>
+    </div></section>
 
-    <section className="border-b-2 border-foreground"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase text-muted-foreground">Structured, teacher-guided, pace-friendly</p><h2 className="font-serif text-5xl">Choose a learning path</h2></div><p className="max-w-md text-muted-foreground">Every path is broken into short lessons with checkpoints, so you always know what’s next.</p></div><div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{paths.map(p=><Link key={p.title} to="/app" className={cn("group border-2 border-foreground p-5 shadow-brutal transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5",p.tint)}><div className="flex items-center justify-between gap-3"><span className="border-2 border-foreground bg-background px-2 py-1 text-xs font-bold uppercase text-foreground">{p.level}</span><GraduationCap className="size-5"/></div><h3 className="mt-4 font-serif text-2xl leading-tight">{p.title}</h3><p className="mt-3 flex items-center gap-4 text-sm font-semibold"><span>{p.lessons} lessons</span><span className="text-muted-foreground">{p.weeks}</span></p><span className="mt-5 inline-flex items-center gap-1 text-sm font-bold underline underline-offset-4">Begin path <ArrowRight className="size-4 transition-transform group-hover:translate-x-1"/></span></Link>)}</div></div></section>
+    {/* features */}
+    <section className="border-b-2 border-foreground bg-muted"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6">
+      <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase text-muted-foreground">One companion, the whole journey</p><h2 className="font-serif text-5xl">Everything you need to keep going</h2></div><Button asChild variant="outline"><Link to="/app">Open the app <ArrowRight/></Link></Button></div>
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{realFeatures.map((f, i) => <article key={f.title} className={cn("flex flex-col border-2 border-foreground p-6 shadow-brutal", i % 3 === 0 && "bg-primary", i % 3 === 1 && "bg-background", i % 3 === 2 && "bg-secondary text-secondary-foreground")}>
+        <span className="grid size-12 place-items-center border-2 border-foreground bg-background text-foreground shadow-brutal-sm"><f.icon className="size-6 shrink-0" strokeWidth={2}/></span>
+        <h3 className="mt-5 font-serif text-2xl">{f.title}</h3><p className="mt-3 flex-1 text-sm leading-6">{f.body}</p>
+        <a href={appLink(featureScreen[f.title] ?? "home")} className="mt-5 inline-flex items-center gap-1 text-sm font-bold underline underline-offset-4">{loggedIn ? "Open" : "Try it now"} <ArrowRight className="size-4"/></a>
+      </article>)}</div>
+    </div></section>
 
-    <section className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase text-muted-foreground">Learn in good company</p><h2 className="font-serif text-5xl">Coming up</h2></div><Button asChild variant="outline"><Link to="/events">All events <ArrowRight/></Link></Button></div><div className="mt-7 grid gap-4 lg:grid-cols-3">{events.slice(0,3).map((event,i)=><article key={event.id} className={cn("border-2 border-foreground p-5 shadow-brutal",i===0&&"bg-primary")}><div className="flex gap-4"><DateTile day={event.day} month={event.month}/><div><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold uppercase">{event.format}</span><span className={cn("px-2 py-0.5 text-xs font-bold uppercase",event.price===0?"bg-secondary text-secondary-foreground":"border-2 border-foreground bg-background")}>{eventPrice(event.price)}</span></div><h3 className="mt-1 font-serif text-2xl leading-tight">{event.title}</h3></div></div><p className="mt-5 text-sm">{event.speaker}</p><p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground"><Clock className="size-4"/>{event.time}</p><Button asChild variant={i===0?"secondary":"outline"} className="mt-5 w-full"><Link to="/events">View & register</Link></Button></article>)}</div></section>
+    {/* Ramadan */}
+    <section className="border-b-2 border-foreground"><div className="mx-auto grid max-w-[1440px] gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1fr_1fr] lg:items-center">
+      <div>
+        <p className="flex items-center gap-2 text-xs font-bold uppercase text-muted-foreground"><MoonStar className="size-4"/> Ramadan with IlmStation</p>
+        <h2 className="mt-2 font-serif text-5xl leading-tight">Your best Ramadan, day by day.</h2>
+        <p className="mt-4 max-w-xl leading-7 text-muted-foreground">Suhoor and iftar times for your city, a daily checklist, a Qur’an khatm tracker, a 30-day quest, and a daily prize quiz with real prizes from our sponsors.</p>
+        <div className="mt-7 flex flex-wrap gap-3"><Button asChild><a href={appLink("ramadan")}>Prepare for Ramadan <ArrowRight/></a></Button><Button asChild variant="outline"><a href="mailto:admin@ilmstation.com?subject=Sponsor%20Ramadan%20prizes">Sponsor a day’s prizes</a></Button></div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">{[
+        ["Daily checklist", "Fasting, the five prayers, Tarawih, Qur’an, dua and sadaqah, with a streak."],
+        ["30-day quest", "A lesson, a dua and a reminder each day, then the quiz."],
+        ["Daily prize quiz", "First correct entries win. Results after Tarawih, with a live leaderboard."],
+        ["Eid cards", "Make and share beautiful Eid cards with your family."],
+      ].map(([t, b]) => <article key={t} className="border-2 border-foreground bg-background p-5 shadow-brutal-sm"><h3 className="font-serif text-2xl">{t}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{b}</p></article>)}</div>
+    </div></section>
 
-    <section className="border-y-2 border-foreground bg-muted"><div className="mx-auto grid max-w-[1440px] lg:grid-cols-2"><div className="p-6 sm:p-10 lg:border-r-2 lg:border-foreground"><p className="text-xs font-bold uppercase">Learn nearby</p><h2 className="font-serif text-5xl">A centre for your next chapter.</h2><p className="mt-4 max-w-xl text-muted-foreground">Find structured classes, family circles, and teachers in your city.</p><Button asChild className="mt-7"><Link to="/centres">Find a centre <MapPin/></Link></Button></div><div className="grid sm:grid-cols-2">{centres.slice(0,2).map(c=><div key={c.id} className="border-t-2 border-foreground p-6 first:border-t-0 sm:border-l-2 sm:border-t-0 sm:first:border-l-0 lg:first:border-l-0"><span className="text-xs font-bold uppercase text-secondary">{c.status}</span><h3 className="mt-2 font-serif text-3xl">{c.name}</h3><p className="mt-3 text-sm text-muted-foreground">{c.address}</p><p className="mt-5 text-sm font-semibold">{c.places} places available</p></div>)}</div></div></section>
+    {/* chatrooms */}
+    <section className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="grid gap-8 lg:grid-cols-[.8fr_1.2fr]">
+      <div><p className="text-xs font-bold uppercase text-muted-foreground">Conversations with adab</p><h2 className="font-serif text-5xl">The circle stays open.</h2><p className="mt-4 text-muted-foreground">Topic rooms for each age group, sisters’ and brothers’ circles, text-only and moderated by our team.</p><Button asChild className="mt-7"><a href={appLink("chatrooms")}>Enter chatrooms <MessageCircle/></a></Button></div>
+      <div className="divide-y-2 divide-foreground border-2 border-foreground shadow-brutal">
+        {openRooms.length === 0 ? <p className="p-6 text-sm text-muted-foreground">Rooms are opening soon.</p> : openRooms.map((r) => <a key={r.id} href={appLink("chatrooms")} className="flex items-center gap-4 bg-background p-4 hover:bg-primary">
+          <span className="grid size-12 place-items-center bg-foreground text-background"><MessageCircle/></span>
+          <span className="min-w-0 flex-1"><b className="block font-serif text-xl font-normal">{r.name}</b><small className="text-muted-foreground">{r.memberCount ?? 0} members · {r.topic}</small></span><ChevronRight/>
+        </a>)}
+      </div>
+    </div></section>
 
-    <section className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="grid gap-8 lg:grid-cols-[.8fr_1.2fr]"><div><p className="text-xs font-bold uppercase text-muted-foreground">Conversations with adab</p><h2 className="font-serif text-5xl">The circle stays open.</h2><p className="mt-4 text-muted-foreground">Join topic-led rooms, share reflections, and learn from a community committed to respectful conversation.</p><Button asChild className="mt-7"><Link to="/chatrooms">Enter chatrooms <MessageCircle/></Link></Button></div><div className="divide-y-2 divide-foreground border-2 border-foreground shadow-brutal">{rooms.slice(0,3).map(r=><Link key={r.id} to="/chatrooms" className="flex items-center gap-4 bg-background p-4 hover:bg-primary"><span className="grid size-12 place-items-center bg-foreground text-background"><MessageCircle/></span><span className="min-w-0 flex-1"><b className="block font-serif text-xl font-normal">{r.name}</b><small className="text-muted-foreground">{r.online} online · {r.topic}</small></span><ChevronRight/></Link>)}</div></div></section>
-
+    {/* kids & family */}
     <section className="border-y-2 border-foreground bg-foreground text-background"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6">
       <div className="grid gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
         <div>
           <p className="text-xs font-bold uppercase text-primary">Kids & family</p>
-          <h2 className="mt-2 font-serif text-5xl leading-tight sm:text-6xl">A safe, joyful first journey for your children.</h2>
-          <p className="mt-5 max-w-xl text-lg leading-8 text-background/70">Children never sign up on their own. A parent or legal guardian verifies once, then creates and fully controls every child profile — permissions, screen time, approvals, and progress.</p>
+          <h2 className="mt-2 font-serif text-5xl leading-tight sm:text-6xl">A safe, joyful journey for children.</h2>
+          <p className="mt-5 max-w-xl text-lg leading-8 text-background/70">The Kids Zone keeps things age-appropriate: books and rooms made for children, no book discussions with strangers, and kids rooms moderated by our team.</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button asChild size="lg" className="border-2 border-background bg-primary text-foreground shadow-[4px_4px_0_0_var(--color-background)]"><Link to="/app">Open the family hub <ShieldCheck/></Link></Button>
+            <Button asChild size="lg" className="border-2 border-background bg-primary text-foreground shadow-[4px_4px_0_0_var(--color-background)]"><Link to="/signup">Get started <ShieldCheck/></Link></Button>
             <Button asChild size="lg" variant="outline" className="border-2 border-background bg-transparent text-background shadow-[4px_4px_0_0_var(--color-primary)]"><Link to="/sponsorship">Sponsor a child</Link></Button>
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">{[
-          [ShieldCheck,"Guardian-only onboarding","No child login, no child email. Profiles live inside your verified account."],
-          [Sparkles,"Gamified, age-appropriate","Stars, growing gardens, sticker badges, and short quests built for little attention spans."],
-          [Clock,"Screen time you set","A daily limit per child that ends the session gently with a dua screen."],
-          [Trophy,"Progress you can see","Weekly summaries of quests, stars, surahs practised, and time spent."],
-        ].map(([Icon,t,b]:any)=><article key={t} className="border-2 border-background bg-background p-5 text-foreground shadow-[4px_4px_0_0_var(--color-primary)]"><Icon className="size-6"/><h3 className="mt-4 font-serif text-2xl leading-tight">{t}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{b}</p></article>)}</div>
+          [ShieldCheck, "Age-appropriate", "Kids only see books, lessons and rooms meant for their age."],
+          [MessageCircle, "Moderated rooms", "Kids rooms are run by our team, and anything can be reported."],
+          [Sparkles, "Learning that’s fun", "Quizzes, streaks and points built for short attention spans."],
+          [Trophy, "Progress you can see", "Points, streaks and finished books show how they’re growing."],
+        ].map(([Icon, t, b]: any) => <article key={t} className="border-2 border-background bg-background p-5 text-foreground shadow-[4px_4px_0_0_var(--color-primary)]"><Icon className="size-6"/><h3 className="mt-4 font-serif text-2xl leading-tight">{t}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{b}</p></article>)}</div>
       </div>
     </div></section>
 
     <SponsorshipSection/>
 
-    <section className="border-y-2 border-foreground bg-primary"><div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><p className="text-xs font-bold uppercase">Words from the circle</p><h2 className="font-serif text-5xl">Learners on the journey.</h2><div className="mt-8 grid gap-4 lg:grid-cols-3">{testimonials.map(t=><figure key={t.name} className="flex flex-col border-2 border-foreground bg-background p-6 shadow-brutal"><blockquote className="flex-1 font-serif text-2xl leading-snug">“{t.quote}”</blockquote><figcaption className="mt-6 border-t-2 border-foreground pt-4"><b>{t.name}</b><p className="text-sm text-muted-foreground">{t.detail}</p></figcaption></figure>)}</div></div></section>
+    {/* FAQ */}
+    <section className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="grid gap-10 lg:grid-cols-[.8fr_1.2fr]">
+      <div><p className="text-xs font-bold uppercase text-muted-foreground">Before you begin</p><h2 className="font-serif text-5xl">Questions, answered.</h2><p className="mt-4 text-muted-foreground">Anything else? Write to us at <a href="mailto:admin@ilmstation.com" className="font-semibold underline">admin@ilmstation.com</a>.</p></div>
+      <div className="border-2 border-foreground bg-background px-6 shadow-brutal">{realFaqs.map((f, i) => <FaqItem key={f.q} q={f.q} a={f.a} open={openFaq === i} onToggle={() => setOpenFaq(openFaq === i ? undefined : i)}/>)}</div>
+    </div></section>
 
-    <section className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6"><div className="grid gap-10 lg:grid-cols-[.8fr_1.2fr]"><div><p className="text-xs font-bold uppercase text-muted-foreground">Before you begin</p><h2 className="font-serif text-5xl">Questions, answered.</h2><p className="mt-4 text-muted-foreground">Anything else? Ask in the chatrooms—someone has usually wondered the same.</p><Button asChild variant="outline" className="mt-6"><Link to="/chatrooms">Ask the community <MessageCircle/></Link></Button></div><div className="border-2 border-foreground bg-background px-6 shadow-brutal">{faqs.map((f,i)=><FaqItem key={f.q} q={f.q} a={f.a} open={openFaq===i} onToggle={()=>setOpenFaq(openFaq===i?undefined:i)}/>)}</div></div></section>
-
-    <section className="border-t-2 border-foreground bg-foreground text-background"><div className="mx-auto grid max-w-[1440px] gap-8 px-4 py-20 sm:px-6 lg:grid-cols-[1.2fr_.8fr] lg:items-center"><div><p className="font-arabic text-3xl" dir="rtl">إِنَّ مَعَ الْعُسْرِ يُسْرًا</p><h2 className="mt-4 font-serif text-6xl leading-[.95]">Your first lesson is one click away.</h2><p className="mt-5 max-w-xl text-lg text-background/70">No long setup, no pressure. Open the dashboard, take today’s quest, and let the streak begin.</p></div><div className="flex flex-col gap-3 lg:items-end"><Button asChild size="lg" className="border-2 border-background bg-primary text-foreground shadow-[4px_4px_0_0_var(--color-background)]"><Link to="/app">Start today’s quest <ArrowRight/></Link></Button><Button asChild size="lg" variant="outline" className="border-2 border-background bg-transparent text-background shadow-[4px_4px_0_0_var(--color-primary)]"><Link to="/centres">Find a centre near you</Link></Button></div></div></section>
+    {/* final call */}
+    <section className="border-t-2 border-foreground bg-foreground text-background"><div className="mx-auto grid max-w-[1440px] gap-8 px-4 py-20 sm:px-6 lg:grid-cols-[1.2fr_.8fr] lg:items-center">
+      <div><p className="font-arabic text-3xl" dir="rtl">إِنَّ مَعَ الْعُسْرِ يُسْرًا</p><h2 className="mt-4 font-serif text-6xl leading-[.95]">Your first lesson is one click away.</h2><p className="mt-5 max-w-xl text-lg text-background/70">No long setup, no pressure. Open the app, read today’s wisdom, take a quick quiz, and let the streak begin.</p></div>
+      <div className="flex flex-col gap-3 lg:items-end"><Button asChild size="lg" className="border-2 border-background bg-primary text-foreground shadow-[4px_4px_0_0_var(--color-background)]"><Link to="/app">Start today’s quest <ArrowRight/></Link></Button><Button asChild size="lg" variant="outline" className="border-2 border-background bg-transparent text-background shadow-[4px_4px_0_0_var(--color-primary)]"><a href="/world">Explore IlmWorld</a></Button></div>
+    </div></section>
   </main></PublicShell>;
 }
 

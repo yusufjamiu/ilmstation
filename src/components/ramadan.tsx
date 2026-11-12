@@ -42,8 +42,8 @@ const hms = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); retu
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
 /* ---------- any city in the world ---------- */
-type City = { name: string; country?: string; lat?: number; lng?: number; method: number };
-const DEFAULT_CITY: City = { name: "Lagos, Nigeria", lat: 6.455, lng: 3.394, method: 3 };
+export type City = { name: string; country?: string; lat?: number; lng?: number; method: number };
+export const DEFAULT_CITY: City = { name: "Lagos, Nigeria", lat: 6.455, lng: 3.394, method: 3 };
 /** Prayer-time method by country (aladhan.com methods). Everyone else: Muslim World League. */
 function methodFor(cc?: string): number {
   switch ((cc ?? "").toUpperCase()) {
@@ -64,7 +64,7 @@ function methodFor(cc?: string): number {
 }
 type GeoResult = { name: string; admin1?: string; country?: string; country_code?: string; latitude: number; longitude: number };
 
-function CityPicker({ city, onPick }: { city: City; onPick: (c: City) => void }) {
+export function CityPicker({ city, onPick }: { city: City; onPick: (c: City) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [results, setResults] = useState<City[]>([]);

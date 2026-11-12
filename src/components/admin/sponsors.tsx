@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from "@/lib/utils";
 import { seedSponsors, sponsorTiers, type Sponsor, type SponsorStatus } from "./data";
 import { naira, useAdminStore } from "./store";
+import { SponsorTiersSection } from "./sponsor-tiers";
 import { Choice, Field, inputCls, Kpi, Page, Pill, useAudit } from "./ui";
 
 const stages: [SponsorStatus, string][] = [["new", "New"], ["contacted", "Contacted"], ["active", "Active"], ["declined", "Declined"]];
@@ -14,7 +15,13 @@ export function SponsorsSection() {
   const [sponsors, setSponsors] = useAdminStore<Sponsor[]>("sponsors", seedSponsors);
   const [open, setOpen] = useState<Sponsor | null>(null);
   const { record } = useAudit();
+  const [tab, setTab] = useState<"sponsors" | "tiers">("sponsors");
+  const tabs = <div className="mb-5 flex flex-wrap gap-2">
+    <Button variant={tab === "sponsors" ? "default" : "outline"} onClick={() => setTab("sponsors")}>Sponsors</Button>
+    <Button variant={tab === "tiers" ? "default" : "outline"} onClick={() => setTab("tiers")}>Tiers & prices</Button>
+  </div>;
   const active = sponsors.filter((s) => s.status === "active");
+  if (tab === "tiers") return <SponsorTiersSection tabs={tabs} />;
 
   const move = (s: Sponsor, status: SponsorStatus) => {
     setSponsors((l) => l.map((x) => (x.id === s.id ? { ...x, status } : x)));
@@ -23,6 +30,8 @@ export function SponsorsSection() {
   };
 
   return <Page eyebrow="Web · sadaqah jariyah" title="Sponsorships">
+    {tabs}
+    <p className="mb-4 border-2 border-dashed border-foreground p-3 text-xs text-muted-foreground">Sample data for now. Real enquiries will appear here once the /sponsorship form is connected.</p>
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Kpi label="Monthly pledged" value={naira(active.reduce((s, x) => s + x.monthly, 0))} tone="secondary" />
       <Kpi label="Learners funded" value={active.reduce((s, x) => s + x.learners, 0).toLocaleString()} />
