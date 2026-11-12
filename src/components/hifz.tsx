@@ -1,10 +1,11 @@
+import { awardXp } from "@/lib/xp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, BellRing, BookOpen, CalendarDays, ChevronRight, CircleHelp, Download, Ear, Eye, EyeOff, Loader2, Lock, Target, Mic, Pause, Play, Repeat, RotateCcw, Search, Square, Timer, Volume2 } from "lucide-react";
 import { surahList } from "@/components/quran-data";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { matchAyah, type WordCheck } from "@/lib/arabic-match";
+import type { WordCheck } from "@/lib/arabic-match";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -111,7 +112,40 @@ function lev(a: string, b: string): number {
   for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
   return d[a.length]![b.length]!;
 }
-const closeEnough = (a: string, b: string) => a === b || (a.length >= 4 && b.length >= 4 && lev(a, b) <= 1);
+/** A word reduced to its core letters. The Qur'an is written in Uthmani spelling (missing alifs, small marks) but the browser writes speech in everyday spelling, so we drop alifs and hamzas on both sides before comparing. */
+const skel = (w: string) => w.replace(/[\u0627\u0621]/g, "").replace(/\u0624/g, "و").replace(/\u0626/g, "ي");
+/** Same word? Spelling differences and a one-letter slip from the speech recogniser are forgiven (two for long words). */
+const closeEnough = (a: string, b: string) => {
+  if (a === b) return true;
+  const x = skel(a), y = skel(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const shortest = Math.min(x.length, y.length);
+  return shortest >= 4 && lev(x, y) <= (shortest >= 8 ? 2 : 1);
+};
+/** Checks recited speech against a verse, word by word and in order, using the forgiving comparison above. */
+function matchLoose(heard: string, reference: string): { words: WordCheck[]; ok: boolean } {
+  const display = reference.trim().split(/\s+/).filter(Boolean);
+  const ref = display.map(normWord);
+  const hw = heard.trim().split(/\s+/).filter(Boolean).map(normWord).filter(Boolean);
+  const real = ref.map((w, k) => (w ? k : -1)).filter(k => k >= 0);
+  const n = hw.length, m = real.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) dp[i]![j] = closeEnough(hw[i - 1]!, ref[real[j - 1]!]!) ? dp[i - 1]![j - 1]! + 1 : Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
+  const hit: (number | null)[] = new Array(m).fill(null);
+  let i = n, j = m;
+  while (i > 0 && j > 0) {
+    if (closeEnough(hw[i - 1]!, ref[real[j - 1]!]!)) { hit[j - 1] = i - 1; i--; j--; }
+    else if (dp[i - 1]![j]! >= dp[i]![j - 1]!) i--;
+    else j--;
+  }
+  const okAt = new Map<number, boolean>(); real.forEach((k, idx) => okAt.set(k, hit[idx] !== null));
+  const words = display.map((word, k) => ({ word, ok: !ref[k] || okAt.get(k) === true }));
+  if (!n || !words.every(w => w.ok)) return { words, ok: false };
+  const idxs = hit.filter((x): x is number => x !== null);
+  const span = idxs.length ? idxs[idxs.length - 1]! - idxs[0]! + 1 : 0;
+  return { words, ok: span <= m * 1.6 + 2 };
+}
 /** How many expected words the heard words match, in order from the start. */
 function prefixMatch(exp: string[], heard: string[]) {
   let p = 0; let h = 0;
@@ -179,6 +213,40 @@ function matchLabel(words: WordCheck[]): string {
   if (pct >= 0.9) return "Very good, just a word or two off";
   if (pct >= 0.7) return "Good, a few words to tighten up";
   return "Keep practicing, several words need work";
+}
+
+/** A page of the mushaf. Verses are real text in a Qur'anic font, justified like a printed page. Hidden words are blurred in place, so the layout never changes when they are revealed. Verses before `revealUpTo` are shown; in the `focus` verse, `wordsShown` words are shown (revision). With `peek`, hovering (or tapping) a hidden verse reveals it. */
+function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, title, juz, number }: { verses: Verse[]; from: number; revealUpTo: number; focus: number; wordsShown?: number; peek: boolean; title: string; juz: number; number: number }) {
+  const [open, setOpen] = useState<number | null>(null);
+  useEffect(() => { setOpen(null); }, [focus, revealUpTo]);
+  const gold = "#9a7b2f";
+  return <div dir="rtl" lang="ar" style={{ background: "#fdf8ea", border: `3px double ${gold}`, boxShadow: `inset 0 0 0 4px #fdf8ea, inset 0 0 0 5px ${gold}`, padding: "1.1rem 1.4rem 1.4rem", color: "#1b1a17", maxWidth: "42rem", margin: "0 auto", width: "100%" }}>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri+Quran&display=swap" precedence="default"/>
+    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1rem", color: "#6b5520", borderBottom: `1px solid ${gold}`, paddingBottom: ".3rem", marginBottom: ".8rem" }}><span>الجزء {juz.toLocaleString("ar-EG")}</span><span>سورة {title}</span></div>
+    {from === 0 && <div style={{ textAlign: "center", margin: ".2rem 0 .9rem" }}>
+      <div style={{ border: `2px solid ${gold}`, outline: `1px solid ${gold}`, outlineOffset: "3px", background: "#f3e8c6", padding: ".3rem 1rem", fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1.5rem", display: "inline-block", minWidth: "60%" }}>سُورَةُ {title}</div>
+      {number !== 1 && number !== 9 && <div style={{ fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1.7rem", marginTop: ".7rem" }}>بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</div>}
+    </div>}
+    <p style={{ margin: 0, fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "clamp(1.55rem, 4.4vw, 2.3rem)", lineHeight: 2.35, textAlign: "justify", textAlignLast: "center" }}>
+      {verses.map((v, i) => {
+        const n = from + i;
+        const words = v.arabic.trim().split(/\s+/).filter(Boolean);
+        const peeking = peek && open === n;
+        const shown = peeking || n < revealUpTo ? words.length : n === focus && wordsShown !== undefined ? Math.min(wordsShown, words.length) : 0;
+        const hidden = shown < words.length;
+        const canPeek = peek && n >= revealUpTo;
+        return <span key={n} onMouseEnter={canPeek ? () => setOpen(n) : undefined} onMouseLeave={canPeek ? () => setOpen(null) : undefined} onClick={canPeek ? () => setOpen(o => (o === n ? null : n)) : undefined} title={canPeek ? "Hover or tap to peek" : undefined} style={{ cursor: canPeek ? "pointer" : undefined, background: n === focus ? "rgba(214,170,60,.2)" : undefined, borderRadius: ".4rem", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
+          {words.map((w, k) => <span key={k}><span aria-hidden={k >= shown} style={k >= shown ? { filter: "blur(7px)", opacity: 0.55, userSelect: "none", transition: "filter .25s" } : { transition: "filter .25s" }}>{w}</span>{" "}</span>)}
+          <span aria-label={`Verse ${n + 1}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "1.55em", height: "1.55em", margin: "0 .2em", borderRadius: "50%", border: `1.5px solid ${gold}`, boxShadow: `0 0 0 2px #fdf8ea, 0 0 0 3px ${gold}`, fontSize: ".5em", color: "#6b5520", verticalAlign: "middle", background: hidden && !peeking ? "#f3e8c6" : "#fdf8ea" }}>{(n + 1).toLocaleString("ar-EG")}</span>{" "}
+        </span>;
+      })}
+    </p>
+  </div>;
+}
+/** Verses 10 at a time, so the page stays put while you work down it. */
+function pageSlice(chunk: [number, number], current: number, size = 10): [number, number] {
+  const start = chunk[0] + Math.floor(Math.max(0, current - chunk[0]) / size) * size;
+  return [start, Math.min(chunk[1], start + size - 1)];
 }
 
 export function HifzScreen() {
@@ -381,7 +449,7 @@ export function HifzScreen() {
   }
 
   /** Listens once. In `long` mode (joined verses) it keeps listening through pauses and stops after about 3 seconds of silence. */
-  function listenOnce(long = false): Promise<{ transcript: string; confidence: number }> {
+  function listenOnce(long = false): Promise<{ transcript: string; confidence: number; alts?: string[] }> {
     return new Promise(resolve => {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SR) { resolve({ transcript: "", confidence: 0 }); return; }
@@ -390,15 +458,15 @@ export function HifzScreen() {
       recognition.lang = "ar-SA";
       recognition.continuous = long;
       recognition.interimResults = long;
-      recognition.maxAlternatives = 1;
+      recognition.maxAlternatives = long ? 1 : 3;
       let settled = false;
       let text = ""; let confSum = 0; let confN = 0;
       let silence: any; let cap: any;
       const heard = () => ({ transcript: text.trim(), confidence: confN ? confSum / confN : 0 });
-      const finish = (transcript: string, confidence: number) => { if (settled) return; settled = true; clearTimeout(silence); clearTimeout(cap); resolve({ transcript, confidence }); };
+      const finish = (transcript: string, confidence: number, alts?: string[]) => { if (settled) return; settled = true; clearTimeout(silence); clearTimeout(cap); resolve({ transcript, confidence, alts }); };
       const stopIn = (ms: number) => { clearTimeout(silence); silence = setTimeout(() => { try { recognition.stop(); } catch { const h = heard(); finish(h.transcript, h.confidence); } }, ms); };
       recognition.onresult = (e: any) => {
-        if (!long) { const r = e.results?.[0]?.[0]; finish(r?.transcript ?? "", r?.confidence ?? 0); return; }
+        if (!long) { const res = e.results?.[0]; const r = res?.[0]; const alts: string[] = []; for (let k = 1; k < (res?.length ?? 0); k++) if (res[k]?.transcript) alts.push(res[k].transcript); finish(r?.transcript ?? "", r?.confidence ?? 0, alts); return; }
         let all = ""; confSum = 0; confN = 0;
         for (let i = 0; i < e.results.length; i++) { const r = e.results[i]; all += `${r[0].transcript} `; if (r.isFinal) { confSum += r[0].confidence ?? 0; confN++; } }
         text = all;
@@ -426,17 +494,24 @@ export function HifzScreen() {
     if (autoStopRef.current) return { words: [], ok: false };
     setListeningNow(true);
     const useLong = long || reference.trim().split(/\s+/).length >= 7;
-    const { transcript: rawHeard, confidence } = await listenOnce(useLong);
-    const heard = dropRestarts(stripBismillah(rawHeard, reference.trim().split(/\s+/).filter(Boolean).map(normWord)), reference);
+    const listened = await listenOnce(useLong);
+    const confidence = listened.confidence;
+    const expNorm = reference.trim().split(/\s+/).filter(Boolean).map(normWord);
+    const prep = (t: string) => dropRestarts(stripBismillah(t, expNorm), reference);
+    let heard = prep(listened.transcript);
     setListeningNow(false);
     if (autoStopRef.current) return { words: [], ok: false };
-    let { words, ok } = matchAyah(heard, reference);
+    let { words, ok } = matchLoose(heard, reference);
+    // The recogniser offers a few guesses; use the one closest to the verse.
+    for (const alt of listened.alts ?? []) {
+      const h = prep(alt); const r = matchLoose(h, reference);
+      if ((r.ok && !ok) || (r.ok === ok && r.words.filter(w => w.ok).length > words.filter(w => w.ok).length)) { heard = h; words = r.words; ok = r.ok; }
+    }
     if (!ok && words.length > 0) {
       const hit = words.filter(w => w.ok).length / words.length;
       const heardCount = heard.trim().split(/\s+/).filter(Boolean).length;
       if (hit >= PASS_RATIO && heardCount <= words.length * 1.6 + 2) ok = true;
     }
-    if (confidence > 0 && confidence < LOW_CONFIDENCE) { words = words.map(w => ({ ...w, ok: false })); ok = false; }
     const label = matchLabel(words);
     setLastDiff(words); setLastLabel(label);
     if (ok) {
@@ -572,8 +647,8 @@ export function HifzScreen() {
           cur = p;
           if (p > best) { best = p; onProgress(p); }
           if (p >= expected.length) { end(true); return; }
-          if (bad >= 3) { end(false); return; }
-          arm(best > 0 ? 6000 : 2500);
+          if (bad >= 4) { end(false); return; }
+          arm(best > 0 ? 7000 : 5000);
         };
         rec.onerror = (ev: any) => { if (ev?.error === "no-speech" || ev?.error === "aborted") return; end(false); };
         rec.onend = () => {
@@ -821,6 +896,7 @@ export function HifzScreen() {
       return { ...prev, [key]: { mark, level, due, last: today } };
     });
     setActivity(prev => ({ ...prev, [today]: (prev[today] ?? 0) + 1 }));
+    void awardXp("hifz");
     if (!reviewOnly) setNewCounts(prev => ({ ...prev, [today]: (prev[today] ?? 0) + 1 }));
     const finishedSurah = active;
     resetVerseUi(); setStage(reviewOnly ? "recall" : "study");
@@ -836,6 +912,7 @@ export function HifzScreen() {
     if (verseIndex < chunk[1]) {
       // Time is checked after every verse, except while revising the surah you're memorising (that one must be finished).
       if (expired && !mandatoryPass) {
+        setRevisionDoneDate(today);
         setRevisionResume(surahAyahs(finishedSurah) > LONG_SURAH_AYAHS ? { surah: finishedSurah, verse: Math.max(chunk[0], verseIndex + 1 - RESUME_LOOKBACK) } : null);
         const last = currentBlock();
         if (last && revisionMandatoryDoneDate !== today) { toast("Time's up. One last pass on the surah you're memorising."); startBlock({ block: last, mandatory: true }, true); return; }
@@ -848,9 +925,10 @@ export function HifzScreen() {
     }
 
     // This block is finished.
-    setRevisionDoneDate(today);
     setRevisionResume(r => (r && r.surah === finishedSurah ? null : r));
     const rot = rotationBlocks();
+    // The cycle is done only when the timed session has run out, or there is nothing to rotate through.
+    if (expired || !rot.length) setRevisionDoneDate(today);
     let next: { block: { surah: number; from: number; to: number }; mandatory: boolean } | null = null;
     const last = currentBlock();
     const lastOpen = !!last && revisionMandatoryDoneDate !== today;
@@ -945,7 +1023,7 @@ export function HifzScreen() {
           <p className="text-xs font-bold uppercase text-destructive">Required before new Hifz today</p>
           <h3 className="mt-1 font-serif text-2xl">Revise {surahName(nextUpSurah())} · ayat {(currentBlock()?.from ?? 0) + 1}–{lastLearnedIndex(nextUpSurah()) + 1}</h3>
           <p className="mt-2 text-sm text-muted-foreground">You're still memorising this surah, revise everything you've learned of it so far before starting anything new today.</p>
-          <Button className="mt-3" variant="destructive" onClick={() => startMandatoryRevision(false)}>Revise now <ArrowRight /></Button>
+          <Button className="mt-3" variant="destructive" onClick={() => (rotationBlocks().length > 0 ? beginTimedRevision() : startMandatoryRevision(false))}>Revise now <ArrowRight /></Button>
         </section>}
         {(() => {
           const target = nextRevisionTarget();
@@ -1016,7 +1094,7 @@ export function HifzScreen() {
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
           <section className="min-w-0 border-2 border-foreground bg-background shadow-brutal"><div className="flex items-center justify-between gap-2 border-b-2 border-foreground bg-muted px-4 py-2 text-xs font-bold uppercase"><span>{stage === "study" ? "Read and understand" : stage === "recall" ? "Bring the words to mind" : "Recite aloud"}</span><span>{surah.number}:{verseIndex + 1}</span></div><div className="flex min-h-72 flex-col justify-center px-5 py-8 sm:px-8">
-            {reviewOnly && sessionStarted && surah ? (() => { const words = verse.arabic.trim().split(/\s+/).filter(Boolean); const prev = surah.verses.slice(Math.max(chunk[0], verseIndex - 3), verseIndex); return <div dir="rtl" lang="ar" className="mx-auto w-full max-w-2xl border-4 border-double border-foreground bg-muted/40 px-5 py-6"><div className="mb-3 border-b border-foreground/30 pb-2 text-center font-arabic text-xl">{surah.arabic}</div>{prev.length > 0 && <p className="font-arabic text-2xl leading-[2.4] text-muted-foreground sm:text-3xl">{prev.map((v, i) => <span key={i}>{v.arabic} ﴿{Math.max(chunk[0], verseIndex - 3) + i + 1}﴾ </span>)}</p>}<p className="mt-1 min-h-24 font-arabic text-4xl leading-[2.4] sm:text-5xl">{words.slice(0, wordsShown).join(" ")}{wordsShown >= words.length ? <span className="text-2xl text-muted-foreground"> ﴿{verseIndex + 1}﴾</span> : <span className="animate-pulse text-secondary"> |</span>}</p></div>; })() : showText ? (linkChecking && surah ? <div className="space-y-4">{surah.verses.slice(chunk[0], verseIndex + 1).map((v, i) => <p key={i} dir="rtl" lang="ar" className="font-arabic text-3xl leading-[2.1] sm:text-4xl">{v.arabic} <span className="text-base text-muted-foreground">﴿{chunk[0] + i + 1}﴾</span></p>)}</div> : <><p dir="rtl" lang="ar" className="font-arabic text-4xl leading-[2.1] sm:text-5xl">{verse.arabic}</p><p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p></>) : <div className="py-8 text-center"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div>}
+            {reviewOnly && sessionStarted && surah ? (() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={verseIndex} focus={verseIndex} wordsShown={wordsShown} peek={false} title={surah.arabic} juz={surah.juz} number={surah.number}/>; })() : showText ? (<>{(() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={verseIndex + 1} focus={verseIndex} peek title={surah.arabic} juz={surah.juz} number={surah.number}/>; })()}{!linkChecking && <p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p>}</>) : <div className="space-y-6 py-2 text-center">{surah && (() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={linkChecking ? chunk[0] : verseIndex} focus={verseIndex} peek title={surah.arabic} juz={surah.juz} number={surah.number}/>; })()}<div className="py-4"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div></div>}
           </div><div className="flex flex-wrap items-center gap-2 border-t-2 border-foreground bg-muted/50 px-4 py-3"><Button size="sm" variant={playing ? "secondary" : "outline"} onClick={toggleRecital} aria-label={playing ? "Pause recitation" : "Play recitation"}>{playing ? <Pause /> : <Volume2 />}{playing ? "Pause" : "Listen"}</Button><select value={reciter} onChange={event => setReciter(event.target.value)} aria-label="Reciter" className="h-9 min-w-0 max-w-full flex-1 border-2 border-foreground bg-background px-2 text-sm sm:flex-none">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Playback speed" className="h-9 border-2 border-foreground bg-background px-2 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select><Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop(v => !v)} aria-pressed={loop} aria-label="Repeat verse"><Repeat /> Repeat</Button><audio ref={recital} src={recitalUrl} preload="none" loop={loop} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} /></div></section>
           <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{(reviewOnly ? "Recite from memory. Each word appears as you say it. If you slip, you will be asked to say it again, up to 3 times, then the reciter reads it." : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.")}</p>
             {stage === "recite" && <div className="mt-5 border-y-2 border-foreground py-4"><div className="flex flex-wrap gap-2"><Button variant={recording ? "secondary" : "outline"} onClick={recording ? stopRecording : startRecording}>{recording ? <Square /> : <Mic />}{recording ? "Stop recording" : "Record recitation"}</Button>{recordedUrl && <Button variant="outline" onClick={() => { if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play(); } }}><Play /> Play back</Button>}</div>{recordedUrl && <audio ref={audioRef} src={recordedUrl} controls className="mt-3 w-full" aria-label="Your recorded recitation"/>}{recordError && <p role="alert" className="mt-3 text-sm text-destructive">{recordError}</p>}<p className="mt-3 text-xs text-muted-foreground">Recording stays on this device during this session.</p></div>}

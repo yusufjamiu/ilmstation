@@ -1,3 +1,5 @@
+import { levelFor, useLevels, useMyXp } from "@/components/today";
+import { awardXp } from "@/lib/xp";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, onSnapshot, query, setDoc, where } from "firebase/firestore";
@@ -158,7 +160,7 @@ function Reader({ item, state, setState, onBack, onShare }: {
   })();
   const savePdf = (page: number, total: number) => setState((s) => {
     const finishedNow = page >= total && !s.finished.includes(item.id);
-    if (finishedNow) { addPoints(FINISH_POINTS); toast.success(`Finished! +${FINISH_POINTS} points`); }
+    if (finishedNow) { addPoints(FINISH_POINTS); toast.success(`Finished! +${FINISH_POINTS} points`); void awardXp("book", { id: item.id }); }
     return {
       ...s,
       progress: { ...s.progress, [item.id]: { pos: page - 1, total, at: Date.now() } },
@@ -193,7 +195,7 @@ function Reader({ item, state, setState, onBack, onShare }: {
     const done = pos >= paras.length - 1;
     setState((s) => {
       const finishedNow = done && !s.finished.includes(item.id);
-      if (finishedNow) { addPoints(FINISH_POINTS); toast.success(`Finished! +${FINISH_POINTS} points`); }
+      if (finishedNow) { addPoints(FINISH_POINTS); toast.success(`Finished! +${FINISH_POINTS} points`); void awardXp("book", { id: item.id }); }
       return {
         ...s,
         progress: { ...s.progress, [item.id]: { pos, total: paras.length, at: Date.now() } },
@@ -254,6 +256,8 @@ function Reader({ item, state, setState, onBack, onShare }: {
 export function LibraryScreen({ onShare }: { onShare: () => void }) {
   const { account } = useAuth();
   const { premium, points, canAccess } = usePremium();
+  const myLevel = levelFor(useMyXp(), useLevels()).n;
+  const canOpen = (i: LibraryItem) => canAccess(i.id, i.tier) || (!!i.minLevel && myLevel >= i.minLevel);
   const [state, setState] = useLibraryState();
   const all = useLibraryItems();
   const stats = useLibraryStats();
@@ -286,7 +290,7 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
   });
   const continuing = visible.filter((i) => state.progress[i.id] && !state.finished.includes(i.id) && (i.body?.length || i.pdfUrl)).sort((a, b) => (state.progress[b.id]?.at ?? 0) - (state.progress[a.id]?.at ?? 0)).slice(0, 4);
 
-  const openItem = (i: LibraryItem) => (canAccess(i.id, i.tier) ? setOpenId(i.id) : setLocked({ id: i.id, title: i.title, cost: i.cost }));
+  const openItem = (i: LibraryItem) => (canOpen(i) ? setOpenId(i.id) : setLocked({ id: i.id, title: i.title, cost: i.cost }));
 
   return (
     <div className="min-w-0 iq-rise">
@@ -343,13 +347,13 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {list.map((i, n) => {
-              const free = canAccess(i.id, i.tier);
+              const free = canOpen(i);
               const done = state.finished.includes(i.id);
               return (
                 <button key={i.id} onClick={() => openItem(i)} className={cn("relative border-2 border-foreground p-6 text-left shadow-brutal", n === 0 && cat === "All" && !q && "bg-primary", !free && "bg-muted")}>
                   <span className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase">
                     {i.cats[0]} · {i.kind === "book" ? "Book" : `${i.mins} min`}
-                    {i.tier === "premium" && (free ? <PremiumTag /> : <LockedTag cost={i.cost} />)}
+                    {i.tier === "premium" && (free ? <PremiumTag /> : <LockedTag cost={i.cost} />)}{i.tier === "premium" && !free && i.minLevel ? <span className="ml-1 text-[10px] font-bold uppercase">Free at level {i.minLevel}</span> : null}
                     {done && <span className="border border-foreground px-1">Finished</span>}
                     {state.bookmarks.includes(i.id) && <BookmarkCheck className="size-3.5" />}
                     {i.audioStatus === "available" && <span className="inline-flex items-center gap-1 border border-foreground px-1"><Headphones className="size-3" /> Audio</span>}

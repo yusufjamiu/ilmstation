@@ -13,7 +13,7 @@ type Track = { title: string; url: string; mins?: number };
 type AudioStatus = "available" | "soon" | "none";
 type Form = {
   id: string; isNew: boolean; title: string; author: string; cats: string[]; kind: "book" | "article";
-  age: Age; audience: "" | "male" | "female"; tier: "free" | "premium"; cost: number;
+  age: Age; audience: "" | "male" | "female"; tier: "free" | "premium"; cost: number; minLevel: number;
   coverUrl: string; pdfUrl: string; audioStatus: AudioStatus; audio: Track[];
   comments: boolean; status: "draft" | "published"; createdAt: number;
 };
@@ -24,12 +24,12 @@ const MAX_MB = 200;
 
 const newForm = (): Form => ({
   id: `bk-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, isNew: true,
-  title: "", author: "", cats: [], kind: "book", age: "teens", audience: "", tier: "free", cost: 0,
+  title: "", author: "", cats: [], kind: "book", age: "teens", audience: "", tier: "free", cost: 0, minLevel: 0,
   coverUrl: "", pdfUrl: "", audioStatus: "none", audio: [], comments: true, status: "draft", createdAt: Date.now(),
 });
 const toForm = (i: LibraryItem): Form => ({
   id: i.id, isNew: false, title: i.title, author: i.author ?? "", cats: i.cats ?? [], kind: i.kind, age: i.age,
-  audience: i.audience ?? "", tier: i.tier === "premium" ? "premium" : "free", cost: i.cost ?? 0,
+  audience: i.audience ?? "", tier: i.tier === "premium" ? "premium" : "free", cost: i.cost ?? 0, minLevel: Number((i as { minLevel?: number }).minLevel ?? 0),
   coverUrl: i.coverUrl ?? "", pdfUrl: i.pdfUrl ?? "", audioStatus: i.audioStatus ?? "none", audio: i.audio ?? [],
   comments: i.comments ?? true, status: i.status ?? "draft", createdAt: i.createdAt ?? Date.now(),
 });
@@ -127,7 +127,7 @@ export function LibrarySection() {
     if (!f.cats.length) return toast.error("Pick at least one category");
     if (f.audioStatus === "available" && !f.audio.length) return toast.error("Upload audio, or set audio to Coming soon / Not available");
     const data: Record<string, unknown> = {
-      title: f.title.trim(), cats: f.cats, kind: f.kind, age: f.age, tier: f.tier, cost: f.tier === "premium" ? Number(f.cost) || 0 : 0,
+      title: f.title.trim(), cats: f.cats, kind: f.kind, age: f.age, tier: f.tier, cost: f.tier === "premium" ? Number(f.cost) || 0 : 0, minLevel: f.tier === "premium" ? Number(f.minLevel) || 0 : 0,
       coverUrl: f.coverUrl, pdfUrl: f.pdfUrl, audioStatus: f.audioStatus, audio: f.audioStatus === "available" ? f.audio : [],
       comments: f.comments, status: f.status, createdAt: f.createdAt,
     };
@@ -195,6 +195,7 @@ export function LibrarySection() {
               <Field label="Type"><select className={inputCls} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Form["kind"] })}><option value="book">Book</option><option value="article">Article</option></select></Field>
               <Field label="Access"><select className={inputCls} value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as Form["tier"] })}><option value="free">Free</option><option value="premium">Premium</option></select></Field>
               {form.tier === "premium" && <Field label="Unlock cost (points)"><input type="number" min={0} className={inputCls} value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} /></Field>}
+              {form.tier === "premium" && <Field label="Free from level (0 = never)"><input type="number" min={0} className={inputCls} value={form.minLevel ?? 0} onChange={(e) => setForm({ ...form, minLevel: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} /></Field>}
             </div>
 
             <fieldset className="border-2 border-foreground p-3"><legend className="px-1 text-xs font-bold uppercase">Cover image</legend>

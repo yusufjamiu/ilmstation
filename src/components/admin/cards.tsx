@@ -10,7 +10,7 @@ import { OCCASIONS } from "@/components/eid-card";
 import { Field, inputCls, Page, useAudit, useConfirm } from "./ui";
 
 type Card = {
-  id: string; name: string; imageUrl: string; path: string; tier: "free" | "premium"; cost: number;
+  id: string; name: string; imageUrl: string; path: string; tier: "free" | "premium"; cost: number; minLevel?: number;
   textColor: string; accentColor: string; layout: "upper" | "middle" | "lower"; hideTitle: boolean;
   occasions: string[]; active: boolean; createdAt: number;
 };
@@ -56,7 +56,7 @@ export function CardsSection() {
     if (!f.occasions.length) return toast.error("Pick at least one occasion");
     const { id, ...data } = f;
     try {
-      await setDoc(doc(db, "cardDesigns", id), { ...data, name: f.name.trim(), cost: f.tier === "premium" ? Number(f.cost) || 100 : 0 });
+      await setDoc(doc(db, "cardDesigns", id), { ...data, name: f.name.trim(), cost: f.tier === "premium" ? Number(f.cost) || 100 : 0, minLevel: f.tier === "premium" ? Number(f.minLevel) || 0 : 0 });
       record(`${isNew ? "Added" : "Updated"} card design ${f.name}`); toast.success("Saved"); setForm(null);
     } catch { toast.error("Couldn't save. Check you are an admin."); }
   };
@@ -82,7 +82,7 @@ export function CardsSection() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{items.map((c) => <article key={c.id} className={`border-2 border-foreground bg-card shadow-brutal-sm ${c.active ? "" : "opacity-60"}`}>
         <div className="aspect-[4/5] border-b-2 border-foreground bg-cover bg-center" style={{ backgroundImage: `url(${c.imageUrl})` }} />
         <div className="p-3">
-          <p className="text-xs font-bold uppercase text-muted-foreground">{c.tier === "premium" ? `👑 Premium · ${c.cost} pts` : "Free"}{!c.active && " · hidden"}</p>
+          <p className="text-xs font-bold uppercase text-muted-foreground">{c.tier === "premium" ? `👑 Premium · ${c.cost} pts${c.minLevel ? ` · free from level ${c.minLevel}` : ""}` : "Free"}{!c.active && " · hidden"}</p>
           <h3 className="font-serif text-xl">{c.name}</h3>
           <p className="text-xs text-muted-foreground">{c.occasions.map(label).join(", ")}</p>
           <div className="mt-2 flex gap-2">
@@ -113,6 +113,7 @@ export function CardsSection() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Who can use it"><select className={inputCls} value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as Card["tier"] })}><option value="free">Free</option><option value="premium">👑 Premium</option></select></Field>
               {form.tier === "premium" && <Field label="Unlock cost for free users (points)"><input type="number" min={0} className={inputCls} value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} /></Field>}
+              {form.tier === "premium" && <Field label="Free from level (0 = never)"><input type="number" min={0} className={inputCls} value={form.minLevel ?? 0} onChange={(e) => setForm({ ...form, minLevel: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} /></Field>}
               <Field label="Text colour"><input type="color" className={`${inputCls} p-1`} value={form.textColor} onChange={(e) => setForm({ ...form, textColor: e.target.value })} /></Field>
               <Field label="Accent colour (English title)"><input type="color" className={`${inputCls} p-1`} value={form.accentColor} onChange={(e) => setForm({ ...form, accentColor: e.target.value })} /></Field>
               <Field label="Text position"><select className={inputCls} value={form.layout} onChange={(e) => setForm({ ...form, layout: e.target.value as Card["layout"] })}><option value="upper">Higher</option><option value="middle">Middle</option><option value="lower">Lower</option></select></Field>

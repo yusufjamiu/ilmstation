@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { awardXp } from "@/lib/xp";
+import { cleanLevels, LEVEL_DEFAULTS, levelFor, type LevelDef } from "@/lib/xp-config";
 import { LIBRARY, type LibraryItem } from "@/components/library-data";
 import { CityPicker, DEFAULT_CITY, type City } from "@/components/ramadan";
 import type { ShareCard } from "@/components/share-actions";
@@ -56,13 +57,11 @@ export function useStreak(): StreakInfo | null {
 }
 
 /* ---------- level from XP ---------- */
-const LEVELS: [number, string][] = [[0, "Newcomer"], [100, "Seeker"], [300, "Student"], [700, "Learner"], [1200, "Devoted"], [2000, "Guardian"], [3000, "Scholar"], [5000, "Sage"]];
-export function levelFor(xp: number) {
-  let i = 0;
-  while (i + 1 < LEVELS.length && xp >= LEVELS[i + 1]![0]) i++;
-  const [min, name] = LEVELS[i]!;
-  const next = LEVELS[i + 1]?.[0] ?? null;
-  return { n: i + 1, name, xp, next, pct: next ? Math.round(((xp - min) / (next - min)) * 100) : 100 };
+export { levelFor };
+export function useLevels(): LevelDef[] {
+  const [l, setL] = useState<LevelDef[]>(LEVEL_DEFAULTS);
+  useEffect(() => onSnapshot(doc(db, "siteConfig", "levels"), (snap) => setL(cleanLevels(snap.get("list"))), () => {}), []);
+  return l;
 }
 export function useMyXp() {
   const uid = useUid();
@@ -72,7 +71,7 @@ export function useMyXp() {
   return xp ?? account?.xp ?? 0;
 }
 export function LevelCard() {
-  const l = levelFor(useMyXp());
+  const l = levelFor(useMyXp(), useLevels());
   return <div className="m-3 border-2 border-foreground bg-foreground p-3 text-background">
     <p className="text-xs uppercase text-background/60">Level {l.n}</p>
     <p className="font-serif text-2xl">{l.name}</p>
@@ -344,4 +343,26 @@ export function PrayerCard() {
       <CityPicker city={city} onPick={(c) => { setCity(c); if (uid) void setDoc(doc(db, "ramadanProgress", uid), { city: c }, { merge: true }).catch(() => {}); }} />
     </div>
   </div>;
+}
+
+/** Every level, what it gives, and how far the user is. */
+export function LevelLadder() {
+  const xp = useMyXp();
+  const levels = useLevels();
+  const l = levelFor(xp, levels);
+  return <section className="min-w-0 border-2 border-foreground bg-background shadow-brutal md:col-span-2">
+    <div className="flex items-center justify-between gap-3 border-b-2 border-foreground px-4 py-2"><h2 className="font-serif text-xl">Level {l.n} · {l.name}</h2><span className="text-xs font-semibold uppercase text-muted-foreground">{xp.toLocaleString()} XP</span></div>
+    <div className="p-4">
+      <div className="h-5 border-2 border-foreground p-0.5"><div className="h-full bg-primary" style={{ width: `${l.pct}%` }} /></div>
+      <p className="mt-2 text-sm text-muted-foreground">{l.next ? `${(l.next - xp).toLocaleString()} XP to ${l.nextName}` : "Top level reached, masha’Allah."}</p>
+      <ol className="mt-5 grid gap-2">{levels.map((lv, i) => {
+        const reached = xp >= lv.xp; const current = i + 1 === l.n;
+        return <li key={`${lv.name}-${i}`} className={cn("grid grid-cols-[auto_1fr_auto] items-start gap-3 border-2 border-foreground p-3", current ? "bg-primary" : reached ? "bg-secondary/15" : "opacity-70")}>
+          <span className="grid size-8 place-items-center border-2 border-foreground bg-background font-serif">{i + 1}</span>
+          <div className="min-w-0"><b className="font-serif text-lg font-normal">{lv.name}</b>{lv.perks.length > 0 && <ul className="mt-1 text-xs text-muted-foreground">{lv.perks.map((p) => <li key={p}>• {p}</li>)}</ul>}</div>
+          <span className="text-xs font-semibold">{reached ? "✓" : `${lv.xp.toLocaleString()} XP`}</span>
+        </li>;
+      })}</ol>
+    </div>
+  </section>;
 }

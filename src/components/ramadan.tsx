@@ -1,3 +1,4 @@
+import { awardXp } from "@/lib/xp";
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
@@ -247,11 +248,12 @@ export function RamadanScreen() {
   // quest steps for one day
   const markStep = (n: number, step: string) => {
     const cur = year.steps?.[String(n)] ?? [];
-    if (!cur.includes(step)) save({ years: { [y]: { steps: { [String(n)]: [...cur, step] } } } });
+    if (!cur.includes(step)) { save({ years: { [y]: { steps: { [String(n)]: [...cur, step] } } } }); void awardXp("ramadan", { year: y, day: n, step }); }
   };
   const finishDay = (n: number, result?: { score: number; total: number; picks: number[] }) => {
     const cur = year.steps?.[String(n)] ?? [];
     const patch: YearData = { steps: { [String(n)]: [...new Set([...cur, "quiz"])] } };
+    void awardXp("ramadan", { year: y, day: n, step: "quiz" }).then(() => awardXp("ramadan", { year: y, day: n, all: true }));
     if (result) patch.scores = { [String(n)]: result };
     if (!quest.includes(n)) { patch.quest = [...quest, n]; addPoints(5); toast.success(`Day ${n} complete! +5 points`); }
     save({ years: { [y]: patch } });

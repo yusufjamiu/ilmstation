@@ -1,3 +1,4 @@
+import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { useEffect, useRef, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { Download, Lock, Share2 } from "lucide-react";
@@ -73,7 +74,7 @@ const DESIGNS: Design[] = [
 
 /* ---------- designer cards (Admin → Card designs) ---------- */
 export type CustomDesign = {
-  id: string; name: string; imageUrl: string; tier: "free" | "premium"; cost?: number;
+  id: string; name: string; imageUrl: string; tier: "free" | "premium"; cost?: number; minLevel?: number;
   textColor: string; accentColor: string; layout: "upper" | "middle" | "lower"; hideTitle?: boolean;
   occasions: string[]; active: boolean; createdAt?: number;
 };
@@ -245,6 +246,8 @@ type Sel = { kind: "builtin"; i: number } | { kind: "custom"; id: string };
 export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { initial?: string; title?: string }) {
   const { account } = useAuth();
   const { canAccess, premium } = usePremium();
+  const myLevel = levelFor(useMyXp(), useLevels()).n;
+  const levelOpen = (c: { minLevel?: number }) => !!c.minLevel && myLevel >= c.minLevel;
   const [showMark, setShowMark] = useState(true);
   const start = OCCASIONS.find((o) => o.id === initial) ?? OCCASIONS[1]!;
   const [occ, setOcc] = useState<Occasion>(start);
@@ -281,7 +284,7 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
 
   const forOcc = customs.filter((c) => c.occasions.includes("all") || c.occasions.includes(occ.id));
   const custom = sel.kind === "custom" ? customs.find((c) => c.id === sel.id) : undefined;
-  const locked = !!custom && custom.tier === "premium" && !canAccess(`card-${custom.id}`, "premium" as Tier);
+  const locked = !!custom && custom.tier === "premium" && !canAccess(`card-${custom.id}`, "premium" as Tier) && !levelOpen(custom);
   const mark = !premium || showMark;
 
   useEffect(() => {
@@ -337,10 +340,10 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
 
         {forOcc.length > 0 && <>
           <p className="text-xs font-bold uppercase">Designer cards</p>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{forOcc.map((c) => { const open = c.tier === "free" || canAccess(`card-${c.id}`, "premium" as Tier); return <button key={c.id} type="button" title={c.name} onClick={() => setSel({ kind: "custom", id: c.id })}
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{forOcc.map((c) => { const open = c.tier === "free" || canAccess(`card-${c.id}`, "premium" as Tier) || levelOpen(c); return <button key={c.id} type="button" title={c.name} onClick={() => setSel({ kind: "custom", id: c.id })}
             className={cn("relative aspect-[4/5] overflow-hidden border-2 border-foreground bg-cover bg-center", sel.kind === "custom" && sel.id === c.id && "ring-2 ring-ring ring-offset-2")}
             style={{ backgroundImage: `url(${c.imageUrl})` }}>
-            {c.tier === "premium" && <span className="absolute right-1 top-1 inline-flex items-center gap-0.5 bg-foreground px-1 text-[10px] font-bold text-background">{open ? "👑" : <><Lock className="size-2.5" /> Premium</>}</span>}
+            {c.tier === "premium" && <span className="absolute right-1 top-1 inline-flex items-center gap-0.5 bg-foreground px-1 text-[10px] font-bold text-background">{open ? "👑" : <><Lock className="size-2.5" /> {c.minLevel ? `Lvl ${c.minLevel}` : "Premium"}</>}</span>}
           </button>; })}</div>
         </>}
 

@@ -5,6 +5,7 @@ export type Age = "kids" | "teens" | "adults";
 export type Kind = "article" | "book";
 
 export type LibraryItem = {
+  minLevel?: number;
   id: string;
   title: string;
   author?: string;
