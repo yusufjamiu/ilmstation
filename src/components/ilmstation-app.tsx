@@ -22,7 +22,7 @@ import { MessagesSquare } from "lucide-react";
 import { ChatroomsScreen } from "@/components/chatrooms";
 import { FriendsPanel, useFriendIds } from "@/components/friends";
 import { StudyScreen } from "@/components/study";
-import { HifzScreen } from "@/components/hifz";
+import { QuranScreen } from "@/components/quran";
 import { FamilyScreen } from "@/components/family";
 import { LibraryScreen } from "@/components/library";
 import { ThemeToggle, useTheme } from "@/components/theme";
@@ -63,7 +63,7 @@ type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "rev
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
 const navGroups = [
   { label: "Today", items: [["home", "Today", Home], ["quests", "Quest map", Sparkles], ["ramadan", "Ramadan", MoonStar], ["cards", "Cards", CardsIcon]] },
-  { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Hifz", BookOpen], ["halaqah", "Halaqah", Users], ["chatrooms", "Chatrooms", MessagesSquare], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
+  { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Quran", BookOpen], ["halaqah", "Halaqah", Users], ["chatrooms", "Chatrooms", MessagesSquare], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
   { label: "You", items: [["progress", "Progress", Trophy], ["community", "Community", CircleUserRound], ["family", "Family hub", Baby], ["rewards", "Wallet & store", Wallet], ["settings", "Settings", Settings]] },
 ] as const;
 
@@ -123,7 +123,7 @@ export function IlmStationApp() {
         {screen === "home" && <HomeScreen go={selectScreen} onShare={openShare} />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
         {screen === "quests" && <QuestScreen onShare={openShare} />}
-        {screen === "hifz" && <HifzScreen />}
+        {screen === "hifz" && <QuranScreen />}
         {screen === "halaqah" && <HalaqahScreen onShare={openShare} />}
         {screen === "chatrooms" && <ChatroomsScreen />}
         {screen === "challenge" && <ChallengeScreen />}

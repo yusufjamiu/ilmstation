@@ -36,7 +36,7 @@ const localVerses: { number: number; verses: Verse[] }[] = [
 ];
 
 const verseCache = new Map<number, Verse[]>(localVerses.map(item => [item.number, item.verses]));
-const reciters = [
+export const reciters = [
   { id: "ar.alafasy", bitrate: 128, name: "Mishary Alafasy" },
   { id: "ar.husary", bitrate: 128, name: "Mahmoud Al-Husary" },
   { id: "ar.minshawi", bitrate: 128, name: "Al-Minshawi" },
@@ -46,7 +46,7 @@ const reciters = [
   { id: "ar.saoodshuraym", bitrate: 64, name: "Saud Ash-Shuraim" },
   { id: "ar.muhammadayyoub", bitrate: 128, name: "Muhammad Ayyub" },
 ];
-const speeds = [0.5, 0.75, 1, 1.25, 1.5];
+export const speeds = [0.5, 0.75, 1, 1.25, 1.5];
 const ranges = Array.from({ length: 6 }, (_, i) => [i * 20 + 1, Math.min(114, i * 20 + 20)] as const);
 const allSurahs = surahList.map(meta => ({ name: meta.name, arabic: meta.arabic, number: meta.n, juz: meta.juz, ayahs: meta.ayahs, start: meta.start, translation: meta.translation }));
 /** Traditional memorisation order: Al-Fatiha, then An-Nas back to Al-Baqarah. */
@@ -67,7 +67,7 @@ function formatMinutes(m: number): string {
 type Mark = "again" | "hard" | "good";
 type Stage = "study" | "recall" | "recite";
 type Rec = { mark: Mark; level: number; due: string; last: string };
-type Plan = { days: number[]; time: string; reminders: boolean; daily: number; revisionMinutes: number };
+type Plan = { days: number[]; time: string; reminders: boolean; daily: number; revisionMinutes: number; audioCorrection: boolean };
 type Tab = "surahs" | "revision" | "plan";
 const keyFor = (surah: number, verse: number) => `${surah}:${verse}`;
 const parseKey = (key: string) => { const [s, v] = key.split(":").map(Number); return { surah: s ?? 1, verse: v ?? 0 }; };
@@ -77,7 +77,7 @@ const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const icsDays = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 const intervals = [1, 3, 7, 14, 30, 60];
 const TOTAL_AYAT = 6236;
-const defaultPlan: Plan = { days: [1, 3, 5, 6], time: "06:30", reminders: false, daily: 3, revisionMinutes: 30 };
+const defaultPlan: Plan = { days: [1, 3, 5, 6], time: "06:30", reminders: false, daily: 3, revisionMinutes: 30, audioCorrection: true };
 const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return dayKey(d); };
 const surahName = (n: number) => allSurahs.find(s => s.number === n)?.name ?? `Surah ${n}`;
@@ -216,7 +216,7 @@ function matchLabel(words: WordCheck[]): string {
 }
 
 /** A page of the mushaf. Verses are real text in a Qur'anic font, justified like a printed page. Hidden words are blurred in place, so the layout never changes when they are revealed. Verses before `revealUpTo` are shown; in the `focus` verse, `wordsShown` words are shown (revision). With `peek`, hovering (or tapping) a hidden verse reveals it. */
-function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, title, juz, number }: { verses: Verse[]; from: number; revealUpTo: number; focus: number; wordsShown?: number; peek: boolean; title: string; juz: number; number: number }) {
+export function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, title, juz, number, marks, hintWord, onSelect }: { verses: Verse[]; from: number; revealUpTo: number; focus: number; wordsShown?: number; peek: boolean; title: string; juz: number; number: number; marks?: ("hit" | "miss" | "hide")[]; hintWord?: number | null; onSelect?: (n: number) => void }) {
   const [open, setOpen] = useState<number | null>(null);
   useEffect(() => { setOpen(null); }, [focus, revealUpTo]);
   const gold = "#9a7b2f";
@@ -235,8 +235,16 @@ function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, title, ju
         const shown = peeking || n < revealUpTo ? words.length : n === focus && wordsShown !== undefined ? Math.min(wordsShown, words.length) : 0;
         const hidden = shown < words.length;
         const canPeek = peek && n >= revealUpTo;
-        return <span key={n} onMouseEnter={canPeek ? () => setOpen(n) : undefined} onMouseLeave={canPeek ? () => setOpen(null) : undefined} onClick={canPeek ? () => setOpen(o => (o === n ? null : n)) : undefined} title={canPeek ? "Hover or tap to peek" : undefined} style={{ cursor: canPeek ? "pointer" : undefined, background: n === focus ? "rgba(214,170,60,.2)" : undefined, borderRadius: ".4rem", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
-          {words.map((w, k) => <span key={k}><span aria-hidden={k >= shown} style={k >= shown ? { filter: "blur(7px)", opacity: 0.55, userSelect: "none", transition: "filter .25s" } : { transition: "filter .25s" }}>{w}</span>{" "}</span>)}
+        return <span key={n} onMouseEnter={canPeek ? () => setOpen(n) : undefined} onMouseLeave={canPeek ? () => setOpen(null) : undefined} onClick={canPeek ? () => setOpen(o => (o === n ? null : n)) : onSelect ? () => onSelect(n) : undefined} title={canPeek ? "Hover or tap to peek" : undefined} style={{ cursor: canPeek || onSelect ? "pointer" : undefined, background: n === focus ? "rgba(214,170,60,.2)" : undefined, borderRadius: ".4rem", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
+          {words.map((w, k) => {
+            const mark = n === focus && marks ? marks[k] : undefined;
+            const hint = n === focus && hintWord === k;
+            const clear = mark ? mark !== "hide" : k < shown;
+            const style: React.CSSProperties = clear || hint
+              ? { transition: "filter .25s", ...(mark === "miss" ? { color: "#b3261e", textDecoration: "underline wavy #b3261e" } : {}), ...(hint && !clear ? { background: "rgba(214,170,60,.45)", borderBottom: "2px dashed #9a7b2f", borderRadius: ".3rem" } : {}) }
+              : { filter: "blur(7px)", opacity: 0.55, userSelect: "none", transition: "filter .25s" };
+            return <span key={k}><span aria-hidden={!clear && !hint} style={style}>{w}</span>{" "}</span>;
+          })}
           <span aria-label={`Verse ${n + 1}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "1.55em", height: "1.55em", margin: "0 .2em", borderRadius: "50%", border: `1.5px solid ${gold}`, boxShadow: `0 0 0 2px #fdf8ea, 0 0 0 3px ${gold}`, fontSize: ".5em", color: "#6b5520", verticalAlign: "middle", background: hidden && !peeking ? "#f3e8c6" : "#fdf8ea" }}>{(n + 1).toLocaleString("ar-EG")}</span>{" "}
         </span>;
       })}
@@ -244,13 +252,23 @@ function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, title, ju
   </div>;
 }
 /** Verses 10 at a time, so the page stays put while you work down it. */
-function pageSlice(chunk: [number, number], current: number, size = 10): [number, number] {
+export function pageSlice(chunk: [number, number], current: number, size = 10): [number, number] {
   const start = chunk[0] + Math.floor(Math.max(0, current - chunk[0]) / size) * size;
   return [start, Math.min(chunk[1], start + size - 1)];
 }
 
-export function HifzScreen() {
+export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz" | "revision"; onGoRevision?: () => void } = {}) {
   const [tab, setTab] = useState<Tab>("surahs");
+  const goRevision = () => { if (onGoRevision) onGoRevision(); else setTab("revision"); };
+  const shownTab: Tab = section === "revision" ? "revision" : tab === "revision" ? "surahs" : tab;
+  const [marks, setMarks] = useState<("hit" | "miss" | "hide")[] | null>(null);
+  const [hintIdx, setHintIdx] = useState<number | null>(null);
+  const [hintAsk, setHintAsk] = useState(false);
+  const hintResolve = useRef<((v: "yes" | "no" | "skip") => void) | null>(null);
+  const [holdAfterMistake, setHold] = useState(false);
+  const holdResolve = useRef<(() => void) | null>(null);
+  const stallRef = useRef(false);
+  const progressRef = useRef(0);
   const [setup, setSetup] = useState<number | null>(null);
   const [setupStart, setSetupStart] = useState(1);
   const [setupSize, setSetupSize] = useState(defaultPlan.daily);
@@ -351,7 +369,7 @@ export function HifzScreen() {
   useEffect(() => {
     if (!hydrated || !hifzUid) return;
     const id = setTimeout(() => {
-      setDoc(doc(db, "hifz", hifzUid), { progress, activity, newCounts, revisionCursor, revisionResume, revisionMandatoryDoneDate, revisionDoneDate, plan })
+      setDoc(doc(db, "hifz", hifzUid), { progress, activity, newCounts, revisionCursor, revisionResume, revisionMandatoryDoneDate, revisionDoneDate, plan }, { merge: true })
         .catch(() => toast("We couldn't save your progress. Check your connection."));
     }, 800);
     return () => clearTimeout(id);
@@ -632,9 +650,10 @@ export function HifzScreen() {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SR) { resolve(false); return; }
       let settled = false; let best = 0; let base = 0; let cur = 0; let restarts = 0;
+      stallRef.current = false; progressRef.current = 0;
       let silence: any; let cap: any; let rec: any;
       const end = (ok: boolean) => { if (settled) return; settled = true; clearTimeout(silence); clearTimeout(cap); try { rec?.stop(); } catch { /* ignore */ } resolve(ok); };
-      const arm = (ms: number) => { clearTimeout(silence); silence = setTimeout(() => end(false), ms); };
+      const arm = (ms: number) => { clearTimeout(silence); silence = setTimeout(() => { stallRef.current = true; end(false); }, ms); };
       const begin = () => {
         rec = new SR();
         recognitionRef.current = rec;
@@ -645,7 +664,7 @@ export function HifzScreen() {
           const heard = stripBismillah(all, expected).trim().split(/\s+/).filter(Boolean).map(normWord).filter(Boolean);
           const { p, bad } = follow(expected, heard, base);
           cur = p;
-          if (p > best) { best = p; onProgress(p); }
+          if (p > best) { best = p; progressRef.current = p; onProgress(p); }
           if (p >= expected.length) { end(true); return; }
           if (bad >= 4) { end(false); return; }
           arm(best > 0 ? 7000 : 5000);
@@ -674,15 +693,99 @@ export function HifzScreen() {
     setTimeout(() => nextVerse("hard"), 50);
   }
 
-  /** Revision: the page is blank, words appear as you say them. A slip means "say it again", up to 3 tries, then the reciter reads it. */
+  /** Listens to a whole recitation of one verse and reports everything heard. Used when audio correction is off, so mistakes can be marked afterwards instead of interrupting. Ends when the verse is complete, when the reader has said about as many words as the verse has, or after `patience` ms of silence (stalled). */
+  function listenSpeech(reference: string, onHeard: (heard: string) => void, patience: number, seed = ""): Promise<{ heard: string; stalled: boolean }> {
+    return new Promise(resolve => {
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SR) { resolve({ heard: seed, stalled: true }); return; }
+      const expected = reference.trim().split(/\s+/).filter(Boolean).map(normWord);
+      let settled = false; let base = seed; let cur = ""; let restarts = 0;
+      let silence: any; let cap: any; let rec: any;
+      const all = () => `${base} ${cur}`.trim();
+      const finish = (stalled: boolean) => { if (settled) return; settled = true; clearTimeout(silence); clearTimeout(cap); try { rec?.stop(); } catch { /* ignore */ } resolve({ heard: all(), stalled }); };
+      const arm = (ms: number) => { clearTimeout(silence); silence = setTimeout(() => finish(true), ms); };
+      const begin = () => {
+        rec = new SR();
+        recognitionRef.current = rec;
+        rec.lang = "ar-SA"; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+        rec.onresult = (e: any) => {
+          let text = "";
+          for (let i = 0; i < e.results.length; i++) text += `${e.results[i][0].transcript} `;
+          cur = text.trim();
+          const heard = all();
+          onHeard(heard);
+          const cleaned = dropRestarts(stripBismillah(heard, expected), reference);
+          if (matchLoose(cleaned, reference).ok) { finish(false); return; }
+          if (cleaned.split(/\s+/).filter(Boolean).length >= expected.length + 2) { finish(false); return; }
+          arm(patience);
+        };
+        rec.onerror = (ev: any) => { if (ev?.error === "no-speech" || ev?.error === "aborted") return; finish(true); };
+        rec.onend = () => {
+          if (settled) return;
+          if (autoStopRef.current || restarts >= 6) { finish(true); return; }
+          restarts++; base = all(); cur = "";
+          setTimeout(() => { if (settled) return; try { begin(); } catch { finish(true); } }, 200);
+        };
+        rec.start();
+      };
+      try { begin(); arm(patience + 2000); cap = setTimeout(() => finish(true), 90000); } catch { finish(true); }
+    });
+  }
+  function askHint(): Promise<"yes" | "no" | "skip"> {
+    return new Promise(resolve => { hintResolve.current = resolve; setHintAsk(true); });
+  }
+  function answerHint(v: "yes" | "no" | "skip") { const r = hintResolve.current; hintResolve.current = null; setHintAsk(false); r?.(v); }
+  function holdForNext(): Promise<void> {
+    return new Promise(resolve => { holdResolve.current = resolve; setHold(true); });
+  }
+
+  /** Revision: the page shows the verse blurred, words clear up as you say them. With audio correction on, a slip means "say it again", up to 3 tries, then the reciter reads it. With it off, nothing interrupts you: words you missed turn red and you move on. If you go quiet, we ask whether you want the next word as a reminder. */
   async function runAutoReview() {
     if (!verse) return;
     autoStopRef.current = false;
-    setLastDiff(null); setLastLabel(null); setRetryNote(""); setWordsShown(0); setCanSkip(false);
+    setLastDiff(null); setLastLabel(null); setRetryNote(""); setWordsShown(0); setCanSkip(false); setMarks(null); setHintIdx(null);
     if (!recording) await startRecording();
     setStage("recite"); setAutoPhase("blind"); setRevealed(false);
     const shown = verse.arabic.trim().split(/\s+/).filter(Boolean);
     const expected = shown.map(normWord);
+
+    if (!plan.audioCorrection) {
+      const prep = (t: string) => dropRestarts(stripBismillah(t, expected), verse.arabic);
+      setMarks(shown.map(() => "hide"));
+      let seed = ""; let final = matchLoose("", verse.arabic);
+      while (!autoStopRef.current) {
+        setListeningNow(true);
+        const res = await listenSpeech(verse.arabic, heard => { const r = matchLoose(prep(heard), verse.arabic); setMarks(r.words.map(w => (w.ok ? "hit" : "hide"))); }, 6000, seed);
+        setListeningNow(false);
+        if (autoStopRef.current) return;
+        const r = matchLoose(prep(res.heard), verse.arabic);
+        final = r; seed = res.heard;
+        const said = prep(res.heard).split(/\s+/).filter(Boolean).length;
+        if (r.ok || !res.stalled || said >= Math.ceil(shown.length * 0.85)) break;
+        const answer = await askHint();
+        if (autoStopRef.current) return;
+        if (answer === "skip") break;
+        if (answer === "yes") { const first = r.words.findIndex(w => !w.ok); setHintIdx(first < 0 ? 0 : first); }
+      }
+      if (autoStopRef.current) return;
+      setHintIdx(null);
+      const wrong = final.words.filter(w => !w.ok).length;
+      setMarks(final.words.map(w => (w.ok ? "hit" : "miss")));
+      if (wrong === 0) {
+        setRetryNote(""); await delay(700);
+        if (autoStopRef.current) return;
+        setMarks(null); setAutoPhase(null);
+        nextVerse("good");
+        return;
+      }
+      setRetryNote(`${wrong} word${wrong === 1 ? "" : "s"} to fix, in red`);
+      await holdForNext();
+      if (autoStopRef.current) return;
+      setHold(false); setMarks(null); setRetryNote(""); setAutoPhase(null);
+      nextVerse(wrong <= 1 ? "hard" : "again");
+      return;
+    }
+
     let ok = false; let tries = 0;
     while (tries < 3 && !ok && !autoStopRef.current) {
       tries++;
@@ -692,7 +795,14 @@ export function HifzScreen() {
       ok = await listenLive(expected, n => setWordsShown(n));
       setListeningNow(false);
       if (autoStopRef.current) return;
+      if (!ok && stallRef.current) {
+        const answer = await askHint();
+        if (autoStopRef.current) return;
+        if (answer === "yes") { setHintIdx(progressRef.current); tries--; }
+        else if (answer === "skip") break;
+      }
     }
+    setHintIdx(null);
     if (ok) {
       setRetryNote(""); setWordsShown(shown.length);
       await delay(700);
@@ -728,7 +838,7 @@ export function HifzScreen() {
   useEffect(() => {
     if (!autoActive || !verse || !sessionStarted) return;
     void (reviewOnly ? runAutoReview() : runAutoVerse());
-    return () => { autoStopRef.current = true; breakResolve.current?.("stop"); breakResolve.current = null; setBreakPrompt(false); try { recognitionRef.current?.stop(); } catch { /* ignore */ } };
+    return () => { autoStopRef.current = true; hintResolve.current?.("no"); hintResolve.current = null; setHintAsk(false); holdResolve.current?.(); holdResolve.current = null; setHold(false); setMarks(null); setHintIdx(null); breakResolve.current?.("stop"); breakResolve.current = null; setBreakPrompt(false); try { recognitionRef.current?.stop(); } catch { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, verseIndex, autoActive, reviewOnly, sessionStarted]);
 
@@ -830,8 +940,8 @@ export function HifzScreen() {
     const m = allSurahs.find(s => s.number === n); if (!m) return;
     if (!speechSupported) { toast("Please open IlmStation in Chrome or Edge to use Hifz"); return; }
     if (surahLocked(n)) { toast("Finish memorising the previous surah first"); return; }
-    if (mandatoryNeeded()) { toast(`Revise ${surahName(nextUpSurah())} before starting new Hifz today`); setTab("revision"); return; }
-    if (!DEV_UNLOCK_ALL && revisionBlocks().length > 0 && revisionDoneDate !== today) { toast("Revise today's cycle before starting new Hifz"); setTab("revision"); return; }
+    if (mandatoryNeeded()) { toast(`Revise ${surahName(nextUpSurah())} before starting new Hifz today`); goRevision(); return; }
+    if (!DEV_UNLOCK_ALL && revisionBlocks().length > 0 && revisionDoneDate !== today) { toast("Revise today's cycle before starting new Hifz"); goRevision(); return; }
     setSetup(n); setSetupStart(firstUnlearned(n, m.ayahs)); setSetupSize(plan.daily);
   }
   function markKnownSurahs() {
@@ -858,7 +968,7 @@ export function HifzScreen() {
   function openSession(n: number, from: number, to: number, isReview = false, keepReciter = false) {
     if (!speechSupported) { toast("Please open IlmStation in Chrome or Edge to use Hifz"); return; }
     resetVerseUi();
-    if (!keepReciter) setSessionStarted(false);
+    if (!keepReciter) setSessionStarted(isReview && !plan.audioCorrection);
     setMandatoryPass(false);
     if (n !== active) setVerses(verseCache.get(n) ?? null);
     setSetup(null); setActive(n); setVerseIndex(from); setChunk([from, to]); setStage(isReview ? "recall" : "study");
@@ -968,7 +1078,7 @@ export function HifzScreen() {
     {breakPrompt && <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"><div className="w-full max-w-sm border-2 border-foreground bg-background p-5 shadow-brutal"><h3 className="font-serif text-2xl">Take a break?</h3><p className="mt-2 text-sm text-muted-foreground">This verse is taking a while. You can stop here for today and continue from this verse next time, or keep going.</p><div className="mt-4 flex flex-wrap gap-2"><Button onClick={() => breakResolve.current?.("continue")}>Keep going</Button><Button variant="outline" onClick={() => breakResolve.current?.("stop")}>Stop for today</Button></div></div></div>}
     <header className="border-2 border-foreground bg-primary px-4 py-4 shadow-brutal sm:px-6">
       <p className="text-xs font-bold uppercase">IlmStation / Memorisation</p>
-      <div className="mt-1 flex flex-wrap items-end justify-between gap-3"><h1 className="font-serif text-4xl leading-none sm:text-5xl">Hifz workspace</h1>{(active !== null || setup !== null) && <Button variant="outline" size="sm" onClick={() => { autoStopRef.current = true; stopRecording(); setActive(null); setSetup(null); setDone(false); }}><ArrowLeft /> Workspace</Button>}</div>
+      <div className="mt-1 flex flex-wrap items-end justify-between gap-3"><h1 className="font-serif text-4xl leading-none sm:text-5xl">{section === "revision" ? "Revision" : "Hifz workspace"}</h1>{(active !== null || setup !== null) && <Button variant="outline" size="sm" onClick={() => { autoStopRef.current = true; stopRecording(); setActive(null); setSetup(null); setDone(false); }}><ArrowLeft /> Workspace</Button>}</div>
     </header>
     {!speechSupported && <div className="mt-4 border-2 border-foreground bg-destructive/10 p-4"><p className="text-xs font-bold uppercase text-destructive">Browser not supported</p><p className="mt-1 font-serif text-2xl">Please open IlmStation in Chrome or Edge</p><p className="mt-2 text-sm text-muted-foreground">Hifz listens to your recitation and checks it word by word, and that only works in Chrome or Edge on a laptop or an Android phone. iPhones and iPads are not supported yet.</p></div>}
 
@@ -988,13 +1098,13 @@ export function HifzScreen() {
         <div className={cn(tile, "bg-background")}><p className="text-xs font-bold uppercase text-muted-foreground">Next session</p><strong className="mt-1 block font-serif text-2xl font-normal">{nextSession ?? "Not planned"}</strong><button className="text-xs font-semibold underline" onClick={() => setTab("plan")}>{plan.reminders ? "Reminders on · edit" : "Set your plan"}</button></div>
       </div>
       <div className="mt-3 grid min-w-0 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className={cn(tile, "bg-background")}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold uppercase text-muted-foreground">A gentle practice rhythm</p><div className="flex flex-wrap gap-x-4 gap-y-1">{steps.map((step, index) => <span key={step.id} className="flex items-center gap-2 text-sm"><span className="grid size-6 place-items-center border-2 border-foreground bg-primary font-serif text-xs">{index + 1}</span><b>{step.title}</b></span>)}</div></div><div className="mt-3 flex flex-wrap gap-2">{revisionBlocks().length > 0 && <Button size="sm" variant={mandatoryNeeded() ? "destructive" : "outline"} onClick={() => setTab("revision")}><RotateCcw /> {mandatoryNeeded() ? `Revise ${surahName(nextUpSurah())}` : "Continue revision"}</Button>}<Button size="sm" variant={(mandatoryNeeded() || (revisionBlocks().length > 0 && revisionDoneDate !== today)) ? "outline" : "default"} disabled={mandatoryNeeded() || (revisionBlocks().length > 0 && revisionDoneDate !== today)} onClick={() => chooseSurah(nextUpSurah())}>Continue with {surahName(nextUpSurah())} <ArrowRight /></Button></div></div>
+        <div className={cn(tile, "bg-background")}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold uppercase text-muted-foreground">A gentle practice rhythm</p><div className="flex flex-wrap gap-x-4 gap-y-1">{steps.map((step, index) => <span key={step.id} className="flex items-center gap-2 text-sm"><span className="grid size-6 place-items-center border-2 border-foreground bg-primary font-serif text-xs">{index + 1}</span><b>{step.title}</b></span>)}</div></div><div className="mt-3 flex flex-wrap gap-2">{revisionBlocks().length > 0 && <Button size="sm" variant={mandatoryNeeded() ? "destructive" : "outline"} onClick={() => goRevision()}><RotateCcw /> {mandatoryNeeded() ? `Revise ${surahName(nextUpSurah())}` : "Continue revision"}</Button>}<Button size="sm" variant={(mandatoryNeeded() || (revisionBlocks().length > 0 && revisionDoneDate !== today)) ? "outline" : "default"} disabled={mandatoryNeeded() || (revisionBlocks().length > 0 && revisionDoneDate !== today)} onClick={() => chooseSurah(nextUpSurah())}>Continue with {surahName(nextUpSurah())} <ArrowRight /></Button></div></div>
         <div className={cn(tile, "bg-background")}><div className="flex items-center justify-between text-xs font-bold uppercase text-muted-foreground"><span>This week</span><span>{weekCount} / {weeklyGoal}</span></div><div className="mt-2 flex h-16 items-end gap-1">{week.map((d, i) => <div key={i} className="flex flex-1 flex-col items-center gap-1"><div className={cn("w-full border border-foreground", d.today ? "bg-primary" : "bg-secondary")} style={{ height: `${Math.max(4, Math.min(44, d.count * 6))}px` }} title={`${d.count} ayat`}/><span className="text-[10px]">{d.label[0]}</span></div>)}</div></div>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-1 border-b-2 border-foreground" role="tablist">{([["surahs", "Surahs"], ["revision", "Revision"], ["plan", "Plan & reminders"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn("-mb-0.5 border-2 border-foreground px-4 py-2 text-sm font-bold", tab === id ? "bg-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>{label}</button>)}</div>
+      {section === "hifz" && <div className="mt-6 flex flex-wrap gap-1 border-b-2 border-foreground" role="tablist">{([["surahs", "Surahs"], ["plan", "Plan & reminders"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={shownTab === id} onClick={() => setTab(id)} className={cn("-mb-0.5 border-2 border-foreground px-4 py-2 text-sm font-bold", shownTab === id ? "bg-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>{label}</button>)}</div>}
 
-      {tab === "surahs" && <>
+      {shownTab === "surahs" && <>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">Surahs unlock in order, Al-Fatiha first, then An-Nas back to Al-Baqarah.</p>
           <Button size="sm" variant="outline" onClick={() => setShowKnownDialog(true)}>Already know some surahs?</Button>
@@ -1018,7 +1128,7 @@ export function HifzScreen() {
         </div>}
       </>}
 
-      {tab === "revision" && <div className="mt-4 min-w-0 space-y-4">
+      {shownTab === "revision" && <div className="mt-4 min-w-0 space-y-4">
         {mandatoryNeeded() && <section className={cn(tile, "bg-destructive/10")}>
           <p className="text-xs font-bold uppercase text-destructive">Required before new Hifz today</p>
           <h3 className="mt-1 font-serif text-2xl">Revise {surahName(nextUpSurah())} · ayat {(currentBlock()?.from ?? 0) + 1}–{lastLearnedIndex(nextUpSurah()) + 1}</h3>
@@ -1038,6 +1148,7 @@ export function HifzScreen() {
               <h3 className="mt-1 font-serif text-3xl">{surahName(b.surah)} <span className="text-lg font-normal">· ayat {b.from + 1}–{b.to + 1}</span></h3>
               <p className="mt-2 text-sm">Newest first, then back toward Al-Fatiha, then around again. Each session ends with the surah you're memorising, which is required before new Hifz.</p>
               <div className="mt-4 flex flex-wrap items-center gap-2"><Timer className="size-4"/><span className="text-xs font-bold uppercase">Session length</span>{REVISION_MINUTE_OPTIONS.map(m => <Button key={m} size="sm" variant={plan.revisionMinutes === m ? "default" : "outline"} onClick={() => setPlan(p => ({ ...p, revisionMinutes: m }))}>{formatMinutes(m)}</Button>)}</div>
+              <div className="mt-4 border-2 border-foreground bg-background p-3 text-sm"><p className="text-xs font-bold uppercase">Audio correction</p><div className="mt-2 flex flex-wrap gap-2"><Button size="sm" variant={plan.audioCorrection ? "default" : "outline"} aria-pressed={plan.audioCorrection} onClick={() => setPlan(p => ({ ...p, audioCorrection: true }))}>On</Button><Button size="sm" variant={!plan.audioCorrection ? "default" : "outline"} aria-pressed={!plan.audioCorrection} onClick={() => setPlan(p => ({ ...p, audioCorrection: false }))}>Off</Button></div><p className="mt-2 text-muted-foreground">{plan.audioCorrection ? "If you slip, you say the verse again, and after 3 tries the reciter reads it for you." : "No reciter and no repeating. Words you miss turn red, then you move on to the next verse."}</p></div>
               <Button className="mt-4 bg-foreground text-background" onClick={beginTimedRevision}><RotateCcw /> Start {formatMinutes(plan.revisionMinutes)} revision</Button>
             </section>
             <section className={cn(tile, "bg-background")}>
@@ -1048,11 +1159,11 @@ export function HifzScreen() {
         })()}
       </div>}
 
-      {tab === "plan" && <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
+      {shownTab === "plan" && <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
         <section className={cn(tile, "lg:col-span-2 bg-primary")}>
           <p className="text-xs font-bold uppercase">Your path</p>
           <p className="mt-1 font-serif text-2xl">{mandatoryNeeded() ? <>Revise <b>{surahName(nextUpSurah())}</b> before continuing Hifz today</> : revisionBlocks().length > 0 && revisionDoneDate !== today ? <>Revise today's cycle before continuing Hifz</> : <>Memorising <b>{surahName(nextUpSurah())}</b> · revision cycling through what's learned so far</>}</p>
-          <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" onClick={() => { setTab("revision"); }}>Go to revision</Button><Button size="sm" variant="outline" onClick={() => { setTab("surahs"); }}>View surah order</Button></div>
+          <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" onClick={() => { goRevision(); }}>Go to revision</Button><Button size="sm" variant="outline" onClick={() => { setTab("surahs"); }}>View surah order</Button></div>
         </section>
         <section className={cn(tile, "space-y-5 bg-background")}><h3 className="flex items-center gap-2 font-serif text-2xl"><CalendarDays className="size-5"/> Your Hifz days</h3>
           <div><p className="text-xs font-bold uppercase">Days</p><div className="mt-2 flex flex-wrap gap-2">{dayNames.map((d, i) => { const on = plan.days.includes(i); return <Button key={d} size="sm" variant={on ? "default" : "outline"} aria-pressed={on} onClick={() => setPlan(p => ({ ...p, days: on ? p.days.filter(x => x !== i) : [...p.days, i].sort() }))}>{d}</Button>; })}</div></div>
@@ -1089,14 +1200,16 @@ export function HifzScreen() {
           {lastLabel && !listeningNow && <span className={cn("border-2 border-foreground px-2 py-0.5 text-xs font-bold uppercase", lastLabel === "Excellent" ? "bg-secondary text-secondary-foreground" : "bg-background")}>{lastLabel}</span>}
           {reviewOnly && canSkip && <Button size="sm" variant="outline" onClick={skipVerse}>Skip this verse</Button>}
           {retryNote && <span className="border-2 border-foreground bg-primary px-2 py-0.5 text-xs font-bold uppercase">{retryNote}</span>}
+          {hintAsk && <span className="flex w-full flex-wrap items-center gap-2 border-2 border-foreground bg-primary px-3 py-2 font-bold">Stuck? Want a reminder of the next word? <Button size="sm" onClick={() => answerHint("yes")}>Yes, remind me</Button><Button size="sm" variant="outline" onClick={() => answerHint("no")}>No, let me try</Button><Button size="sm" variant="ghost" onClick={() => answerHint("skip")}>Show me and move on</Button></span>}
+          {holdAfterMistake && <Button size="sm" onClick={() => holdResolve.current?.()}>Next verse <ArrowRight /></Button>}
           {phrases.length > 1 && autoPhase === "visible" && !linkChecking && <span className="w-full text-xs text-muted-foreground">Phrase {phraseIndex + 1} of {phrases.length}</span>}
         </div>}
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
           <section className="min-w-0 border-2 border-foreground bg-background shadow-brutal"><div className="flex items-center justify-between gap-2 border-b-2 border-foreground bg-muted px-4 py-2 text-xs font-bold uppercase"><span>{stage === "study" ? "Read and understand" : stage === "recall" ? "Bring the words to mind" : "Recite aloud"}</span><span>{surah.number}:{verseIndex + 1}</span></div><div className="flex min-h-72 flex-col justify-center px-5 py-8 sm:px-8">
-            {reviewOnly && sessionStarted && surah ? (() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={verseIndex} focus={verseIndex} wordsShown={wordsShown} peek={false} title={surah.arabic} juz={surah.juz} number={surah.number}/>; })() : showText ? (<>{(() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={verseIndex + 1} focus={verseIndex} peek title={surah.arabic} juz={surah.juz} number={surah.number}/>; })()}{!linkChecking && <p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p>}</>) : <div className="space-y-6 py-2 text-center">{surah && (() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={linkChecking ? chunk[0] : verseIndex} focus={verseIndex} peek title={surah.arabic} juz={surah.juz} number={surah.number}/>; })()}<div className="py-4"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div></div>}
-          </div><div className="flex flex-wrap items-center gap-2 border-t-2 border-foreground bg-muted/50 px-4 py-3"><Button size="sm" variant={playing ? "secondary" : "outline"} onClick={toggleRecital} aria-label={playing ? "Pause recitation" : "Play recitation"}>{playing ? <Pause /> : <Volume2 />}{playing ? "Pause" : "Listen"}</Button><select value={reciter} onChange={event => setReciter(event.target.value)} aria-label="Reciter" className="h-9 min-w-0 max-w-full flex-1 border-2 border-foreground bg-background px-2 text-sm sm:flex-none">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Playback speed" className="h-9 border-2 border-foreground bg-background px-2 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select><Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop(v => !v)} aria-pressed={loop} aria-label="Repeat verse"><Repeat /> Repeat</Button><audio ref={recital} src={recitalUrl} preload="none" loop={loop} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} /></div></section>
-          <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{(reviewOnly ? "Recite from memory. Each word appears as you say it. If you slip, you will be asked to say it again, up to 3 times, then the reciter reads it." : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.")}</p>
+            {reviewOnly && sessionStarted && surah ? (() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={verseIndex} focus={verseIndex} wordsShown={wordsShown} peek={false} marks={marks ?? undefined} hintWord={hintIdx} title={surah.arabic} juz={surah.juz} number={surah.number}/>; })() : showText ? (<>{(() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={verseIndex + 1} focus={verseIndex} peek title={surah.arabic} juz={surah.juz} number={surah.number}/>; })()}{!linkChecking && <p className="mt-6 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">{verse.meaning}</p>}</>) : <div className="space-y-6 py-2 text-center">{surah && (() => { const [a, b] = pageSlice(chunk, verseIndex); return <PageView verses={surah.verses.slice(a, b + 1)} from={a} revealUpTo={linkChecking ? chunk[0] : verseIndex} focus={verseIndex} peek title={surah.arabic} juz={surah.juz} number={surah.number}/>; })()}<div className="py-4"><BookOpen className="mx-auto size-7 text-secondary"/><p className="mt-4 font-serif text-3xl">Try without looking</p><p className="mt-2 text-sm text-muted-foreground">Say it aloud. The words appear when you get it right.</p></div></div>}
+          </div><div className={cn("flex flex-wrap items-center gap-2 border-t-2 border-foreground bg-muted/50 px-4 py-3", reviewOnly && !plan.audioCorrection && "hidden")}><Button size="sm" variant={playing ? "secondary" : "outline"} onClick={toggleRecital} aria-label={playing ? "Pause recitation" : "Play recitation"}>{playing ? <Pause /> : <Volume2 />}{playing ? "Pause" : "Listen"}</Button><select value={reciter} onChange={event => setReciter(event.target.value)} aria-label="Reciter" className="h-9 min-w-0 max-w-full flex-1 border-2 border-foreground bg-background px-2 text-sm sm:flex-none">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Playback speed" className="h-9 border-2 border-foreground bg-background px-2 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select><Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop(v => !v)} aria-pressed={loop} aria-label="Repeat verse"><Repeat /> Repeat</Button><audio ref={recital} src={recitalUrl} preload="none" loop={loop} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} /></div></section>
+          <aside className="min-w-0 border-t-2 border-foreground pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0"><p className="text-xs font-bold uppercase text-muted-foreground">{stage === "recite" ? "Listen to yourself" : "Your practice desk"}</p><h3 className="mt-1 font-serif text-2xl">{stage === "study" ? "Notice the meaning" : stage === "recall" ? "Remember the sequence" : "Hear your recitation"}</h3><p className="mt-3 text-sm leading-relaxed text-muted-foreground">{(reviewOnly ? (plan.audioCorrection ? "Recite from memory. Each word appears as you say it. If you slip, you will be asked to say it again, up to 3 times, then the reciter reads it." : "Recite from memory. Each word appears as you say it. Words you miss turn red, and you move on. If you go quiet, you can ask for a reminder of the next word.") : "The reciter leads, you repeat, and an exact word-by-word match, in the right order, decides when you're ready to move on.")}</p>
             {stage === "recite" && <div className="mt-5 border-y-2 border-foreground py-4"><div className="flex flex-wrap gap-2"><Button variant={recording ? "secondary" : "outline"} onClick={recording ? stopRecording : startRecording}>{recording ? <Square /> : <Mic />}{recording ? "Stop recording" : "Record recitation"}</Button>{recordedUrl && <Button variant="outline" onClick={() => { if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play(); } }}><Play /> Play back</Button>}</div>{recordedUrl && <audio ref={audioRef} src={recordedUrl} controls className="mt-3 w-full" aria-label="Your recorded recitation"/>}{recordError && <p role="alert" className="mt-3 text-sm text-destructive">{recordError}</p>}<p className="mt-3 text-xs text-muted-foreground">Recording stays on this device during this session.</p></div>}
             
             <div className="mt-6 border-t border-foreground pt-4 text-xs text-muted-foreground"><CircleHelp className="mr-1 inline size-4"/> Your memorised surahs come back in the revision cycle, newest first.</div>
