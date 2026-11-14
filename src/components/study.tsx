@@ -1,3 +1,5 @@
+import { liveVoiceLangs } from "@/components/study-core";
+import { useVoiceLangs } from "@/components/voice-langs";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft, BookOpen, Calculator, Check, CheckCircle2, ChevronDown, ChevronRight, Circle, Code, FileText, FlaskConical, Globe,
@@ -46,6 +48,7 @@ export function StudyScreen() {
   const { cats } = useStudyCategories();
   const { uid, progress, results } = useStudyMe();
   const voice = useVoiceLang();
+  useVoiceLangs();
   const subjects = useDocs<Subject>("studySubjects", view.cat ? [["category", view.cat]] : [], !!view.cat);
   const stageLessons = useDocs<Lesson>("studyLessons", view.stage ? [["stage", view.stage]] : [], !!view.stage);
   const examView = useExam(view.exam);
@@ -66,7 +69,7 @@ export function StudyScreen() {
       <div><small className="text-xs font-bold uppercase text-muted-foreground">Study</small>
         <h1 className="font-serif text-4xl leading-none sm:text-5xl">What will you learn today?</h1></div>
       <label className="flex items-center gap-2 border-2 border-foreground bg-background px-3 py-2 text-sm font-semibold"><Volume2 className="size-4" /> Lesson voice
-        <select value={voice.lang} onChange={(e) => voice.set(e.target.value)} className="bg-transparent outline-none" aria-label="Lesson voice language">{VOICE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
+        <select value={voice.lang} onChange={(e) => voice.set(e.target.value)} className="bg-transparent outline-none" aria-label="Lesson voice language">{liveVoiceLangs().map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
       </label>
     </div>
     <div className="mt-6 grid gap-5 sm:grid-cols-2">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}

@@ -1,3 +1,5 @@
+import { AdhanWatcher } from "@/components/today";
+import { KahfReminder } from "@/components/today";
 import { KIND_LABEL, useTodaysWisdom } from "@/components/today";
 import { LevelLadder, levelFor, useLevels } from "@/components/today";
 import { ContinueCard, DailyWisdom, LevelCard, PrayerCard, dayKey, todayLabel, todaysWisdom, useStreak, type StreakInfo } from "@/components/today";
@@ -120,6 +122,7 @@ export function IlmStationApp() {
           </div>
         </header>
         <PresenceBeat />
+        <AdhanWatcher />
         {screen === "home" && <HomeScreen go={selectScreen} onShare={openShare} />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
         {screen === "quests" && <QuestScreen onShare={openShare} />}
@@ -162,6 +165,7 @@ function HomeScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
   const wisdom = useTodaysWisdom();
   return <Frame eyebrow="Your daily ledger" title={<>Assalamu-alaikum, <em className="text-secondary">{firstName || "friend"}</em></>} actions={<Button onClick={() => go("play")}><Play /> Quick quiz</Button>}>
     <RamadanBanner onOpen={() => go("ramadan")} />
+    <KahfReminder />
     <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="grid gap-5 md:grid-cols-3">
         <Panel title="Pick up where you left off" className="md:col-span-2"><ContinueCard onLibrary={() => go("library")} onPlay={() => go("play")} /></Panel>

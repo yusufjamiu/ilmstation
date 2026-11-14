@@ -75,12 +75,16 @@ export const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g,
    are per "voice language", so Yoruba can be a teaching voice without being an app language. */
 
 export const VOICE_LANGS = [
-  { code: "en", name: "English" }, { code: "ar", name: "العربية" }, { code: "yo", name: "Yorùbá" }, { code: "ha", name: "Hausa" },
-  { code: "fr", name: "Français" }, { code: "ur", name: "اردو" }, { code: "bn", name: "বাংলা" }, { code: "id", name: "Bahasa Indonesia" },
-  { code: "tr", name: "Türkçe" }, { code: "sw", name: "Kiswahili" },
+  { code: "en", name: "English" }, { code: "ar", name: "Arabic (العربية)" }, { code: "yo", name: "Yoruba (Yorùbá)" }, { code: "ha", name: "Hausa" },
+  { code: "fr", name: "French (Français)" }, { code: "ur", name: "Urdu (اردو)" }, { code: "bn", name: "Bengali (বাংলা)" }, { code: "id", name: "Indonesian (Bahasa Indonesia)" },
+  { code: "tr", name: "Turkish (Türkçe)" }, { code: "sw", name: "Swahili (Kiswahili)" },
 ] as const;
-export type VoiceLang = (typeof VOICE_LANGS)[number]["code"];
-export const voiceName = (c: string) => VOICE_LANGS.find((l) => l.code === c)?.name ?? c;
+export type VoiceLang = string;
+export type VoiceLangDef = { code: string; name: string; hidden?: boolean };
+let liveLangs: VoiceLangDef[] = VOICE_LANGS.map((l) => ({ code: l.code, name: l.name }));
+export const setLiveVoiceLangs = (l: VoiceLangDef[]) => { liveLangs = l.length ? l : VOICE_LANGS.map((x) => ({ code: x.code, name: x.name })); };
+export const liveVoiceLangs = () => liveLangs.filter((l) => !l.hidden);
+export const voiceName = (c: string) => liveLangs.find((l) => l.code === c)?.name ?? VOICE_LANGS.find((l) => l.code === c)?.name ?? c;
 /** One clip per voice language. */
 export type Voices = Partial<Record<VoiceLang, string>>;
 

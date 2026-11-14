@@ -1,3 +1,5 @@
+import { liveVoiceLangs } from "@/components/study-core";
+import { useVoiceLangs } from "@/components/voice-langs";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowLeft, ArrowUp, Copy, FileCode, Files, Mic, Pencil, Plus, Trash2, Upload, Volume2 } from "lucide-react";
@@ -50,6 +52,7 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
   const [items, setItems] = useState<Lesson[] | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [lang, setLang] = useState<VoiceLang>("en");
+  useVoiceLangs();
   const [busy, setBusy] = useState("");
   const [bulkLang, setBulkLang] = useState<VoiceLang>("en");
   const { record } = useAudit();
@@ -167,7 +170,7 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
     </div>
     <div className="mt-3 flex flex-wrap items-center gap-2 border-2 border-foreground bg-muted p-3 text-sm">
       <Files className="size-4" /><b>Bulk upload HTML lessons</b>
-      <select aria-label="Voice language of these files" value={bulkLang} onChange={(e) => setBulkLang(e.target.value as VoiceLang)} className="border-2 border-foreground bg-background px-2 py-1">{VOICE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
+      <select aria-label="Voice language of these files" value={bulkLang} onChange={(e) => setBulkLang(e.target.value as VoiceLang)} className="border-2 border-foreground bg-background px-2 py-1">{liveVoiceLangs().map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
       <label className={cn("inline-flex cursor-pointer items-center gap-2 border-2 border-foreground bg-background px-3 py-1.5 font-semibold", (busy || !stage) && "opacity-50")}><Upload className="size-4" /> Choose .html files
         <input type="file" accept=".html,.htm,text/html" multiple className="hidden" disabled={!!busy || !stage} onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; if (fs.length) void bulk(fs); }} /></label>
       <span className="text-xs text-muted-foreground">Name files 001.html, 002.html… They're added to {stageName(cat, stage)} in that order, titled from each page's &lt;title&gt;.</span>
@@ -212,7 +215,7 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
             </div>
             <div className="flex flex-wrap items-center gap-2 border-2 border-foreground bg-muted p-2 text-sm">
               <Mic className="size-4" /><b>Voice language for uploads:</b>
-              <select value={lang} onChange={(e) => setLang(e.target.value as VoiceLang)} className="border-2 border-foreground bg-background px-2 py-1">{VOICE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
+              <select value={lang} onChange={(e) => setLang(e.target.value as VoiceLang)} className="border-2 border-foreground bg-background px-2 py-1">{liveVoiceLangs().map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
               <span className="text-xs text-muted-foreground">Missing clips fall back to English, then the phone reads the text aloud.</span>
             </div>
 
