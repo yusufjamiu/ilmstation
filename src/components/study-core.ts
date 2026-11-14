@@ -137,9 +137,20 @@ export const promoExamId = (category: string, stage: string) => `promo__${catego
 export type Progress = { done?: Record<string, number>; notes?: Record<string, string> };
 export type Results = {
   exams?: Record<string, { best: number; passed: boolean; last: number; tries: number }>;
-  /** Highest stage index reached per category (0 = first stage). */
+  /** Older records: highest stage index reached per category (0 = first stage). */
   reached?: Record<string, number>;
+  /** The learner's current open stage per category, by stage id (e.g. "beginner-3").
+      Saved by id so admins can add or rearrange levels without moving anyone. */
+  at?: Record<string, string>;
 };
+
+/** Index of the learner's open stage. Stages before it count as done. */
+export function reachedIndex(r: Results | undefined, catId: string, stages: { id: string }[]): number {
+  const id = r?.at?.[catId];
+  const i = id ? stages.findIndex((s) => s.id === id) : -1;
+  if (i >= 0) return i;
+  return Math.min(r?.reached?.[catId] ?? 0, Math.max(0, stages.length - 1));
+}
 
 export const youtubeId = (s = "") => s.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/)?.[1] ?? (/^[\w-]{11}$/.test(s.trim()) ? s.trim() : "");
 const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[ً-ْ̀-ͯ]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();

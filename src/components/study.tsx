@@ -12,7 +12,7 @@ import { usePremium } from "@/components/premium";
 import { LessonPlayer } from "@/components/study-lesson";
 import { ExamRunner } from "@/components/study-exam";
 import {
-  promoExamId, stageName, stagesOf, subjectExamId, topics, useStudyCategories, useStudyMe, useVoiceLang, VOICE_LANGS,
+  promoExamId, reachedIndex, stageName, stagesOf, subjectExamId, topics, useStudyCategories, useStudyMe, useVoiceLang, VOICE_LANGS,
   type Category, type Exam, type IconKey, type Lesson, type Results, type Subject,
 } from "@/components/study-data";
 
@@ -54,7 +54,7 @@ export function StudyScreen() {
   if (!cats) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const cat = cats.find((c) => c.id === view.cat);
   const stages = stagesOf(cat);
-  const reached = cat ? (results.reached?.[cat.id] ?? 0) : 0;
+  const reached = cat ? reachedIndex(results, cat.id, stages) : 0;
 
   /* an exam */
   if (view.exam) return examView ? <ExamRunner exam={examView} onExit={() => setView({ ...view, exam: undefined })} />
