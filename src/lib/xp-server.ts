@@ -34,6 +34,7 @@ export async function handleXp(request: Request): Promise<Response> {
   }
   else if (action === "duel") amount = Math.min(int(d.xp, 0, 10_000), r.amount);
   else if (action === "book") { amount = r.amount; onceKey = d.id ? `book:${String(d.id).slice(0, 80)}` : null; }
+  else if (action === "lesson") { amount = r.amount; onceKey = d.id ? `lesson:${String(d.id).slice(0, 80)}` : null; if (!onceKey) return json({ error: "Missing lesson" }, 400); }
   else if (action === "ramadan") { amount = d.all ? (r.bonus ?? 0) : r.amount; onceKey = `rmd:${int(d.year, 0, 9999)}:${int(d.day, 0, 30)}:${d.all ? "all" : String(d.step ?? "").slice(0, 20)}`; }
   else amount = r.amount;
 

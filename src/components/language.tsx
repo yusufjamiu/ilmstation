@@ -11,19 +11,18 @@ export const languages = [
   { code: "fr", label: "French", native: "Français", dir: "ltr" },
   { code: "ur", label: "Urdu", native: "اردو", dir: "rtl" },
   { code: "ha", label: "Hausa", native: "Hausa", dir: "ltr" },
-  { code: "yo", label: "Yoruba", native: "Yorùbá", dir: "ltr" },
 ] as const;
 export type Lang = (typeof languages)[number]["code"];
 
 const dict: Record<string, Partial<Record<Lang, string>>> = {
-  Home: { ar: "الرئيسية", ha: "Gida", yo: "Ilé", fr: "Accueil", ur: "ہوم" },
-  Events: { ar: "الفعاليات", ha: "Taruka", yo: "Ìṣẹ̀lẹ̀", fr: "Événements", ur: "تقریبات" },
-  Centres: { ar: "المراكز", ha: "Cibiyoyi", yo: "Ibùdó", fr: "Centres", ur: "مراکز" },
-  Chatrooms: { ar: "الغرف", ha: "Dakunan hira", yo: "Yàrá ìjíròrò", fr: "Salons", ur: "چیٹ روم" },
-  Sponsor: { ar: "ادعم", ha: "Tallafa", yo: "Ṣètìlẹ́yìn", fr: "Parrainer", ur: "سرپرستی" },
-  "Open dashboard": { ar: "لوحة التحكم", ha: "Buɗe dashboard", yo: "Ṣí pátákó", fr: "Tableau de bord", ur: "ڈیش بورڈ" },
-  "Log in": { ar: "تسجيل الدخول", ha: "Shiga", yo: "Wọlé", fr: "Se connecter", ur: "لاگ ان" },
-  "Get started": { ar: "ابدأ الآن", ha: "Fara yanzu", yo: "Bẹ̀rẹ̀", fr: "Commencer", ur: "شروع کریں" },
+  Home: { ar: "الرئيسية", ha: "Gida", fr: "Accueil", ur: "ہوم" },
+  Events: { ar: "الفعاليات", ha: "Taruka", fr: "Événements", ur: "تقریبات" },
+  Centres: { ar: "المراكز", ha: "Cibiyoyi", fr: "Centres", ur: "مراکز" },
+  Chatrooms: { ar: "الغرف", ha: "Dakunan hira", fr: "Salons", ur: "چیٹ روم" },
+  Sponsor: { ar: "ادعم", ha: "Tallafa", fr: "Parrainer", ur: "سرپرستی" },
+  "Open dashboard": { ar: "لوحة التحكم", ha: "Buɗe dashboard", fr: "Tableau de bord", ur: "ڈیش بورڈ" },
+  "Log in": { ar: "تسجيل الدخول", ha: "Shiga", fr: "Se connecter", ur: "لاگ ان" },
+  "Get started": { ar: "ابدأ الآن", ha: "Fara yanzu", fr: "Commencer", ur: "شروع کریں" },
 };
 
 const KEY = "iq_lang";

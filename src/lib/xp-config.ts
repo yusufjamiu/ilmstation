@@ -1,5 +1,5 @@
 /** XP amounts. The admin can change them (saved in siteConfig/xp); these are the defaults. */
-export type XpAction = "quiz" | "daily" | "wisdom" | "duel" | "book" | "hifz" | "ramadan";
+export type XpAction = "quiz" | "daily" | "wisdom" | "duel" | "book" | "hifz" | "ramadan" | "lesson";
 export type XpRule = { amount: number; cap: number; on: boolean; bonus?: number; bonus7?: number; bonus30?: number };
 export type XpConfig = Record<XpAction, XpRule>;
 
@@ -11,6 +11,7 @@ export const XP_DEFAULTS: XpConfig = {
   book: { amount: 50, cap: 150, on: true },
   hifz: { amount: 10, cap: 50, on: true },
   ramadan: { amount: 5, cap: 40, on: true, bonus: 20 },
+  lesson: { amount: 20, cap: 200, on: true },
 };
 
 export const XP_LABELS: Record<XpAction, { label: string; hint: string; amount: string }> = {
@@ -21,6 +22,7 @@ export const XP_LABELS: Record<XpAction, { label: string; hint: string; amount: 
   book: { label: "Finish a book", hint: "Once per book or audiobook, ever", amount: "XP per book" },
   hifz: { label: "Hifz", hint: "Per ayah memorised or revised", amount: "XP per ayah" },
   ramadan: { label: "Ramadan quest", hint: "Per step (lesson, dua, reminder, quiz), once each", amount: "XP per step" },
+  lesson: { label: "Study lesson", hint: "Once per lesson, ever", amount: "XP per lesson" },
 };
 
 export function mergeXp(saved: unknown): XpConfig {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, BookOpen, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ListOrdered, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
 import { deleteObject, getDownloadURL, listAll, ref, uploadBytesResumable, type StorageReference } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
@@ -13,6 +13,8 @@ import {
   type Category, type IconKey, type Level, type Subject, type Syllabus,
 } from "@/components/study-data";
 import { Choice, Field, inputCls, Page, Pill, useAudit, useConfirm } from "./ui";
+import { LessonsManager } from "./study-lessons";
+import { ExamsManager } from "./study-exams";
 
 const MAX_MB = 50;
 const newId = (p: string) => `${p}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -25,13 +27,13 @@ async function deleteFolder(r: StorageReference): Promise<void> {
 }
 
 export function StudySection() {
-  const [tab, setTab] = useState<"subjects" | "categories">("subjects");
+  const [tab, setTab] = useState<"subjects" | "exams" | "categories">("subjects");
   const { cats, saved } = useStudyCategories();
   return <Page eyebrow="App · study" title="Study">
-    <div className="mb-5 flex gap-2">{([["subjects", "Subjects & syllabus"], ["categories", "Categories & levels"]] as const).map(([id, label]) =>
+    <div className="mb-5 flex flex-wrap gap-2">{([["subjects", "Subjects & lessons"], ["exams", "Exams"], ["categories", "Categories & levels"]] as const).map(([id, label]) =>
       <button key={id} onClick={() => setTab(id)} className={cn("border-2 border-foreground px-3 py-2 text-sm font-semibold", tab === id ? "bg-primary shadow-brutal-sm" : "bg-background hover:bg-muted")}>{label}</button>)}</div>
     {!cats ? <p className="text-sm text-muted-foreground">Loading…</p>
-      : tab === "subjects" ? <Subjects cats={cats} /> : <Categories cats={cats} saved={saved} />}
+      : tab === "subjects" ? <Subjects cats={cats} /> : tab === "exams" ? <ExamsManager cats={cats} /> : <Categories cats={cats} saved={saved} />}
   </Page>;
 }
 
@@ -165,6 +167,7 @@ function Subjects({ cats }: { cats: Category[] }) {
   const [form, setForm] = useState<Form | null>(null);
   const [stage, setStage] = useState<string>("");
   const [busy, setBusy] = useState("");
+  const [lessonsOf, setLessonsOf] = useState<string | null>(null);
   const { record } = useAudit();
   const { ask, dialog } = useConfirm();
 
@@ -246,6 +249,9 @@ function Subjects({ cats }: { cats: Category[] }) {
   });
 
   const syl = form?.syllabus[stage];
+  const lessonSubject = (items ?? []).find((s) => s.id === lessonsOf);
+  if (lessonSubject) return <LessonsManager cat={cats.find((c) => c.id === lessonSubject.category)} subject={lessonSubject} onBack={() => setLessonsOf(null)} />;
+
   const valid = (s: Subject) => { const ids = stagesOf(cats.find((c) => c.id === s.category)).map((x) => x.id); return s.stages.filter((x) => ids.includes(x)); };
 
   return <>
@@ -276,6 +282,7 @@ function Subjects({ cats }: { cats: Category[] }) {
             <Button size="icon" variant="outline" aria-label={`Edit ${s.name}`} onClick={() => open(s)}><Pencil /></Button>
             <Button size="icon" variant="outline" aria-label={`Delete ${s.name}`} onClick={() => remove(s)}><Trash2 /></Button>
           </div>
+          <Button size="sm" onClick={() => setLessonsOf(s.id)}><ListOrdered /> Lessons</Button>
         </article>;
       })}</div>}
 

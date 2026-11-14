@@ -101,6 +101,8 @@ export default {
       return import("./lib/rate-server").then((m) => m.handleRate(request));
     if (url.pathname === "/api/xp")
       return import("./lib/xp-server").then((m) => m.handleXp(request));
+    if (url.pathname === "/api/study-exam")
+      return import("./lib/study-server").then((m) => m.handleStudyExam(request));
     // Ramadan prize quiz: marked on the server
     if (url.pathname === "/api/ramadan-quiz")
       return import("./lib/ramadan-server").then((m) => m.handleRamadanQuiz(request));
