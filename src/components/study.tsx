@@ -125,7 +125,7 @@ function StagesView({ cat, subjects, reached, onBack, onOpen, onExam }: { cat: C
                 <span className="text-xs text-muted-foreground">{state === "done" ? "Completed ✓" : !n ? "Coming soon" : `${n} subject${n > 1 ? "s" : ""}`}</span></span>
               {state === "locked" ? <Lock className="size-4" /> : state === "done" ? <CheckCircle2 className="size-5 text-secondary" /> : n ? <ChevronRight className="size-5" /> : null}
             </button>
-            {state === "locked" && prev && <Button size="sm" variant="outline" onClick={() => onExam(promoExamId(cat.id, prev.id))}>Test out to here</Button>}
+            {state === "locked" && prev && n > 0 && <Button size="sm" variant="outline" onClick={() => onExam(promoExamId(cat.id, prev.id))}>Test out to here</Button>}
           </div>;
         })}</div>
       </section>)}</div>}
