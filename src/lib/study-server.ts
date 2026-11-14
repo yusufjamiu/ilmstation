@@ -1,6 +1,6 @@
 import { admin } from "./money-server";
 import {
-  DEFAULT_CATEGORIES, isRight, stagesOf, subjectExamId,
+  DEFAULT_CATEGORIES, isRight, reachedIndex, stagesOf, subjectExamId,
   type Category, type Exam, type Key, type Results,
 } from "@/components/study-core";
 
@@ -30,7 +30,7 @@ async function gate(db: Db, uid: string, exam: Exam, results: Results): Promise<
   const stages = stagesOf(cat);
   const idx = stages.findIndex((s) => s.id === exam.stage);
   if (idx < 0) return { ok: false, reason: "This stage no longer exists." };
-  const reached = results.reached?.[exam.category] ?? 0;
+  const reached = reachedIndex(results, exam.category, stages);
   const last = results.exams?.[exam.id]?.last ?? 0;
 
   if (exam.kind === "subject") {
@@ -106,8 +106,14 @@ export async function handleStudyExam(request: Request): Promise<Response> {
     };
     let promoted = false;
     if (exam.kind === "promotion" && passed) {
-      const idx = stagesOf(await category(db, exam.category)).findIndex((s) => s.id === exam.stage);
-      if (idx >= 0 && idx + 1 > (results.reached?.[exam.category] ?? 0)) { update[`reached.${exam.category}`] = idx + 1; promoted = true; }
+      const stages = stagesOf(await category(db, exam.category));
+      const idx = stages.findIndex((s) => s.id === exam.stage);
+      const next = stages[idx + 1];
+      if (idx >= 0 && next && idx + 1 > reachedIndex(results, exam.category, stages)) {
+        update[`at.${exam.category}`] = next.id;
+        update[`reached.${exam.category}`] = idx + 1;
+        promoted = true;
+      }
     }
     await resRef.set({}, { merge: true });
     await resRef.update(update);
