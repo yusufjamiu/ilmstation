@@ -102,8 +102,14 @@ export const SCREEN_LABEL: Record<ScreenType, string> = {
 export type Lesson = {
   id: string; subjectId: string; stage: string; order: number;
   title: string; mins: number; tier: "free" | "premium"; status: "draft" | "published";
+  /** "html" (default): one uploaded HTML page per voice language. "screens": built in the admin. */
+  kind?: "html" | "screens";
+  html?: Partial<Record<VoiceLang, string>>;
+  /** The book this lesson explains, e.g. Al-Ajurrumiyyah · Bab al-Kalam (pp. 3–5). */
+  book?: string; part?: string;
   screens: Screen[]; pdfUrl?: string; createdAt: number;
 };
+export const isHtmlLesson = (l: Pick<Lesson, "kind" | "screens">) => (l.kind ? l.kind === "html" : !l.screens?.length);
 
 /* ---------------- Exams ----------------
    "studyExams": questions everyone signed in can read (no answers).

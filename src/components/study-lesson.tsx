@@ -5,7 +5,7 @@ import { db } from "@/lib/firebase";
 import { awardXp } from "@/lib/xp";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { isRight, pick, youtubeId, type Lesson, type Screen, type Voices } from "@/components/study-data";
+import { isHtmlLesson, isRight, pick, voiceName, youtubeId, type Lesson, type Screen, type Voices } from "@/components/study-data";
 
 /* ---------------- voice ---------------- */
 
@@ -36,6 +36,61 @@ export function LessonPlayer({ lesson, lang, uid, done, note, onExit, onFinished
   lesson: Lesson; lang: string; uid: string | null; done: boolean; note: string;
   onExit: () => void; onFinished: () => void;
 }) {
+  if (isHtmlLesson(lesson)) return <HtmlLesson lesson={lesson} lang={lang} uid={uid} done={done} note={note} onExit={onExit} onFinished={onFinished} />;
+  return <ScreensLesson lesson={lesson} lang={lang} uid={uid} done={done} note={note} onExit={onExit} onFinished={onFinished} />;
+}
+
+type PlayerProps = { lesson: Lesson; lang: string; uid: string | null; done: boolean; note: string; onExit: () => void; onFinished: () => void };
+
+async function markDone(uid: string | null, lessonId: string, done: boolean) {
+  if (!uid || done) return;
+  await setDoc(doc(db, "studyProgress", uid), { done: { [lessonId]: Date.now() } }, { merge: true }).catch(() => {});
+  void awardXp("lesson", { id: lessonId });
+}
+
+/* ---------------- HTML lesson: the uploaded page, in the learner's voice language ---------------- */
+
+function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: PlayerProps) {
+  const langs = Object.entries(lesson.html ?? {}).filter(([, u]) => u).map(([k]) => k);
+  const [chosen, setChosen] = useState(lesson.html?.[lang as keyof typeof lesson.html] ? lang : langs.includes("en") ? "en" : langs[0] ?? "");
+  const url = lesson.html?.[chosen as keyof typeof lesson.html];
+  const [finished, setFinished] = useState(false);
+  const [myNote, setMyNote] = useState(note);
+  const finish = async () => { await markDone(uid, lesson.id, done); setFinished(true); onFinished(); };
+  useEffect(() => {
+    const on = (e: MessageEvent) => { const d = e.data as { type?: string } | null; if (d?.type === "ilmstation:done") void finish(); };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveNote = () => { if (uid) void setDoc(doc(db, "studyProgress", uid), { notes: { [lesson.id]: myNote } }, { merge: true }).catch(() => {}); };
+
+  return <div className="iq-rise">
+    <div className="flex flex-wrap items-center gap-3">
+      <button aria-label="Close lesson" onClick={() => { saveNote(); onExit(); }} className="grid size-10 place-items-center border-2 border-foreground bg-background"><X className="size-5" /></button>
+      <div className="min-w-0 flex-1">
+        <h1 className="font-serif text-2xl leading-tight sm:text-3xl">{lesson.title}</h1>
+        {(lesson.book || lesson.part) && <p dir="auto" className="text-sm text-muted-foreground">{[lesson.book, lesson.part].filter(Boolean).join(" · ")}</p>}
+      </div>
+      {langs.length > 1 && <select value={chosen} onChange={(e) => setChosen(e.target.value)} aria-label="Lesson voice" className="border-2 border-foreground bg-background px-2 py-2 text-sm font-semibold">{langs.map((l) => <option key={l} value={l}>🔊 {voiceName(l)}</option>)}</select>}
+    </div>
+    {url ? <iframe key={url} src={url} title={lesson.title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
+      className="mt-4 h-[75vh] min-h-[480px] w-full border-2 border-foreground bg-background shadow-brutal" />
+      : <p className="mt-4 border-2 border-dashed border-foreground p-6 text-sm text-muted-foreground">This lesson isn't uploaded yet.</p>}
+    <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+      <div className="border-2 border-foreground bg-card p-4 shadow-brutal-sm">
+        <h2 className="font-serif text-xl">My notes</h2>
+        <textarea value={myNote} onChange={(e) => setMyNote(e.target.value)} onBlur={saveNote} rows={2} aria-label="My notes" placeholder="Write what you learnt…" className="mt-2 w-full border-2 border-foreground bg-background p-2 text-sm outline-none" />
+        {lesson.pdfUrl && <a href={lesson.pdfUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-semibold underline">Download the worksheet</a>}
+      </div>
+      {finished || done ? <div className="flex flex-col items-center gap-2 border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm"><Trophy className="size-8" /><b>Lesson complete</b><Button variant="outline" className="bg-background text-foreground" onClick={() => { saveNote(); onExit(); }}>Back to lessons <ChevronRight /></Button></div>
+        : <Button size="lg" onClick={() => void finish()}><Check /> I've finished this lesson</Button>}
+    </div>
+  </div>;
+}
+
+/* ---------------- screens lesson (built in the admin) ---------------- */
+
+function ScreensLesson({ lesson, lang, uid, done, note, onExit, onFinished }: PlayerProps) {
   const screens = lesson.screens ?? [];
   const [i, setI] = useState(0);
   const [ok, setOk] = useState(false);
@@ -50,10 +105,7 @@ export function LessonPlayer({ lesson, lang, uid, done, note, onExit, onFinished
   const next = async () => {
     if (i + 1 < screens.length) { setI(i + 1); return; }
     setFinished(true);
-    if (uid && !done) {
-      await setDoc(doc(db, "studyProgress", uid), { done: { [lesson.id]: Date.now() } }, { merge: true }).catch(() => {});
-      void awardXp("lesson", { id: lesson.id });
-    }
+    await markDone(uid, lesson.id, done);
     onFinished();
   };
   const saveNote = () => { if (uid) void setDoc(doc(db, "studyProgress", uid), { notes: { [lesson.id]: myNote } }, { merge: true }).catch(() => {}); };

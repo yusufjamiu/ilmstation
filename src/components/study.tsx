@@ -208,7 +208,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLe
         return <li key={l.id}><button disabled={!open} onClick={() => locked ? toast("This lesson is for Premium members.") : onLesson(l.id)}
           className={cn("flex w-full items-center gap-3 border-2 border-foreground bg-card p-4 text-left shadow-brutal-sm disabled:opacity-50", i === firstOpen && "bg-primary")}>
           {isDone ? <CheckCircle2 className="size-5 shrink-0 text-secondary" /> : open ? <Circle className="size-5 shrink-0" /> : <Lock className="size-5 shrink-0" />}
-          <span className="min-w-0 flex-1"><span className="block font-semibold">{i + 1}. {l.title}</span><span className="text-xs text-muted-foreground">{l.screens?.length ?? 0} screens · {l.mins} min{l.tier === "premium" ? " · Premium" : ""}</span></span>
+          <span className="min-w-0 flex-1"><span className="block font-semibold">{i + 1}. {l.title}</span><span dir="auto" className="text-xs text-muted-foreground">{[l.book && l.part ? `${l.book} · ${l.part}` : l.book || l.part, `${l.mins} min`, l.tier === "premium" ? "Premium" : ""].filter(Boolean).join(" · ")}</span></span>
           {locked ? <span className="border-2 border-foreground px-2 text-xs font-bold">Premium</span> : open && <ChevronRight className="size-5" />}
         </button></li>;
       })}</ol>}

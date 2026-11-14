@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDown, ArrowLeft, ArrowUp, Copy, Mic, Pencil, Plus, Trash2, Upload, Volume2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, FileCode, Files, Mic, Pencil, Plus, Trash2, Upload, Volume2 } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, query, setDoc, where, writeBatch } from "firebase/firestore";
 import { deleteObject, getDownloadURL, listAll, ref, uploadBytesResumable, type StorageReference } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
-  SCREEN_LABEL, stageName, VOICE_LANGS, voiceName,
+  isHtmlLesson, SCREEN_LABEL, stageName, VOICE_LANGS, voiceName,
   type Category, type Choice, type Lesson, type Screen, type ScreenType, type Subject, type VoiceLang, type Voices,
 } from "@/components/study-data";
 import { Field, inputCls, Pill, useAudit, useConfirm } from "./ui";
@@ -51,6 +51,7 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
   const [form, setForm] = useState<Form | null>(null);
   const [lang, setLang] = useState<VoiceLang>("en");
   const [busy, setBusy] = useState("");
+  const [bulkLang, setBulkLang] = useState<VoiceLang>("en");
   const { record } = useAudit();
   const { ask, dialog } = useConfirm();
 
@@ -59,13 +60,42 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
   const rows = useMemo(() => (items ?? []).filter((l) => l.stage === stage).sort((a, b) => a.order - b.order), [items, stage]);
 
   const open = (l?: Lesson) => setForm(l ? { ...l, screens: l.screens ?? [], isNew: false }
-    : { id: newId("les"), isNew: true, subjectId: subject.id, stage, order: rows.length, title: "", mins: 5, tier: "free", status: "draft", screens: [blank("explain")], createdAt: Date.now() });
+    : { id: newId("les"), isNew: true, subjectId: subject.id, stage, order: rows.length, title: "", mins: 10, tier: "free", status: "draft", kind: "html", html: {}, book: rows[rows.length - 1]?.book ?? "", part: "", screens: [], createdAt: Date.now() });
+
+  /** Many .html files at once → one draft lesson each, in file-name order (001.html, 002.html…). */
+  const bulk = async (files: File[]) => {
+    const list = files.filter((f) => /\.html?$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (!list.length) { toast.error("Pick .html files"); return; }
+    const book = rows[rows.length - 1]?.book ?? "";
+    let made = 0;
+    try {
+      for (let n = 0; n < list.length; n++) {
+        const f = list[n]!;
+        const id = newId("les") + n;
+        const url = await upload(`study/lessons/${id}/lesson-${bulkLang}.html`, f, (p) => setBusy(`Uploading ${n + 1} of ${list.length} · ${p}%`), "text/html");
+        const inner = (await f.text()).match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+        const title = inner || f.name.replace(/\.html?$/i, "").replace(/^[\d\s._-]+/, "").replace(/[-_]+/g, " ").trim() || `Lesson ${rows.length + n + 1}`;
+        await setDoc(doc(db, "studyLessons", id), { subjectId: subject.id, stage, order: rows.length + n, title, mins: 10, tier: "free", status: "draft", kind: "html", html: { [bulkLang]: url }, book, part: "", screens: [], createdAt: Date.now() });
+        made++;
+      }
+      record(`Bulk uploaded ${made} lessons to ${subject.name}`);
+      toast.success(`${made} lessons added as drafts. Check them, then publish.`);
+    } catch (e) { toast.error(`${made} added, then: ${(e as Error).message || "upload failed"}`); }
+    finally { setBusy(""); }
+  };
+  const publishAll = async () => {
+    const drafts = rows.filter((l) => l.status !== "published");
+    if (!drafts.length) { toast("Everything here is already published."); return; }
+    const w = writeBatch(db);
+    drafts.forEach((l) => w.update(doc(db, "studyLessons", l.id), { status: "published" }));
+    await w.commit().then(() => { record(`Published ${drafts.length} lessons in ${subject.name}`); toast.success(`${drafts.length} lessons published`); }, () => toast.error("Couldn't publish."));
+  };
 
   /** A ready-made lesson (the letter ب) to try the player without making content first. */
   const addSample = async () => {
     const S = (x: Record<string, unknown>) => ({ id: newId("s"), ...x }) as Screen;
     const sample: Omit<Lesson, "id"> = {
-      subjectId: subject.id, stage, order: rows.length, title: "Sample · The letter Ba (ب)", mins: 5, tier: "free", status: "draft", createdAt: Date.now(),
+      subjectId: subject.id, stage, order: rows.length, title: "Sample · The letter Ba (ب)", mins: 5, tier: "free", status: "draft", kind: "screens", createdAt: Date.now(),
       screens: [
         S({ type: "explain", title: "Meet Ba", big: "ب", text: "This is Ba. It has one dot below. Its sound is بَ (ba)." }),
         S({ type: "choose", prompt: "أين حرف الباء؟", options: [{ label: "ت" }, { label: "ب" }, { label: "ث" }], answer: 1, hint: "Look for one dot below." }),
@@ -132,7 +162,16 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
     <Button variant="ghost" onClick={onBack}><ArrowLeft /> All subjects</Button>
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <h2 className="mr-auto font-serif text-3xl">{subject.name} · lessons</h2>
+      <Button variant="outline" onClick={() => void publishAll()} disabled={!rows.length}>Publish all</Button>
       <Button onClick={() => open()} disabled={!stage}><Plus /> Add lesson</Button>
+    </div>
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-2 border-foreground bg-muted p-3 text-sm">
+      <Files className="size-4" /><b>Bulk upload HTML lessons</b>
+      <select aria-label="Voice language of these files" value={bulkLang} onChange={(e) => setBulkLang(e.target.value as VoiceLang)} className="border-2 border-foreground bg-background px-2 py-1">{VOICE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
+      <label className={cn("inline-flex cursor-pointer items-center gap-2 border-2 border-foreground bg-background px-3 py-1.5 font-semibold", (busy || !stage) && "opacity-50")}><Upload className="size-4" /> Choose .html files
+        <input type="file" accept=".html,.htm,text/html" multiple className="hidden" disabled={!!busy || !stage} onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; if (fs.length) void bulk(fs); }} /></label>
+      <span className="text-xs text-muted-foreground">Name files 001.html, 002.html… They're added to {stageName(cat, stage)} in that order, titled from each page's &lt;title&gt;.</span>
+      {busy && !form && <span className="w-full font-semibold">{busy}</span>}
     </div>
     <div className="mt-3 flex flex-wrap gap-1">{subject.stages.map((s) => <button key={s} onClick={() => setStage(s)} className={cn("border-2 border-foreground px-2 py-1 text-xs font-semibold", s === stage ? "bg-primary shadow-brutal-sm" : "bg-background hover:bg-muted")}>{stageName(cat, s)}</button>)}</div>
 
@@ -141,7 +180,7 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
         <Button className="mt-3" variant="outline" onClick={() => void addSample()}>Add a sample lesson (letter ب)</Button></div>
         : <div className="mt-4 grid gap-2">{rows.map((l, i) => <article key={l.id} className="flex flex-wrap items-center gap-3 border-2 border-foreground bg-card p-3 shadow-brutal-sm">
           <span className="w-6 text-right font-bold tabular-nums">{i + 1}.</span>
-          <div className="min-w-0 flex-1"><p className="font-semibold">{l.title}</p><p className="text-xs text-muted-foreground">{l.screens?.length ?? 0} screens · {l.mins} min · {l.tier === "premium" ? "Premium" : "Free"}</p></div>
+          <div className="min-w-0 flex-1"><p className="font-semibold">{l.title}</p><p dir="auto" className="text-xs text-muted-foreground">{isHtmlLesson(l) ? `HTML · ${Object.keys(l.html ?? {}).map(voiceName).join(", ") || "not uploaded"}` : `${l.screens?.length ?? 0} screens`}{l.book ? ` · ${l.book}${l.part ? ` · ${l.part}` : ""}` : ""} · {l.tier === "premium" ? "Premium" : "Free"}</p></div>
           <Pill value={l.status === "published" ? "Published" : "Draft"} />
           <div className="flex gap-1">
             <Button size="icon" variant="outline" aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}><ArrowUp /></Button>
@@ -163,12 +202,32 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
               <Field label="Access"><select className={inputCls} value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value as Lesson["tier"] })}><option value="free">Free</option><option value="premium">Premium</option></select></Field>
               <Field label="Status"><select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Lesson["status"] })}><option value="draft">Draft</option><option value="published">Published</option></select></Field>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Book"><input dir="auto" className={inputCls} value={form.book ?? ""} onChange={(e) => setForm({ ...form, book: e.target.value })} placeholder="e.g. الآجرومية" /></Field>
+              <Field label="Chapter / pages"><input dir="auto" className={inputCls} value={form.part ?? ""} onChange={(e) => setForm({ ...form, part: e.target.value })} placeholder="e.g. باب الكلام · pp. 3–5" /></Field>
+            </div>
+            <div className="flex flex-wrap gap-4 text-sm"><b>Lesson type:</b>
+              <label className="flex items-center gap-2"><input type="radio" checked={isHtmlLesson(form)} onChange={() => setForm({ ...form, kind: "html" })} /> HTML page (upload)</label>
+              <label className="flex items-center gap-2"><input type="radio" checked={!isHtmlLesson(form)} onChange={() => setForm({ ...form, kind: "screens", screens: form.screens.length ? form.screens : [blank("explain")] })} /> Screens (build here)</label>
+            </div>
             <div className="flex flex-wrap items-center gap-2 border-2 border-foreground bg-muted p-2 text-sm">
               <Mic className="size-4" /><b>Voice language for uploads:</b>
               <select value={lang} onChange={(e) => setLang(e.target.value as VoiceLang)} className="border-2 border-foreground bg-background px-2 py-1">{VOICE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
               <span className="text-xs text-muted-foreground">Missing clips fall back to English, then the phone reads the text aloud.</span>
             </div>
 
+            {isHtmlLesson(form) && <fieldset className="border-2 border-foreground p-3"><legend className="px-1 text-xs font-bold uppercase">HTML page</legend>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <FileCode className="size-4" /><b>{voiceName(lang)}:</b>
+                {form.html?.[lang] ? <a href={form.html[lang]} target="_blank" rel="noreferrer" className="font-semibold underline">Uploaded ✓ Preview</a> : <span className="text-muted-foreground">Not uploaded</span>}
+                <FileBtn label={form.html?.[lang] ? "Replace" : "Upload .html"} accept=".html,.htm,text/html" disabled={!!busy} onFile={async (f) => { const u = await up(f, `lesson-${lang}`, "text/html"); if (u) setForm((x) => x && { ...x, html: { ...x.html, [lang]: u } }); }} />
+                {form.html?.[lang] && <Button size="sm" variant="outline" onClick={() => { const h = { ...form.html }; delete h[lang]; setForm({ ...form, html: h }); }}>Remove</Button>}
+              </div>
+              {Object.keys(form.html ?? {}).length > 0 && <p className="mt-2 text-xs text-muted-foreground">Uploaded in: {Object.keys(form.html ?? {}).map(voiceName).join(", ")}. Learners get their voice language, else English.</p>}
+              <p className="mt-2 text-xs text-muted-foreground">To finish the lesson automatically, the page can call <code>parent.postMessage({`{ type: "ilmstation:done" }`}, "*")</code>. Otherwise learners tap "I've finished this lesson".</p>
+            </fieldset>}
+
+            {!isHtmlLesson(form) && <>
             <ol className="grid gap-3">{form.screens.map((s, i) => <li key={s.id} className="border-2 border-foreground bg-card p-3">
               <div className="mb-2 flex items-center gap-2">
                 <span className="text-xs font-bold uppercase">Screen {i + 1} · {SCREEN_LABEL[s.type]}</span>
@@ -183,6 +242,7 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
 
             <div className="flex flex-wrap gap-1"><span className="mr-1 self-center text-xs font-bold uppercase">Add screen:</span>{(Object.keys(SCREEN_LABEL) as ScreenType[]).map((t) =>
               <Button key={t} size="sm" variant="outline" onClick={() => setForm({ ...form, screens: [...form.screens, blank(t)] })}><Plus /> {SCREEN_LABEL[t].split(" (")[0]}</Button>)}</div>
+            </>}
 
             <fieldset className="border-2 border-foreground p-3"><legend className="px-1 text-xs font-bold uppercase">Worksheet (optional PDF)</legend>
               <div className="flex flex-wrap items-center gap-3">
