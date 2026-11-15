@@ -1,7 +1,7 @@
 import { esc, layout, sendEmail } from "./email-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
-import { mergePremium } from "./premium-config";
+import { basePrice, finalPrice, isQuote, mergePremium, type Period } from "./premium-config";
 
 /** Premium and points live on the server: trial, Paystack payments, unlocking with points, redeeming points, admin grants. */
 const DAY = 86_400_000;
@@ -106,13 +106,16 @@ export async function handlePremium(request: Request): Promise<Response> {
   // start a Paystack payment for a plan (the price comes from the admin's settings)
   if (action === "checkout") {
     const plan = cfg.plans.find((p) => p.id === String(data.planId ?? "") && p.visible);
-    if (!plan || plan.price <= 0) return json({ ok: false, error: "That plan isn't available." });
+    if (!plan || isQuote(plan)) return json({ ok: false, error: "That plan isn't available." });
     if (!email) return json({ ok: false, error: "Your account needs an email address to pay." });
     if (!process.env.PAYSTACK_SECRET_KEY) return json({ ok: false, error: "Payments aren't set up yet." });
-    const usd = cfg.usdAbroad && !!country && country !== "NG" && (plan.priceUsd ?? 0) > 0;
+    const period: Period = data.period === "year" ? "year" : "month";
+    const usd = cfg.usdAbroad && !!country && country !== "NG" && basePrice(plan, period, true) > 0;
+    const pr = finalPrice(cfg, plan, period, usd, String(data.code ?? ""));
+    if (pr.final <= 0) return json({ ok: false, error: period === "year" ? "This plan isn’t available yearly." : "This plan isn’t available monthly." });
     const currency = usd ? "USD" : "NGN";
-    const amount = usd ? Math.round((plan.priceUsd ?? 0) * 100) : Math.round(plan.price * 100);
-    const days = plan.period === "year" ? 365 : 30;
+    const amount = Math.round(pr.final * 100);
+    const days = period === "year" ? 365 : 30;
     const origin = new URL(request.url).origin;
     const r = await paystack("/transaction/initialize", { method: "POST", body: JSON.stringify({
       email, amount, currency, callback_url: `${origin}/app?s=rewards`,

@@ -1,3 +1,4 @@
+import { isQuote, lagosDate } from "@/lib/premium-config";
 import { KidGames, KidHome, useShowQuickQuiz } from "@/components/kids";
 import { AdhanWatcher } from "@/components/today";
 import { KahfReminder } from "@/components/today";
@@ -16,7 +17,7 @@ import {
   Share2, ShieldCheck, ShoppingBag, Sparkles, Swords, Trophy, Users, UserPlus, Check, Volume2, Wallet, X,
 } from "lucide-react";
 import { GraduationCap } from "lucide-react";
-import { LockedTag, PremiumTag, Tier, UnlockDialog, usePremium, plans, priceLabel } from "@/components/premium";
+import { LockedTag, PremiumTag, Tier, UnlockDialog, usePremium, plans, priceLabel, priceFor } from "@/components/premium";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -345,15 +346,37 @@ function ShareDialog({card,onOpenChange}:{card:ShareCard|null;onOpenChange:(x:bo
 function OnboardingDialog({open,onOpenChange}:{open:boolean;onOpenChange:(x:boolean)=>void}){const[step,setStep]=useState(0);const[interests,setInterests]=useState<string[]>([]);const next=()=>setStep(s=>Math.min(7,s+1));return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto border-2 border-foreground bg-background shadow-brutal sm:max-w-2xl sm:rounded-none"><DialogHeader><p className="text-xs font-bold uppercase">Step {step+1} of 8</p><DialogTitle className="font-serif text-4xl">{["Welcome to IlmStation","Choose your language","Learn. Play. Grow.","Create your account","Build your profile","Choose your interests","Quick assessment","You’re ready, Imran"][step]}</DialogTitle><DialogDescription>Seek · Learn · Grow</DialogDescription></DialogHeader>{step===0&&<div className="grid min-h-56 place-items-center bg-primary"><span className="grid size-24 place-items-center border-2 border-foreground bg-foreground font-serif text-6xl text-background shadow-brutal">I</span></div>}{step===1&&<div className="grid grid-cols-2 gap-2">{["English","العربية","اردو","Bahasa Melayu","Français"].map(x=><Button key={x} variant="outline" onClick={next}>{x}</Button>)}</div>}{step===2&&<div className="grid gap-3 sm:grid-cols-3">{[["Learn","Trusted, structured Islamic knowledge."],["Play","Quizzes that teach after every answer."],["Grow","Visible progress, streaks, and community."]].map(([a,b])=><div className="border-2 border-foreground bg-primary p-5"><h3 className="font-serif text-3xl">{a}</h3><p className="mt-2 text-sm">{b}</p></div>)}</div>}{step===3&&<div className="space-y-3"><Field label="Name" placeholder="Imran Yusuf"/><Field label="Email" type="email" placeholder="imran@example.com"/><Field label="Password" type="password" placeholder="At least 8 characters"/><div className="h-2 border border-foreground"><div className="h-full w-3/4 bg-secondary"/></div><Button variant="outline" className="w-full">Continue with Google</Button></div>}{step===4&&<div className="grid gap-4 sm:grid-cols-2"><Field label="Date of birth" type="date"/><div><p className="text-sm font-semibold">Choose an avatar</p><div className="mt-2 grid grid-cols-4 gap-2">{["I","A","Y","M"].map(x=><button className="grid aspect-square place-items-center border-2 border-foreground bg-primary font-serif text-2xl">{x}</button>)}</div></div><label className="sm:col-span-2 text-sm font-semibold">Learning zone<select className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3"><option>18–25 · University / New Adult</option><option>13–17 · Young Muslim</option><option>26–35 · Parent / Professional</option></select></label></div>}{step===5&&<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{topics.map(t=><Button key={t} variant={interests.includes(t)?"default":"outline"} onClick={()=>setInterests(v=>v.includes(t)?v.filter(x=>x!==t):[...v,t])}>{t}</Button>)}</div>}{step===6&&<div><p className="font-serif text-3xl">How many pillars of Iman are there?</p><div className="mt-4 grid grid-cols-2 gap-2">{["Five","Six","Seven","Eight"].map(x=><Button variant="outline" onClick={next}>{x}</Button>)}</div></div>}{step===7&&<div className="border-2 border-foreground bg-primary p-8 text-center"><Sparkles className="mx-auto size-12"/><p className="mt-4 font-serif text-5xl">+50 XP</p><p className="mt-2">Your Seeker journey begins now.</p></div>}{step!==1&&step!==6&&<Button disabled={step===5&&interests.length===0} onClick={()=>{if(step===7){onOpenChange(false);setStep(0);toast.success("Welcome to IlmStation") } else next()}}>{step===7?"Begin your first quest":"Continue"}</Button>}</DialogContent></Dialog>}
 function PlansPanel(){
   const{premium,premiumUntil,trial,plan,config,activatePremium,country}=usePremium();
+  const[period,setPeriod]=useState<"month"|"year">("month");
+  const[code,setCode]=useState("");const[applied,setApplied]=useState("");
   const until=premiumUntil?new Date(premiumUntil).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}):"";
   const daysLeft=Math.max(0,Math.ceil((premiumUntil-Date.now())/86400000));
+  const shown=config.plans.filter(p=>p.visible);
+  const anyYear=shown.some(p=>priceFor(p,"year",country,config).available);
+  const today=lagosDate();
+  const banner=config.promos.find(x=>x.on&&!x.code&&x.banner&&x.start<=today&&today<=x.end);
+  const applyCode=()=>{const c=code.trim().toUpperCase();if(!c){setApplied("");toast("Code removed");return;}const ok=config.promos.find(x=>x.on&&x.code&&x.code.toUpperCase()===c&&x.start<=today&&today<=x.end);if(ok){setApplied(c);toast.success(`Code applied: ${ok.percent}% off`);}else{setApplied("");toast.error("That code isn’t valid right now");}};
   return <div className="grid gap-5">
     {premium?<div className="border-2 border-foreground bg-primary p-5 shadow-brutal"><p className="font-serif text-2xl">{trial?`Free trial · ${daysLeft} day${daysLeft===1?"":"s"} left`:"Premium is active"}</p><p className="text-sm">Until {until}{plan&&!trial?` · ${plan}`:""}</p></div>
-      :<div className="border-2 border-foreground bg-muted p-5"><p className="font-serif text-2xl">You’re on the free plan</p><p className="text-sm text-muted-foreground">Choose a plan, or turn your points into Premium days in Redeem.</p></div>}
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{config.plans.filter(p=>p.visible).map(p=><div key={p.id} className="flex min-w-0 flex-col border-2 border-foreground bg-background p-5 shadow-brutal-sm">
-      <p className="font-serif text-3xl leading-tight">{p.name}</p><p className="mt-1 font-bold">{priceLabel(p,country,config)}</p><p className="text-sm text-muted-foreground">{p.seats}</p>
-      <ul className="mt-4 flex-1 space-y-2 text-sm">{p.points.map(x=><li key={x} className="flex gap-2"><ShieldCheck className="size-4 shrink-0"/>{x}</li>)}</ul>
-      {p.price>0?<Button className="mt-5 w-full" onClick={()=>activatePremium(p.id)}>Choose plan</Button>:<Button asChild variant="outline" className="mt-5 w-full"><a href="mailto:admin@ilmstation.com?subject=Custom%20Premium%20plan">Ask for a quote</a></Button>}
-    </div>)}</div>
+      :<div className="border-2 border-foreground bg-muted p-5"><p className="font-serif text-2xl">You’re on the free plan</p><p className="text-sm text-muted-foreground">Choose a plan, or turn your points into Premium days in Use points.</p></div>}
+    {banner&&<div className="border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm"><b>{banner.name}</b> · {banner.banner}</div>}
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      {anyYear?<div className="inline-flex border-2 border-foreground">{(["month","year"] as const).map(x=><button key={x} onClick={()=>setPeriod(x)} className={cn("px-4 py-2 text-sm font-bold",period===x?"bg-primary":"bg-background")}>{x==="month"?"Monthly":"Yearly"}</button>)}</div>:<span/>}
+      <form className="flex gap-2" onSubmit={e=>{e.preventDefault();applyCode();}}><input value={code} onChange={e=>setCode(e.target.value)} placeholder="Promo code" className="h-10 w-36 border-2 border-foreground bg-background px-3 text-sm uppercase"/><Button type="submit" variant="outline" size="sm">Apply</Button></form>
+    </div>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{shown.map(p=>{
+      const pr=priceFor(p,period,country,config,applied);
+      const m=priceFor(p,"month",country,config);
+      const save=period==="year"&&m.available&&pr.available?Math.round((1-pr.base/(m.base*12))*100):0;
+      const quote=isQuote(p);
+      return <div key={p.id} className="flex min-w-0 flex-col border-2 border-foreground bg-background p-5 shadow-brutal-sm">
+        <p className="font-serif text-3xl leading-tight">{p.name}</p>
+        {quote?<p className="mt-1 font-bold">Custom pricing</p>:pr.available?<p className="mt-1"><b>{pr.text}</b> / {period}{pr.was&&<span className="ml-2 text-sm text-muted-foreground line-through">{pr.was}</span>}</p>:<p className="mt-1 text-sm text-muted-foreground">Not available {period==="year"?"yearly":"monthly"}</p>}
+        {(pr.promo||save>0)&&<p className="mt-1 flex flex-wrap gap-1 text-[10px] font-bold uppercase">{pr.promo&&<span className="border-2 border-foreground bg-secondary px-1.5 py-0.5 text-secondary-foreground">{pr.promo.name} · {pr.promo.percent}% off</span>}{save>0&&<span className="border-2 border-foreground bg-primary px-1.5 py-0.5">Save {save}%</span>}</p>}
+        <p className="text-sm text-muted-foreground">{p.seats}</p>
+        <ul className="mt-4 flex-1 space-y-2 text-sm">{p.points.map(x=><li key={x} className="flex gap-2"><ShieldCheck className="size-4 shrink-0"/>{x}</li>)}</ul>
+        {quote?<Button asChild variant="outline" className="mt-5 w-full"><a href="mailto:admin@ilmstation.com?subject=Custom%20Premium%20plan">Ask for a quote</a></Button>
+          :<Button className="mt-5 w-full" disabled={!pr.available} onClick={()=>activatePremium(p.id,period,applied)}>Choose plan</Button>}
+      </div>;
+    })}</div>
   </div>;
 }

@@ -1,3 +1,4 @@
+import { lagosDate, type Period, type Promo } from "@/lib/premium-config";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Gift, Plus, Save, Trash2 } from "lucide-react";
@@ -55,12 +56,14 @@ export function PremiumSection() {
     <div className="mt-6"><Panel title="Plans" tag={`${cfg.plans.filter((p) => p.visible).length} shown`}>
       <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.usdAbroad} onChange={(e) => setCfg({ ...cfg, usdAbroad: e.target.checked })} /> Charge in US dollars ($) outside Nigeria (your Paystack account must be approved for USD first)</label>
       <div className="grid gap-3 lg:grid-cols-2">{cfg.plans.map((p, i) => <div key={i} className={`grid gap-2 border-2 border-foreground p-3 ${p.visible ? "" : "opacity-60"}`}>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_7rem_6rem_6rem]">
-          <Field label="Name"><input className={inputCls} value={p.name} onChange={(e) => setPlan(i, { name: e.target.value })} /></Field>
-          <Field label="Price (₦, 0 = quote)"><input type="number" min={0} className={inputCls} value={p.price} onChange={(e) => setPlan(i, { price: num(e.target.value) })} /></Field>
-          <Field label="Price ($)"><input type="number" min={0} step={0.01} className={inputCls} value={p.priceUsd ?? 0} onChange={(e) => setPlan(i, { priceUsd: Math.max(0, Number(e.target.value) || 0) })} /></Field>
-          <Field label="Per"><select className={inputCls} value={p.period} onChange={(e) => setPlan(i, { period: e.target.value as PlanDef["period"] })}><option value="month">month</option><option value="year">year</option></select></Field>
+        <Field label="Name"><input className={inputCls} value={p.name} onChange={(e) => setPlan(i, { name: e.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Field label="₦ per month"><input type="number" min={0} className={inputCls} value={p.priceMonthly ?? 0} onChange={(e) => setPlan(i, { priceMonthly: num(e.target.value) })} /></Field>
+          <Field label="₦ per year"><input type="number" min={0} className={inputCls} value={p.priceYearly ?? 0} onChange={(e) => setPlan(i, { priceYearly: num(e.target.value) })} /></Field>
+          <Field label="$ per month"><input type="number" min={0} step={0.01} className={inputCls} value={p.usdMonthly ?? 0} onChange={(e) => setPlan(i, { usdMonthly: Math.max(0, Number(e.target.value) || 0) })} /></Field>
+          <Field label="$ per year"><input type="number" min={0} step={0.01} className={inputCls} value={p.usdYearly ?? 0} onChange={(e) => setPlan(i, { usdYearly: Math.max(0, Number(e.target.value) || 0) })} /></Field>
         </div>
+        <p className="-mt-1 text-xs text-muted-foreground">0 = not offered. Both ₦ prices at 0 = “Ask for a quote”. $ prices are only used outside Nigeria when dollars are on.</p>
         <Field label="Who it’s for"><input className={inputCls} value={p.seats} onChange={(e) => setPlan(i, { seats: e.target.value })} /></Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Adult seats (incl. payer)"><input type="number" min={1} className={inputCls} value={p.adults ?? 1} onChange={(e) => setPlan(i, { adults: Math.max(1, num(e.target.value)) })} /></Field>
@@ -95,5 +98,36 @@ export function PremiumSection() {
         <p className="mt-3 text-xs text-muted-foreground">Books, card designs and Study lessons are set one by one in their own admin pages (Free or Premium, points price, free from level).</p>
       </Panel>
     </div>
+    <div className="mt-6"><Panel title="Promotions" tag={`${cfg.promos.filter((x) => x.on).length} on`}>
+      <p className="-mt-1 mb-3 text-xs text-muted-foreground">Discounts for Ramadan, Eid or any offer. Without a code, it applies automatically between the dates. With a code, users type it on the Premium page.</p>
+      <div className="grid gap-3">{cfg.promos.map((x, i) => {
+        const setP = (patch: Partial<Promo>) => setCfg({ ...cfg, promos: cfg.promos.map((y, j) => (j === i ? { ...y, ...patch } : y)) });
+        const allIds = cfg.plans.map((pl) => pl.id);
+        const cur = x.plans?.length ? x.plans : allIds;
+        return <div key={x.id} className={`grid gap-2 border-2 border-foreground p-3 ${x.on ? "" : "opacity-60"}`}>
+          <div className="grid gap-2 sm:grid-cols-[1fr_6rem_10rem_10rem]">
+            <Field label="Name"><input className={inputCls} value={x.name} onChange={(e) => setP({ name: e.target.value })} /></Field>
+            <Field label="% off"><input type="number" min={1} max={90} className={inputCls} value={x.percent} onChange={(e) => setP({ percent: Math.max(0, Math.min(90, Number(e.target.value) || 0)) })} /></Field>
+            <Field label="Starts"><input type="date" className={inputCls} value={x.start} onChange={(e) => setP({ start: e.target.value })} /></Field>
+            <Field label="Ends"><input type="date" className={inputCls} value={x.end} onChange={(e) => setP({ end: e.target.value })} /></Field>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Code (optional)"><input className={`${inputCls} uppercase`} value={x.code ?? ""} placeholder="EID2027" onChange={(e) => setP({ code: e.target.value.replace(/\s/g, "").toUpperCase() })} /></Field>
+            <Field label="Banner text (optional, for offers without a code)"><input className={inputCls} value={x.banner ?? ""} placeholder="25% off all plans this Ramadan 🌙" onChange={(e) => setP({ banner: e.target.value })} /></Field>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="font-semibold">Plans:</span>
+            {cfg.plans.map((pl) => <label key={pl.id} className="flex items-center gap-1"><input type="checkbox" checked={cur.includes(pl.id)} onChange={(e) => { const next = e.target.checked ? [...new Set([...cur, pl.id])] : cur.filter((id) => id !== pl.id); setP({ plans: next.length === allIds.length ? [] : next }); }} /> {pl.name}</label>)}
+            <span className="font-semibold">Billing:</span>
+            {(["month", "year"] as Period[]).map((per) => { const pc = x.periods?.length ? x.periods : (["month", "year"] as Period[]); return <label key={per} className="flex items-center gap-1"><input type="checkbox" checked={pc.includes(per)} onChange={(e) => { const next = e.target.checked ? [...new Set([...pc, per])] : pc.filter((q) => q !== per); setP({ periods: next.length === 2 ? [] : next }); }} /> {per === "month" ? "Monthly" : "Yearly"}</label>; })}
+          </div>
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={x.on} onChange={(e) => setP({ on: e.target.checked })} /> On</label>
+            <Button size="sm" variant="outline" aria-label="Remove promotion" onClick={() => setCfg({ ...cfg, promos: cfg.promos.filter((_, j) => j !== i) })}><Trash2 /></Button>
+          </div>
+        </div>;
+      })}</div>
+      <Button variant="outline" className="mt-3" onClick={() => setCfg({ ...cfg, promos: [...cfg.promos, { id: `promo-${Date.now().toString(36)}`, name: "Ramadan offer", percent: 20, plans: [], periods: [], start: lagosDate(), end: lagosDate(Date.now() + 30 * 86_400_000), code: "", banner: "", on: true }] })}><Plus /> Add promotion</Button>
+    </Panel></div>
   </Page>;
 }

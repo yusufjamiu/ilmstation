@@ -6,7 +6,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DEFAULT_PREMIUM, mergePremium, type PlanDef, type PremiumConfig } from "@/lib/premium-config";
+import { basePrice, DEFAULT_PREMIUM, finalPrice, isQuote, mergePremium, type Period, type PlanDef, type PremiumConfig } from "@/lib/premium-config";
 
 export type PlanId = string;
 export type Tier = "free" | "premium";
@@ -80,11 +80,12 @@ export function usePremium() {
     /** Paystack checkout comes in the next step. */
     country: s.country,
     /** Opens Paystack for the chosen plan. */
-    activatePremium: (planId?: string, _kids?: number, _adults?: number) => {
-      const id = planId ?? s.cfg.plans.find((p) => p.visible && p.price > 0)?.id;
+    activatePremium: (planId?: string, period?: unknown, code?: unknown) => {
+      const id = planId ?? s.cfg.plans.find((p) => p.visible && !isQuote(p))?.id;
       if (!id) { toast("No plans are available right now."); return; }
       toast("Opening Paystack…");
-      void callPremium("checkout", { planId: id }).then((r) => { if (r.ok && r.url) window.location.href = r.url; else toast.error(r.error ?? "Couldn't start the payment."); });
+      void callPremium("checkout", { planId: id, period: period === "year" ? "year" : "month", code: typeof code === "string" ? code : "" })
+        .then((r) => { if (r.ok && r.url) window.location.href = r.url; else toast.error(r.error ?? "Couldn't start the payment."); });
     },
     cancelPremium: () => { toast("Nothing to cancel yet: Premium ends by itself on its end date."); },
     // family seats: still a preview until family plans are paid for
@@ -147,9 +148,16 @@ export function UnlockDialog({ item, onOpenChange }: { item?: { id: string; titl
   </Dialog>;
 }
 
-/** The price to show for a plan in the user's country. */
+/** The price to show for a plan, billing period and country (with any promotion). */
+export function priceFor(p: PlanDef, period: Period, country: string, cfg: PremiumConfig, code?: string) {
+  const usd = cfg.usdAbroad && !!country && country !== "NG" && basePrice(p, period, true) > 0;
+  const pr = finalPrice(cfg, p, period, usd, code);
+  const fmt = (n: number) => (usd ? `$${n.toLocaleString()}` : `₦${n.toLocaleString()}`);
+  return { available: pr.base > 0, text: fmt(pr.final), was: pr.promo ? fmt(pr.base) : undefined, promo: pr.promo, base: pr.base };
+}
 export function priceLabel(p: PlanDef, country: string, cfg: PremiumConfig) {
-  if (p.price <= 0) return "Custom pricing";
-  if (cfg.usdAbroad && country && country !== "NG" && (p.priceUsd ?? 0) > 0) return `$${(p.priceUsd ?? 0).toLocaleString()} / ${p.period}`;
-  return `₦${p.price.toLocaleString()} / ${p.period}`;
+  const m = priceFor(p, "month", country, cfg);
+  if (m.available) return `${m.text} / month`;
+  const y = priceFor(p, "year", country, cfg);
+  return y.available ? `${y.text} / year` : "Custom pricing";
 }
