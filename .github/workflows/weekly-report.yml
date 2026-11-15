@@ -7,4 +7,4 @@ jobs:
   send:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -fsS -X POST https://ilmstation.com/api/cron/weekly -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+      - run: curl -fsS -X POST https://www.ilmstation.com/api/cron/weekly -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
