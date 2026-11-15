@@ -11,11 +11,16 @@ export async function handleWeekly(request: Request): Promise<Response> {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return json({ error: "Not allowed" }, 401);
   const a = await admin();
   if (!a) return json({ error: "Server not set up" }, 500);
+  const reportPremium = !!(((await a.db.doc("siteConfig/premium").get()).get("ticks") as Record<string, boolean> | undefined)?.report);
   const fams = await a.db.collection("families").get();
   let sent = 0;
   for (const f of fams.docs) {
     const kids = ((f.get("members") as Member[]) ?? []).filter((m) => m.role === "child" && m.status === "active");
     if (!kids.length) continue;
+    if (reportPremium) {
+      const ent = await a.db.doc(`entitlements/${f.id}`).get();
+      if (Math.max(Number(ent.get("premiumUntil") ?? 0), Number(ent.get("familyUntil") ?? 0)) <= Date.now()) continue;
+    }
     let to = "";
     try { to = (await a.auth.getUser(f.id)).email ?? ""; } catch { continue; }
     if (!to) continue;

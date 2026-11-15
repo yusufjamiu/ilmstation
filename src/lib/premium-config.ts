@@ -1,7 +1,8 @@
 /** Premium settings. The admin changes them (siteConfig/premium); these are the defaults. */
 export type PlanDef = { id: string; name: string; price: number; priceUsd?: number; adults?: number; priceMonthly?: number; priceYearly?: number; usdMonthly?: number; usdYearly?: number; period: "month" | "year"; seats: string; kids: number; points: string[]; visible: boolean };
 export type RedeemOpt = { points: number; days: number; on: boolean };
-export type PremiumConfig = { trialDays: number; plans: PlanDef[]; redeem: RedeemOpt[]; topicCost: number; premiumTopics: string[]; cardMarkPerk: boolean; usdAbroad: boolean; promos: Promo[]; pointsPerXp: number };
+export type PremiumConfig = { trialDays: number; plans: PlanDef[]; redeem: RedeemOpt[]; topicCost: number; premiumTopics: string[]; cardMarkPerk: boolean; usdAbroad: boolean; promos: Promo[];
+  features: Record<string, { on: boolean; free: number; premium: number }>; ticks: Record<string, boolean>; pointsPerXp: number };
 
 export const QUIZ_TOPICS = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
 
@@ -19,6 +20,8 @@ export const DEFAULT_PREMIUM: PremiumConfig = {
   cardMarkPerk: true,
   usdAbroad: false,
   promos: [],
+  features: {},
+  ticks: {},
   pointsPerXp: 1,
 };
 
@@ -35,6 +38,8 @@ export function mergePremium(d: unknown): PremiumConfig {
     cardMarkPerk: s.cardMarkPerk ?? DEFAULT_PREMIUM.cardMarkPerk,
     usdAbroad: s.usdAbroad ?? false,
     promos: Array.isArray(s.promos) ? s.promos : [],
+    features: Object.fromEntries(FEATURE_LIMITS.map((f) => [f.id, { on: f.on, free: f.free, premium: 0, ...((s.features as Record<string, object> | undefined)?.[f.id] ?? {}) }])),
+    ticks: Object.fromEntries(FEATURE_TICKS.map((t) => [t.id, (s.ticks as Record<string, boolean> | undefined)?.[t.id] ?? t.on])),
     pointsPerXp: s.pointsPerXp == null ? 1 : Math.max(0, Math.min(100, Number(s.pointsPerXp) || 0)),
   };
 }
@@ -59,3 +64,19 @@ export function finalPrice(cfg: PremiumConfig, p: PlanDef, period: Period, usd: 
   const raw = promo ? base * (100 - Math.min(90, promo.percent)) / 100 : base;
   return { base, final: usd ? Math.round(raw * 100) / 100 : Math.round(raw), promo };
 }
+
+/** Daily limits for free and Premium users (0 = unlimited). */
+export const FEATURE_LIMITS = [
+  { id: "ilmbot", label: "IlmBot questions", on: true, free: 5 },
+  { id: "quickquiz", label: "Quick Quiz rounds", on: false, free: 5 },
+  { id: "duels", label: "Live duels", on: false, free: 3 },
+  { id: "lessons", label: "Study lessons", on: false, free: 2 },
+  { id: "cards", label: "Cards created", on: false, free: 3 },
+];
+/** Features that are for Premium members only when ticked. */
+export const FEATURE_TICKS = [
+  { id: "worksheets", label: "Study worksheets (PDF download)", on: true },
+  { id: "reciters", label: "Choice of reciter (Hifz and Al-Kahf)", on: false },
+  { id: "report", label: "Weekly parent report email", on: false },
+  { id: "badge", label: "👑 Premium badge on profile and leaderboard", on: true },
+];

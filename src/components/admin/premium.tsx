@@ -1,3 +1,4 @@
+import { FEATURE_LIMITS, FEATURE_TICKS } from "@/lib/premium-config";
 import { lagosDate, type Period, type Promo } from "@/lib/premium-config";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -98,6 +99,20 @@ export function PremiumSection() {
         <p className="mt-3 text-xs text-muted-foreground">Books, card designs and Study lessons are set one by one in their own admin pages (Free or Premium, points price, free from level).</p>
       </Panel>
     </div>
+    <div className="mt-6"><Panel title="Premium features" tag="Free vs Premium">
+      <p className="-mt-1 mb-3 text-xs text-muted-foreground">Daily limits reset at midnight (Nigeria time). 0 = unlimited. Game minutes are set in Games & quizzes. Books and audio are set per book in Library.</p>
+      <div className="grid gap-2">
+        <div className="hidden grid-cols-[1fr_4rem_6rem_6rem] gap-2 text-xs font-bold uppercase text-muted-foreground sm:grid"><span>Limit per day</span><span>On</span><span>Free</span><span>Premium</span></div>
+        {FEATURE_LIMITS.map((f) => { const v = cfg.features[f.id]; const setF = (patch: Partial<typeof v>) => setCfg({ ...cfg, features: { ...cfg.features, [f.id]: { ...v, ...patch } } }); return <div key={f.id} className={`grid grid-cols-[1fr_4rem_6rem_6rem] items-center gap-2 ${v.on ? "" : "opacity-60"}`}>
+          <span className="text-sm font-semibold">{f.label}</span>
+          <input type="checkbox" checked={v.on} onChange={(e) => setF({ on: e.target.checked })} aria-label={`${f.label} limit on`} />
+          <input type="number" min={0} className={inputCls} value={v.free} onChange={(e) => setF({ free: num(e.target.value) })} aria-label="Free" />
+          <input type="number" min={0} className={inputCls} value={v.premium} onChange={(e) => setF({ premium: num(e.target.value) })} aria-label="Premium" />
+        </div>; })}
+      </div>
+      <p className="mt-5 text-sm font-bold">Premium only</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">{FEATURE_TICKS.map((t) => <label key={t.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!cfg.ticks[t.id]} onChange={(e) => setCfg({ ...cfg, ticks: { ...cfg.ticks, [t.id]: e.target.checked } })} /> {t.label}</label>)}</div>
+    </Panel></div>
     <div className="mt-6"><Panel title="Promotions" tag={`${cfg.promos.filter((x) => x.on).length} on`}>
       <p className="-mt-1 mb-3 text-xs text-muted-foreground">Discounts for Ramadan, Eid or any offer. It applies to everyone automatically between the dates. Switch it off to end it early.</p>
       <div className="grid gap-3">{cfg.promos.map((x, i) => {

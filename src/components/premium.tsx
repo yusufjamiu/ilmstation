@@ -161,3 +161,14 @@ export function priceLabel(p: PlanDef, country: string, cfg: PremiumConfig) {
   const y = priceFor(p, "year", country, cfg);
   return y.available ? `${y.text} / year` : "Custom pricing";
 }
+
+/** Use one of a daily-limited feature. Returns false (and explains) when the limit is reached. */
+export async function consumeFeature(feature: string): Promise<boolean> {
+  const r = (await callPremium("use", { feature })) as { ok?: boolean; error?: string; premium?: boolean };
+  if (r.ok !== false || !r.error) return true;
+  if (r.premium) toast.error(`${r.error} Please come back tomorrow.`);
+  else toast.error(`${r.error} Get Premium for more.`, { action: { label: "Go Premium", onClick: () => { window.location.href = "/app?s=rewards"; } }, duration: 8000 });
+  return false;
+}
+/** Whether a tick-box feature is Premium-only. */
+export const premiumOnly = (cfg: PremiumConfig, id: string) => !!cfg.ticks?.[id];

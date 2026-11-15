@@ -1,7 +1,7 @@
 import { esc, layout, sendEmail } from "./email-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
-import { basePrice, finalPrice, isQuote, mergePremium, type Period } from "./premium-config";
+import { basePrice, FEATURE_LIMITS, finalPrice, isQuote, mergePremium, type Period } from "./premium-config";
 
 /** Premium and points live on the server: trial, Paystack payments, unlocking with points, redeeming points, admin grants. */
 const DAY = 86_400_000;
@@ -130,6 +130,29 @@ export async function handlePremium(request: Request): Promise<Response> {
 
   // back from Paystack: check the payment
   if (action === "confirm") return json(await applyPayment(a, uid, String(data.reference ?? "").slice(0, 100)));
+
+  // daily limits (IlmBot questions, quick quizzes, duels, lessons, cards)
+  if (action === "use") {
+    const key = String(data.feature ?? "");
+    const f = cfg.features[key];
+    if (!f || !f.on) return json({ ok: true, left: -1 });
+    const e = await ref.get();
+    const isPrem = Math.max(Number(e.get("premiumUntil") ?? 0), Number(e.get("familyUntil") ?? 0)) > now;
+    const limit = isPrem ? f.premium : f.free;
+    if (!limit) return json({ ok: true, left: -1 });
+    const label = FEATURE_LIMITS.find((x) => x.id === key)?.label.toLowerCase() ?? key;
+    const uref = a.db.doc(`usage/${uid}`);
+    const r = await a.db.runTransaction(async (tx) => {
+      const u = await tx.get(uref);
+      const today = new Date(now + 3_600_000).toISOString().slice(0, 10);
+      const counts = u.get("day") === today ? ((u.get("counts") as Record<string, number>) ?? {}) : {};
+      const used = Number(counts[key] ?? 0);
+      if (used >= limit) return { ok: false, left: 0, premium: isPrem, error: `You’ve used today’s ${limit} ${label}.` };
+      tx.set(uref, { day: today, counts: { ...counts, [key]: used + 1 } });
+      return { ok: true, left: limit - used - 1 };
+    });
+    return json(r);
+  }
 
   // daily play time for games (admin sets the minutes)
   if (action === "playtime") {
