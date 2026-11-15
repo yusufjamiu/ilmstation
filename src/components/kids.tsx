@@ -33,7 +33,7 @@ export function KidHome({ go }: { go: Go }) {
 }
 
 type KidQ = { q: string; options: string[]; answer: number; why?: string };
-type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[] };
+type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string };
 const TINT: Record<string, string> = { yellow: "bg-primary", green: "bg-secondary text-secondary-foreground", white: "bg-background", grey: "bg-muted" };
 const STARTERS: KidGame[] = ([["Dua", "🤲", "yellow"], ["Qur’an", "📖", "green"], ["Seerah", "🌙", "white"], ["Arabic", "✍️", "grey"]] as const)
   .map(([t, e, c]) => ({ id: `start-${t}`, title: t, emoji: e, tint: TINT[c]!, questions: quizQuestionsFor(t).slice(0, 5) as KidQ[] }));
@@ -42,10 +42,10 @@ const STARTERS: KidGame[] = ([["Dua", "🤲", "yellow"], ["Qur’an", "📖", "g
 function useKidGames() {
   const [games, setGames] = useState<KidGame[]>(STARTERS);
   useEffect(() => onSnapshot(query(collection(db, "kidGames"), where("status", "==", "published")), (s) => {
-    const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as { title: string; emoji: string; color: string; order: number; questions: KidQ[] }) }))
+    const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as { title: string; emoji: string; color: string; order: number; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string }) }))
       .sort((a, b) => a.order - b.order)
-      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [] }))
-      .filter((g) => g.questions.length);
+      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl }))
+      .filter((g) => (g.kind === "html" ? !!g.htmlUrl : g.questions.length > 0));
     setGames(list.length ? list : STARTERS);
   }, () => {}), []);
   return games;
@@ -69,9 +69,11 @@ export function KidGames() {
     <p className="mt-3 text-lg text-muted-foreground">Pick a game. Every right answer gets a star!</p>
     <div className="mt-6 grid gap-4 sm:grid-cols-2">{games.map((g) => <button key={g.id} onClick={() => start(g)} className={cn("flex items-center gap-5 border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", g.tint)}>
       <span className="text-6xl">{g.emoji}</span>
-      <span><b className="block font-serif text-4xl leading-none">{g.title}</b><span className="text-sm font-semibold">{g.questions.length} questions</span></span>
+      <span><b className="block font-serif text-4xl leading-none">{g.title}</b><span className="text-sm font-semibold">{g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
     </button>)}</div>
   </div>;
+
+  if (game.kind === "html" && game.htmlUrl) return <KidHtmlGame game={game} onBack={() => setGame(null)} />;
 
   if (done || !q) return <div className="iq-rise mx-auto max-w-2xl border-2 border-foreground bg-primary p-8 text-center shadow-brutal">
     <p className="text-6xl">🎉</p>
@@ -110,5 +112,31 @@ export function KidGames() {
         }}>{i + 1 < qs.length ? "Next question" : "See my stars"}</Button>
       </div>}
     </section>
+  </div>;
+}
+
+/** An uploaded HTML game, in a safe sandbox. It can report the score with postMessage. */
+function KidHtmlGame({ game, onBack }: { game: KidGame; onBack: () => void }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      const d = e.data as { type?: string; score?: number; total?: number } | null;
+      if (!d || d.type !== "ilmstation:done" || done) return;
+      setDone(true);
+      const total = Math.max(1, Math.min(50, Number(d.total) || 5));
+      const correct = Math.max(0, Math.min(total, Number(d.score ?? total) || 0));
+      void awardXp("quiz", { correct, total, difficulty: "Beginner" });
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, [done]);
+  return <div className="iq-rise">
+    <div className="flex items-center justify-between gap-3">
+      <Button variant="outline" onClick={onBack}>← Games</Button>
+      <span className="font-serif text-2xl">{game.emoji} {game.title}</span>
+    </div>
+    {done && <p className="mt-3 border-2 border-foreground bg-primary p-3 font-bold">🎉 Masha’Allah! Well done.</p>}
+    <iframe title={game.title} src={game.htmlUrl} sandbox="allow-scripts" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
+    {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner" }); }}>I’ve finished</Button>}
   </div>;
 }

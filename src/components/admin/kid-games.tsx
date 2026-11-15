@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
 
 type Q = { q: string; options: string[]; answer: number; why: string };
-type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number };
+type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string };
 const COLORS: [string, string][] = [["yellow", "Yellow"], ["green", "Green"], ["white", "White"], ["grey", "Grey"]];
 const blankQ = (): Q => ({ q: "", options: ["", "", "", ""], answer: 0, why: "" });
 
@@ -17,14 +18,34 @@ export function KidGamesSection() {
   const [form, setForm] = useState<Game | null>(null);
   const { record } = useAudit();
   const { ask, dialog } = useConfirm();
+  const [uploading, setUploading] = useState(false);
+  const uploadHtml = async (file?: File) => {
+    if (!file || !form) return;
+    if (!/\.html?$/i.test(file.name)) { toast.error("Choose an .html file"); return; }
+    if (file.size > 10 * 1024 * 1024) { toast.error("Keep it under 10 MB"); return; }
+    setUploading(true);
+    try {
+      const r = ref(getStorage(), `kidgames/${form.id}.html`);
+      await uploadBytes(r, file, { contentType: "text/html" });
+      setForm({ ...form, htmlUrl: await getDownloadURL(r) });
+      toast.success("Game uploaded");
+    } catch { toast.error("Upload failed. Check the Storage rules for kidgames/."); } finally { setUploading(false); }
+  };
   useEffect(() => onSnapshot(collection(db, "kidGames"), (s) => setItems(s.docs.map((d) => ({ ...(d.data() as Omit<Game, "id">), id: d.id })).sort((a, b) => a.order - b.order)), () => setItems([])), []);
 
   const rows = items ?? [];
-  const blank = (): Game => ({ id: `kg-${Date.now().toString(36)}`, title: "", emoji: "⭐", color: "yellow", status: "draft", order: rows.length, questions: [blankQ()], createdAt: Date.now() });
+  const blank = (): Game => ({ id: `kg-${Date.now().toString(36)}`, title: "", emoji: "⭐", color: "yellow", status: "draft", order: rows.length, questions: [blankQ()], createdAt: Date.now(), kind: "quiz" });
   const setQ = (i: number, p: Partial<Q>) => form && setForm({ ...form, questions: form.questions.map((q, j) => (j === i ? { ...q, ...p } : q)) });
 
   const save = async (g: Game) => {
     if (!g.title.trim()) { toast.error("Give the game a title"); return; }
+    if (g.kind === "html") {
+      if (!g.htmlUrl) { toast.error("Upload the game’s .html file"); return; }
+      const { id: hid, ...hdata } = g;
+      try { await setDoc(doc(db, "kidGames", hid), { ...hdata, title: g.title.trim(), questions: [] }); record(`Saved kids game ${g.title.trim()}`); toast.success("Saved"); setForm(null); }
+      catch { toast.error("Couldn't save. Check you are an admin."); }
+      return;
+    }
     const questions: Q[] = [];
     for (const [n, q] of g.questions.entries()) {
       const filled = q.options.map((o, k) => ({ o: o.trim(), k })).filter((x) => x.o);
@@ -54,7 +75,7 @@ export function KidGamesSection() {
     <Panel title="Games" tag={`${rows.filter((g) => g.status === "published").length} published`}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">No games yet. Add the first one.</p> : <ul className="grid gap-2">{rows.map((g, i) => <li key={g.id} className={`flex flex-wrap items-center gap-3 border-2 border-foreground p-3 ${g.status === "draft" ? "opacity-70" : ""}`}>
         <span className="text-3xl">{g.emoji}</span>
-        <div className="min-w-0 flex-1"><p className="font-semibold">{g.title}</p><p className="text-xs text-muted-foreground">{g.questions.length} questions · {g.status === "published" ? "Published" : "Draft"}</p></div>
+        <div className="min-w-0 flex-1"><p className="font-semibold">{g.title}</p><p className="text-xs text-muted-foreground">{g.kind === "html" ? "HTML game" : `${g.questions.length} questions`} · {g.status === "published" ? "Published" : "Draft"}</p></div>
         <div className="flex gap-1">
           <Button size="sm" variant="outline" aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}><ArrowUp /></Button>
           <Button size="sm" variant="outline" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => void move(i, 1)}><ArrowDown /></Button>
@@ -77,6 +98,18 @@ export function KidGamesSection() {
               <Field label="Colour"><select className={inputCls} value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })}>{COLORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
               <Field label="Status"><select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Game["status"] })}><option value="draft">Draft</option><option value="published">Published</option></select></Field>
             </div>
+            <div className="flex flex-wrap gap-4 text-sm"><span className="font-semibold">Type:</span>
+              <label className="flex items-center gap-2"><input type="radio" checked={form.kind !== "html"} onChange={() => setForm({ ...form, kind: "quiz" })} /> Quiz (build here)</label>
+              <label className="flex items-center gap-2"><input type="radio" checked={form.kind === "html"} onChange={() => setForm({ ...form, kind: "html" })} /> HTML game (upload)</label>
+            </div>
+            {form.kind === "html" && <fieldset className="grid gap-2 border-2 border-foreground p-3">
+              <legend className="px-1 text-sm font-bold">HTML game</legend>
+              <p className="text-sm">{form.htmlUrl ? <>Uploaded · <a className="underline" href={form.htmlUrl} target="_blank" rel="noreferrer">preview</a></> : "Not uploaded yet"}</p>
+              <label className="inline-flex w-fit cursor-pointer items-center gap-2 border-2 border-foreground bg-primary px-3 py-2 text-sm font-semibold shadow-brutal-sm">{uploading ? "Uploading…" : form.htmlUrl ? "Replace .html" : "Upload .html"}
+                <input type="file" accept=".html,.htm,text/html" className="hidden" disabled={uploading} onChange={(e) => { void uploadHtml(e.target.files?.[0]); e.target.value = ""; }} /></label>
+              <p className="text-xs text-muted-foreground">One self-contained .html file. It runs in a safe sandbox. To give XP when it ends, the game calls <code>parent.postMessage({"{"} type: "ilmstation:done", score: 4, total: 5 {"}"}, "*")</code>. Otherwise kids tap “I’ve finished”.</p>
+            </fieldset>}
+            {form.kind !== "html" && <>
             {form.questions.map((q, i) => <fieldset key={i} className="grid gap-2 border-2 border-foreground p-3">
               <legend className="px-1 text-sm font-bold">Question {i + 1}</legend>
               <textarea rows={2} dir="auto" className={`${inputCls} h-auto py-2`} value={q.q} onChange={(e) => setQ(i, { q: e.target.value })} placeholder="How many times do we pray each day?" />
@@ -89,6 +122,7 @@ export function KidGamesSection() {
               {form.questions.length > 1 && <Button size="sm" variant="outline" className="w-fit" onClick={() => setForm({ ...form, questions: form.questions.filter((_, j) => j !== i) })}><Trash2 /> Remove question</Button>}
             </fieldset>)}
             <Button variant="outline" onClick={() => setForm({ ...form, questions: [...form.questions, blankQ()] })}><Plus /> Add question</Button>
+            </>}
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setForm(null)}>Cancel</Button><Button onClick={() => void save(form)}>Save</Button></DialogFooter>
         </>}

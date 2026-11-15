@@ -1,3 +1,4 @@
+import { esc, layout, sendEmail } from "./email-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
 import { mergePremium } from "./premium-config";
@@ -70,6 +71,9 @@ export async function handleFamily(request: Request): Promise<Response> {
       write(tx, uid, ownerName, members);
       return { ok: true };
     });
+    if (r.ok) await sendEmail(target, `${ownerName} invited you to their IlmStation family plan`, layout("You’re invited to a family plan",
+      `<p>Assalamu alaikum. <b>${esc(ownerName)}</b> invited you to join their IlmStation family plan. You’ll get Premium for as long as their plan lasts.</p><p>Log in and open <b>Family hub</b> to accept.</p>`,
+      { label: "Open Family hub", url: "https://ilmstation.com/app?s=family" }));
     return json(r);
   }
 

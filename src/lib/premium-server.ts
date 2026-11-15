@@ -1,3 +1,4 @@
+import { esc, layout, sendEmail } from "./email-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
 import { mergePremium } from "./premium-config";
@@ -44,6 +45,13 @@ async function applyPayment(a: Admin, uid: string, ref: string): Promise<{ ok: b
     tx.set(payRef, { uid, kind: "premium", planId: pending.planId, days: pending.days, amount: Number(d.amount), currency: pending.currency, email: (d.customer as { email?: string } | undefined)?.email ?? null, at: now });
     return u;
   });
+  const custEmail = (d.customer as { email?: string } | undefined)?.email ?? "";
+  if (custEmail && until) {
+    const paid = `${pending.currency === "USD" ? "$" : "₦"}${(Number(d.amount) / 100).toLocaleString()}`;
+    await sendEmail(custEmail, "Payment received: IlmStation Premium", layout("Thank you, payment received",
+      `<p>We received <b>${paid}</b> for IlmStation Premium.</p><p>Your Premium is active until <b>${new Date(until).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</b>.</p><p style="font-size:13px;color:#6b6458">Reference: ${esc(ref)}</p>`,
+      { label: "Open IlmStation", url: "https://ilmstation.com/app" }));
+  }
   const fam = await a.db.doc(`families/${uid}`).get();
   await Promise.all((((fam.get("memberUids") as string[]) ?? [])).map((m) => a.db.doc(`entitlements/${m}`).set({ familyUntil: until }, { merge: true })));
   return { ok: true, until };
@@ -155,6 +163,17 @@ export async function handlePremium(request: Request): Promise<Response> {
     if (role !== "owner" && role !== "admin") return json({ ok: false, error: "Owners and admins only." }, 403);
     try { const u = await a.auth.getUserByEmail(String(data.email ?? "").trim().toLowerCase()); return json({ ok: true, uid: u.uid, name: u.displayName ?? "" }); }
     catch { return json({ ok: false, error: "No IlmStation account uses this email. Ask them to sign up first." }); }
+  }
+
+  // email a new team member
+  if (action === "notifyTeam") {
+    const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
+    if (myRole !== "owner" && myRole !== "admin") return json({ ok: false }, 403);
+    const roleName = ({ owner: "Owner", admin: "Admin", editor: "Editor", moderator: "Moderator", support: "Support" } as Record<string, string>)[String(data.role)] ?? "team member";
+    const ok = await sendEmail(String(data.email ?? ""), "You’ve been added to the IlmStation team", layout("You’re on the IlmStation team",
+      `<p>Assalamu alaikum. You’ve been added to the IlmStation admin team as <b>${esc(roleName)}</b>.</p><p>Log in with this email address to open the admin panel.</p>`,
+      { label: "Open the admin panel", url: "https://ilmstation.com/admin" }));
+    return json({ ok });
   }
 
   // admins give Premium to someone by email

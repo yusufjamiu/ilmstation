@@ -52,6 +52,7 @@ export function TeamPanel({ role: myRole }: { role: AdminRole }) {
       if (!uid) { const r = await callPremium("findUser", { email: e }); uid = (r as { uid?: string }).uid; if (!uid) { toast.error(r.error ?? "No IlmStation account uses this email. Ask them to sign up first."); return; } }
       const p = await getDoc(doc(db, "profiles", uid)).catch(() => null);
       await setDoc(doc(db, "admins", uid), { role, email: e, name: (p?.get("name") as string) ?? "", addedBy: me || null, addedAt: serverTimestamp() });
+      void callPremium("notifyTeam", { email: e, role }).then((r) => { if (!r.ok) toast("Added. The welcome email couldn’t be sent."); });
       record(`Added ${e} to the team as ${role}`);
       toast.success(`Added as ${role}. They can open /admin with their account.`);
       setEmail("");

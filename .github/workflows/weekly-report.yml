@@ -1,0 +1,10 @@
+name: Weekly family report
+on:
+  schedule:
+    - cron: "0 6 * * 0" # Sundays 06:00 UTC (7am in Nigeria)
+  workflow_dispatch: {}
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -X POST https://ilmstation.com/api/cron/weekly -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
