@@ -135,6 +135,10 @@ export async function handlePremium(request: Request): Promise<Response> {
     if (id.startsWith("topic-")) {
       if (!cfg.premiumTopics.includes(id.slice(6))) return json({ ok: false, error: "This topic is free." });
       cost = cfg.topicCost;
+    } else if (id.startsWith("game-")) {
+      const d = await a.db.doc(`kidGames/${id.slice(5)}`).get();
+      if (!d.exists || d.get("tier") !== "premium") return json({ ok: false, error: "Game not found." });
+      cost = Number(d.get("cost") ?? 0);
     } else if (id.startsWith("card-")) {
       const d = await a.db.doc(`cardDesigns/${id.slice(5)}`).get();
       if (!d.exists || d.get("tier") !== "premium") return json({ ok: false, error: "Card not found." });

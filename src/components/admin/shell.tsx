@@ -49,7 +49,7 @@ const nav: { id: Section; label: string; icon: typeof Users; group: string }[] =
   { id: "adhan", label: "Adhan", icon: Volume2, group: "App" },
   { id: "languages", label: "Languages", icon: Languages, group: "App" },
   { id: "premium", label: "Premium", icon: CrownIcon, group: "App" },
-  { id: "kidGames", label: "Kids games", icon: Gamepad2, group: "App" },
+  { id: "kidGames", label: "Games & quizzes", icon: Gamepad2, group: "App" },
   { id: "content", label: "Quiz content", icon: BookOpenCheck, group: "App" },
   { id: "billing", label: "Plans & billing", icon: CreditCard, group: "App" },
   { id: "events", label: "Events & pricing", icon: CalendarDays, group: "Web" },

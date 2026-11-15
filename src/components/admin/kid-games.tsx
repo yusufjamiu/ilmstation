@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
 
 type Q = { q: string; options: string[]; answer: number; why: string };
-type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string };
+type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string; audience?: "kids" | "all"; tier?: "free" | "premium"; cost?: number; minLevel?: number };
 const COLORS: [string, string][] = [["yellow", "Yellow"], ["green", "Green"], ["white", "White"], ["grey", "Grey"]];
 const blankQ = (): Q => ({ q: "", options: ["", "", "", ""], answer: 0, why: "" });
 
@@ -34,7 +34,7 @@ export function KidGamesSection() {
   useEffect(() => onSnapshot(collection(db, "kidGames"), (s) => setItems(s.docs.map((d) => ({ ...(d.data() as Omit<Game, "id">), id: d.id })).sort((a, b) => a.order - b.order)), () => setItems([])), []);
 
   const rows = items ?? [];
-  const blank = (): Game => ({ id: `kg-${Date.now().toString(36)}`, title: "", emoji: "⭐", color: "yellow", status: "draft", order: rows.length, questions: [blankQ()], createdAt: Date.now(), kind: "quiz" });
+  const blank = (): Game => ({ id: `kg-${Date.now().toString(36)}`, title: "", emoji: "⭐", color: "yellow", status: "draft", order: rows.length, questions: [blankQ()], createdAt: Date.now(), kind: "quiz", audience: "kids", tier: "free", cost: 0, minLevel: 0 });
   const setQ = (i: number, p: Partial<Q>) => form && setForm({ ...form, questions: form.questions.map((q, j) => (j === i ? { ...q, ...p } : q)) });
 
   const save = async (g: Game) => {
@@ -70,12 +70,12 @@ export function KidGamesSection() {
     await w.commit().catch(() => toast.error("Couldn't reorder"));
   };
 
-  return <Page eyebrow="App · Kids zone" title="Kids games" actions={<Button onClick={() => setForm(blank())}><Plus /> Add game</Button>}>
-    <p className="mb-5 max-w-2xl text-sm text-muted-foreground">Simple quiz games for children (Kids zone only). Until you publish one, kids see the 4 starter games.</p>
+  return <Page eyebrow="App · Kids and adults" title="Games & quizzes" actions={<Button onClick={() => setForm(blank())}><Plus /> Add game</Button>}>
+    <p className="mb-5 max-w-2xl text-sm text-muted-foreground">Quizzes and games for kids, or for teens and adults (in Play → Games & quizzes). Until you publish kids games, kids see the 4 starter games.</p>
     <Panel title="Games" tag={`${rows.filter((g) => g.status === "published").length} published`}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">No games yet. Add the first one.</p> : <ul className="grid gap-2">{rows.map((g, i) => <li key={g.id} className={`flex flex-wrap items-center gap-3 border-2 border-foreground p-3 ${g.status === "draft" ? "opacity-70" : ""}`}>
         <span className="text-3xl">{g.emoji}</span>
-        <div className="min-w-0 flex-1"><p className="font-semibold">{g.title}</p><p className="text-xs text-muted-foreground">{g.kind === "html" ? "HTML game" : `${g.questions.length} questions`} · {g.status === "published" ? "Published" : "Draft"}</p></div>
+        <div className="min-w-0 flex-1"><p className="font-semibold">{g.title}</p><p className="text-xs text-muted-foreground">{g.audience === "all" ? "Teens & adults" : "Kids"} · {g.tier === "premium" ? `Premium${g.cost ? ` · ${g.cost} pts` : ""} · ` : ""}{g.kind === "html" ? "HTML game" : `${g.questions.length} questions`} · {g.status === "published" ? "Published" : "Draft"}</p></div>
         <div className="flex gap-1">
           <Button size="sm" variant="outline" aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}><ArrowUp /></Button>
           <Button size="sm" variant="outline" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => void move(i, 1)}><ArrowDown /></Button>
@@ -98,6 +98,14 @@ export function KidGamesSection() {
               <Field label="Colour"><select className={inputCls} value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })}>{COLORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
               <Field label="Status"><select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Game["status"] })}><option value="draft">Draft</option><option value="published">Published</option></select></Field>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Who it’s for"><select className={inputCls} value={form.audience ?? "kids"} onChange={(e) => setForm({ ...form, audience: e.target.value as "kids" | "all" })}><option value="kids">Kids</option><option value="all">Teens & adults</option></select></Field>
+              <Field label="Access"><select className={inputCls} value={form.tier ?? "free"} onChange={(e) => setForm({ ...form, tier: e.target.value as "free" | "premium" })}><option value="free">Free</option><option value="premium">👑 Premium</option></select></Field>
+            </div>
+            {form.tier === "premium" && <div className="grid grid-cols-2 gap-2">
+              <Field label="Unlock with points (0 = Premium only)"><input type="number" min={0} className={inputCls} value={form.cost ?? 0} onChange={(e) => setForm({ ...form, cost: Math.max(0, Number(e.target.value) || 0) })} /></Field>
+              <Field label="Free from level (0 = never)"><input type="number" min={0} className={inputCls} value={form.minLevel ?? 0} onChange={(e) => setForm({ ...form, minLevel: Math.max(0, Number(e.target.value) || 0) })} /></Field>
+            </div>}
             <div className="flex flex-wrap gap-4 text-sm"><span className="font-semibold">Type:</span>
               <label className="flex items-center gap-2"><input type="radio" checked={form.kind !== "html"} onChange={() => setForm({ ...form, kind: "quiz" })} /> Quiz (build here)</label>
               <label className="flex items-center gap-2"><input type="radio" checked={form.kind === "html"} onChange={() => setForm({ ...form, kind: "html" })} /> HTML game (upload)</label>

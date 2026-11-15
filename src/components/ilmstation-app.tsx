@@ -60,7 +60,7 @@ function AchievementsTab() {
 import { cn } from "@/lib/utils";
 import { awardXp } from "@/lib/xp";
 
-type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames";
+type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games";
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
@@ -110,7 +110,7 @@ export function IlmStationApp() {
   // links from the homepage open a screen directly: /app?s=hifz
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get("s");
-    const ok = ["home", "study", "play", "quests", "hifz", "halaqah", "chatrooms", "challenge", "library", "wisdom", "bot", "community", "progress", "rewards", "ramadan", "family", "settings", "cards"];
+    const ok = ["home", "study", "play", "quests", "hifz", "halaqah", "chatrooms", "challenge", "library", "wisdom", "bot", "community", "progress", "rewards", "ramadan", "family", "settings", "cards", "games"];
     if (s && ok.includes(s)) { setScreen(s as Screen); window.history.replaceState(null, "", window.location.pathname); }
   }, []);
 
@@ -134,6 +134,7 @@ export function IlmStationApp() {
         <AdhanWatcher />
         {screen === "home" && (isKid ? <KidHome go={selectScreen} /> : <HomeScreen go={selectScreen} onShare={openShare} />)}
         {screen === "kidgames" && <KidGames />}
+        {screen === "games" && <KidGames audience="all" />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
         {screen === "quests" && <QuestScreen onShare={openShare} />}
         {screen === "hifz" && <QuranScreen />}
@@ -219,6 +220,12 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
         <p className="mt-2 text-sm opacity-90">Live a Muslim life in Lagos and Ilorin, with Makkah and Madinah for Hajj and Umrah: pray at the masjid, learn, work, rent a home, race at the arena, and meet other players.</p>
         <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#e6b84a]">Enter IlmWorld <ChevronRight className="size-4" /></span>
       </a>
+      <button onClick={() => go("games")} className="border-2 border-foreground bg-secondary p-6 text-left text-secondary-foreground shadow-brutal transition hover:-translate-y-0.5 md:col-span-2">
+        <small className="text-xs font-bold uppercase">New</small>
+        <strong className="mt-2 block font-serif text-4xl font-normal">Games &amp; quizzes</strong>
+        <p className="mt-2 text-sm opacity-90">Fresh quizzes and interactive games from the IlmStation team.</p>
+        <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold">Play now <ChevronRight className="size-4" /></span>
+      </button>
     </div>
   </Frame>;
   return <Frame eyebrow="Play & learn" title="Quick Quiz" actions={step !== "topics" ? <Button variant="outline" onClick={reset}>Exit quiz</Button> : <><Button variant="outline" onClick={() => setStep("choose")}>Back</Button><Button onClick={() => go("challenge")}><Swords /> Challenge a friend</Button></>}>

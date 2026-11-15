@@ -1,3 +1,5 @@
+import { UnlockDialog, usePremium } from "@/components/premium";
+import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -33,27 +35,31 @@ export function KidHome({ go }: { go: Go }) {
 }
 
 type KidQ = { q: string; options: string[]; answer: number; why?: string };
-type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string };
+type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number };
 const TINT: Record<string, string> = { yellow: "bg-primary", green: "bg-secondary text-secondary-foreground", white: "bg-background", grey: "bg-muted" };
 const STARTERS: KidGame[] = ([["Dua", "🤲", "yellow"], ["Qur’an", "📖", "green"], ["Seerah", "🌙", "white"], ["Arabic", "✍️", "grey"]] as const)
   .map(([t, e, c]) => ({ id: `start-${t}`, title: t, emoji: e, tint: TINT[c]!, questions: quizQuestionsFor(t).slice(0, 5) as KidQ[] }));
 
 /** The admin's published kids games, or the starters until there are some. */
-function useKidGames() {
-  const [games, setGames] = useState<KidGame[]>(STARTERS);
+function useKidGames(audience: "kids" | "all") {
+  const [games, setGames] = useState<KidGame[]>(audience === "kids" ? STARTERS : []);
   useEffect(() => onSnapshot(query(collection(db, "kidGames"), where("status", "==", "published")), (s) => {
-    const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as { title: string; emoji: string; color: string; order: number; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string }) }))
+    const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as { title: string; emoji: string; color: string; order: number; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number }) }))
       .sort((a, b) => a.order - b.order)
-      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl }))
-      .filter((g) => (g.kind === "html" ? !!g.htmlUrl : g.questions.length > 0));
-    setGames(list.length ? list : STARTERS);
-  }, () => {}), []);
+      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl, audience: g.audience ?? "kids", tier: g.tier ?? "free", cost: g.cost ?? 0, minLevel: g.minLevel ?? 0 }))
+      .filter((g) => g.audience === audience && (g.kind === "html" ? !!g.htmlUrl : g.questions.length > 0));
+    setGames(list.length ? list : audience === "kids" ? STARTERS : []);
+  }, () => {}), [audience]);
   return games;
 }
 
 /** Big, simple quizzes for children. */
-export function KidGames() {
-  const games = useKidGames();
+export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
+  const games = useKidGames(audience);
+  const { canAccess } = usePremium();
+  const myLevel = levelFor(useMyXp(), useLevels()).n;
+  const [locked, setLocked] = useState<{ id: string; title: string; cost: number } | undefined>();
+  const open = (g: KidGame) => g.tier !== "premium" || canAccess(`game-${g.id}`, "premium") || (!!g.minLevel && myLevel >= g.minLevel);
   const [game, setGame] = useState<KidGame | null>(null);
   const [i, setI] = useState(0);
   const [pick, setPick] = useState<number | null>(null);
@@ -61,15 +67,17 @@ export function KidGames() {
   const [done, setDone] = useState(false);
   const qs = game?.questions ?? [];
   const q = qs[i];
-  const start = (g: KidGame) => { setGame(g); setI(0); setPick(null); setScore(0); setDone(false); };
+  const start = (g: KidGame) => { if (!open(g)) { setLocked({ id: `game-${g.id}`, title: g.title, cost: g.cost ?? 0 }); return; } setGame(g); setI(0); setPick(null); setScore(0); setDone(false); };
 
   if (!game) return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
-    <h1 className="font-serif text-5xl leading-none">Games 🎮</h1>
-    <p className="mt-3 text-lg text-muted-foreground">Pick a game. Every right answer gets a star!</p>
+    <h1 className="font-serif text-5xl leading-none">{audience === "all" ? "Games & quizzes" : "Games 🎮"}</h1>
+    <p className="mt-3 text-lg text-muted-foreground">{audience === "all" ? "Quizzes and games from IlmStation. Every right answer earns XP." : "Pick a game. Every right answer gets a star!"}</p>
+    {games.length === 0 && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-sm text-muted-foreground">New games are coming soon, in shaa Allah.</p>}
+    <UnlockDialog item={locked} onOpenChange={(o) => { if (!o) setLocked(undefined); }} />
     <div className="mt-6 grid gap-4 sm:grid-cols-2">{games.map((g) => <button key={g.id} onClick={() => start(g)} className={cn("flex items-center gap-5 border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", g.tint)}>
       <span className="text-6xl">{g.emoji}</span>
-      <span><b className="block font-serif text-4xl leading-none">{g.title}</b><span className="text-sm font-semibold">{g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
+      <span><b className="block font-serif text-4xl leading-none">{g.title}</b><span className="text-sm font-semibold">{!open(g) ? `🔒 Premium${g.minLevel ? ` · free at level ${g.minLevel}` : ""}` : g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
     </button>)}</div>
   </div>;
 
