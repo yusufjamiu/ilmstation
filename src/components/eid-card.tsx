@@ -1,3 +1,5 @@
+import { consumeFeature } from "@/components/premium";
+import { useRef as useCardRef } from "react";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { useEffect, useRef, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
@@ -307,7 +309,10 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
   const askUnlock = () => { if (custom) setUnlock({ id: `card-${custom.id}`, title: custom.name, cost: custom.cost ?? 100 }); };
   const fileName = `${occ.id}-card.png`;
   const toFile = () => new Promise<File | null>((res) => canvas.current?.toBlob((b) => res(b ? new File([b], fileName, { type: "image/png" }) : null), "image/png"));
+  const counted = useCardRef(false);
+  const countCard = async () => { if (counted.current) return true; const ok = await consumeFeature("cards"); if (ok) counted.current = true; return ok; };
   const download = async () => {
+    if (!(await countCard())) return;
     if (locked) { askUnlock(); return; }
     const f = await toFile();
     if (!f) return;
@@ -316,6 +321,7 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
   const share = async () => {
+    if (!(await countCard())) return;
     if (locked) { askUnlock(); return; }
     const f = await toFile();
     if (f && navigator.canShare?.({ files: [f] })) {

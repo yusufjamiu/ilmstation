@@ -172,3 +172,19 @@ export async function consumeFeature(feature: string): Promise<boolean> {
 }
 /** Whether a tick-box feature is Premium-only. */
 export const premiumOnly = (cfg: PremiumConfig, id: string) => !!cfg.ticks?.[id];
+
+/** A reciter dropdown that free users can't change when "Choice of reciter" is Premium. */
+export function LockableSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  const { premium, config } = usePremium();
+  const locked = !!config.ticks?.reciters && !premium;
+  return <>
+    <select {...props} disabled={locked || props.disabled} />
+    {locked && <span className="mt-1 block text-xs font-normal normal-case text-muted-foreground">👑 Choosing a reciter is a Premium feature.</span>}
+  </>;
+}
+/** A worksheet link that shows a Premium note to free users when worksheets are Premium. */
+export function WorksheetLink({ url, className }: { url: string; className?: string }) {
+  const { premium, config } = usePremium();
+  if (config.ticks?.worksheets && !premium) return <p className={className ?? "mt-1 text-sm font-semibold text-muted-foreground"}>📄 Worksheet: Premium</p>;
+  return <a href={url} target="_blank" rel="noreferrer" className={className ?? "mt-1 inline-block text-sm font-semibold underline"}>Download the worksheet</a>;
+}

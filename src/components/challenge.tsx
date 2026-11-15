@@ -1,3 +1,4 @@
+import { consumeFeature } from "@/components/premium";
 import { awardXp } from "@/lib/xp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Clock, Search, Send, Share2, Swords, Trophy, UserPlus, Users } from "lucide-react";
@@ -248,6 +249,7 @@ export function ChallengeScreen() {
     if (!myId || !rival) return;
     const id = `${myId}_${rival.id}_${Date.now()}`;
     try {
+      if (!(await consumeFeature("duels"))) return;
       await setDoc(doc(db, "challenges", id), { from: myId, to: rival.id, fromName: account?.name ?? "A learner", toName: rival.name, topic, level, seconds, rounds, status: "pending", createdAt: Date.now(), scores: {}, done: {} });
       setChallengeId(id); setPhase("invite");
     } catch { toast("We couldn't send that challenge. Try again."); }

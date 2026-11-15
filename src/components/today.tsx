@@ -1,3 +1,4 @@
+import { LockableSelect } from "@/components/premium";
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { arrayUnion, collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where } from "firebase/firestore";
@@ -498,10 +499,10 @@ function KahfReader({ open, onOpenChange, done, onDone }: { open: boolean; onOpe
       </DialogHeader>
       <div className="grid gap-2 border-2 border-foreground bg-muted p-3">
         <label className="text-xs font-bold uppercase text-muted-foreground">Reciter
-          <select className="mt-1 block h-10 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case text-foreground" value={reciter.id}
+          <LockableSelect className="mt-1 block h-10 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case text-foreground" value={reciter.id}
             onChange={(e) => { setRid(e.target.value); try { localStorage.setItem("kahfReciter", e.target.value); } catch { /* private mode */ } }}>
             {reciters.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          </LockableSelect>
         </label>
         <audio key={reciter.url} controls preload="none" className="w-full" src={reciter.url} />
       </div>

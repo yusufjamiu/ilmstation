@@ -1,3 +1,5 @@
+import { consumeFeature, WorksheetLink } from "@/components/premium";
+import { useEffect as useLessonEffect } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, ChevronRight, Lightbulb, RotateCcw, Trophy, Volume2, X } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
@@ -36,6 +38,7 @@ export function LessonPlayer({ lesson, lang, uid, done, note, onExit, onFinished
   lesson: Lesson; lang: string; uid: string | null; done: boolean; note: string;
   onExit: () => void; onFinished: () => void;
 }) {
+  useLessonEffect(() => { if (!done) void consumeFeature("lessons").then((ok) => { if (!ok) onExit(); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (isHtmlLesson(lesson)) return <HtmlLesson lesson={lesson} lang={lang} uid={uid} done={done} note={note} onExit={onExit} onFinished={onFinished} />;
   return <ScreensLesson lesson={lesson} lang={lang} uid={uid} done={done} note={note} onExit={onExit} onFinished={onFinished} />;
 }
@@ -80,7 +83,7 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
       <div className="border-2 border-foreground bg-card p-4 shadow-brutal-sm">
         <h2 className="font-serif text-xl">My notes</h2>
         <textarea value={myNote} onChange={(e) => setMyNote(e.target.value)} onBlur={saveNote} rows={2} aria-label="My notes" placeholder="Write what you learnt…" className="mt-2 w-full border-2 border-foreground bg-background p-2 text-sm outline-none" />
-        {lesson.pdfUrl && <a href={lesson.pdfUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-semibold underline">Download the worksheet</a>}
+        {lesson.pdfUrl && <WorksheetLink url={lesson.pdfUrl} />}
       </div>
       {finished || done ? <div className="flex flex-col items-center gap-2 border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm"><Trophy className="size-8" /><b>Lesson complete</b><Button variant="outline" className="bg-background text-foreground" onClick={() => { saveNote(); onExit(); }}>Back to lessons <ChevronRight /></Button></div>
         : <Button size="lg" onClick={() => void finish()}><Check /> I've finished this lesson</Button>}
@@ -122,7 +125,7 @@ function ScreensLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Pl
       <div className="mt-5 border-2 border-foreground bg-card p-5 shadow-brutal-sm">
         <h2 className="font-serif text-2xl">My notes</h2>
         <textarea value={myNote} onChange={(e) => setMyNote(e.target.value)} onBlur={saveNote} rows={3} aria-label="My notes" placeholder="Write what you learnt…" className="mt-2 w-full border-2 border-foreground bg-background p-3 text-sm outline-none" />
-        {lesson.pdfUrl && <a href={lesson.pdfUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold underline">Download the worksheet</a>}
+        {lesson.pdfUrl && <WorksheetLink url={lesson.pdfUrl} className="mt-2 inline-block text-sm font-semibold underline" />}
       </div>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         <Button variant="outline" onClick={() => { setI(0); setFinished(false); setMistakes(0); }}><RotateCcw /> Do it again</Button>
