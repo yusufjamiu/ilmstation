@@ -150,6 +150,14 @@ export async function handleFamily(request: Request): Promise<Response> {
     return json({ ok: true, username });
   }
 
+  // a parent opens their child's account on this device (no password needed)
+  if (action === "childLogin") {
+    const kid = String(data.uid ?? "");
+    const m = (((await famRef(uid).get()).get("members") as Member[]) ?? []).find((x) => x.uid === kid && x.managed);
+    if (!m) return json({ ok: false, error: "Child not found." });
+    return json({ ok: true, token: await a.auth.createCustomToken(kid) });
+  }
+
   // parent resets or removes a child account they made
   if (action === "resetChild" || action === "removeChild") {
     const kid = String(data.uid ?? "");

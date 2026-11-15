@@ -1,3 +1,4 @@
+import { signInWithCustomToken } from "firebase/auth";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { levelFor, useLevels } from "@/components/today";
@@ -363,6 +364,13 @@ export function FamilyScreen() {
               </dl>}
               {m.role === "child" && m.status === "active" && k && <p className="mt-2 text-xs text-muted-foreground">Last active: {ago(k.lastActive)}</p>}
               <div className="mt-3 flex flex-wrap gap-2">
+                {m.managed && <Button size="sm" disabled={busy} onClick={() => {
+                  if (!window.confirm(`Switch this device to ${m.name}’s account? To switch back, you’ll log in again with your own password.`)) return;
+                  void callFamily("childLogin", { uid: m.uid }).then(async (r) => {
+                    if (!r.ok || typeof r.token !== "string") { toast.error(r.error ?? "Couldn't open their account."); return; }
+                    try { await signInWithCustomToken(auth, r.token); window.location.href = "/app"; } catch { toast.error("Couldn't open their account."); }
+                  });
+                }}><Sparkles /> Open on this device</Button>}
                 {m.managed && <Button size="sm" variant="outline" disabled={busy} onClick={() => { const pw = window.prompt(`New password for ${m.name} (at least 6 characters)`); if (pw) void act("resetChild", { uid: m.uid, password: pw }, `Password changed for ${m.name}`); }}>Reset password</Button>}
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => {
                   if (m.managed) { if (window.confirm(`Delete ${m.name}’s account? Their progress will be deleted and they won’t be able to log in.`)) void act("removeChild", { uid: m.uid }, `${m.name}’s account deleted`); }
