@@ -245,7 +245,7 @@ type Sel = { kind: "builtin"; i: number } | { kind: "custom"; id: string };
 
 export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { initial?: string; title?: string }) {
   const { account } = useAuth();
-  const { canAccess, premium } = usePremium();
+  const { canAccess, premium, config } = usePremium();
   const myLevel = levelFor(useMyXp(), useLevels()).n;
   const levelOpen = (c: { minLevel?: number }) => !!c.minLevel && myLevel >= c.minLevel;
   const [showMark, setShowMark] = useState(true);
@@ -285,7 +285,7 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
   const forOcc = customs.filter((c) => c.occasions.includes("all") || c.occasions.includes(occ.id));
   const custom = sel.kind === "custom" ? customs.find((c) => c.id === sel.id) : undefined;
   const locked = !!custom && custom.tier === "premium" && !canAccess(`card-${custom.id}`, "premium" as Tier) && !levelOpen(custom);
-  const mark = !premium || showMark;
+  const mark = !(premium && config.cardMarkPerk) || showMark;
 
   useEffect(() => {
     if (!custom) { setImg(null); return; }

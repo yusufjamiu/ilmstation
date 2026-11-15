@@ -1,3 +1,4 @@
+import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
 import { mergeXp, type XpAction } from "./xp-config";
 
@@ -51,7 +52,7 @@ export async function handleXp(request: Request): Promise<Response> {
     if (ONCE_A_DAY.includes(action) && (used[action] ?? 0) > 0) return { gained: 0, xp: base };
     const gained = Math.max(0, Math.min(amount, r.cap - (used[action] ?? 0)));
     const xp = base + gained;
-    if (gained > 0) { tx.set(playerRef, { xp }, { merge: true }); tx.set(a.db.doc(`profiles/${uid}`), { xp }, { merge: true }); }
+    if (gained > 0) { tx.set(playerRef, { xp }, { merge: true }); tx.set(a.db.doc(`profiles/${uid}`), { xp }, { merge: true }); tx.set(a.db.doc(`entitlements/${uid}`), { points: FieldValue.increment(gained) }, { merge: true }); }
     tx.set(ledgerRef, { day: today, today: { ...used, [action]: (used[action] ?? 0) + gained }, once: onceKey ? { ...once, [onceKey]: true } : once });
     return { gained, xp };
   });

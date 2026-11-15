@@ -1,112 +1,130 @@
 import { useSyncExternalStore } from "react";
 import { Crown, LockKeyhole, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DEFAULT_PREMIUM, mergePremium, type PremiumConfig } from "@/lib/premium-config";
 
-const KEY = "iq_premium";
-
-export type PlanId = "individual" | "family2" | "family5" | "custom";
-export type PremiumState = { premium: boolean; points: number; unlocked: string[]; plan?: PlanId | undefined; kids?: number | undefined; adults?: number | undefined; members?: Member[] | undefined };
+export type PlanId = string;
+export type Tier = "free" | "premium";
 export type Member = { id: string; name: string; email: string; status: "invited" | "active" };
-const initial: PremiumState = { premium: false, points: 1280, unlocked: [] };
+/** Kept for older screens; the real plans come from the admin (config.plans). */
+export const plans = DEFAULT_PREMIUM.plans.map((p) => ({ ...p, price: p.price ? `₦${p.price.toLocaleString()} / ${p.period}` : "Custom pricing" }));
 
-export const plans: { id: PlanId; name: string; price: string; seats: string; kids: number; points: string[] }[] = [
-  { id: "individual", name: "Individual", price: "₦3,500 / month", seats: "1 adult", kids: 0, points: ["Primary account holder", "Every Premium reading and topic", "Unlimited IlmBot"] },
-  { id: "family2", name: "Family · 2 Kids", price: "₦6,000 / month", seats: "1 adult + up to 2 kids", kids: 2, points: ["Everything in Individual", "Premium Kids Mode for 2 children", "IlmBot Junior for each child"] },
-  { id: "family5", name: "Family · 5 Kids", price: "₦10,000 / month", seats: "2 adults + up to 5 kids", kids: 5, points: ["Everything in Individual", "Premium Kids Mode for 5 children", "Family progress reports"] },
-  { id: "custom", name: "Custom", price: "Custom pricing", seats: "Adults grow with the kids", kids: 99, points: ["Schools, madrasahs, large families", "Roughly 1 adult seat per 3 kids", "Tailored quote from our team"] },
-];
+/** Ask the Premium server to do something. */
+export async function callPremium(action: string, data: Record<string, unknown> = {}): Promise<{ ok?: boolean; error?: string; until?: number }> {
+  const u = auth.currentUser;
+  if (!u) return { ok: false, error: "Log in first." };
+  try {
+    const r = await fetch("/api/premium", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ action, data }) });
+    return (await r.json().catch(() => ({ ok: false, error: "Something went wrong." }))) as { ok?: boolean; error?: string; until?: number };
+  } catch { return { ok: false, error: "Check your connection and try again." }; }
+}
 
-let state: PremiumState = initial;
-let hydrated = false;
+type Ent = { premiumUntil: number; plan?: string; source?: string; points: number; unlocked: string[] };
+type Family = { plan?: string; kids?: number; adults?: number; members: Member[] };
+type Snap = { ent: Ent; cfg: PremiumConfig; fam: Family };
+const EMPTY: Ent = { premiumUntil: 0, points: 0, unlocked: [] };
+const SERVER_SNAP: Snap = { ent: EMPTY, cfg: DEFAULT_PREMIUM, fam: { members: [] } };
+let snap: Snap = SERVER_SNAP;
+let started = false;
 const listeners = new Set<() => void>();
+const emit = (p: Partial<Snap>) => { snap = { ...snap, ...p }; listeners.forEach((l) => l()); };
 
-function persist() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ }
-  listeners.forEach((l) => l());
+function start() {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  onSnapshot(doc(db, "siteConfig", "premium"), (s) => emit({ cfg: mergePremium(s.data()) }), () => {});
+  let unsub: (() => void) | null = null;
+  onAuthStateChanged(auth, (u) => {
+    unsub?.(); unsub = null;
+    emit({ ent: EMPTY });
+    if (!u) return;
+    unsub = onSnapshot(doc(db, "entitlements", u.uid), (s) => {
+      const d = s.data() ?? {};
+      emit({ ent: { premiumUntil: Number(d.premiumUntil ?? 0), plan: d.plan as string | undefined, source: d.source as string | undefined, points: Number(d.points ?? 0), unlocked: Array.isArray(d.unlocked) ? (d.unlocked as string[]) : [] } });
+    }, () => {});
+    void callPremium("status"); // starts the free trial the first time
+  });
 }
+function subscribe(l: () => void) { start(); listeners.add(l); return () => { listeners.delete(l); }; }
 
-function subscribe(l: () => void) {
-  if (!hydrated) {
-    hydrated = true;
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) { state = { ...initial, ...(JSON.parse(raw) as Partial<PremiumState>) }; }
-    } catch { /* ignore */ }
-  }
-  listeners.add(l);
-  return () => { listeners.delete(l); };
-}
-
-const getSnapshot = () => state;
-const getServerSnapshot = () => initial;
-
-/** Demo premium + points wallet, kept in the browser only. */
+/** Premium, points and settings, all from the server. */
 export function usePremium() {
-  const s = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const s = useSyncExternalStore(subscribe, () => snap, () => SERVER_SNAP);
+  const premium = s.ent.premiumUntil > Date.now();
+  const fam = s.fam;
   return {
-    ...s,
-    /** True when the item is readable: premium subscription or already unlocked with points. */
-    canAccess: (id: string, tier: Tier) => tier === "free" || s.premium || s.unlocked.includes(id),
-    activatePremium: (plan: PlanId = "individual", kids?: number, adults?: number) => {
-      const seats = adults ?? (plan === "family5" ? 2 : 1);
-      const members = (state.members ?? []).slice(0, Math.max(0, seats - 1));
-      state = { ...state, premium: true, plan, kids: kids ?? plans.find((p) => p.id === plan)?.kids ?? 0, adults: seats, members }; persist();
-    },
-    cancelPremium: () => { state = { ...state, premium: false, plan: undefined, kids: undefined, adults: undefined, members: [] }; persist(); },
+    premium,
+    premiumUntil: s.ent.premiumUntil,
+    plan: s.ent.plan,
+    trial: premium && s.ent.source === "trial",
+    points: s.ent.points,
+    unlocked: s.ent.unlocked,
+    config: s.cfg,
+    kids: fam.kids, adults: fam.adults, members: fam.members,
+    canAccess: (id: string, tier: Tier) => tier === "free" || premium || s.ent.unlocked.includes(id),
+    /** Paystack checkout comes in the next step. */
+    activatePremium: (_plan?: string, _kids?: number, _adults?: number) => { toast("Checkout is coming soon. For now, Premium comes from your free trial, your points (Redeem), or an admin."); },
+    cancelPremium: () => { toast("Nothing to cancel yet: Premium ends by itself on its end date."); },
+    // family seats: still a preview until family plans are paid for
     inviteAdult: (name: string, email: string) => {
-      const m = state.members ?? [];
-      if (m.length >= (state.adults ?? 1) - 1) return "full" as const;
+      const m = fam.members;
+      if (m.length >= (fam.adults ?? 1) - 1) return "full" as const;
       if (m.some((x) => x.email.toLowerCase() === email.toLowerCase())) return "duplicate" as const;
-      state = { ...state, members: [...m, { id: `m-${Date.now()}`, name, email, status: "invited" }] }; persist(); return "ok" as const;
+      emit({ fam: { ...fam, members: [...m, { id: `m-${Date.now()}`, name, email, status: "invited" }] } }); return "ok" as const;
     },
-    acceptInvite: (id: string) => { state = { ...state, members: (state.members ?? []).map((x) => x.id === id ? { ...x, status: "active" as const } : x) }; persist(); },
-    removeAdult: (id: string) => { state = { ...state, members: (state.members ?? []).filter((x) => x.id !== id) }; persist(); },
-    addPoints: (n: number) => { state = { ...state, points: state.points + n }; persist(); },
-    unlockWithPoints: (id: string, cost: number) => {
-      if (state.points < cost) return false;
-      state = { ...state, points: state.points - cost, unlocked: [...state.unlocked, id] };
-      persist();
+    acceptInvite: (id: string) => emit({ fam: { ...fam, members: fam.members.map((x) => (x.id === id ? { ...x, status: "active" as const } : x)) } }),
+    removeAdult: (id: string) => emit({ fam: { ...fam, members: fam.members.filter((x) => x.id !== id) } }),
+    /** Points now come from the server with XP; kept so older code still runs. */
+    addPoints: (_n: number) => {},
+    unlockWithPoints: async (id: string, _cost?: number) => {
+      const r = await callPremium("unlock", { id });
+      if (!r.ok) { toast.error(r.error ?? "Couldn't unlock."); return false; }
+      return true;
+    },
+    redeem: async (i: number) => {
+      const r = await callPremium("redeem", { i });
+      if (!r.ok) { toast.error(r.error ?? "Couldn't redeem."); return false; }
       return true;
     },
   };
 }
-
-export type Tier = "free" | "premium";
 
 export function PremiumTag({ className }: { className?: string }) {
   return <span className={`inline-flex items-center gap-1 border-2 border-foreground bg-primary px-2 py-0.5 text-[10px] font-bold uppercase ${className ?? ""}`}><Crown className="size-3" /> Premium</span>;
 }
 
 export function LockedTag({ cost }: { cost: number }) {
-  return <span className="inline-flex items-center gap-1 border-2 border-foreground bg-muted px-2 py-0.5 text-[10px] font-bold uppercase"><LockKeyhole className="size-3" /> {cost} pts or Premium</span>;
+  return <span className="inline-flex items-center gap-1 border-2 border-foreground bg-muted px-2 py-0.5 text-[10px] font-bold uppercase"><LockKeyhole className="size-3" /> {cost ? `${cost} pts or Premium` : "Premium"}</span>;
 }
 
-/** Dialog offering the two ways in: subscribe, or spend points on this one item. */
+/** Two ways in: Premium, or spend points on this one item. */
 export function UnlockDialog({ item, onOpenChange }: { item?: { id: string; title: string; cost: number } | undefined; onOpenChange: (open: boolean) => void }) {
-  const { points, unlockWithPoints, activatePremium } = usePremium();
+  const { points, unlockWithPoints, activatePremium, config } = usePremium();
+  const cheapest = config.redeem.filter((o) => o.on).sort((a, b) => a.points - b.points)[0];
   return <Dialog open={!!item} onOpenChange={onOpenChange}>
     <DialogContent className="border-2 border-foreground bg-background shadow-brutal sm:rounded-none">
       <DialogHeader>
         <DialogTitle className="font-serif text-3xl">Unlock “{item?.title}”</DialogTitle>
-        <DialogDescription>This is a Premium reading. Subscribe for everything, or spend points on this one.</DialogDescription>
+        <DialogDescription>This is Premium. Get Premium for everything, or spend points on this one.</DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
         <div className="border-2 border-foreground bg-primary p-4 shadow-brutal-sm">
           <p className="flex items-center gap-2 font-serif text-2xl"><Crown className="size-5" /> IlmStation Premium</p>
-          <p className="mt-1 text-sm">From ₦3,500 / month · Individual or Family plans in Rewards → Premium.</p>
-          <Button className="mt-3 w-full" variant="secondary" onClick={() => { activatePremium("individual"); onOpenChange(false); toast.success("Individual Premium active — everything is unlocked (demo)"); }}>Start Premium</Button>
+          <p className="mt-1 text-sm">Plans in Wallet & store → Premium.{cheapest ? ` Or ${cheapest.points.toLocaleString()} points = ${cheapest.days} days.` : ""}</p>
+          <Button className="mt-3 w-full" variant="secondary" onClick={() => { activatePremium(); onOpenChange(false); }}>Get Premium</Button>
         </div>
-        <div className="border-2 border-foreground p-4 shadow-brutal-sm">
+        {!!item?.cost && <div className="border-2 border-foreground p-4 shadow-brutal-sm">
           <p className="flex items-center gap-2 font-serif text-2xl"><Sparkles className="size-5" /> Use your points</p>
-          <p className="mt-1 text-sm text-muted-foreground">{item?.cost} points · you have {points}.</p>
-          <Button className="mt-3 w-full" variant="outline" disabled={!item || points < item.cost} onClick={() => {
-            if (!item) return;
-            if (unlockWithPoints(item.id, item.cost)) { onOpenChange(false); toast.success(`Unlocked with ${item.cost} points`); }
-            else toast.error("Not enough points yet");
-          }}>{item && points < item.cost ? "Not enough points" : `Unlock for ${item?.cost} points`}</Button>
-        </div>
+          <p className="mt-1 text-sm text-muted-foreground">{item.cost} points · you have {points}.</p>
+          <Button className="mt-3 w-full" variant="outline" disabled={points < item.cost} onClick={() => {
+            void unlockWithPoints(item.id, item.cost).then((ok) => { if (ok) { onOpenChange(false); toast.success(`Unlocked with ${item.cost} points`); } });
+          }}>{points < item.cost ? "Not enough points yet" : `Unlock for ${item.cost} points`}</Button>
+        </div>}
       </div>
     </DialogContent>
   </Dialog>;
