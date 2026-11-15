@@ -99,7 +99,7 @@ export function PremiumSection() {
       </Panel>
     </div>
     <div className="mt-6"><Panel title="Promotions" tag={`${cfg.promos.filter((x) => x.on).length} on`}>
-      <p className="-mt-1 mb-3 text-xs text-muted-foreground">Discounts for Ramadan, Eid or any offer. Without a code, it applies automatically between the dates. With a code, users type it on the Premium page.</p>
+      <p className="-mt-1 mb-3 text-xs text-muted-foreground">Discounts for Ramadan, Eid or any offer. It applies to everyone automatically between the dates. Switch it off to end it early.</p>
       <div className="grid gap-3">{cfg.promos.map((x, i) => {
         const setP = (patch: Partial<Promo>) => setCfg({ ...cfg, promos: cfg.promos.map((y, j) => (j === i ? { ...y, ...patch } : y)) });
         const allIds = cfg.plans.map((pl) => pl.id);
@@ -112,8 +112,7 @@ export function PremiumSection() {
             <Field label="Ends"><input type="date" className={inputCls} value={x.end} onChange={(e) => setP({ end: e.target.value })} /></Field>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="Code (optional)"><input className={`${inputCls} uppercase`} value={x.code ?? ""} placeholder="EID2027" onChange={(e) => setP({ code: e.target.value.replace(/\s/g, "").toUpperCase() })} /></Field>
-            <Field label="Banner text (optional, for offers without a code)"><input className={inputCls} value={x.banner ?? ""} placeholder="25% off all plans this Ramadan 🌙" onChange={(e) => setP({ banner: e.target.value })} /></Field>
+                        <Field label="Banner text (optional, shown on the Premium page)"><input className={inputCls} value={x.banner ?? ""} placeholder="25% off all plans this Ramadan 🌙" onChange={(e) => setP({ banner: e.target.value })} /></Field>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span className="font-semibold">Plans:</span>

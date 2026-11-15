@@ -353,7 +353,7 @@ function PlansPanel(){
   const shown=config.plans.filter(p=>p.visible);
   const anyYear=shown.some(p=>priceFor(p,"year",country,config).available);
   const today=lagosDate();
-  const banner=config.promos.find(x=>x.on&&!x.code&&x.banner&&x.start<=today&&today<=x.end);
+  const banner=config.promos.find(x=>x.on&&x.banner&&x.start<=today&&today<=x.end);
   const applyCode=()=>{const c=code.trim().toUpperCase();if(!c){setApplied("");toast("Code removed");return;}const ok=config.promos.find(x=>x.on&&x.code&&x.code.toUpperCase()===c&&x.start<=today&&today<=x.end);if(ok){setApplied(c);toast.success(`Code applied: ${ok.percent}% off`);}else{setApplied("");toast.error("That code isn’t valid right now");}};
   return <div className="grid gap-5">
     {premium?<div className="border-2 border-foreground bg-primary p-5 shadow-brutal"><p className="font-serif text-2xl">{trial?`Free trial · ${daysLeft} day${daysLeft===1?"":"s"} left`:"Premium is active"}</p><p className="text-sm">Until {until}{plan&&!trial?` · ${plan}`:""}</p></div>
@@ -361,7 +361,7 @@ function PlansPanel(){
     {banner&&<div className="border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm"><b>{banner.name}</b> · {banner.banner}</div>}
     <div className="flex flex-wrap items-center justify-between gap-3">
       {anyYear?<div className="inline-flex border-2 border-foreground">{(["month","year"] as const).map(x=><button key={x} onClick={()=>setPeriod(x)} className={cn("px-4 py-2 text-sm font-bold",period===x?"bg-primary":"bg-background")}>{x==="month"?"Monthly":"Yearly"}</button>)}</div>:<span/>}
-      <form className="flex gap-2" onSubmit={e=>{e.preventDefault();applyCode();}}><input value={code} onChange={e=>setCode(e.target.value)} placeholder="Promo code" className="h-10 w-36 border-2 border-foreground bg-background px-3 text-sm uppercase"/><Button type="submit" variant="outline" size="sm">Apply</Button></form>
+      
     </div>
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{shown.map(p=>{
       const pr=priceFor(p,period,country,config,applied);

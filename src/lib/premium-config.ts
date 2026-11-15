@@ -49,10 +49,9 @@ export function basePrice(p: PlanDef, period: Period, usd: boolean) {
 }
 /** The best promotion running today for this plan and billing period (codes must match). */
 export function activePromo(cfg: PremiumConfig, planId: string, period: Period, code?: string, t = Date.now()) {
-  const d = lagosDate(t); const c = (code ?? "").trim().toUpperCase();
+  const d = lagosDate(t); void code;
   return cfg.promos.filter((x) => x.on && x.percent > 0 && x.start <= d && d <= x.end
-    && (!x.plans?.length || x.plans.includes(planId)) && (!x.periods?.length || x.periods.includes(period))
-    && (!x.code || x.code.toUpperCase() === c)).sort((a, b) => b.percent - a.percent)[0];
+    && (!x.plans?.length || x.plans.includes(planId)) && (!x.periods?.length || x.periods.includes(period))).sort((a, b) => b.percent - a.percent)[0];
 }
 export function finalPrice(cfg: PremiumConfig, p: PlanDef, period: Period, usd: boolean, code?: string) {
   const base = basePrice(p, period, usd);
