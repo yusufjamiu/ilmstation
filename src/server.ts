@@ -107,6 +107,8 @@ export default {
       return import("./lib/family-server").then((m) => m.handleFamily(request));
     if (url.pathname === "/api/cron/weekly")
       return import("./lib/report-server").then((m) => m.handleWeekly(request));
+    if (url.pathname === "/api/email-test")
+      return import("./lib/report-server").then((m) => m.handleEmailTest(request));
     if (url.pathname === "/api/study-exam")
       return import("./lib/study-server").then((m) => m.handleStudyExam(request));
     // Ramadan prize quiz: marked on the server

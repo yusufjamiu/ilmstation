@@ -42,3 +42,12 @@ export async function handleWeekly(request: Request): Promise<Response> {
   }
   return json({ ok: true, sent });
 }
+
+/** Send a test email (protected by CRON_SECRET) and show exactly what happened. */
+export async function handleEmailTest(request: Request): Promise<Response> {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return json({ error: "Not allowed (check CRON_SECRET)" }, 401);
+  const to = new URL(request.url).searchParams.get("to") ?? "";
+  const result = await sendEmail(to, "IlmStation test email", layout("It works!", "<p>This is a test email from IlmStation.</p>"));
+  return json({ to, result, hasKey: !!process.env.RESEND_API_KEY, from: process.env.EMAIL_FROM ?? "(EMAIL_FROM not set)" });
+}
