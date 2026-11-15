@@ -3,18 +3,21 @@ const FROM = process.env.EMAIL_FROM ?? "IlmStation <noreply@ilmstation.com>";
 
 export const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+export async function sendEmail(to: string, subject: string, html: string): Promise<true | string> {
   const key = process.env.RESEND_API_KEY;
-  if (!key || !to || to.endsWith("@kids.ilmstation.com")) return false;
+  if (!key) return "RESEND_API_KEY is not set on the server";
+  if (!to || to.endsWith("@kids.ilmstation.com")) return "no email address";
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({ from: FROM, to: [to], subject, html, reply_to: "admin@ilmstation.com" }),
     });
-    if (!r.ok) console.error("Resend error", r.status, await r.text().catch(() => ""));
-    return r.ok;
-  } catch (e) { console.error("Resend failed", e); return false; }
+    if (r.ok) return true;
+    const t = await r.text().catch(() => "");
+    console.error("Resend error", r.status, t);
+    return `Resend ${r.status}: ${t.slice(0, 200)}`;
+  } catch (e) { console.error("Resend failed", e); return `couldn’t reach Resend: ${String(e).slice(0, 120)}`; }
 }
 
 /** IlmStation-styled email. */

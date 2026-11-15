@@ -173,7 +173,7 @@ export async function handlePremium(request: Request): Promise<Response> {
     const ok = await sendEmail(String(data.email ?? ""), "You’ve been added to the IlmStation team", layout("You’re on the IlmStation team",
       `<p>Assalamu alaikum. You’ve been added to the IlmStation admin team as <b>${esc(roleName)}</b>.</p><p>Log in with this email address to open the admin panel.</p>`,
       { label: "Open the admin panel", url: "https://ilmstation.com/admin" }));
-    return json({ ok });
+    return json(ok === true ? { ok: true } : { ok: false, error: ok });
   }
 
   // admins give Premium to someone by email

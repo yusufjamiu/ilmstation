@@ -38,7 +38,7 @@ export async function handleWeekly(request: Request): Promise<Response> {
       `<p>Assalamu alaikum. Here’s how your children did this week.</p><table style="width:100%;border-collapse:collapse;margin-top:8px">${rows.join("")}</table>`,
       { label: "Open Family hub", url: "https://ilmstation.com/app?s=family" }));
     await f.ref.set({ reportSnap: next, reportAt: Date.now() }, { merge: true });
-    if (ok) sent++;
+    if (ok === true) sent++;
   }
   return json({ ok: true, sent });
 }
