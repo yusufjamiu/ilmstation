@@ -1,4 +1,4 @@
-import { KidGames, KidHome } from "@/components/kids";
+import { KidGames, KidHome, useShowQuickQuiz } from "@/components/kids";
 import { AdhanWatcher } from "@/components/today";
 import { KahfReminder } from "@/components/today";
 import { KIND_LABEL, useTodaysWisdom } from "@/components/today";
@@ -203,17 +203,18 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
   const isCorrect = active?.options[active.answer] === answer;
   const [locked, setLocked] = useState<{id:string;title:string;cost:number}>();
   const { canAccess, config } = usePremium();
+  const showQQ = useShowQuickQuiz();
   const reset = () => { setStep("topics"); setAnswer(undefined); setQuestion(1); setCorrect(0); };
   // XP when a quiz finishes (the server caps it per day)
   useEffect(() => { if (step === "results" && correct > 0) void awardXp("quiz", { correct, total: questions.length, difficulty, topic }); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
   if (step === "choose") return <Frame eyebrow="Play & learn" title="Play">
     <div className="grid gap-5 md:grid-cols-2">
-      <button onClick={() => setStep("topics")} className="border-2 border-foreground bg-primary p-6 text-left shadow-brutal transition hover:-translate-y-0.5">
+      {showQQ && <button onClick={() => setStep("topics")} className="border-2 border-foreground bg-primary p-6 text-left shadow-brutal transition hover:-translate-y-0.5">
         <small className="text-xs font-bold uppercase">Test yourself</small>
         <strong className="mt-2 block font-serif text-4xl font-normal">Quick Quiz</strong>
         <p className="mt-2 text-sm">Aqeedah, Hadith, Seerah, Fiqh, Arabic, Qur’an and more. Short quizzes, XP for every right answer, and challenges with friends.</p>
         <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold">Choose a topic <ChevronRight className="size-4" /></span>
-      </button>
+      </button>}
       <a href="/world" className="block border-2 border-foreground bg-[#10201e] p-6 text-left text-[#fdf8ec] shadow-brutal transition hover:-translate-y-0.5">
         <small className="text-xs font-bold uppercase text-[#e6b84a]">New · 3D world</small>
         <strong className="mt-2 block font-serif text-4xl font-normal">IlmWorld</strong>

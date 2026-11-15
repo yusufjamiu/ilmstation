@@ -1,3 +1,4 @@
+import { doc as fsDoc } from "firebase/firestore";
 import { callPremium, UnlockDialog, usePremium } from "@/components/premium";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { useEffect, useState } from "react";
@@ -180,4 +181,11 @@ function TimeUp({ resetsAt, kid, onBack }: { resetsAt: number; kid: boolean; onB
       {!kid && !premium && <Button onClick={() => activatePremium()}>Get Premium for more time</Button>}
     </div>
   </div>;
+}
+
+/** Whether adults see the built-in Quick Quiz (admin switch). */
+export function useShowQuickQuiz() {
+  const [v, setV] = useState(true);
+  useEffect(() => onSnapshot(fsDoc(db, "siteConfig", "play"), (snap) => setV(snap.get("showQuickQuiz") !== false), () => {}), []);
+  return v;
 }

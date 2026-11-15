@@ -144,10 +144,10 @@ export function KidGamesSection() {
 
 /** How long people can play Games & quizzes each day. */
 function PlaySettings() {
-  type PC = { on: boolean; freeMinutes: number; premiumMinutes: number; kidsMinutes: number; reset: "midnight" | "24h" };
+  type PC = { on: boolean; freeMinutes: number; premiumMinutes: number; kidsMinutes: number; reset: "midnight" | "24h"; showQuickQuiz: boolean };
   const [pc, setPc] = useState<PC | null>(null);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { getDoc(doc(db, "siteConfig", "play")).then((s) => setPc({ on: true, freeMinutes: 15, premiumMinutes: 0, kidsMinutes: 30, reset: "midnight", ...((s.data() as Partial<PC>) ?? {}) })).catch(() => setPc({ on: true, freeMinutes: 15, premiumMinutes: 0, kidsMinutes: 30, reset: "midnight" })); }, []);
+  useEffect(() => { getDoc(doc(db, "siteConfig", "play")).then((s) => setPc({ on: true, freeMinutes: 15, premiumMinutes: 0, kidsMinutes: 30, reset: "midnight", showQuickQuiz: true, ...((s.data() as Partial<PC>) ?? {}) })).catch(() => setPc({ on: true, freeMinutes: 15, premiumMinutes: 0, kidsMinutes: 30, reset: "midnight", showQuickQuiz: true })); }, []);
   if (!pc) return null;
   const n = (v: string) => Math.max(0, Math.floor(Number(v) || 0));
   const save = async () => {
@@ -163,7 +163,7 @@ function PlaySettings() {
       <Field label="Resets"><select className={inputCls} value={pc.reset} onChange={(e) => setPc({ ...pc, reset: e.target.value as PC["reset"] })}><option value="midnight">At midnight</option><option value="24h">24 hours after they start</option></select></Field>
     </div>
     <div className="mt-3 flex items-center justify-between gap-3">
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pc.on} onChange={(e) => setPc({ ...pc, on: e.target.checked })} /> Limit daily play time</label>
+      <div className="flex flex-wrap gap-4"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pc.on} onChange={(e) => setPc({ ...pc, on: e.target.checked })} /> Limit daily play time</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pc.showQuickQuiz !== false} onChange={(e) => setPc({ ...pc, showQuickQuiz: e.target.checked })} /> Show Quick Quiz (built-in topics)</label></div>
       <Button disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button>
     </div>
   </Panel></div>;
