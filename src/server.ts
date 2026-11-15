@@ -105,6 +105,8 @@ export default {
       return import("./lib/premium-server").then((m) => m.handlePremium(request));
     if (url.pathname === "/api/family")
       return import("./lib/family-server").then((m) => m.handleFamily(request));
+    if (url.pathname === "/api/admin-stats")
+      return import("./lib/stats-server").then((m) => m.handleStats(request));
     if (url.pathname === "/api/cron/weekly")
       return import("./lib/report-server").then((m) => m.handleWeekly(request));
     if (url.pathname === "/api/email-test")

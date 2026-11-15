@@ -1,92 +1,116 @@
+import { useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { RefreshCw } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { auth } from "@/lib/firebase";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Button } from "@/components/ui/button";
-import {
-  activity, planNames, planPrices, quizzesByTopic, seedEvents, seedPayments, seedReports, seedSponsors, seedUsers,
-  type AdminEvent, type AdminUser, type Payment, type Plan, type Report, type Sponsor,
-} from "./data";
-import { naira, useAdminStore } from "./store";
+import { naira } from "./store";
 import { Kpi, Page, Panel, Pill, useAudit } from "./ui";
 import type { Section } from "./shell";
 
-const lineConfig = { learners: { label: "Active learners", color: "var(--secondary)" } } satisfies ChartConfig;
-const barConfig = { plays: { label: "Quiz plays", color: "var(--secondary)" } } satisfies ChartConfig;
+type Stats = {
+  total: number; newWeek: number; online: number; learnersToday: number;
+  zones: { kids: number; youth: number; adult: number }; managed: number; families: number; reports: number; books: number;
+  premium: { paid: number; trial: number; other: number }; revenue: Record<string, number>;
+  signups: { day: string; count: number }[];
+  recentPays: { email: string; amount: number; currency: string; planId: string; at: number }[];
+  recentUsers: { name: string; email: string; created: number }[];
+  quizTopics: { topic: string; plays: number }[];
+};
+const lineConfig = { count: { label: "New sign-ups", color: "var(--secondary)" } } satisfies ChartConfig;
+const barConfig = { count: { label: "Users", color: "var(--secondary)" } } satisfies ChartConfig;
+const quizConfig = { plays: { label: "Quiz plays", color: "var(--secondary)" } } satisfies ChartConfig;
+const when = (t: number) => (t ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "");
+
+async function loadStats(): Promise<Stats | { error: string }> {
+  const u = auth.currentUser;
+  if (!u) return { error: "Log in first" };
+  try {
+    const r = await fetch("/api/admin-stats", { headers: { authorization: `Bearer ${await u.getIdToken()}` } });
+    return (await r.json()) as Stats | { error: string };
+  } catch { return { error: "Couldn't load the numbers. Check your connection." }; }
+}
 
 export function Dashboard({ go }: { go: (s: Section) => void }) {
-  const [users] = useAdminStore<AdminUser[]>("users", seedUsers);
-  const [events] = useAdminStore<AdminEvent[]>("events", seedEvents);
-  const [reports] = useAdminStore<Report[]>("reports", seedReports);
-  const [sponsors] = useAdminStore<Sponsor[]>("sponsors", seedSponsors);
-  const [payments] = useAdminStore<Payment[]>("payments", seedPayments);
+  const [s, setS] = useState<Stats | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const { log } = useAudit();
+  const refresh = () => {
+    setBusy(true); setErr("");
+    void loadStats().then((r) => { if ("error" in r) setErr(r.error); else setS(r); }).finally(() => setBusy(false));
+  };
+  useEffect(() => onAuthStateChanged(auth, (u) => { if (u) refresh(); }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const paying = users.filter((u) => u.plan !== "free" && u.status === "active");
-  const mrr = paying.reduce((s, u) => s + planPrices[u.plan], 0);
-  const sponsorMonthly = sponsors.filter((s) => s.status === "active").reduce((s, x) => s + x.monthly, 0);
-  const openReports = reports.filter((r) => r.status === "open").length;
-  const newSponsors = sponsors.filter((s) => s.status === "new").length;
-  const failed = payments.filter((p) => p.status === "failed").length;
-  const kids = users.reduce((s, u) => s + u.kids, 0);
-  const hifz = users.filter((u) => u.hifzJuz > 0).length;
-  const upcoming = events.filter((e) => e.status === "published").sort((a, b) => a.date.localeCompare(b.date));
-  const planMix = (Object.keys(planNames) as Plan[]).map((p) => ({ plan: p, count: users.filter((u) => u.plan === p).length }));
-  const maxPlan = Math.max(...planMix.map((p) => p.count), 1);
+  const actions = <Button variant="outline" disabled={busy} onClick={refresh}><RefreshCw className={busy ? "animate-spin" : ""} /> Refresh</Button>;
+  if (!s) return <Page eyebrow="Overview · App + Web" title="Dashboard" actions={actions}>
+    <p className="text-sm text-muted-foreground">{err || "Loading the numbers…"}</p>
+  </Page>;
 
-  return <Page eyebrow="Overview · App + Web" title="Dashboard">
+  const zones = [{ zone: "Kids", count: s.zones.kids }, { zone: "Teens", count: s.zones.youth }, { zone: "Adults", count: s.zones.adult }];
+  const ngn = s.revenue.NGN ?? 0;
+  const usd = s.revenue.USD ?? 0;
+  const premiumTotal = s.premium.paid + s.premium.trial + s.premium.other;
+
+  return <Page eyebrow="Overview · App + Web" title="Dashboard" actions={actions}>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <Kpi label="Total users" value={users.length.toLocaleString()} note={`${users.filter((u) => u.status === "active").length} active`} />
-      <Kpi label="Active today" value="618" note="+2.6% vs yesterday" tone="primary" />
-      <Kpi label="Subscription MRR" value={naira(mrr)} note={`${paying.length} paying accounts`} />
-      <Kpi label="Sponsorship / mo" value={naira(sponsorMonthly)} note={`${sponsors.filter((s) => s.status === "active").length} active sponsors`} tone="secondary" />
+      <Kpi label="Total users" value={s.total.toLocaleString()} note={`+${s.newWeek} this week`} />
+      <Kpi label="Online (24h)" value={s.online.toLocaleString()} note={`${s.learnersToday} earned XP today`} tone="primary" />
+      <Kpi label="Premium now" value={premiumTotal.toLocaleString()} note={`${s.premium.paid} paid · ${s.premium.trial} on trial`} />
+      <Kpi label="Revenue this month" value={naira(ngn)} note={usd ? `+ $${usd.toLocaleString()}` : (s.recentPays.length ? "from Paystack" : "no payments yet")} tone="secondary" />
     </div>
 
-    {(openReports > 0 || newSponsors > 0 || failed > 0) && <div className="mt-5 grid gap-2 border-2 border-foreground bg-muted p-3 sm:grid-cols-3">
-      {openReports > 0 && <button onClick={() => go("community")} className="flex items-center justify-between gap-2 border-2 border-foreground bg-background px-3 py-2 text-left text-sm font-semibold"><span>{openReports} chat reports to review</span><Pill value="open" /></button>}
-      {newSponsors > 0 && <button onClick={() => go("sponsors")} className="flex items-center justify-between gap-2 border-2 border-foreground bg-background px-3 py-2 text-left text-sm font-semibold"><span>{newSponsors} new sponsor enquiries</span><Pill value="new" /></button>}
-      {failed > 0 && <button onClick={() => go("billing")} className="flex items-center justify-between gap-2 border-2 border-foreground bg-background px-3 py-2 text-left text-sm font-semibold"><span>{failed} failed payments</span><Pill value="failed" /></button>}
+    {s.reports > 0 && <div className="mt-5 border-2 border-foreground bg-muted p-3">
+      <button onClick={() => go("community")} className="flex w-full items-center justify-between gap-2 border-2 border-foreground bg-background px-3 py-2 text-left text-sm font-semibold"><span>{s.reports} report{s.reports === 1 ? "" : "s"} to review</span><Pill value="open" /></button>
     </div>}
 
     <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-      <Panel title="Active learners" tag="Last 14 days">
+      <Panel title="New sign-ups" tag="Last 14 days">
         <ChartContainer config={lineConfig} className="aspect-auto h-64 w-full">
-          <LineChart data={activity} margin={{ left: 4, right: 12, top: 8 }}>
+          <LineChart data={s.signups} margin={{ left: 4, right: 12, top: 8 }}>
             <CartesianGrid vertical={false} strokeOpacity={0.25} />
             <XAxis dataKey="day" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
-            <YAxis tickLine={false} axisLine={false} width={36} />
+            <YAxis tickLine={false} axisLine={false} width={36} allowDecimals={false} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Line dataKey="learners" stroke="var(--color-learners)" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
+            <Line dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
           </LineChart>
         </ChartContainer>
       </Panel>
-      <Panel title="Quiz plays by topic" tag="This month">
+      <Panel title="Users by zone" tag="Profiles">
         <ChartContainer config={barConfig} className="aspect-auto h-64 w-full">
-          <BarChart data={quizzesByTopic} layout="vertical" margin={{ left: 4, right: 12 }}>
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="topic" tickLine={false} axisLine={false} width={72} />
+          <BarChart data={zones} layout="vertical" margin={{ left: 4, right: 12 }}>
+            <XAxis type="number" hide allowDecimals={false} />
+            <YAxis type="category" dataKey="zone" tickLine={false} axisLine={false} width={64} />
             <ChartTooltip cursor={{ fillOpacity: 0.15 }} content={<ChartTooltipContent hideIndicator />} />
-            <Bar dataKey="plays" fill="var(--color-plays)" radius={[0, 4, 4, 0]} barSize={14} />
+            <Bar dataKey="count" fill="var(--color-count)" radius={[0, 4, 4, 0]} barSize={18} />
           </BarChart>
         </ChartContainer>
       </Panel>
     </div>
 
+    <Panel title="Quiz plays by topic" tag="This month" className="mt-5">
+      {s.quizTopics?.length ? <ChartContainer config={quizConfig} className="aspect-auto h-64 w-full">
+        <BarChart data={s.quizTopics} layout="vertical" margin={{ left: 4, right: 12 }}>
+          <XAxis type="number" hide allowDecimals={false} />
+          <YAxis type="category" dataKey="topic" tickLine={false} axisLine={false} width={140} />
+          <ChartTooltip cursor={{ fillOpacity: 0.15 }} content={<ChartTooltipContent hideIndicator />} />
+          <Bar dataKey="plays" fill="var(--color-plays)" radius={[0, 4, 4, 0]} barSize={14} />
+        </BarChart>
+      </ChartContainer> : <p className="text-sm text-muted-foreground">No quiz plays recorded yet this month. It fills up as people play.</p>}
+    </Panel>
+
     <div className="mt-5 grid gap-5 lg:grid-cols-3">
-      <Panel title="Plan mix" tag={`${users.length} accounts`}>
-        <ul className="grid gap-3">{planMix.map((p) => <li key={p.plan} className="text-sm">
-          <div className="flex justify-between"><span>{planNames[p.plan]}</span><span className="font-semibold tabular-nums">{p.count}</span></div>
-          <div className="mt-1 h-3 border-2 border-foreground bg-background"><div className="h-full bg-primary" style={{ width: `${(p.count / maxPlan) * 100}%` }} /></div>
-        </li>)}</ul>
-      </Panel>
       <Panel title="Learning" tag="App">
         <dl className="grid grid-cols-2 gap-3 text-sm">
-          {[["Kids profiles", kids], ["Hifz learners", hifz], ["Avg. streak", `${Math.round(users.reduce((s, u) => s + u.streak, 0) / Math.max(users.length, 1))} d`], ["Quizzes today", "1,483"]].map(([l, v]) => <div key={l} className="border-2 border-foreground p-3"><dt className="text-xs uppercase text-muted-foreground">{l}</dt><dd className="mt-1 font-serif text-2xl tabular-nums">{v}</dd></div>)}
+          {([["Earned XP today", s.learnersToday], ["Children’s accounts", s.managed], ["Family plans", s.families], ["Books published", s.books]] as const).map(([l, v]) => <div key={l} className="border-2 border-foreground p-3"><dt className="text-xs uppercase text-muted-foreground">{l}</dt><dd className="mt-1 font-serif text-2xl tabular-nums">{v.toLocaleString()}</dd></div>)}
         </dl>
       </Panel>
-      <Panel title="Upcoming events" tag="Web" actions={<Button size="sm" variant="outline" onClick={() => go("events")}>Manage</Button>}>
-        <ul className="grid gap-2">{upcoming.slice(0, 4).map((e) => <li key={e.id} className="text-sm">
-          <div className="flex justify-between gap-2"><span className="truncate font-semibold">{e.title}</span><span className="shrink-0 tabular-nums">{e.booked}/{e.total}</span></div>
-          <div className="mt-1 h-2 border border-foreground"><div className="h-full bg-secondary" style={{ width: `${(e.booked / e.total) * 100}%` }} /></div>
-        </li>)}</ul>
+      <Panel title="Newest sign-ups" tag={`${s.newWeek} this week`} actions={<Button size="sm" variant="outline" onClick={() => go("users")}>All users</Button>}>
+        {s.recentUsers.length ? <ul className="grid gap-2 text-sm">{s.recentUsers.map((u, i) => <li key={i} className="flex justify-between gap-2"><span className="min-w-0 truncate"><b>{u.name || "—"}</b> <span className="text-muted-foreground">{u.email}</span></span><span className="shrink-0 tabular-nums text-muted-foreground">{when(u.created)}</span></li>)}</ul> : <p className="text-sm text-muted-foreground">No sign-ups yet.</p>}
+      </Panel>
+      <Panel title="Latest payments" tag="Paystack">
+        {s.recentPays.length ? <ul className="grid gap-2 text-sm">{s.recentPays.map((p, i) => <li key={i} className="flex justify-between gap-2"><span className="min-w-0 truncate">{p.email || "—"} <span className="text-muted-foreground">· {p.planId}</span></span><span className="shrink-0 font-semibold tabular-nums">{p.currency === "USD" ? `$${p.amount.toLocaleString()}` : naira(p.amount)}</span></li>)}</ul> : <p className="text-sm text-muted-foreground">No payments yet.</p>}
       </Panel>
     </div>
 

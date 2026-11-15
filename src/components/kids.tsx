@@ -108,7 +108,7 @@ export function KidGames() {
         <Button size="lg" className="mt-4 w-full" onClick={() => {
           if (i + 1 < qs.length) { setI(i + 1); setPick(null); return; }
           setDone(true);
-          void awardXp("quiz", { correct: score, total: qs.length, difficulty: "Beginner" });
+          void awardXp("quiz", { correct: score, total: qs.length, difficulty: "Beginner", topic: `Kids: ${game.title}` });
         }}>{i + 1 < qs.length ? "Next question" : "See my stars"}</Button>
       </div>}
     </section>
@@ -125,7 +125,7 @@ function KidHtmlGame({ game, onBack }: { game: KidGame; onBack: () => void }) {
       setDone(true);
       const total = Math.max(1, Math.min(50, Number(d.total) || 5));
       const correct = Math.max(0, Math.min(total, Number(d.score ?? total) || 0));
-      void awardXp("quiz", { correct, total, difficulty: "Beginner" });
+      void awardXp("quiz", { correct, total, difficulty: "Beginner", topic: `Kids: ${game.title}` });
     };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
@@ -137,6 +137,6 @@ function KidHtmlGame({ game, onBack }: { game: KidGame; onBack: () => void }) {
     </div>
     {done && <p className="mt-3 border-2 border-foreground bg-primary p-3 font-bold">🎉 Masha’Allah! Well done.</p>}
     <iframe title={game.title} src={game.htmlUrl} sandbox="allow-scripts" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
-    {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner" }); }}>I’ve finished</Button>}
+    {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner", topic: `Kids: ${game.title}` }); }}>I’ve finished</Button>}
   </div>;
 }

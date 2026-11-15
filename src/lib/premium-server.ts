@@ -71,16 +71,33 @@ export async function handlePremium(request: Request): Promise<Response> {
 
   // first visit: start the free trial (once); finish any payment left open
   if (action === "status") {
-    await a.db.runTransaction(async (tx) => {
+    const isNew = await a.db.runTransaction(async (tx) => {
       const e = await tx.get(ref);
-      if (e.exists && e.get("trialUsed")) return;
+      if (e.exists && e.get("trialUsed")) return false;
       const cur = Number(e.get("premiumUntil") ?? 0);
       const trialEnd = cfg.trialDays > 0 ? now + cfg.trialDays * DAY : 0;
       tx.set(ref, {
         trialUsed: true, points: Number(e.get("points") ?? 0), unlocked: (e.get("unlocked") as string[]) ?? [], createdAt: now,
         ...(trialEnd > cur ? { premiumUntil: trialEnd, plan: "trial", source: "trial" } : {}),
       }, { merge: true });
+      return true;
     });
+    // first visit: welcome email (once)
+    if (isNew && email) {
+      const name = (((await a.db.doc(`profiles/${uid}`).get()).get("name") as string) ?? "").split(" ")[0] || "friend";
+      const trialEnd = cfg.trialDays > 0 ? new Date(now + cfg.trialDays * DAY).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "";
+      await sendEmail(email, "Welcome to IlmStation", layout(`Welcome, ${name}!`,
+        `<p>Assalamu alaikum, and welcome to IlmStation, a place to learn a little every day.</p>
+        <ul style="padding-left:18px;line-height:1.7">
+          <li><b>Daily Wisdom</b>: an ayah, hadith or word of the scholars each day</li>
+          <li><b>Quizzes and streaks</b>: earn XP and level up</li>
+          <li><b>Library</b>: books and audiobooks that remember your place</li>
+          <li><b>Study</b>: lessons step by step</li>
+          <li><b>IlmWorld</b>: live a Muslim life in our 3D world</li>
+        </ul>
+        ${trialEnd ? `<p>Your <b>free Premium trial</b> is active until <b>${trialEnd}</b>. Enjoy everything!</p>` : ""}`,
+        { label: "Open IlmStation", url: "https://www.ilmstation.com/app" }));
+    }
     const pending = (await ref.get()).get("pending") as Pending | undefined;
     const paid = pending ? await applyPayment(a, uid, pending.ref) : null;
     return json({ ok: true, country, paid: paid?.ok ? paid.until : undefined });

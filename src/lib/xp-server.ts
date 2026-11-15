@@ -43,6 +43,10 @@ export async function handleXp(request: Request): Promise<Response> {
   else if (action === "ramadan") { amount = d.all ? (r.bonus ?? 0) : r.amount; onceKey = `rmd:${int(d.year, 0, 9999)}:${int(d.day, 0, 30)}:${d.all ? "all" : String(d.step ?? "").slice(0, 20)}`; }
   else amount = r.amount;
 
+  if (action === "quiz") {
+    const topic = String(d.topic ?? "Other").replace(/[\/\[\]*`~]/g, "").slice(0, 40) || "Other";
+    await a.db.doc(`statsDaily/${lagosDay()}`).set({ quiz: { [topic]: FieldValue.increment(1) } }, { merge: true }).catch(() => {});
+  }
   const ledgerRef = a.db.doc(`xpLedger/${uid}`);
   const playerRef = a.db.doc(`players/${uid}`);
   const today = lagosDay();

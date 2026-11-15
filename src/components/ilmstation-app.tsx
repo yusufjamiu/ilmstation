@@ -204,7 +204,7 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
   const { canAccess, config } = usePremium();
   const reset = () => { setStep("topics"); setAnswer(undefined); setQuestion(1); setCorrect(0); };
   // XP when a quiz finishes (the server caps it per day)
-  useEffect(() => { if (step === "results" && correct > 0) void awardXp("quiz", { correct, total: questions.length, difficulty }); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (step === "results" && correct > 0) void awardXp("quiz", { correct, total: questions.length, difficulty, topic }); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
   if (step === "choose") return <Frame eyebrow="Play & learn" title="Play">
     <div className="grid gap-5 md:grid-cols-2">
       <button onClick={() => setStep("topics")} className="border-2 border-foreground bg-primary p-6 text-left shadow-brutal transition hover:-translate-y-0.5">
