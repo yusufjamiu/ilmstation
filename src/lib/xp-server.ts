@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
-import { mergeXp, type XpAction } from "./xp-config";
+import { cleanLevels, mergeXp, type XpAction } from "./xp-config";
+import { mergePremium } from "./premium-config";
 
 /** XP is only given here, using the amounts the admin set, with daily limits. */
 const MULT: Record<string, number> = { Beginner: 1, Intermediate: 1.5, Advanced: 2 };
@@ -20,6 +21,8 @@ export async function handleXp(request: Request): Promise<Response> {
   const d = body.data ?? {};
 
   const cfg = mergeXp((await a.db.doc("siteConfig/xp").get()).data());
+  const ppx = mergePremium((await a.db.doc("siteConfig/premium").get()).data()).pointsPerXp;
+  const levels = cleanLevels((await a.db.doc("siteConfig/levels").get()).get("list"));
   const r = cfg[action];
   if (!r) return json({ error: "Unknown action" }, 400);
   if (!r.on) return json({ ok: true, gained: 0 });
@@ -52,9 +55,12 @@ export async function handleXp(request: Request): Promise<Response> {
     if (ONCE_A_DAY.includes(action) && (used[action] ?? 0) > 0) return { gained: 0, xp: base };
     const gained = Math.max(0, Math.min(amount, r.cap - (used[action] ?? 0)));
     const xp = base + gained;
-    if (gained > 0) { tx.set(playerRef, { xp }, { merge: true }); tx.set(a.db.doc(`profiles/${uid}`), { xp }, { merge: true }); tx.set(a.db.doc(`entitlements/${uid}`), { points: FieldValue.increment(gained) }, { merge: true }); }
+    const crossed = levels.filter((l) => l.xp > base && l.xp <= xp);
+    const bonus = crossed.reduce((n, l) => n + (l.bonus ?? 0), 0);
+    if (gained > 0) { tx.set(playerRef, { xp }, { merge: true }); tx.set(a.db.doc(`profiles/${uid}`), { xp }, { merge: true }); }
+    if (bonus > 0) tx.set(a.db.doc(`entitlements/${uid}`), { points: FieldValue.increment(bonus) }, { merge: true });
     tx.set(ledgerRef, { day: today, today: { ...used, [action]: (used[action] ?? 0) + gained }, once: onceKey ? { ...once, [onceKey]: true } : once });
-    return { gained, xp };
+    return { gained, xp, levelUp: crossed.length ? crossed[crossed.length - 1]!.name : null, bonus };
   });
   return json({ ok: true, ...result });
 }

@@ -1,3 +1,6 @@
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { levelFor, useLevels } from "@/components/today";
 import { useSponsorConfig } from "@/components/sponsor-tiers";
 import { FormEvent, useEffect, useState } from "react";
 import {
@@ -251,245 +254,131 @@ function PassDialog({ child, onClose }: { child: Child; onClose: () => void }) {
   </Dialog>;
 }
 
+type FamMember = { uid: string; email: string; name: string; role: "adult" | "child"; status: "invited" | "active"; managed?: boolean };
+type FamState = { family: { members: FamMember[] }; invites: { owner: string; ownerName: string }[]; memberOf: string | null; memberOfName: string | null; plan: { id: string; name: string; adults: number; kids: number } | null; familyActive: boolean };
+type KidSummary = { uid: string; xp: number; streak: number; lastActive: number; books: number };
+
+async function callFamily(action: string, data: Record<string, unknown> = {}): Promise<Record<string, unknown> & { ok?: boolean; error?: string }> {
+  const u = auth.currentUser;
+  if (!u) return { ok: false, error: "Log in first." };
+  try {
+    const r = await fetch("/api/family", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ action, data }) });
+    return (await r.json().catch(() => ({ ok: false, error: "Something went wrong." }))) as Record<string, unknown> & { ok?: boolean; error?: string };
+  } catch { return { ok: false, error: "Check your connection and try again." }; }
+}
+const ago = (t: number) => { if (!t) return "not yet"; const d = Math.floor((Date.now() - t) / 86_400_000); return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`; };
+
+/** A parent creates a child's account: they log in with a username and password, no email. */
+function ChildForm({ onDone }: { onDone: () => void }) {
+  const blank = { name: "", age: "", gender: "", username: "", password: "" };
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const username = f.username.trim().toLowerCase();
+    setBusy(true);
+    const r = await callFamily("createChild", { ...f, age: Number(f.age), username });
+    setBusy(false);
+    if (!r.ok) { toast.error(r.error ?? "Couldn't create the account."); return; }
+    toast.success(`${f.name} can now log in with the username “${username}”.`);
+    setF(blank); onDone();
+  };
+  const input = "h-11 w-full border-2 border-foreground bg-background px-3 font-normal";
+  return <section className="border-2 border-foreground bg-background p-5 shadow-brutal">
+    <h3 className="flex items-center gap-2 font-serif text-2xl"><Baby className="size-6" /> Add a child (no email needed)</h3>
+    <p className="mt-1 text-sm text-muted-foreground">Children under 13 can only join this way. They log in on any phone or tablet with the username and password you choose. Under 13 they get the Kids zone; 13–17, the Teens zone.</p>
+    <form onSubmit={(e) => void submit(e)} className="mt-4 grid gap-3 sm:grid-cols-2">
+      <label className="text-sm font-semibold">First name<input className={input} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Zayd" /></label>
+      <label className="text-sm font-semibold">Age<input className={input} inputMode="numeric" value={f.age} onChange={(e) => setF({ ...f, age: e.target.value })} placeholder="8" /></label>
+      <label className="text-sm font-semibold">Boy or girl<select className={input} value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}><option value="">Choose…</option><option value="male">Boy</option><option value="female">Girl</option></select></label>
+      <label className="text-sm font-semibold">Username<input className={input} value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.replace(/\s/g, "") })} placeholder="zayd_y" autoCapitalize="none" /></label>
+      <label className="text-sm font-semibold sm:col-span-2">Password (at least 6 characters)<input className={input} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} placeholder="Write it down for them" /></label>
+      <Button type="submit" disabled={busy} className="sm:col-span-2"><Plus /> {busy ? "Creating…" : "Create their account"}</Button>
+    </form>
+  </section>;
+}
+
 export function FamilyScreen() {
-  const [verified, setVerified] = useState<boolean>(() => { try { return localStorage.getItem("iq_guardian_verified") === "1"; } catch { return false; } });
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [children, setChildren] = useState<Child[]>(() => { try { const raw = localStorage.getItem("iq_children"); return raw ? JSON.parse(raw) as Child[] : []; } catch { return []; } });
-  const [addOpen, setAddOpen] = useState(false);
-  const [active, setActive] = useState<Child | undefined>(undefined);
-  const [detail, setDetail] = useState<string | undefined>(undefined);
-  const [passChild, setPassChild] = useState<Child | undefined>(undefined);
-  const [requests, setRequests] = useState([
-    { id: "r1", child: "Zayd", text: "Wants to join the moderated “Kids Qur’an Club” circle" },
-    { id: "r2", child: "Maryam", text: "Wants 10 extra minutes of learning time today" },
-  ]);
-  const [newChild, setNewChild] = useState({ name: "", age: "", avatar: "🦊" });
-  const { plan, adults, members, inviteAdult, acceptInvite, removeAdult } = usePremium();
-  const [inv, setInv] = useState({ name: "", email: "" });
-  const seats = adults ?? 1;
-
-  const patch = (id: string, fn: (c: Child) => Child) => setChildren((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
-  const selected = children.find((c) => c.id === detail);
-
-  const persistVerified = (v: boolean) => { try { localStorage.setItem("iq_guardian_verified", v ? "1" : "0"); } catch { /* ignore */ } };
-  const persistChildren = (cs: Child[]) => { try { localStorage.setItem("iq_children", JSON.stringify(cs)); } catch { /* ignore */ } };
-
-  const verify = (e: FormEvent) => {
-    e.preventDefault();
-    setVerified(true); setVerifyOpen(false); setChildren(seedChildren);
-    persistVerified(true); persistChildren(seedChildren);
-    toast.success("Guardian verified — family controls unlocked");
+  const [st, setSt] = useState<FamState | null>(null);
+  const [sum, setSum] = useState<Record<string, KidSummary>>({});
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const levels = useLevels();
+  const load = async () => {
+    const r = await callFamily("get");
+    setSt(r.ok ? (r as unknown as FamState) : { family: { members: [] }, invites: [], memberOf: null, memberOfName: null, plan: null, familyActive: false });
+    const s = await callFamily("summary");
+    if (s.ok && Array.isArray(s.list)) setSum(Object.fromEntries((s.list as KidSummary[]).map((x) => [x.uid, x])));
   };
-  const addChild = (e: FormEvent) => {
-    e.preventDefault();
-    const age = Number(newChild.age);
-    if (!newChild.name.trim()) { toast.error("Add the child’s first name"); return; }
-    if (!age || age < 3 || age > 15) { toast.error("Age must be between 3 and 15"); return; }
-    const created: Child = {
-      id: `c${Date.now()}`, name: newChild.name.trim(), age, avatar: newChild.avatar,
-      level: age <= 6 ? "Seedling" : "Little Explorer", stars: 0, streak: 0, minutesToday: 0,
-      dailyLimit: age <= 6 ? 20 : 30, garden: 5, mastery: 0, kindness: 0,
-      difficulty: suggestedDifficulty(age),
-      perms: { ilmbot: age >= 8, kidsRooms: false, events: false, sound: true, sharing: false },
-    };
-    setChildren((cs) => { const next = [...cs, created]; persistChildren(next); return next; });
-    setNewChild({ name: "", age: "", avatar: "🦊" }); setAddOpen(false);
-    toast.success("Child profile created under your guardianship");
+  useEffect(() => onAuthStateChanged(auth, (u) => { if (u) void load(); }), []);
+  const act = async (action: string, data: Record<string, unknown>, done: string) => {
+    setBusy(true);
+    const r = await callFamily(action, data);
+    setBusy(false);
+    if (!r.ok) { toast.error(r.error ?? "Something went wrong."); return; }
+    toast.success(done); void load();
   };
 
-  if (active) return <KidsMode child={active} onExit={() => { toast("Back to guardian view"); setActive(undefined); }}
-    onEarn={(s) => patch(active.id, (c) => {
-      const grown = { ...c, stars: c.stars + s, garden: Math.min(100, c.garden + 6), minutesToday: c.minutesToday + 5, mastery: c.mastery + (s > 0 ? 1 : 0) };
-      const fresh = earnedBadges(grown).find((b) => !isEarned(b, c));
-      if (fresh) toast.success(`${c.name} earned the ${fresh.name} badge`);
-      return grown;
-    })} />;
+  if (!st) return <div className="iq-rise"><h1 className="font-serif text-4xl">Family hub</h1><p className="mt-4 text-sm text-muted-foreground">Loading…</p></div>;
+  const members = st.family.members;
+  const adultsUsed = members.filter((m) => m.role === "adult").length;
+  const kidsUsed = members.filter((m) => m.role === "child").length;
 
   return <div className="iq-rise">
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="text-xs font-semibold uppercase text-muted-foreground">Kids & family</p><h1 className="font-serif text-4xl leading-none sm:text-5xl">Family hub</h1></div>
-      {verified && <Button onClick={() => setAddOpen(true)}><Plus /> Add a child</Button>}
-    </header>
+    <header><p className="text-xs font-semibold uppercase text-muted-foreground">Kids & family</p><h1 className="font-serif text-4xl leading-none sm:text-5xl">Family hub</h1></header>
 
-    {!verified ? <div className="mt-6 grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
-      <section className="border-2 border-foreground bg-primary p-6 shadow-brutal sm:p-8">
-        <span className="grid size-14 place-items-center border-2 border-foreground bg-background shadow-brutal-sm"><ShieldCheck className="size-7" /></span>
-        <h2 className="mt-5 font-serif text-4xl leading-tight">Children can never sign themselves up.</h2>
-        <p className="mt-4 max-w-xl leading-7">A child profile exists only inside a verified parent or guardian account. There is no child login, no child email, and no way for a young learner to create or leave a profile on their own.</p>
-        <Button size="lg" className="mt-7" onClick={() => setVerifyOpen(true)}><BadgeCheck /> Verify as parent or guardian</Button>
-      </section>
-      <section className="border-2 border-foreground bg-background p-6 shadow-brutal">
-        <h3 className="font-serif text-2xl">What verification unlocks</h3>
-        <ul className="mt-4 grid gap-3 text-sm">{[
-          ["Child profiles", "Create, rename, pause, or delete profiles at any time."],
-          ["Permissions", "Decide what each child can reach — chat is off by default."],
-          ["Screen time", "Set a daily limit; kids mode winds down when it’s reached."],
-          ["Difficulty", "Choose Gentle, Steady, or Challenge — and change it any time."],
-          ["Progress tracking", "Weekly summaries of quests, stars, and memorisation."],
-          ["Approvals", "Every event sign-up and circle request comes to you first."],
-        ].map(([t, b]) => <li key={t} className="flex gap-3 border-2 border-foreground p-3"><Check className="mt-0.5 size-5 shrink-0" /><span><b className="block">{t}</b><span className="text-muted-foreground">{b}</span></span></li>)}</ul>
-      </section>
-    </div> : <div className="mt-6 grid gap-4">
-      <div className="grid gap-4 lg:grid-cols-3">
-        {children.map((c) => <article key={c.id} className="border-2 border-foreground bg-background p-5 shadow-brutal">
-          <div className="flex items-center gap-3">
-            <span className="grid size-14 place-items-center border-2 border-foreground bg-primary text-3xl">{c.avatar}</span>
-            <div className="min-w-0"><b className="block font-serif text-2xl leading-none">{c.name}</b><small className="text-muted-foreground">{c.age} years · {c.level}</small></div>
-          </div>
-          <dl className="mt-5 grid grid-cols-3 gap-2 text-center">
-            {[[c.stars, "points"], [c.streak, "day streak"], [`${c.minutesToday}/${c.dailyLimit}`, "minutes"]].map(([v, l]) => <div key={String(l)} className="border-2 border-foreground bg-muted p-2"><dt className="font-serif text-xl leading-none">{v}</dt><dd className="text-[10px] font-bold uppercase text-muted-foreground">{l}</dd></div>)}
-          </dl>
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold uppercase">
-            <span className="border-2 border-foreground bg-secondary px-2 py-0.5 text-secondary-foreground">{difficultyFor(c.difficulty).name} level</span>
-            <span className="text-muted-foreground">{stageOf(c)} stage · {earnedBadges(c).length}/{badgeList.length} badges</span>
-          </div>
-          <div className="mt-3 flex gap-1.5">{badgeList.map((b) => <span key={b.id} title={b.name} className={cn("grid size-8 place-items-center border-2 border-foreground", isEarned(b, c) ? "bg-primary" : "bg-muted opacity-50")}><Trophy className="size-4" /></span>)}</div>
-          <p className="mt-4 text-xs font-bold uppercase text-muted-foreground">{nextBadge(c) ? `Toward ${nextBadge(c)?.name}` : "All badges earned"}</p>
-          <Bar value={progressToNext(c)} className="mt-1" />
-          <div className="mt-5 flex gap-2">
-            <Button className="flex-1" onClick={() => setActive(c)}><Sparkles /> Kids mode</Button>
-            <Button variant="outline" onClick={() => setDetail(c.id)}>Manage</Button>
-          </div>
-        </article>)}
-        <button onClick={() => setAddOpen(true)} className="grid min-h-56 place-items-center border-2 border-dashed border-foreground p-5 text-center hover:bg-muted">
-          <span><Baby className="mx-auto size-8" /><b className="mt-3 block font-serif text-2xl">Add another child</b><small className="text-muted-foreground">Created and owned by you</small></span>
-        </button>
-      </div>
+    <div className="mt-6 grid gap-4">
+      {st.invites.map((inv) => <section key={inv.owner} className="flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-primary p-5 shadow-brutal">
+        <div><p className="text-xs font-bold uppercase">Invitation</p><h2 className="font-serif text-2xl">{inv.ownerName} invited you to their family plan</h2><p className="text-sm">You’ll get Premium for as long as their plan lasts.</p></div>
+        <div className="flex gap-2"><Button disabled={busy} onClick={() => void act("accept", { owner: inv.owner }, "You joined the family plan")}><Check /> Accept</Button><Button variant="outline" disabled={busy} onClick={() => void act("decline", { owner: inv.owner }, "Invite declined")}><X /> Decline</Button></div>
+      </section>)}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="border-2 border-foreground bg-background shadow-brutal">
-          <div className="flex items-center justify-between border-b-2 border-foreground px-4 py-2"><h2 className="font-serif text-xl">Waiting for your approval</h2><span className="text-xs font-semibold uppercase text-muted-foreground">{requests.length} pending</span></div>
-          <div className="grid gap-3 p-4">
-            {requests.length === 0 ? <p className="text-sm text-muted-foreground">Nothing pending. Requests from your children appear here.</p> :
-              requests.map((r) => <div key={r.id} className="border-2 border-foreground p-3">
-                <b className="font-serif text-lg">{r.child}</b><p className="text-sm text-muted-foreground">{r.text}</p>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={() => { setRequests((x) => x.filter((i) => i.id !== r.id)); toast.success(`Approved for ${r.child}`); }}><Check /> Approve</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setRequests((x) => x.filter((i) => i.id !== r.id)); toast(`Declined — ${r.child} was told kindly`); }}><X /> Decline</Button>
-                </div>
-              </div>)}
-          </div>
-        </section>
-        <section className="border-2 border-foreground bg-secondary text-secondary-foreground shadow-brutal">
-          <div className="border-b-2 border-foreground px-4 py-2"><h2 className="font-serif text-xl">Safety, by default</h2></div>
-          <ul className="grid gap-3 p-4 text-sm">{([
-            [Eye, "No public profile, no real name shown, no discoverability."],
-            [LockKeyhole, "Private messaging is impossible for child profiles."],
-            [ShieldCheck, "Only teacher-moderated circles, and only if you switch them on."],
-            [Clock, "Daily limit ends the session gently with a dua screen."],
-            [Bell, "You get a weekly summary of everything your child did."],
-          ] as const).map(([Icon, t]) => <li key={t} className="flex gap-3"><Icon className="mt-0.5 size-5 shrink-0" />{t}</li>)}</ul>
-        </section>
-      </div>
+      {st.memberOf && <section className="flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-secondary p-5 text-secondary-foreground shadow-brutal">
+        <div><h2 className="font-serif text-2xl">You’re in {st.memberOfName ?? "a"}’s family plan</h2><p className="text-sm opacity-90">Your Premium comes from their plan.</p></div>
+        <Button variant="outline" className="bg-background text-foreground" disabled={busy} onClick={() => { if (window.confirm("Leave this family plan? You’ll lose Premium from it.")) void act("leave", {}, "You left the family plan"); }}>Leave</Button>
+      </section>}
 
       <section className="border-2 border-foreground bg-background shadow-brutal">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-foreground px-4 py-2"><h2 className="font-serif text-xl">Adults on your plan</h2><span className="text-xs font-semibold uppercase text-muted-foreground">{1 + (members?.length ?? 0)} / {seats} seats</span></div>
-        <div className="grid gap-3 p-4">
-          {seats > 1 ? <>
-            <p className="text-sm text-muted-foreground">Invite another parent or guardian. They get their own login and full Premium, and can help manage the children in this hub after accepting.</p>
-            <ul className="grid gap-2">
-              <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-2 border-foreground p-3"><div className="min-w-0"><p className="break-words font-semibold">You</p><p className="text-xs text-muted-foreground">Plan owner{plan ? ` · ${plan === "custom" ? "Custom plan" : "Family · 5 Kids"}` : ""}</p></div><span className="border-2 border-foreground bg-primary px-2 py-0.5 text-[10px] font-bold uppercase">Owner</span></li>
-              {(members ?? []).map((m) => <li key={m.id} className="grid grid-cols-1 items-center gap-2 border-2 border-foreground p-3 sm:grid-cols-[minmax(0,1fr)_auto]"><div className="min-w-0"><p className="break-words font-semibold">{m.name}</p><p className="break-all text-xs text-muted-foreground">{m.email} · {m.status === "invited" ? "Invite sent" : "Active"}</p></div><div className="flex flex-wrap gap-2">{m.status === "invited" && <><Button size="sm" variant="outline" onClick={() => { navigator.clipboard?.writeText(`${location.origin}/?invite=${m.id}`); toast.success("Invite link copied"); }}>Copy link</Button><Button size="sm" variant="outline" onClick={() => { acceptInvite(m.id); toast.success(`${m.name} joined your plan (demo)`); }}>Mark accepted</Button></>}<Button size="sm" variant="outline" onClick={() => { removeAdult(m.id); toast(`${m.name} removed from your plan`); }}>Remove</Button></div></li>)}
-            </ul>
-            {(members?.length ?? 0) < seats - 1 ? <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" onSubmit={(e) => { e.preventDefault(); const name = inv.name.trim(), email = inv.email.trim(); if (!name) { toast.error("Enter their name"); return; } if (!/\S+@\S+\.\S+/.test(email)) { toast.error("Enter a valid email"); return; } const r = inviteAdult(name, email); if (r === "duplicate") { toast.error("That email is already on your plan"); return; } if (r === "full") { toast.error("All adult seats are taken"); return; } setInv({ name: "", email: "" }); toast.success(`Invite sent to ${email} (demo)`); }}>
-              <input aria-label="Adult name" value={inv.name} onChange={(e) => setInv({ ...inv, name: e.target.value })} placeholder="Their name" className="h-11 border-2 border-foreground bg-background px-3" />
-              <input type="email" aria-label="Adult email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} placeholder="their@email.com" className="h-11 border-2 border-foreground bg-background px-3" />
-              <Button type="submit"><UserPlus /> Send invite</Button>
-            </form> : <p className="text-sm font-semibold">All adult seats are filled. Remove someone or upgrade to add more.</p>}
-          </> : <p className="text-sm text-muted-foreground"><b className="font-semibold text-foreground">Need a second grown-up?</b> {plan ? "Your current plan includes one adult seat." : "Inviting another parent or guardian is part of our Family plans."} The Family · 5 Kids plan (2 adults) and Custom plans let you invite them with their own login — see <b className="font-semibold text-foreground">Rewards → Premium</b>.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-foreground px-4 py-2">
+          <h2 className="font-serif text-xl">Your family</h2>
+          {st.familyActive && st.plan && <span className="text-xs font-semibold uppercase text-muted-foreground">{st.plan.name} · adults {adultsUsed}/{st.plan.adults - 1} · children {kidsUsed}/{st.plan.kids}</span>}
+        </div>
+        <div className="grid gap-4 p-4">
+          {st.familyActive ? <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={(e) => { e.preventDefault(); void act("invite", { email }, `Invite sent to ${email}`).then(() => setEmail("")); }}>
+            <input type="email" aria-label="Their IlmStation email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Their IlmStation email" className="h-11 border-2 border-foreground bg-background px-3" />
+            <Button type="submit" disabled={busy || !email.trim()}><UserPlus /> Add to my plan</Button>
+            <p className="text-xs text-muted-foreground sm:col-span-2">They need an IlmStation account. Kids and teens use a child seat; grown-ups use an adult seat. They’ll see your invite in their Family hub.</p>
+          </form> : <p className="text-sm text-muted-foreground">To add your family, choose a <b className="text-foreground">Family plan</b> in <b className="text-foreground">Wallet & store → Premium</b>. Everyone you add gets Premium, and you can follow your children’s progress here.</p>}
+
+          {members.length > 0 && <ul className="grid gap-3 lg:grid-cols-2">{members.map((m) => {
+            const k = sum[m.uid];
+            const lv = k ? levelFor(k.xp, levels) : null;
+            return <li key={m.uid} className="border-2 border-foreground p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0"><p className="break-words font-serif text-2xl leading-tight">{m.name}</p><p className="break-all text-xs text-muted-foreground">{m.managed ? `Username: ${m.email.split("@")[0]}` : m.email}</p></div>
+                <span className={cn("shrink-0 border-2 border-foreground px-2 py-0.5 text-[10px] font-bold uppercase", m.status === "active" ? "bg-primary" : "bg-muted")}>{m.role === "child" ? "Child" : "Adult"} · {m.status === "active" ? "Active" : "Invited"}</span>
+              </div>
+              {m.role === "child" && m.status === "active" && k && lv && <dl className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                {[[`${lv.n} · ${lv.name}`, "level"], [k.xp.toLocaleString(), "XP"], [String(k.streak), "day streak"], [String(k.books), "books finished"]].map(([v, l]) => <div key={l} className="border-2 border-foreground bg-muted p-2"><dt className="font-serif text-lg leading-tight">{v}</dt><dd className="text-[10px] font-bold uppercase text-muted-foreground">{l}</dd></div>)}
+              </dl>}
+              {m.role === "child" && m.status === "active" && k && <p className="mt-2 text-xs text-muted-foreground">Last active: {ago(k.lastActive)}</p>}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {m.managed && <Button size="sm" variant="outline" disabled={busy} onClick={() => { const pw = window.prompt(`New password for ${m.name} (at least 6 characters)`); if (pw) void act("resetChild", { uid: m.uid, password: pw }, `Password changed for ${m.name}`); }}>Reset password</Button>}
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                  if (m.managed) { if (window.confirm(`Delete ${m.name}’s account? Their progress will be deleted and they won’t be able to log in.`)) void act("removeChild", { uid: m.uid }, `${m.name}’s account deleted`); }
+                  else if (window.confirm(`Remove ${m.name} from your plan?`)) void act("remove", { uid: m.uid }, `${m.name} removed`);
+                }}><Trash2 /> {m.managed ? "Delete account" : "Remove"}</Button>
+              </div>
+            </li>;
+          })}</ul>}
         </div>
       </section>
-    </div>}
 
-    <Dialog open={verifyOpen} onOpenChange={setVerifyOpen}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Guardian verification</DialogTitle><DialogDescription>Confirm you are the parent or legal guardian of the child you are adding.</DialogDescription></DialogHeader>
-        <form onSubmit={verify} className="grid gap-3">
-          <label className="text-sm font-semibold">Full legal name<input required className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 font-normal outline-none focus:shadow-brutal-sm" placeholder="Halima Rabiu Mustapha" /></label>
-          <label className="text-sm font-semibold">Relationship to child
-            <select required className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 font-normal outline-none focus:shadow-brutal-sm">
-              <option>Parent</option><option>Legal guardian</option><option>Foster carer</option>
-            </select>
-          </label>
-          <label className="text-sm font-semibold">Date of birth (18+)<input required type="date" className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 font-normal outline-none focus:shadow-brutal-sm" /></label>
-          <label className="flex items-start gap-3 border-2 border-foreground p-3 text-sm"><input required type="checkbox" className="mt-1 size-4" /><span>I confirm I am 18 or older and the parent or legal guardian, and I consent to managing this child’s learning account.</span></label>
-          <Button type="submit"><BadgeCheck /> Complete verification</Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog open={addOpen} onOpenChange={setAddOpen}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Add a child profile</DialogTitle><DialogDescription>No email, no password, no login for the child. This profile lives inside your account.</DialogDescription></DialogHeader>
-        <form onSubmit={addChild} className="grid gap-3">
-          <label className="text-sm font-semibold">First name only<input value={newChild.name} onChange={(e) => setNewChild({ ...newChild, name: e.target.value })} className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 font-normal outline-none focus:shadow-brutal-sm" placeholder="Zayd" /></label>
-          <label className="text-sm font-semibold">Age (3–15)<input value={newChild.age} onChange={(e) => setNewChild({ ...newChild, age: e.target.value })} inputMode="numeric" className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 font-normal outline-none focus:shadow-brutal-sm" placeholder="8" /></label>
-          <div><p className="text-sm font-semibold">Choose an avatar</p><div className="mt-2 flex flex-wrap gap-2">{["🦊", "🦁", "🌸", "🐿️", "🌙", "⭐", "🐫", "🕊️"].map((a) => <button type="button" key={a} onClick={() => setNewChild({ ...newChild, avatar: a })} className={cn("grid size-12 place-items-center border-2 border-foreground text-2xl", newChild.avatar === a ? "bg-primary shadow-brutal-sm" : "bg-background")}>{a}</button>)}</div></div>
-          <p className="border-2 border-foreground bg-muted p-3 text-sm">Age sets the starting difficulty level, daily limit, and gamification — you can adjust all of it afterwards. Chat stays off until you turn it on.</p>
-          <Button type="submit"><Plus /> Create profile</Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog open={!!selected} onOpenChange={(o) => !o && setDetail(undefined)}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        {selected && <>
-          <DialogHeader><DialogTitle>{selected.avatar} {selected.name}’s controls</DialogTitle><DialogDescription>Changes apply immediately on every device.</DialogDescription></DialogHeader>
-          <div className="grid gap-4">
-            <div>
-              <p className="text-sm font-semibold">Difficulty level</p>
-              <p className="text-sm text-muted-foreground">Sets quest length, question depth, and how many points each answer is worth. Suggested for age {selected.age}: {difficultyFor(suggestedDifficulty(selected.age)).name}.</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-3">{difficulties.map((d) => <button key={d.id} type="button"
-                onClick={() => { patch(selected.id, (c) => ({ ...c, difficulty: d.id })); toast.success(`${selected.name}’s level set to ${d.name}`); }}
-                className={cn("border-2 border-foreground p-3 text-left", selected.difficulty === d.id ? "bg-secondary text-secondary-foreground shadow-brutal-sm" : "bg-background hover:bg-muted")}>
-                <b className="block font-serif text-lg leading-none">{d.name}</b>
-                <small className="mt-1 block text-xs font-semibold uppercase opacity-80">{d.forAges}</small>
-                <small className="mt-1 block text-xs leading-snug">{d.blurb}</small>
-              </button>)}</div>
-            </div>
-            <div>
-              <p className="flex items-center justify-between text-sm font-semibold"><span>Daily learning limit</span><span>{selected.dailyLimit} min</span></p>
-              <input type="range" min={10} max={60} step={5} value={selected.dailyLimit} onChange={(e) => patch(selected.id, (c) => ({ ...c, dailyLimit: Number(e.target.value) }))} className="mt-2 w-full accent-[var(--color-secondary)]" />
-            </div>
-            <div className="grid gap-2">{permLabels.map(([key, label, body]) => <div key={key} className="flex items-start gap-3 border-2 border-foreground p-3">
-              <span className="min-w-0 flex-1 text-sm"><b className="block">{label}</b><span className="text-muted-foreground">{body}</span></span>
-              <Toggle label={label} on={selected.perms[key]} onChange={() => { patch(selected.id, (c) => ({ ...c, perms: { ...c.perms, [key]: !c.perms[key] } })); toast.success(`${label} ${selected.perms[key] ? "turned off" : "turned on"} for ${selected.name}`); }} />
-            </div>)}</div>
-            <section className="border-2 border-foreground bg-background p-4">
-              <h3 className="font-serif text-xl">Badge journey</h3>
-              <p className="text-sm text-muted-foreground">{earnedBadges(selected).length} of {badgeList.length} earned · {stageOf(selected)} stage. Badges are personal — children are never ranked against each other.</p>
-              {nextBadge(selected) && <div className="mt-3 border-2 border-foreground bg-muted p-3">
-                <p className="flex items-center justify-between text-sm font-semibold"><span>Next: {nextBadge(selected)?.name}</span><span>{progressToNext(selected)}%</span></p>
-                <Bar value={progressToNext(selected)} className="mt-2" />
-                <p className="mt-2 text-xs text-muted-foreground">Still needs: {remainingFor(selected).join(", ")}</p>
-              </div>}
-              <ul className="mt-3 grid gap-2">{badgeList.map((b) => <li key={b.id} className={cn("flex items-start gap-3 border-2 border-foreground p-2 text-sm", isEarned(b, selected) ? "bg-primary" : "bg-background opacity-70")}>
-                <Trophy className={cn("size-5 shrink-0", !isEarned(b, selected) && "opacity-40")} />
-                <span><b className="block">{b.name}</b><span className="text-muted-foreground">{b.criteria}</span></span>
-              </li>)}</ul>
-            </section>
-            <section className="border-2 border-foreground bg-muted p-4">
-              <h3 className="font-serif text-xl">This week</h3>
-              <ul className="mt-3 grid gap-2 text-sm">
-                <li className="flex justify-between"><span><BookOpen className="mr-2 inline size-4" />Quests completed</span><b>{6 + selected.streak}</b></li>
-                <li className="flex justify-between"><span><Star className="mr-2 inline size-4" />Points earned</span><b>{selected.stars}</b></li>
-                <li className="flex justify-between"><span><Trophy className="mr-2 inline size-4" />Passed first try</span><b>{selected.mastery}</b></li>
-                <li className="flex justify-between"><span><Heart className="mr-2 inline size-4" />Kind acts noticed</span><b>{selected.kindness}</b></li>
-                <li className="flex justify-between"><span><Sprout className="mr-2 inline size-4" />Surahs practised</span><b>Al-Fatihah, Al-Ikhlas</b></li>
-                <li className="flex justify-between"><span><Clock className="mr-2 inline size-4" />Average session</span><b>{Math.max(6, selected.dailyLimit - 12)} min</b></li>
-              </ul>
-            </section>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => toast.success(`Weekly summary for ${selected.name} sent to your inbox`)}><Bell /> Email summary</Button>
-              <Button variant="outline" onClick={() => setPassChild(selected)}><Smartphone /> Play on another device</Button>
-              <Button variant="outline" onClick={() => { toast(`${selected.name}’s profile paused`); setDetail(undefined); }}><Clock /> Pause profile</Button>
-              <Button variant="outline" className="border-destructive text-destructive" onClick={() => { setChildren((cs) => { const next = cs.filter((c) => c.id !== selected.id); persistChildren(next); return next; }); setDetail(undefined); toast("Profile and all its data deleted"); }}><Trash2 /> Delete profile</Button>
-            </div>
-          </div>
-        </>}
-      </DialogContent>
-    </Dialog>
-    {passChild && <PassDialog child={passChild} onClose={() => setPassChild(undefined)} />}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="border-2 border-dashed border-foreground p-5"><p className="text-xs font-bold uppercase text-muted-foreground">Coming soon</p><h3 className="font-serif text-2xl">Weekly progress email</h3><p className="mt-1 text-sm text-muted-foreground">Every Sunday, a short email with each child’s XP, streak, books and quizzes.</p></section>
+        <ChildForm onDone={() => void load()} />
+      </div>
+    </div>
   </div>;
 }
 

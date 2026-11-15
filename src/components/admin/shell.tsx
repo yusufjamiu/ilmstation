@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   BookOpenCheck, CalendarDays, CreditCard, ExternalLink, HandHeart, LayoutDashboard, LogOut, MapPin, Megaphone,
-  Flag, Gift, GraduationCap, Landmark, LibraryBig, Menu, MoonStar, Palette, Quote, Zap, Volume2, Languages, Crown as CrownIcon, MessagesSquare, Settings, ShieldCheck, Trophy, Tv, Users, X,
+  Flag, Gift, GraduationCap, Landmark, LibraryBig, Menu, MoonStar, Palette, Quote, Zap, Volume2, Languages, Crown as CrownIcon, Gamepad2, MessagesSquare, Settings, ShieldCheck, Trophy, Tv, Users, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme";
@@ -23,6 +23,7 @@ import { XpSection } from "./xp";
 import { AdhanSection } from "./adhan";
 import { LanguagesSection } from "./languages";
 import { PremiumSection } from "./premium";
+import { KidGamesSection } from "./kid-games";
 import { EventsSection } from "./events";
 import { CentresSection } from "./centres";
 import { CommunitySection } from "./community";
@@ -33,7 +34,7 @@ import { WorldAdvertsSection, WorldAwardSection, WorldQuizzesSection, WorldRaces
 import { WorldContentSection } from "./world-content";
 import { seedAdverts, type Advert } from "./world-data";
 
-export const sections = ["dashboard", "users", "study", "library", "ramadan", "cards", "wisdom", "xp", "adhan", "languages", "premium", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "settings"] as const;
+export const sections = ["dashboard", "users", "study", "library", "ramadan", "cards", "wisdom", "xp", "adhan", "languages", "premium", "kidGames", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "settings"] as const;
 export type Section = (typeof sections)[number];
 
 const nav: { id: Section; label: string; icon: typeof Users; group: string }[] = [
@@ -48,6 +49,7 @@ const nav: { id: Section; label: string; icon: typeof Users; group: string }[] =
   { id: "adhan", label: "Adhan", icon: Volume2, group: "App" },
   { id: "languages", label: "Languages", icon: Languages, group: "App" },
   { id: "premium", label: "Premium", icon: CrownIcon, group: "App" },
+  { id: "kidGames", label: "Kids games", icon: Gamepad2, group: "App" },
   { id: "content", label: "Quiz content", icon: BookOpenCheck, group: "App" },
   { id: "billing", label: "Plans & billing", icon: CreditCard, group: "App" },
   { id: "events", label: "Events & pricing", icon: CalendarDays, group: "Web" },
@@ -146,6 +148,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
           {current === "adhan" && <AdhanSection />}
           {current === "languages" && <LanguagesSection />}
           {current === "premium" && <PremiumSection />}
+          {current === "kidGames" && <KidGamesSection />}
           {current === "content" && <ContentSection />}
           {current === "events" && <EventsSection />}
           {current === "centres" && <CentresSection />}

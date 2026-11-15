@@ -6,7 +6,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DEFAULT_PREMIUM, mergePremium, type PremiumConfig } from "@/lib/premium-config";
+import { DEFAULT_PREMIUM, mergePremium, type PlanDef, type PremiumConfig } from "@/lib/premium-config";
 
 export type PlanId = string;
 export type Tier = "free" | "premium";
@@ -15,20 +15,20 @@ export type Member = { id: string; name: string; email: string; status: "invited
 export const plans = DEFAULT_PREMIUM.plans.map((p) => ({ ...p, price: p.price ? `₦${p.price.toLocaleString()} / ${p.period}` : "Custom pricing" }));
 
 /** Ask the Premium server to do something. */
-export async function callPremium(action: string, data: Record<string, unknown> = {}): Promise<{ ok?: boolean; error?: string; until?: number }> {
+export async function callPremium(action: string, data: Record<string, unknown> = {}): Promise<{ ok?: boolean; error?: string; until?: number; url?: string; country?: string; paid?: number; pending?: boolean }> {
   const u = auth.currentUser;
   if (!u) return { ok: false, error: "Log in first." };
   try {
     const r = await fetch("/api/premium", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ action, data }) });
-    return (await r.json().catch(() => ({ ok: false, error: "Something went wrong." }))) as { ok?: boolean; error?: string; until?: number };
+    return (await r.json().catch(() => ({ ok: false, error: "Something went wrong." }))) as { ok?: boolean; error?: string; until?: number; url?: string; country?: string; paid?: number; pending?: boolean };
   } catch { return { ok: false, error: "Check your connection and try again." }; }
 }
 
 type Ent = { premiumUntil: number; plan?: string; source?: string; points: number; unlocked: string[] };
 type Family = { plan?: string; kids?: number; adults?: number; members: Member[] };
-type Snap = { ent: Ent; cfg: PremiumConfig; fam: Family };
+type Snap = { ent: Ent; cfg: PremiumConfig; fam: Family; country: string };
 const EMPTY: Ent = { premiumUntil: 0, points: 0, unlocked: [] };
-const SERVER_SNAP: Snap = { ent: EMPTY, cfg: DEFAULT_PREMIUM, fam: { members: [] } };
+const SERVER_SNAP: Snap = { ent: EMPTY, cfg: DEFAULT_PREMIUM, fam: { members: [] }, country: "" };
 let snap: Snap = SERVER_SNAP;
 let started = false;
 const listeners = new Set<() => void>();
@@ -45,9 +45,19 @@ function start() {
     if (!u) return;
     unsub = onSnapshot(doc(db, "entitlements", u.uid), (s) => {
       const d = s.data() ?? {};
-      emit({ ent: { premiumUntil: Number(d.premiumUntil ?? 0), plan: d.plan as string | undefined, source: d.source as string | undefined, points: Number(d.points ?? 0), unlocked: Array.isArray(d.unlocked) ? (d.unlocked as string[]) : [] } });
+      emit({ ent: { premiumUntil: Math.max(Number(d.premiumUntil ?? 0), Number(d.familyUntil ?? 0)), plan: d.plan as string | undefined, source: d.source as string | undefined, points: Number(d.points ?? 0), unlocked: Array.isArray(d.unlocked) ? (d.unlocked as string[]) : [] } });
     }, () => {});
-    void callPremium("status"); // starts the free trial the first time
+    // starts the free trial the first time, and finishes a payment left open
+    void callPremium("status").then((r) => {
+      if (r.country) emit({ country: r.country });
+      if (r.paid) toast.success(`Payment received. Premium until ${new Date(r.paid).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`);
+    });
+    // just back from Paystack?
+    const ref = new URLSearchParams(window.location.search).get("reference");
+    if (ref) void callPremium("confirm", { reference: ref }).then((r) => {
+      if (r.ok && r.until) toast.success(`Payment received. Premium until ${new Date(r.until).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`);
+      else if (r.pending) toast("We’re still waiting for Paystack to confirm your payment. It will show here soon.");
+    });
   });
 }
 function subscribe(l: () => void) { start(); listeners.add(l); return () => { listeners.delete(l); }; }
@@ -68,7 +78,14 @@ export function usePremium() {
     kids: fam.kids, adults: fam.adults, members: fam.members,
     canAccess: (id: string, tier: Tier) => tier === "free" || premium || s.ent.unlocked.includes(id),
     /** Paystack checkout comes in the next step. */
-    activatePremium: (_plan?: string, _kids?: number, _adults?: number) => { toast("Checkout is coming soon. For now, Premium comes from your free trial, your points (Redeem), or an admin."); },
+    country: s.country,
+    /** Opens Paystack for the chosen plan. */
+    activatePremium: (planId?: string, _kids?: number, _adults?: number) => {
+      const id = planId ?? s.cfg.plans.find((p) => p.visible && p.price > 0)?.id;
+      if (!id) { toast("No plans are available right now."); return; }
+      toast("Opening Paystack…");
+      void callPremium("checkout", { planId: id }).then((r) => { if (r.ok && r.url) window.location.href = r.url; else toast.error(r.error ?? "Couldn't start the payment."); });
+    },
     cancelPremium: () => { toast("Nothing to cancel yet: Premium ends by itself on its end date."); },
     // family seats: still a preview until family plans are paid for
     inviteAdult: (name: string, email: string) => {
@@ -128,4 +145,11 @@ export function UnlockDialog({ item, onOpenChange }: { item?: { id: string; titl
       </div>
     </DialogContent>
   </Dialog>;
+}
+
+/** The price to show for a plan in the user's country. */
+export function priceLabel(p: PlanDef, country: string, cfg: PremiumConfig) {
+  if (p.price <= 0) return "Custom pricing";
+  if (cfg.usdAbroad && country && country !== "NG" && (p.priceUsd ?? 0) > 0) return `$${(p.priceUsd ?? 0).toLocaleString()} / ${p.period}`;
+  return `₦${p.price.toLocaleString()} / ${p.period}`;
 }

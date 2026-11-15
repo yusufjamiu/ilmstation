@@ -35,21 +35,21 @@ export function mergeXp(saved: unknown): XpConfig {
 }
 
 /** Levels. The admin can change them (saved in siteConfig/levels); these are the defaults. */
-export type LevelDef = { name: string; xp: number; perks: string[] };
+export type LevelDef = { name: string; xp: number; perks: string[]; bonus?: number };
 export const LEVEL_DEFAULTS: LevelDef[] = [
   { name: "Newcomer", xp: 0, perks: ["Your journey begins"] },
-  { name: "Seeker", xp: 100, perks: ["“Seeker” shown next to your name on the leaderboard"] },
-  { name: "Student", xp: 300, perks: ["“Student” shown next to your name"] },
-  { name: "Learner", xp: 700, perks: ["“Learner” shown next to your name"] },
-  { name: "Devoted", xp: 1200, perks: ["“Devoted” shown next to your name"] },
-  { name: "Guardian", xp: 2000, perks: ["“Guardian” shown next to your name"] },
-  { name: "Scholar", xp: 3000, perks: ["“Scholar” shown next to your name"] },
-  { name: "Sage", xp: 5000, perks: ["“Sage” shown next to your name"] },
+  { name: "Seeker", xp: 100, bonus: 50, perks: ["“Seeker” shown next to your name on the leaderboard"] },
+  { name: "Student", xp: 300, bonus: 100, perks: ["“Student” shown next to your name"] },
+  { name: "Learner", xp: 700, bonus: 150, perks: ["“Learner” shown next to your name"] },
+  { name: "Devoted", xp: 1200, bonus: 200, perks: ["“Devoted” shown next to your name"] },
+  { name: "Guardian", xp: 2000, bonus: 300, perks: ["“Guardian” shown next to your name"] },
+  { name: "Scholar", xp: 3000, bonus: 400, perks: ["“Scholar” shown next to your name"] },
+  { name: "Sage", xp: 5000, bonus: 500, perks: ["“Sage” shown next to your name"] },
 ];
 export function cleanLevels(v: unknown): LevelDef[] {
   const arr = Array.isArray(v) ? (v as Partial<LevelDef>[]) : [];
   const l = arr.filter((x) => x && typeof x.name === "string" && x.name.trim())
-    .map((x) => ({ name: String(x.name), xp: Math.max(0, Number(x.xp) || 0), perks: Array.isArray(x.perks) ? x.perks.map(String) : [] }))
+    .map((x) => ({ name: String(x.name), xp: Math.max(0, Number(x.xp) || 0), perks: Array.isArray(x.perks) ? x.perks.map(String) : [], bonus: Math.max(0, Number(x.bonus) || 0) }))
     .sort((a, b) => a.xp - b.xp);
   if (!l.length) return LEVEL_DEFAULTS;
   l[0]!.xp = 0;

@@ -105,6 +105,7 @@ function Categories({ cats, saved }: { cats: Category[]; saved: boolean }) {
       <span className="grid size-10 place-items-center border-2 border-foreground bg-primary"><Icon className="size-5" /></span>
       <div className="min-w-0 flex-1">
         <p className="font-serif text-2xl leading-tight">{c.name} {c.nameAr && <span dir="rtl" className="text-muted-foreground">{c.nameAr}</span>}</p>
+        <p className="text-xs font-bold uppercase text-muted-foreground">For: {(c.zones && c.zones.length ? c.zones : ["youth", "adult"]).map((z) => ({ kids: "Kids", youth: "Teens", adult: "Adults" } as Record<string, string>)[z] ?? z).join(" · ")}</p>
         <p className="text-xs text-muted-foreground">{c.levels.length ? c.levels.map((l) => `${l.name} (${l.stages})`).join(" · ") : "No levels yet"}</p>
       </div>
       <Pill value={c.live ? "Live" : "Coming soon"} />
@@ -124,6 +125,7 @@ function Categories({ cats, saved }: { cats: Category[]; saved: boolean }) {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Name"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Mathematics" /></Field>
               <Field label="Arabic name"><input dir="rtl" className={inputCls} value={form.nameAr ?? ""} onChange={(e) => setForm({ ...form, nameAr: e.target.value })} /></Field>
+              <div className="sm:col-span-2"><p className="text-sm font-semibold">Who sees it</p><div className="mt-1 flex flex-wrap gap-4 text-sm">{([["kids", "Kids (under 13)"], ["youth", "Teens & young adults"], ["adult", "Adults"]] as const).map(([z, l]) => { const cur = form.zones && form.zones.length ? form.zones : ["youth", "adult"]; return <label key={z} className="flex items-center gap-2"><input type="checkbox" checked={cur.includes(z)} onChange={(e) => setForm({ ...form, zones: e.target.checked ? [...new Set([...cur, z])] : cur.filter((x) => x !== z) })} /> {l}</label>; })}</div></div>
             </div>
             <Field label="Short description"><input className={inputCls} value={form.blurb ?? ""} onChange={(e) => setForm({ ...form, blurb: e.target.value })} /></Field>
             <div className="grid gap-3 sm:grid-cols-2">

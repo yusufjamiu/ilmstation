@@ -66,10 +66,11 @@ export function LoginPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!isValidEmail(email)) { setError("Enter the email you signed up with."); return; }
+    const loginEmail = email.includes("@") ? email : `${email.trim().toLowerCase()}@kids.ilmstation.com`;
+    if (!isValidEmail(loginEmail)) { setError("Enter your email, or your username if a parent made your account."); return; }
     if (!password) { setError("Enter your password."); return; }
     setBusy(true);
-    const problem = await logIn(email, password);
+    const problem = await logIn(loginEmail, password);
     setBusy(false);
     if (problem) { setError(problem); return; }
     toast.success(`Welcome back${account ? `, ${account.name.split(/\s+/)[0]}` : ""}`);
@@ -102,7 +103,7 @@ export function LoginPage() {
       <p className="mt-3 text-muted-foreground">Pick up today’s quest where you left it.</p>
       <form noValidate onSubmit={submit} className="mt-8 grid gap-5">
         <Field label="Email address" icon={AtSign}>
-          <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="name@example.com" autoComplete="email" className={inputClass} />
+          <input type="text" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="Email (or username for children)" autoComplete="username" autoCapitalize="none" className={inputClass} />
         </Field>
         <Field label="Password" icon={LockKeyhole} hint={<button type="button" onClick={() => toast("Password reset is coming soon.")} className="mt-1.5 text-sm font-semibold underline underline-offset-4">Forgot password?</button>}>
           <PasswordInput value={password} onChange={(v) => { setPassword(v); setError(""); }} placeholder="Your password" autoComplete="current-password" />
@@ -360,7 +361,8 @@ function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => vo
   return <form noValidate onSubmit={submit} className="grid gap-6">
     <fieldset>
       <legend className="text-sm font-semibold">Your age group</legend>
-      <div role="radiogroup" aria-label="Age group" className="mt-1.5 grid gap-3">{(["kids", "youth", "adult"] as const).map((z) => { const on = zone === z; return <button key={z} type="button" role="radio" aria-checked={on} onClick={() => setZone(z)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 text-left transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
+      <p className="mt-1.5 border-2 border-foreground bg-muted p-3 text-sm"><b>Under 13?</b> Ask a parent or guardian to create your account in their <b>Family hub</b>. You’ll log in with a username, no email needed.</p>
+      <div role="radiogroup" aria-label="Age group" className="mt-1.5 grid gap-3">{(["youth", "adult"] as const).map((z) => { const on = zone === z; return <button key={z} type="button" role="radio" aria-checked={on} onClick={() => setZone(z)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 text-left transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
         <span><span className="block font-semibold">{zones[z].name}</span><span className="text-xs text-muted-foreground">{zones[z].ages} · {zones[z].blurb}</span></span>
         {on && <span className="grid size-6 shrink-0 place-items-center border-2 border-foreground bg-secondary text-secondary-foreground"><Check className="size-3.5" /></span>}
       </button>; })}</div>

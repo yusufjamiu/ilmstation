@@ -430,7 +430,7 @@ export function LevelLadder() {
         const reached = xp >= lv.xp; const current = i + 1 === l.n;
         return <li key={`${lv.name}-${i}`} className={cn("grid grid-cols-[auto_1fr_auto] items-start gap-3 border-2 border-foreground p-3", current ? "bg-primary" : reached ? "bg-secondary/15" : "opacity-70")}>
           <span className="grid size-8 place-items-center border-2 border-foreground bg-background font-serif">{i + 1}</span>
-          <div className="min-w-0"><b className="font-serif text-lg font-normal">{lv.name}</b>{lv.perks.length > 0 && <ul className="mt-1 text-xs text-muted-foreground">{lv.perks.map((p) => <li key={p}>• {p}</li>)}</ul>}</div>
+          <div className="min-w-0"><b className="font-serif text-lg font-normal">{lv.name}</b>{lv.bonus ? <span className="ml-2 text-xs font-bold text-secondary">+{lv.bonus} points</span> : null}{lv.perks.length > 0 && <ul className="mt-1 text-xs text-muted-foreground">{lv.perks.map((p) => <li key={p}>• {p}</li>)}</ul>}</div>
           <span className="text-xs font-semibold">{reached ? "✓" : `${lv.xp.toLocaleString()} XP`}</span>
         </li>;
       })}</ol>

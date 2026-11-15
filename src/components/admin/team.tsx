@@ -1,3 +1,4 @@
+import { callPremium } from "@/components/premium";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Trash2, UserPlus } from "lucide-react";
@@ -47,9 +48,8 @@ export function TeamPanel({ role: myRole }: { role: AdminRole }) {
     setBusy(true);
     try {
       const found = await getDoc(doc(db, "emails", e));
-      if (!found.exists()) { toast.error("No IlmStation account uses this email. Ask them to sign up (or log in once) first."); return; }
-      const uid = found.get("uid") as string;
-      if (team?.some((m) => m.id === uid)) { toast("They’re already on the team."); return; }
+      let uid = found.exists() ? (found.get("uid") as string | undefined) : undefined;
+      if (!uid) { const r = await callPremium("findUser", { email: e }); uid = (r as { uid?: string }).uid; if (!uid) { toast.error(r.error ?? "No IlmStation account uses this email. Ask them to sign up first."); return; } }
       const p = await getDoc(doc(db, "profiles", uid)).catch(() => null);
       await setDoc(doc(db, "admins", uid), { role, email: e, name: (p?.get("name") as string) ?? "", addedBy: me || null, addedAt: serverTimestamp() });
       record(`Added ${e} to the team as ${role}`);

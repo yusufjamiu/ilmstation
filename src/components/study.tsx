@@ -1,3 +1,5 @@
+import { catFor } from "@/components/study-core";
+import { useAuth } from "@/components/auth";
 import { liveVoiceLangs } from "@/components/study-core";
 import { useVoiceLangs } from "@/components/voice-langs";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -45,7 +47,9 @@ function useExam(id: string | undefined) {
 
 export function StudyScreen() {
   const [view, setView] = useState<View>({});
-  const { cats } = useStudyCategories();
+  const { cats: allCats } = useStudyCategories();
+  const { account: studyAcct } = useAuth();
+  const cats = allCats.filter((c) => catFor(c, studyAcct?.zone));
   const { uid, progress, results } = useStudyMe();
   const voice = useVoiceLang();
   useVoiceLangs();

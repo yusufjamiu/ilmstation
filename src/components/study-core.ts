@@ -15,7 +15,11 @@ export type IconKey = "graduation" | "languages" | "sprout" | "palette" | "book"
 export type Category = {
   id: string; name: string; nameAr?: string; blurb?: string; icon: IconKey;
   live: boolean; order: number; levels: Level[];
+  /** Who sees it: "kids", "youth", "adult". Empty = teens and adults. */
+  zones?: string[];
 };
+export const catZones = (c: Category) => (c.zones && c.zones.length ? c.zones : ["youth", "adult"]);
+export const catFor = (c: Category, zone?: string) => catZones(c).includes(zone ?? "adult");
 
 const THREE: Level[] = [
   { id: "beginner", name: "Beginner", nameAr: "المستوى المبتدئ", stages: 3 },

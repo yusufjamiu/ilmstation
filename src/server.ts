@@ -103,6 +103,8 @@ export default {
       return import("./lib/xp-server").then((m) => m.handleXp(request));
     if (url.pathname === "/api/premium")
       return import("./lib/premium-server").then((m) => m.handlePremium(request));
+    if (url.pathname === "/api/family")
+      return import("./lib/family-server").then((m) => m.handleFamily(request));
     if (url.pathname === "/api/study-exam")
       return import("./lib/study-server").then((m) => m.handleStudyExam(request));
     // Ramadan prize quiz: marked on the server

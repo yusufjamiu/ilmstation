@@ -7,9 +7,10 @@ export async function awardXp(action: string, data: Record<string, unknown> = {}
   if (!u) return 0;
   try {
     const r = await fetch("/api/xp", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await u.getIdToken()}` }, body: JSON.stringify({ action, data }) });
-    const j = (await r.json().catch(() => ({}))) as { gained?: number };
+    const j = (await r.json().catch(() => ({}))) as { gained?: number; levelUp?: string | null; bonus?: number };
     const g = Number(j.gained ?? 0);
     if (g > 0) toast.success(`+${g} XP`);
+    if (j.levelUp) toast.success(`🎉 Level up: ${j.levelUp}!${j.bonus ? ` +${j.bonus} points` : ""}`);
     return g;
   } catch { return 0; }
 }

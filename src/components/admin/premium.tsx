@@ -53,13 +53,19 @@ export function PremiumSection() {
     </div>
 
     <div className="mt-6"><Panel title="Plans" tag={`${cfg.plans.filter((p) => p.visible).length} shown`}>
+      <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.usdAbroad} onChange={(e) => setCfg({ ...cfg, usdAbroad: e.target.checked })} /> Charge in US dollars ($) outside Nigeria (your Paystack account must be approved for USD first)</label>
       <div className="grid gap-3 lg:grid-cols-2">{cfg.plans.map((p, i) => <div key={i} className={`grid gap-2 border-2 border-foreground p-3 ${p.visible ? "" : "opacity-60"}`}>
-        <div className="grid grid-cols-[1fr_7rem_6rem] gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_7rem_6rem_6rem]">
           <Field label="Name"><input className={inputCls} value={p.name} onChange={(e) => setPlan(i, { name: e.target.value })} /></Field>
           <Field label="Price (₦, 0 = quote)"><input type="number" min={0} className={inputCls} value={p.price} onChange={(e) => setPlan(i, { price: num(e.target.value) })} /></Field>
+          <Field label="Price ($)"><input type="number" min={0} step={0.01} className={inputCls} value={p.priceUsd ?? 0} onChange={(e) => setPlan(i, { priceUsd: Math.max(0, Number(e.target.value) || 0) })} /></Field>
           <Field label="Per"><select className={inputCls} value={p.period} onChange={(e) => setPlan(i, { period: e.target.value as PlanDef["period"] })}><option value="month">month</option><option value="year">year</option></select></Field>
         </div>
         <Field label="Who it’s for"><input className={inputCls} value={p.seats} onChange={(e) => setPlan(i, { seats: e.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Adult seats (incl. payer)"><input type="number" min={1} className={inputCls} value={p.adults ?? 1} onChange={(e) => setPlan(i, { adults: Math.max(1, num(e.target.value)) })} /></Field>
+          <Field label="Child seats"><input type="number" min={0} className={inputCls} value={p.kids} onChange={(e) => setPlan(i, { kids: num(e.target.value) })} /></Field>
+        </div>
         <Field label="What’s included (one per line)"><textarea rows={3} className={`${inputCls} h-auto py-2`} value={p.points.join("\n")} onChange={(e) => setPlan(i, { points: e.target.value.split("\n") })} /></Field>
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={p.visible} onChange={(e) => setPlan(i, { visible: e.target.checked })} /> Show to users</label>
@@ -71,7 +77,7 @@ export function PremiumSection() {
 
     <div className="mt-6 grid gap-5 lg:grid-cols-2">
       <Panel title="Points → Premium" tag={`${cfg.redeem.filter((o) => o.on).length} options`}>
-        <p className="-mt-1 mb-3 text-xs text-muted-foreground">Users earn points with every XP. Here they turn points into Premium days (Wallet & store → Redeem).</p>
+        <p className="mb-3 mt-2 text-xs text-muted-foreground">Users earn points when they reach a new level (set in XP rewards → Levels). Here they swap points for Premium days (Wallet & store → Use points).</p>
         <div className="grid gap-2">{cfg.redeem.map((o, i) => <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-end gap-2">
           <Field label="Points"><input type="number" min={1} className={inputCls} value={o.points} onChange={(e) => setCfg({ ...cfg, redeem: cfg.redeem.map((x, j) => (j === i ? { ...x, points: num(e.target.value) } : x)) })} /></Field>
           <Field label="Days of Premium"><input type="number" min={1} className={inputCls} value={o.days} onChange={(e) => setCfg({ ...cfg, redeem: cfg.redeem.map((x, j) => (j === i ? { ...x, days: num(e.target.value) } : x)) })} /></Field>

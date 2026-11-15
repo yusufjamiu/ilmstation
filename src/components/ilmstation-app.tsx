@@ -1,3 +1,4 @@
+import { KidGames, KidHome } from "@/components/kids";
 import { AdhanWatcher } from "@/components/today";
 import { KahfReminder } from "@/components/today";
 import { KIND_LABEL, useTodaysWisdom } from "@/components/today";
@@ -15,7 +16,7 @@ import {
   Share2, ShieldCheck, ShoppingBag, Sparkles, Swords, Trophy, Users, UserPlus, Check, Volume2, Wallet, X,
 } from "lucide-react";
 import { GraduationCap } from "lucide-react";
-import { LockedTag, PremiumTag, Tier, UnlockDialog, usePremium, plans } from "@/components/premium";
+import { LockedTag, PremiumTag, Tier, UnlockDialog, usePremium, plans, priceLabel } from "@/components/premium";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -59,10 +60,15 @@ function AchievementsTab() {
 import { cn } from "@/lib/utils";
 import { awardXp } from "@/lib/xp";
 
-type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards";
+type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames";
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
+const KID_SCREENS = ["home", "kidgames", "study", "library", "settings"];
+const kidNav = [
+  { label: "Learn & play", items: [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library]] },
+  { label: "You", items: [["settings", "Settings", Settings]] },
+] as const;
 const navGroups = [
   { label: "Today", items: [["home", "Today", Home], ["quests", "Quest map", Sparkles], ["ramadan", "Ramadan", MoonStar], ["cards", "Cards", CardsIcon]] },
   { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Quran", BookOpen], ["halaqah", "Halaqah", Users], ["chatrooms", "Chatrooms", MessagesSquare], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
@@ -97,7 +103,10 @@ export function IlmStationApp() {
   const streakInfo = useStreak();
   const { premium } = usePremium();
   const { account } = useAuth();
+  const isKid = account?.zone === "kids";
   const selectScreen = (next: Screen) => { setScreen(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  // children only reach their own screens
+  useEffect(() => { if (isKid && !KID_SCREENS.includes(screen)) setScreen("home"); }, [isKid, screen]);
   // links from the homepage open a screen directly: /app?s=hifz
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get("s");
@@ -107,23 +116,24 @@ export function IlmStationApp() {
 
   return <div className="min-h-screen bg-background text-foreground">
     <div className="mx-auto flex max-w-[1440px] gap-5 px-3 py-3 sm:px-5 sm:py-5">
-      <Sidebar current={screen} onSelect={selectScreen} className="hidden lg:block" />
-      {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar current={screen} onSelect={selectScreen} className="h-full w-64 overflow-y-auto overscroll-contain bg-background pb-24" /></div>}
+      <Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="hidden lg:block" />
+      {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="h-full w-64 overflow-y-auto overscroll-contain bg-background pb-24" /></div>}
       <main className="min-w-0 flex-1 pb-20 lg:pb-0">
         <header className="mb-6 flex items-center justify-between gap-3">
           <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu /></Button>
           <div className="hidden sm:block"><p className="text-xs font-semibold uppercase text-muted-foreground">{todayLabel()}</p></div>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" className="hidden sm:inline-flex" onClick={() => setStreak(true)}><Flame /> {streakInfo && streakInfo.count > 0 ? `${streakInfo.count} day streak` : "Start your streak"}</Button>
-            <Button variant={premium ? "secondary" : "outline"} className="hidden sm:inline-flex" onClick={() => selectScreen("rewards")}><Crown /> {premium ? "Premium" : "Go Premium"}</Button>
+            {!isKid && <Button variant={premium ? "secondary" : "outline"} className="hidden sm:inline-flex" onClick={() => selectScreen("rewards")}><Crown /> {premium ? "Premium" : "Go Premium"}</Button>}
             <Button variant="outline" size="icon" onClick={() => setNotifications(true)} aria-label="Notifications"><Bell /></Button>
             <ThemeToggle />
-            <Button variant="secondary" onClick={() => selectScreen("community")}><span className="grid size-6 place-items-center bg-primary text-primary-foreground">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
+            <Button variant="secondary" onClick={() => selectScreen(isKid ? "settings" : "community")}><span className="grid size-6 place-items-center bg-primary text-primary-foreground">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
           </div>
         </header>
         <PresenceBeat />
         <AdhanWatcher />
-        {screen === "home" && <HomeScreen go={selectScreen} onShare={openShare} />}
+        {screen === "home" && (isKid ? <KidHome go={selectScreen} /> : <HomeScreen go={selectScreen} onShare={openShare} />)}
+        {screen === "kidgames" && <KidGames />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
         {screen === "quests" && <QuestScreen onShare={openShare} />}
         {screen === "hifz" && <QuranScreen />}
@@ -143,7 +153,7 @@ export function IlmStationApp() {
         {screen === "settings" && <SettingsScreen onOnboarding={() => setOnboarding(true)} />}
       </main>
     </div>
-    <MobileNav current={screen} onSelect={selectScreen} />
+    <MobileNav kid={isKid} current={screen} onSelect={selectScreen} />
     <NotificationDialog open={notifications} onOpenChange={setNotifications} />
     <StreakDialog open={streak} onOpenChange={setStreak} streak={streakInfo} />
     <ShareDialog card={share} onOpenChange={(o) => { if (!o) setShare(null); }} />
@@ -151,12 +161,12 @@ export function IlmStationApp() {
   </div>;
 }
 
-function Sidebar({ current, onSelect, className }: { current: Screen; onSelect: (s: Screen) => void; className?: string }) {
-  return <aside className={cn("sticky top-4 max-h-[calc(100vh-2rem)] w-56 shrink-0 self-start overflow-y-auto border-2 border-foreground", className)}><Link to="/" className="flex w-full items-center gap-3 border-b-2 border-foreground px-4 py-4 text-left"><span className="grid size-9 place-items-center bg-foreground font-serif text-xl text-background">I</span><span><strong className="block font-serif text-xl font-normal">IlmStation</strong><small className="block uppercase text-muted-foreground">Seek · Learn · Grow</small></span></Link><nav className="p-2">{navGroups.map(group => <div key={group.label}><p className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase text-muted-foreground">{group.label}</p>{group.items.map(([id, label, Icon]) => <button key={id} onClick={() => onSelect(id)} className={cn("mb-1 flex w-full items-center gap-2 border-2 border-transparent px-3 py-2 text-sm font-medium", current === id && "border-foreground bg-primary shadow-brutal-sm")}><Icon className="size-4" />{label}</button>)}</div>)}</nav><LevelCard /></aside>;
+function Sidebar({ current, onSelect, className, kid }: { current: Screen; onSelect: (s: Screen) => void; className?: string; kid?: boolean }) {
+  return <aside className={cn("sticky top-4 max-h-[calc(100vh-2rem)] w-56 shrink-0 self-start overflow-y-auto border-2 border-foreground", className)}><Link to="/" className="flex w-full items-center gap-3 border-b-2 border-foreground px-4 py-4 text-left"><span className="grid size-9 place-items-center bg-foreground font-serif text-xl text-background">I</span><span><strong className="block font-serif text-xl font-normal">IlmStation</strong><small className="block uppercase text-muted-foreground">Seek · Learn · Grow</small></span></Link><nav className="p-2">{(kid ? kidNav : navGroups).map((group: { label: string; items: readonly (readonly [string, string, typeof Home])[] }) => <div key={group.label}><p className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase text-muted-foreground">{group.label}</p>{group.items.map(([id, label, Icon]) => <button key={id} onClick={() => onSelect(id as Screen)} className={cn("mb-1 flex w-full items-center gap-2 border-2 border-transparent px-3 py-2 text-sm font-medium", current === id && "border-foreground bg-primary shadow-brutal-sm")}><Icon className="size-4" />{label}</button>)}</div>)}</nav><LevelCard /></aside>;
 }
 
-function MobileNav({ current, onSelect }: { current: Screen; onSelect: (s: Screen) => void }) {
-  const items: [Screen, string, typeof Home][] = [["home", "Today", Home], ["play", "Play", Play], ["quests", "Quests", Sparkles], ["progress", "Progress", Trophy], ["community", "You", CircleUserRound]];
+function MobileNav({ current, onSelect, kid }: { current: Screen; onSelect: (s: Screen) => void; kid?: boolean }) {
+  const items: [Screen, string, typeof Home][] = kid ? [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library], ["settings", "Settings", Settings]] : [["home", "Today", Home], ["play", "Play", Play], ["quests", "Quests", Sparkles], ["progress", "Progress", Trophy], ["community", "You", CircleUserRound]];
   return <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t-2 border-foreground bg-background lg:hidden">{items.map(([id, label, Icon]) => <button key={id} onClick={() => onSelect(id)} className={cn("flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-[11px] sm:text-xs", current === id && "bg-primary font-bold")}><Icon className="size-5 shrink-0" /><span className="truncate">{label}</span></button>)}</nav>;
 }
 
@@ -302,12 +312,13 @@ function RewardsScreen(){
   const[busy,setBusy]=useState<number|null>(null);
   const opts=config.redeem.map((o,i)=>({...o,i})).filter(o=>o.on);
   return <Frame eyebrow="Earn, redeem, give" title="Rewards" actions={premium?<PremiumTag/>:undefined}>
-    <div className="mb-5 flex flex-wrap gap-2"><Button variant={tab==="Wallet"?"default":"outline"} onClick={()=>setTab("Wallet")}>Wallet</Button><Button variant={tab==="Redeem"?"default":"outline"} onClick={()=>setTab("Redeem")}><Gift/> Redeem</Button><Button variant={tab==="Premium"?"default":"outline"} onClick={()=>setTab("Premium")}><Crown/> Premium</Button></div>
+    <div className="mb-5 flex flex-wrap gap-2"><Button variant={tab==="Wallet"?"default":"outline"} onClick={()=>setTab("Wallet")}>Wallet</Button><Button variant={tab==="Redeem"?"default":"outline"} onClick={()=>setTab("Redeem")}><Gift/> Use points</Button><Button variant={tab==="Premium"?"default":"outline"} onClick={()=>setTab("Premium")}><Crown/> Premium</Button></div>
     {tab==="Wallet"&&<div className="grid gap-5 md:grid-cols-[1fr_2fr]">
-      <Panel title="Balance" tag="Points"><p className="font-serif text-6xl">{points.toLocaleString()}</p><p className="text-muted-foreground">points available</p><Button className="mt-4" variant="outline" onClick={()=>setTab("Redeem")}><Gift/> Redeem</Button></Panel>
-      <Panel title="How to earn" tag="Every XP = 1 point"><p className="text-sm text-muted-foreground">Every XP you earn also adds the same number of points. Spending points never lowers your level.</p><ul className="mt-3 divide-y-2 divide-foreground">{["Quizzes","Opening the app daily (streak bonuses at 7 and 30 days)","Daily Wisdom","Finishing books and audiobooks","Hifz","Ramadan quest","Surah Al-Kahf on Friday","Duels"].map(x=><li key={x} className="py-2 text-sm">{x}</li>)}</ul></Panel>
+      <Panel title="Balance" tag="Points"><p className="font-serif text-6xl">{points.toLocaleString()}</p><p className="text-muted-foreground">points available</p><Button className="mt-4" variant="outline" onClick={()=>setTab("Redeem")}><Gift/> Use points</Button></Panel>
+      <Panel title="How to earn" tag="From new levels"><p className="text-sm text-muted-foreground">You get points each time you reach a new level (see the levels in Progress). Earn XP from the activities below to level up. Spending points never lowers your level.</p><ul className="mt-3 divide-y-2 divide-foreground">{["Quizzes","Opening the app daily (streak bonuses at 7 and 30 days)","Daily Wisdom","Finishing books and audiobooks","Hifz","Ramadan quest","Surah Al-Kahf on Friday","Duels"].map(x=><li key={x} className="py-2 text-sm">{x}</li>)}</ul></Panel>
     </div>}
-    {tab==="Redeem"&&(opts.length?<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{opts.map(o=><Panel key={o.i} title={`${o.days} days of Premium`} tag={`${o.points.toLocaleString()} pts`}><div className="grid size-12 place-items-center border-2 border-foreground bg-primary"><Crown/></div><p className="mt-3 text-sm text-muted-foreground">Every Premium book, card, lesson and topic for {o.days} days. Adds to any Premium you already have.</p><Button className="mt-4" disabled={points<o.points||busy!==null} onClick={()=>{setBusy(o.i);void redeem(o.i).then(ok=>{setBusy(null);if(ok)toast.success(`Premium extended by ${o.days} days`);});}}>{busy===o.i?"Redeeming…":points<o.points?`Need ${(o.points-points).toLocaleString()} more`:"Redeem"}</Button></Panel>)}</div>:<p className="text-sm text-muted-foreground">No redeem options right now.</p>)}
+    {tab==="Redeem"&&<p className="mb-4 max-w-2xl text-sm text-muted-foreground">You have <b>{points.toLocaleString()} points</b>. Swap them for Premium days: when you have enough, tap <b>Get it</b>. The points are taken and Premium starts straight away, or is added to the Premium you already have.</p>}
+    {tab==="Redeem"&&(opts.length?<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{opts.map(o=><Panel key={o.i} title={`${o.days} days of Premium`} tag={`${o.points.toLocaleString()} pts`}><div className="grid size-12 place-items-center border-2 border-foreground bg-primary"><Crown/></div><p className="mt-3 text-sm text-muted-foreground">Every Premium book, card, lesson and topic for {o.days} days. Adds to any Premium you already have.</p><Button className="mt-4" disabled={points<o.points||busy!==null} onClick={()=>{setBusy(o.i);void redeem(o.i).then(ok=>{setBusy(null);if(ok)toast.success(`Premium extended by ${o.days} days`);});}}>{busy===o.i?"Redeeming…":points<o.points?`Need ${(o.points-points).toLocaleString()} more`:"Get it"}</Button></Panel>)}</div>:<p className="text-sm text-muted-foreground">No redeem options right now.</p>)}
     {tab==="Premium"&&<PlansPanel/>}
   </Frame>;
 }
@@ -325,14 +336,14 @@ function ShareDialog({card,onOpenChange}:{card:ShareCard|null;onOpenChange:(x:bo
 
 function OnboardingDialog({open,onOpenChange}:{open:boolean;onOpenChange:(x:boolean)=>void}){const[step,setStep]=useState(0);const[interests,setInterests]=useState<string[]>([]);const next=()=>setStep(s=>Math.min(7,s+1));return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto border-2 border-foreground bg-background shadow-brutal sm:max-w-2xl sm:rounded-none"><DialogHeader><p className="text-xs font-bold uppercase">Step {step+1} of 8</p><DialogTitle className="font-serif text-4xl">{["Welcome to IlmStation","Choose your language","Learn. Play. Grow.","Create your account","Build your profile","Choose your interests","Quick assessment","You’re ready, Imran"][step]}</DialogTitle><DialogDescription>Seek · Learn · Grow</DialogDescription></DialogHeader>{step===0&&<div className="grid min-h-56 place-items-center bg-primary"><span className="grid size-24 place-items-center border-2 border-foreground bg-foreground font-serif text-6xl text-background shadow-brutal">I</span></div>}{step===1&&<div className="grid grid-cols-2 gap-2">{["English","العربية","اردو","Bahasa Melayu","Français"].map(x=><Button key={x} variant="outline" onClick={next}>{x}</Button>)}</div>}{step===2&&<div className="grid gap-3 sm:grid-cols-3">{[["Learn","Trusted, structured Islamic knowledge."],["Play","Quizzes that teach after every answer."],["Grow","Visible progress, streaks, and community."]].map(([a,b])=><div className="border-2 border-foreground bg-primary p-5"><h3 className="font-serif text-3xl">{a}</h3><p className="mt-2 text-sm">{b}</p></div>)}</div>}{step===3&&<div className="space-y-3"><Field label="Name" placeholder="Imran Yusuf"/><Field label="Email" type="email" placeholder="imran@example.com"/><Field label="Password" type="password" placeholder="At least 8 characters"/><div className="h-2 border border-foreground"><div className="h-full w-3/4 bg-secondary"/></div><Button variant="outline" className="w-full">Continue with Google</Button></div>}{step===4&&<div className="grid gap-4 sm:grid-cols-2"><Field label="Date of birth" type="date"/><div><p className="text-sm font-semibold">Choose an avatar</p><div className="mt-2 grid grid-cols-4 gap-2">{["I","A","Y","M"].map(x=><button className="grid aspect-square place-items-center border-2 border-foreground bg-primary font-serif text-2xl">{x}</button>)}</div></div><label className="sm:col-span-2 text-sm font-semibold">Learning zone<select className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3"><option>18–25 · University / New Adult</option><option>13–17 · Young Muslim</option><option>26–35 · Parent / Professional</option></select></label></div>}{step===5&&<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{topics.map(t=><Button key={t} variant={interests.includes(t)?"default":"outline"} onClick={()=>setInterests(v=>v.includes(t)?v.filter(x=>x!==t):[...v,t])}>{t}</Button>)}</div>}{step===6&&<div><p className="font-serif text-3xl">How many pillars of Iman are there?</p><div className="mt-4 grid grid-cols-2 gap-2">{["Five","Six","Seven","Eight"].map(x=><Button variant="outline" onClick={next}>{x}</Button>)}</div></div>}{step===7&&<div className="border-2 border-foreground bg-primary p-8 text-center"><Sparkles className="mx-auto size-12"/><p className="mt-4 font-serif text-5xl">+50 XP</p><p className="mt-2">Your Seeker journey begins now.</p></div>}{step!==1&&step!==6&&<Button disabled={step===5&&interests.length===0} onClick={()=>{if(step===7){onOpenChange(false);setStep(0);toast.success("Welcome to IlmStation") } else next()}}>{step===7?"Begin your first quest":"Continue"}</Button>}</DialogContent></Dialog>}
 function PlansPanel(){
-  const{premium,premiumUntil,trial,plan,config,activatePremium}=usePremium();
+  const{premium,premiumUntil,trial,plan,config,activatePremium,country}=usePremium();
   const until=premiumUntil?new Date(premiumUntil).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}):"";
   const daysLeft=Math.max(0,Math.ceil((premiumUntil-Date.now())/86400000));
   return <div className="grid gap-5">
     {premium?<div className="border-2 border-foreground bg-primary p-5 shadow-brutal"><p className="font-serif text-2xl">{trial?`Free trial · ${daysLeft} day${daysLeft===1?"":"s"} left`:"Premium is active"}</p><p className="text-sm">Until {until}{plan&&!trial?` · ${plan}`:""}</p></div>
       :<div className="border-2 border-foreground bg-muted p-5"><p className="font-serif text-2xl">You’re on the free plan</p><p className="text-sm text-muted-foreground">Choose a plan, or turn your points into Premium days in Redeem.</p></div>}
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{config.plans.filter(p=>p.visible).map(p=><div key={p.id} className="flex min-w-0 flex-col border-2 border-foreground bg-background p-5 shadow-brutal-sm">
-      <p className="font-serif text-3xl leading-tight">{p.name}</p><p className="mt-1 font-bold">{p.price>0?`₦${p.price.toLocaleString()} / ${p.period}`:"Custom pricing"}</p><p className="text-sm text-muted-foreground">{p.seats}</p>
+      <p className="font-serif text-3xl leading-tight">{p.name}</p><p className="mt-1 font-bold">{priceLabel(p,country,config)}</p><p className="text-sm text-muted-foreground">{p.seats}</p>
       <ul className="mt-4 flex-1 space-y-2 text-sm">{p.points.map(x=><li key={x} className="flex gap-2"><ShieldCheck className="size-4 shrink-0"/>{x}</li>)}</ul>
       {p.price>0?<Button className="mt-5 w-full" onClick={()=>activatePremium(p.id)}>Choose plan</Button>:<Button asChild variant="outline" className="mt-5 w-full"><a href="mailto:admin@ilmstation.com?subject=Custom%20Premium%20plan">Ask for a quote</a></Button>}
     </div>)}</div>
