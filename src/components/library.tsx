@@ -1,3 +1,4 @@
+import { usePremium as usePremiumAudio } from "@/components/premium";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { awardXp } from "@/lib/xp";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
@@ -72,6 +73,12 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).p
 const SPEEDS = [1, 1.25, 1.5, 2];
 
 function AudioSection({ item, state, setState }: { item: LibraryItem; state: LState; setState: React.Dispatch<React.SetStateAction<LState>> }) {
+  const { premium: hasPremium, activatePremium: goPremium } = usePremiumAudio();
+  if (item.audioStatus === "available" && item.tier !== "premium" && (item as { audioTier?: string }).audioTier === "premium" && !hasPremium)
+    return <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-muted p-4">
+      <span className="inline-flex items-center gap-2 font-semibold"><Headphones className="size-4" /> 🎧 Listening is for Premium members</span>
+      <button onClick={() => goPremium()} className="border-2 border-foreground bg-primary px-3 py-2 text-sm font-bold shadow-brutal-sm">Get Premium</button>
+    </div>;
   if (item.audioStatus === "soon") return <p className="mt-6 inline-flex items-center gap-2 border-2 border-foreground px-3 py-2 text-sm font-semibold"><Headphones className="size-4" /> Audio coming soon</p>;
   if (item.audioStatus !== "available" || !item.audio?.length) return null;
   return <AudioPlayer item={item} tracks={item.audio} state={state} setState={setState} />;
@@ -356,7 +363,7 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
                     {i.tier === "premium" && (free ? <PremiumTag /> : <LockedTag cost={i.cost} />)}{i.tier === "premium" && !free && i.minLevel ? <span className="ml-1 text-[10px] font-bold uppercase">Free at level {i.minLevel}</span> : null}
                     {done && <span className="border border-foreground px-1">Finished</span>}
                     {state.bookmarks.includes(i.id) && <BookmarkCheck className="size-3.5" />}
-                    {i.audioStatus === "available" && <span className="inline-flex items-center gap-1 border border-foreground px-1"><Headphones className="size-3" /> Audio</span>}
+                    {i.audioStatus === "available" && <span className="inline-flex items-center gap-1 border border-foreground px-1"><Headphones className="size-3" /> Audio{(i as { audioTier?: string }).audioTier === "premium" && i.tier !== "premium" ? " 👑" : ""}</span>}
                     {i.audioStatus === "soon" && <span className="border border-foreground px-1">Audio soon</span>}
                   </span>
                   {i.coverUrl && <img src={i.coverUrl} alt="" loading="lazy" className="mt-3 h-40 w-28 border-2 border-foreground object-cover" />}
