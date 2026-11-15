@@ -1,3 +1,6 @@
+import { callPremium } from "@/components/premium";
+import { Trash2 as DeleteIcon } from "lucide-react";
+import { toast as notify } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Ban, Eye, RotateCcw, UserCheck } from "lucide-react";
@@ -123,6 +126,16 @@ export function UsersSection() {
             {open.status !== "suspended"
               ? <Button variant="destructive" onClick={() => update(open.id, { status: "suspended" }, `Suspended ${open.name}`)}><Ban /> Suspend</Button>
               : <Button variant="secondary" onClick={() => update(open.id, { status: "active" }, `Reinstated ${open.name}`)}><UserCheck /> Reinstate</Button>}
+            <Button variant="outline" className="border-destructive text-destructive" onClick={() => {
+              const typed = window.prompt(`This permanently deletes ${open.name}’s account, progress and Premium. It can’t be undone.\n\nType DELETE to confirm.`);
+              if (typed !== "DELETE") { if (typed !== null) notify.error("Not deleted: you didn’t type DELETE."); return; }
+              const who = open;
+              void callPremium("deleteUser", { uid: who.id }).then((r) => {
+                if (!r.ok) { notify.error(r.error ?? "Couldn’t delete the account."); return; }
+                notify.success(`${who.name}’s account was deleted`);
+                setOpen(null); refresh();
+              });
+            }}><DeleteIcon /> Delete account</Button>
           </DialogFooter>
         </>}
       </DialogContent>

@@ -182,6 +182,18 @@ export async function handlePremium(request: Request): Promise<Response> {
     catch { return json({ ok: false, error: "No IlmStation account uses this email. Ask them to sign up first." }); }
   }
 
+  // owners and admins delete an account (and everything that belongs to it)
+  if (action === "deleteUser") {
+    const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
+    if (myRole !== "owner" && myRole !== "admin") return json({ ok: false, error: "Only owners and admins can delete accounts." }, 403);
+    const target = String(data.uid ?? "");
+    if (!target) return json({ ok: false, error: "No account chosen." });
+    if (target === uid) return json({ ok: false, error: "You can’t delete your own account here." });
+    if ((await a.db.doc(`admins/${target}`).get()).get("role") === "owner" && myRole !== "owner") return json({ ok: false, error: "Only owners can delete an owner." });
+    await wipeAccount(a, target);
+    return json({ ok: true });
+  }
+
   // owners and admins add someone to the team, and they get a welcome email
   if (action === "addTeam") {
     const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
@@ -231,4 +243,43 @@ export async function handlePremium(request: Request): Promise<Response> {
   }
 
   return json({ error: "Unknown action" }, 400);
+}
+
+/** Remove an account and everything that belongs to it. Children a parent created go too. */
+export async function wipeAccount(a: Admin, target: string): Promise<void> {
+  const prof = await a.db.doc(`profiles/${target}`).get();
+  const username = prof.get("username") as string | undefined;
+  const email = prof.get("email") as string | undefined;
+  type FM = { uid: string; status: string; managed?: boolean };
+
+  // they own a family plan: close it, and delete children they created
+  const famRef = a.db.doc(`families/${target}`);
+  const fam = await famRef.get();
+  if (fam.exists) {
+    for (const m of ((fam.get("members") as FM[]) ?? [])) {
+      if (m.managed) { await wipeAccount(a, m.uid); continue; }
+      if (m.status === "active") {
+        await a.db.doc(`profiles/${m.uid}`).set({ familyOf: FieldValue.delete() }, { merge: true }).catch(() => {});
+        await a.db.doc(`entitlements/${m.uid}`).set({ familyUntil: FieldValue.delete() }, { merge: true }).catch(() => {});
+      }
+    }
+    await famRef.delete().catch(() => {});
+  }
+  // they are in someone else's family: take them out
+  const owner = prof.get("familyOf") as string | undefined;
+  if (owner && owner !== target) {
+    const oref = a.db.doc(`families/${owner}`);
+    const o = await oref.get();
+    if (o.exists) {
+      const members = ((o.get("members") as FM[]) ?? []).filter((m) => m.uid !== target);
+      await oref.set({ members, memberUids: members.filter((m) => m.status === "active").map((m) => m.uid) }, { merge: true }).catch(() => {});
+    }
+  }
+  await Promise.all([
+    "profiles", "entitlements", "players", "xpLedger", "libraryState", "userAdmin", "admins",
+    "hifz", "memberships", "ramadanProgress", "studyProgress", "studyResults", "city_players", "city_saves",
+  ].map((c) => a.db.doc(`${c}/${target}`).delete().catch(() => {})));
+  if (username) await a.db.doc(`usernames/${username}`).delete().catch(() => {});
+  if (email) await a.db.doc(`emails/${email.toLowerCase()}`).delete().catch(() => {});
+  await a.auth.deleteUser(target).catch(() => {});
 }
