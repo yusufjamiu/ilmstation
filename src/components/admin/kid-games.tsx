@@ -1,3 +1,4 @@
+import { getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
@@ -72,6 +73,7 @@ export function KidGamesSection() {
 
   return <Page eyebrow="App · Kids and adults" title="Games & quizzes" actions={<Button onClick={() => setForm(blank())}><Plus /> Add game</Button>}>
     <p className="mb-5 max-w-2xl text-sm text-muted-foreground">Quizzes and games for kids, or for teens and adults (in Play → Games & quizzes). Until you publish kids games, kids see the 4 starter games.</p>
+    <PlaySettings />
     <Panel title="Games" tag={`${rows.filter((g) => g.status === "published").length} published`}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">No games yet. Add the first one.</p> : <ul className="grid gap-2">{rows.map((g, i) => <li key={g.id} className={`flex flex-wrap items-center gap-3 border-2 border-foreground p-3 ${g.status === "draft" ? "opacity-70" : ""}`}>
         <span className="text-3xl">{g.emoji}</span>
@@ -138,4 +140,31 @@ export function KidGamesSection() {
     </Dialog>
     {dialog}
   </Page>;
+}
+
+/** How long people can play Games & quizzes each day. */
+function PlaySettings() {
+  type PC = { on: boolean; freeMinutes: number; premiumMinutes: number; kidsMinutes: number; reset: "midnight" | "24h" };
+  const [pc, setPc] = useState<PC | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { getDoc(doc(db, "siteConfig", "play")).then((s) => setPc({ on: true, freeMinutes: 15, premiumMinutes: 0, kidsMinutes: 30, reset: "midnight", ...((s.data() as Partial<PC>) ?? {}) })).catch(() => setPc({ on: true, freeMinutes: 15, premiumMinutes: 0, kidsMinutes: 30, reset: "midnight" })); }, []);
+  if (!pc) return null;
+  const n = (v: string) => Math.max(0, Math.floor(Number(v) || 0));
+  const save = async () => {
+    setSaving(true);
+    try { await setDoc(doc(db, "siteConfig", "play"), { ...pc, updatedAt: Date.now() }); toast.success("Saved"); } catch { toast.error("Couldn't save."); } finally { setSaving(false); }
+  };
+  return <div className="mb-5"><Panel title="Daily play time" tag={pc.on ? "On" : "Off"}>
+    <p className="-mt-1 mb-3 text-xs text-muted-foreground">How many minutes a day people can play Games & quizzes. 0 = unlimited.</p>
+    <div className={`grid gap-3 sm:grid-cols-4 ${pc.on ? "" : "opacity-50"}`}>
+      <Field label="Free users (min)"><input type="number" min={0} className={inputCls} value={pc.freeMinutes} onChange={(e) => setPc({ ...pc, freeMinutes: n(e.target.value) })} /></Field>
+      <Field label="Premium (min)"><input type="number" min={0} className={inputCls} value={pc.premiumMinutes} onChange={(e) => setPc({ ...pc, premiumMinutes: n(e.target.value) })} /></Field>
+      <Field label="Kids (min)"><input type="number" min={0} className={inputCls} value={pc.kidsMinutes} onChange={(e) => setPc({ ...pc, kidsMinutes: n(e.target.value) })} /></Field>
+      <Field label="Resets"><select className={inputCls} value={pc.reset} onChange={(e) => setPc({ ...pc, reset: e.target.value as PC["reset"] })}><option value="midnight">At midnight</option><option value="24h">24 hours after they start</option></select></Field>
+    </div>
+    <div className="mt-3 flex items-center justify-between gap-3">
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pc.on} onChange={(e) => setPc({ ...pc, on: e.target.checked })} /> Limit daily play time</label>
+      <Button disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button>
+    </div>
+  </Panel></div>;
 }

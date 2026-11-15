@@ -128,6 +128,30 @@ export async function handlePremium(request: Request): Promise<Response> {
   // back from Paystack: check the payment
   if (action === "confirm") return json(await applyPayment(a, uid, String(data.reference ?? "").slice(0, 100)));
 
+  // daily play time for games (admin sets the minutes)
+  if (action === "playtime") {
+    const pc = ((await a.db.doc("siteConfig/play").get()).data() ?? {}) as { on?: boolean; freeMinutes?: number; premiumMinutes?: number; kidsMinutes?: number; reset?: string };
+    const zone = (await a.db.doc(`profiles/${uid}`).get()).get("zone");
+    const e = await ref.get();
+    const isPrem = Math.max(Number(e.get("premiumUntil") ?? 0), Number(e.get("familyUntil") ?? 0)) > now;
+    const mins = pc.on === false ? 0 : zone === "kids" ? Number(pc.kidsMinutes ?? 30) : isPrem ? Number(pc.premiumMinutes ?? 0) : Number(pc.freeMinutes ?? 15);
+    if (!mins) return json({ ok: true, left: -1 });
+    const add = int(data.add, 0, 60);
+    const pref = a.db.doc(`playtime/${uid}`);
+    const r = await a.db.runTransaction(async (tx) => {
+      const p = await tx.get(pref);
+      const today = new Date(now + 3_600_000).toISOString().slice(0, 10);
+      let start = Number(p.get("start") ?? 0); let used = Number(p.get("used") ?? 0);
+      if (pc.reset === "24h") { if (!start || now - start >= DAY) { start = now; used = 0; } }
+      else if (p.get("day") !== today) used = 0;
+      used += add;
+      tx.set(pref, { start, used, day: today });
+      const resetsAt = pc.reset === "24h" ? start + DAY : Date.parse(`${today}T00:00:00+01:00`) + DAY;
+      return { left: Math.max(0, mins * 60 - used), resetsAt };
+    });
+    return json({ ok: true, ...r });
+  }
+
   // spend points on one item (the price comes from the server, not the app)
   if (action === "unlock") {
     const id = String(data.id ?? "").slice(0, 120);

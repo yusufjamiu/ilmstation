@@ -1,4 +1,4 @@
-import { UnlockDialog, usePremium } from "@/components/premium";
+import { callPremium, UnlockDialog, usePremium } from "@/components/premium";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -68,6 +68,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
   const qs = game?.questions ?? [];
   const q = qs[i];
   const start = (g: KidGame) => { if (!open(g)) { setLocked({ id: `game-${g.id}`, title: g.title, cost: g.cost ?? 0 }); return; } setGame(g); setI(0); setPick(null); setScore(0); setDone(false); };
+  const pt = usePlaytime(!!game && !done);
 
   if (!game) return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
@@ -81,7 +82,8 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
     </button>)}</div>
   </div>;
 
-  if (game.kind === "html" && game.htmlUrl) return <KidHtmlGame game={game} onBack={() => setGame(null)} />;
+  if (pt.locked) return <TimeUp resetsAt={pt.resetsAt} kid={audience === "kids"} onBack={() => setGame(null)} />;
+  if (game.kind === "html" && game.htmlUrl) return <KidHtmlGame game={game} left={pt.left} onBack={() => setGame(null)} />;
 
   if (done || !q) return <div className="iq-rise mx-auto max-w-2xl border-2 border-foreground bg-primary p-8 text-center shadow-brutal">
     <p className="text-6xl">🎉</p>
@@ -98,7 +100,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
   return <div className="iq-rise mx-auto max-w-3xl">
     <div className="flex items-center justify-between gap-3">
       <Button variant="outline" onClick={() => setGame(null)}>← Games</Button>
-      <span className="flex items-center gap-1 border-2 border-foreground bg-primary px-3 py-1 font-bold"><Star className="size-4 fill-current" /> {score}</span>
+      <span className="flex items-center gap-2">{pt.left >= 0 && <span className="border-2 border-foreground px-2 py-1 text-sm font-bold">⏱ {Math.ceil(pt.left / 60)} min</span>}<span className="flex items-center gap-1 border-2 border-foreground bg-primary px-3 py-1 font-bold"><Star className="size-4 fill-current" /> {score}</span></span>
     </div>
     <section className="mt-4 border-2 border-foreground bg-background p-6 shadow-brutal">
       <p className="text-sm font-bold uppercase text-muted-foreground">{game.emoji} {game.title} · question {i + 1} of {qs.length}</p>
@@ -124,7 +126,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
 }
 
 /** An uploaded HTML game, in a safe sandbox. It can report the score with postMessage. */
-function KidHtmlGame({ game, onBack }: { game: KidGame; onBack: () => void }) {
+function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () => void; left?: number }) {
   const [done, setDone] = useState(false);
   useEffect(() => {
     const on = (e: MessageEvent) => {
@@ -141,10 +143,41 @@ function KidHtmlGame({ game, onBack }: { game: KidGame; onBack: () => void }) {
   return <div className="iq-rise">
     <div className="flex items-center justify-between gap-3">
       <Button variant="outline" onClick={onBack}>← Games</Button>
-      <span className="font-serif text-2xl">{game.emoji} {game.title}</span>
+      <span className="flex items-center gap-3">{left >= 0 && <span className="border-2 border-foreground px-2 py-1 text-sm font-bold">⏱ {Math.ceil(left / 60)} min</span>}<span className="font-serif text-2xl">{game.emoji} {game.title}</span></span>
     </div>
     {done && <p className="mt-3 border-2 border-foreground bg-primary p-3 font-bold">🎉 Masha’Allah! Well done.</p>}
     <iframe title={game.title} src={game.htmlUrl} sandbox="allow-scripts" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
     {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner", topic: `Kids: ${game.title}` }); }}>I’ve finished</Button>}
+  </div>;
+}
+
+/** Counts play time on the server (every 30 seconds while a game is open). */
+function usePlaytime(active: boolean) {
+  const [st, setSt] = useState<{ left: number; resetsAt: number } | null>(null);
+  useEffect(() => {
+    if (!active) return undefined;
+    let stop = false;
+    const tick = (add: number) => callPremium("playtime", { add }).then((r) => {
+      const x = r as { ok?: boolean; left?: number; resetsAt?: number };
+      if (!stop && x.ok) setSt({ left: Number(x.left ?? -1), resetsAt: Number(x.resetsAt ?? 0) });
+    });
+    void tick(0);
+    const id = setInterval(() => void tick(30), 30_000);
+    return () => { stop = true; clearInterval(id); };
+  }, [active]);
+  return { left: st?.left ?? -1, resetsAt: st?.resetsAt ?? 0, locked: !!st && st.left === 0 };
+}
+
+function TimeUp({ resetsAt, kid, onBack }: { resetsAt: number; kid: boolean; onBack: () => void }) {
+  const { premium, activatePremium } = usePremium();
+  const at = resetsAt ? new Date(resetsAt).toLocaleString([], { weekday: "long", hour: "numeric", minute: "2-digit" }) : "tomorrow";
+  return <div className="iq-rise mx-auto max-w-2xl border-2 border-foreground bg-background p-8 text-center shadow-brutal">
+    <p className="text-6xl">🌙</p>
+    <h2 className="mt-3 font-serif text-4xl">Time’s up for today</h2>
+    <p className="mt-2 text-muted-foreground">You’ve used today’s play time. Come back {at}.</p>
+    <div className="mt-6 flex flex-wrap justify-center gap-3">
+      <Button variant="outline" onClick={onBack}>← Back</Button>
+      {!kid && !premium && <Button onClick={() => activatePremium()}>Get Premium for more time</Button>}
+    </div>
   </div>;
 }
