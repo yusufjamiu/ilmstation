@@ -47,16 +47,14 @@ export function TeamPanel({ role: myRole }: { role: AdminRole }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { toast.error("Enter a valid email"); return; }
     setBusy(true);
     try {
-      const found = await getDoc(doc(db, "emails", e));
-      let uid = found.exists() ? (found.get("uid") as string | undefined) : undefined;
-      if (!uid) { const r = await callPremium("findUser", { email: e }); uid = (r as { uid?: string }).uid; if (!uid) { toast.error(r.error ?? "No IlmStation account uses this email. Ask them to sign up first."); return; } }
-      const p = await getDoc(doc(db, "profiles", uid)).catch(() => null);
-      await setDoc(doc(db, "admins", uid), { role, email: e, name: (p?.get("name") as string) ?? "", addedBy: me || null, addedAt: serverTimestamp() });
-      void callPremium("notifyTeam", { email: e, role }).then((r) => { if (r.ok) toast.success("Welcome email sent"); if (!r.ok) toast.error(`Added, but the email failed: ${r.error ?? "unknown reason"}`, { duration: 15000 }); });
+      const r = (await callPremium("addTeam", { email: e, role })) as { ok?: boolean; error?: string; emailed?: boolean; emailError?: string };
+      if (!r.ok) { toast.error(r.error ?? "Couldn’t add. Try again."); return; }
       record(`Added ${e} to the team as ${role}`);
       toast.success(`Added as ${role}. They can open /admin with their account.`);
+      if (r.emailed) toast.success("Welcome email sent");
+      else toast.error(`Added, but the email failed: ${r.emailError ?? "unknown reason"}`, { duration: 15000 });
       setEmail("");
-    } catch { toast.error("Couldn’t add. Only owners can manage the team."); } finally { setBusy(false); }
+    } catch { toast.error("Couldn’t add. Try again."); } finally { setBusy(false); }
   };
 
   const changeRole = async (m: Member, r: AdminRole) => {

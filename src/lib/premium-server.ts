@@ -165,6 +165,27 @@ export async function handlePremium(request: Request): Promise<Response> {
     catch { return json({ ok: false, error: "No IlmStation account uses this email. Ask them to sign up first." }); }
   }
 
+  // owners and admins add someone to the team, and they get a welcome email
+  if (action === "addTeam") {
+    const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
+    if (myRole !== "owner" && myRole !== "admin") return json({ ok: false, error: "Only owners and admins can manage the team." }, 403);
+    const role = String(data.role ?? "");
+    if (!["owner", "admin", "editor", "moderator", "support"].includes(role)) return json({ ok: false, error: "Choose a role." });
+    if (role === "owner" && myRole !== "owner") return json({ ok: false, error: "Only owners can add owners." });
+    const em = String(data.email ?? "").trim().toLowerCase();
+    let target: { uid: string; displayName?: string };
+    try { target = await a.auth.getUserByEmail(em); } catch { return json({ ok: false, error: "No IlmStation account uses this email. Ask them to sign up first." }); }
+    if (target.uid === uid) return json({ ok: false, error: "You can’t change your own role." });
+    if ((await a.db.doc(`admins/${target.uid}`).get()).get("role") === "owner" && myRole !== "owner") return json({ ok: false, error: "Only owners can change an owner." });
+    const prof = await a.db.doc(`profiles/${target.uid}`).get();
+    await a.db.doc(`admins/${target.uid}`).set({ role, email: em, name: (prof.get("name") as string) ?? target.displayName ?? "", addedBy: uid, addedAt: Date.now() });
+    const roleName = ({ owner: "Owner", admin: "Admin", editor: "Editor", moderator: "Moderator", support: "Support" } as Record<string, string>)[role] ?? "team member";
+    const sent = await sendEmail(em, "You’ve been added to the IlmStation team", layout("You’re on the IlmStation team",
+      `<p>Assalamu alaikum. You’ve been added to the IlmStation admin team as <b>${esc(roleName)}</b>.</p><p>Log in with this email address to open the admin panel.</p>`,
+      { label: "Open the admin panel", url: "https://www.ilmstation.com/admin" }));
+    return json({ ok: true, emailed: sent === true, emailError: sent === true ? undefined : sent });
+  }
+
   // email a new team member
   if (action === "notifyTeam") {
     const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
