@@ -56,6 +56,8 @@ export async function handleStats(request: Request): Promise<Response> {
     name: u.name, email: u.email.endsWith("@kids.ilmstation.com") ? `${u.email.split("@")[0]} (child)` : u.email, created: u.created,
   }));
 
+  const quotes = await cnt(a.db.collection("planRequests").where("status", "==", "new")).catch(() => 0);
+
   // quiz plays by topic, this month
   const ym = lagosToday.slice(0, 8);
   const dayRefs = Array.from({ length: Number(lagosToday.slice(8, 10)) }, (_, i) => a.db.doc(`statsDaily/${ym}${String(i + 1).padStart(2, "0")}`));
@@ -66,7 +68,7 @@ export async function handleStats(request: Request): Promise<Response> {
   const quizTopics = Object.entries(totals).map(([topic, plays]) => ({ topic, plays })).sort((x, y) => y.plays - x.plays).slice(0, 8);
 
   return json({
-    ok: true, quizTopics, total: users.length, newWeek: users.filter((u) => u.created >= now - 7 * DAY).length,
+    ok: true, quotes, quizTopics, total: users.length, newWeek: users.filter((u) => u.created >= now - 7 * DAY).length,
     online, learnersToday, zones: { kids, youth, adult }, managed, families, reports, books,
     premium: { paid, trial, other }, revenue, signups, recentPays, recentUsers,
   });

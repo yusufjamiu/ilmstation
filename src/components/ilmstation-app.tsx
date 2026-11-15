@@ -1,3 +1,4 @@
+import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
 import { isQuote, lagosDate } from "@/lib/premium-config";
 import { KidGames, KidHome, useShowQuickQuiz } from "@/components/kids";
@@ -154,6 +155,7 @@ export function IlmStationApp() {
         {screen === "cards" && <CardsScreen />}
         {screen === "family" && <FamilyScreen />}
         {screen === "settings" && <SettingsScreen onOnboarding={() => setOnboarding(true)} />}
+        {screen === "settings" && <DeleteMyAccount />}
       </main>
     </div>
     <MobileNav kid={isKid} current={screen} onSelect={selectScreen} />
@@ -359,6 +361,7 @@ function PlansPanel(){
   return <div className="grid gap-5">
     {premium?<div className="border-2 border-foreground bg-primary p-5 shadow-brutal"><p className="font-serif text-2xl">{trial?`Free trial · ${daysLeft} day${daysLeft===1?"":"s"} left`:"Premium is active"}</p><p className="text-sm">Until {until}{plan&&!trial?` · ${plan}`:""}</p></div>
       :<div className="border-2 border-foreground bg-muted p-5"><p className="font-serif text-2xl">You’re on the free plan</p><p className="text-sm text-muted-foreground">Choose a plan, or turn your points into Premium days in Use points.</p></div>}
+    <MyCustomPlans/>
     {banner&&<div className="border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm"><b>{banner.name}</b> · {banner.banner}</div>}
     <div className="flex flex-wrap items-center justify-between gap-3">
       {anyYear?<div className="inline-flex border-2 border-foreground">{(["month","year"] as const).map(x=><button key={x} onClick={()=>setPeriod(x)} className={cn("px-4 py-2 text-sm font-bold",period===x?"bg-primary":"bg-background")}>{x==="month"?"Monthly":"Yearly"}</button>)}</div>:<span/>}
@@ -375,7 +378,7 @@ function PlansPanel(){
         {(pr.promo||save>0)&&<p className="mt-1 flex flex-wrap gap-1 text-[10px] font-bold uppercase">{pr.promo&&<span className="border-2 border-foreground bg-secondary px-1.5 py-0.5 text-secondary-foreground">{pr.promo.name} · {pr.promo.percent}% off</span>}{save>0&&<span className="border-2 border-foreground bg-primary px-1.5 py-0.5">Save {save}%</span>}</p>}
         <p className="text-sm text-muted-foreground">{p.seats}</p>
         <ul className="mt-4 flex-1 space-y-2 text-sm">{p.points.map(x=><li key={x} className="flex gap-2"><ShieldCheck className="size-4 shrink-0"/>{x}</li>)}</ul>
-        {quote?<Button asChild variant="outline" className="mt-5 w-full"><a href="mailto:admin@ilmstation.com?subject=Custom%20Premium%20plan">Ask for a quote</a></Button>
+        {quote?<QuoteButton/>
           :<Button className="mt-5 w-full" disabled={!pr.available} onClick={()=>activatePremium(p.id,period,applied)}>Choose plan</Button>}
       </div>;
     })}</div>

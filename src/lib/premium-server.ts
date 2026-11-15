@@ -52,6 +52,7 @@ async function applyPayment(a: Admin, uid: string, ref: string): Promise<{ ok: b
       `<p>We received <b>${paid}</b> for IlmStation Premium.</p><p>Your Premium is active until <b>${new Date(until).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</b>.</p><p style="font-size:13px;color:#6b6458">Reference: ${esc(ref)}</p>`,
       { label: "Open IlmStation", url: "https://ilmstation.com/app" }));
   }
+  if (String(pending.planId ?? "").startsWith("custom-")) await a.db.doc(`planRequests/${String(pending.planId).slice(7)}`).set({ status: "paid", paidAt: Date.now() }, { merge: true }).catch(() => {});
   const fam = await a.db.doc(`families/${uid}`).get();
   await Promise.all((((fam.get("memberUids") as string[]) ?? [])).map((m) => a.db.doc(`entitlements/${m}`).set({ familyUntil: until }, { merge: true })));
   return { ok: true, until };
@@ -105,7 +106,7 @@ export async function handlePremium(request: Request): Promise<Response> {
 
   // start a Paystack payment for a plan (the price comes from the admin's settings)
   if (action === "checkout") {
-    const plan = cfg.plans.find((p) => p.id === String(data.planId ?? "") && p.visible);
+    const plan = cfg.plans.find((p) => p.id === String(data.planId ?? "") && (p.visible || p.forUid === uid));
     if (!plan || isQuote(plan)) return json({ ok: false, error: "That plan isn't available." });
     if (!email) return json({ ok: false, error: "Your account needs an email address to pay." });
     if (!process.env.PAYSTACK_SECRET_KEY) return json({ ok: false, error: "Payments aren't set up yet." });
@@ -236,6 +237,70 @@ export async function handlePremium(request: Request): Promise<Response> {
     catch { return json({ ok: false, error: "No IlmStation account uses this email. Ask them to sign up first." }); }
   }
 
+  // someone asks for a custom plan
+  if (action === "requestQuote") {
+    const prof = await a.db.doc(`profiles/${uid}`).get();
+    if (prof.get("managed")) return json({ ok: false, error: "Please ask your parent to request a plan." });
+    if (!email) return json({ ok: false, error: "Your account needs an email address." });
+    const mine = await a.db.collection("planRequests").where("uid", "==", uid).get();
+    if (mine.docs.some((d) => d.get("status") === "new")) return json({ ok: false, error: "You already have a request waiting. We’ll email you soon." });
+    const org = String(data.org ?? "").trim().slice(0, 80), phone = String(data.phone ?? "").trim().slice(0, 30), note = String(data.note ?? "").trim().slice(0, 600);
+    const adults = int(data.adults, 1, 50), kids = int(data.kids, 0, 500), name = String(prof.get("name") ?? "");
+    await a.db.collection("planRequests").add({ uid, email, name, org, phone, note, adults, kids, status: "new", createdAt: now });
+    const summary = `<p><b>${esc(org || name)}</b> · ${adults} adult${adults === 1 ? "" : "s"} · ${kids} child${kids === 1 ? "" : "ren"}</p>${note ? `<p>“${esc(note)}”</p>` : ""}`;
+    await sendEmail(email, "We’ve received your plan request", layout("Thank you, request received",
+      `<p>Assalamu alaikum ${esc(name.split(" ")[0] || "")}. We’ve received your request for a custom IlmStation plan:</p>${summary}<p>Our team will review it and email you a payment link, usually within 1–2 working days.</p>`));
+    const team = await a.db.collection("admins").where("role", "in", ["owner", "admin"]).get();
+    await Promise.all(team.docs.map((d) => String(d.get("email") ?? "")).filter(Boolean).map((to) => sendEmail(to, `New custom plan request from ${org || name}`,
+      layout("New custom plan request", `${summary}<p>From ${esc(name)} · ${esc(email)}${phone ? ` · ${esc(phone)}` : ""}</p>`, { label: "Review the request", url: "https://www.ilmstation.com/admin?section=premium" }))));
+    return json({ ok: true });
+  }
+
+  // owners and admins approve (private plan + email) or decline a custom plan request
+  if (action === "approveQuote" || action === "declineQuote") {
+    const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
+    if (myRole !== "owner" && myRole !== "admin") return json({ ok: false, error: "Only owners and admins can do this." }, 403);
+    const id = String(data.id ?? "");
+    const rref = a.db.doc(`planRequests/${id}`);
+    const req = await rref.get();
+    if (!req.exists) return json({ ok: false, error: "Request not found." });
+    const to = String(req.get("email") ?? ""), who = String(req.get("name") ?? "").split(" ")[0] || "there";
+    const note = String(data.note ?? "").trim().slice(0, 500);
+    if (action === "declineQuote") {
+      await rref.set({ status: "declined", adminNote: note, decidedBy: uid, decidedAt: now }, { merge: true });
+      await sendEmail(to, "About your IlmStation plan request", layout("About your plan request",
+        `<p>Assalamu alaikum ${esc(who)}. Thank you for your interest in IlmStation. We’re not able to offer this plan right now.</p>${note ? `<p>${esc(note)}</p>` : ""}<p>You’re welcome to reply to this email with any questions.</p>`));
+      return json({ ok: true });
+    }
+    const price = int(data.price, 1, 100_000_000), period = data.period === "year" ? "year" : "month";
+    const adults = int(data.adults, 1, 50), kids = int(data.kids, 0, 500);
+    const planId = `custom-${id}`, org = String(req.get("org") ?? "") || String(req.get("name") ?? "");
+    const seats = `${adults} adult${adults === 1 ? "" : "s"} + ${kids} child${kids === 1 ? "" : "ren"}`;
+    const plan = { id: planId, name: `Custom · ${org}`.slice(0, 60), price, period, priceMonthly: period === "month" ? price : 0, priceYearly: period === "year" ? price : 0,
+      usdMonthly: 0, usdYearly: 0, adults, kids, seats, points: ["Tailored plan for your group", ...(note ? [note] : [])], visible: false, forUid: String(req.get("uid")) };
+    const pref = a.db.doc("siteConfig/premium");
+    await a.db.runTransaction(async (tx) => {
+      const d = await tx.get(pref);
+      const plans = mergePremium((d.data() ?? {}) as never).plans.filter((p) => p.id !== planId);
+      tx.set(pref, { plans: [...plans, plan] }, { merge: true });
+    });
+    await rref.set({ status: "approved", price, period, adults, kids, planId, adminNote: note, decidedBy: uid, decidedAt: now }, { merge: true });
+    await sendEmail(to, "Your IlmStation plan is ready", layout("Your custom plan is ready",
+      `<p>Assalamu alaikum ${esc(who)}. Your custom IlmStation plan is ready:</p><p><b>₦${price.toLocaleString()} per ${period}</b> · ${seats}</p>${note ? `<p>${esc(note)}</p>` : ""}<p>To pay, log in and open <b>Wallet &amp; store → Premium</b>, then tap <b>Pay now</b> on “Your custom plan”.</p>`,
+      { label: "Open IlmStation", url: "https://www.ilmstation.com/app?s=rewards" }));
+    return json({ ok: true });
+  }
+
+  // a user deletes their own account
+  if (action === "deleteMe") {
+    if (String(data.confirm ?? "") !== "DELETE") return json({ ok: false, error: "Type DELETE to confirm." });
+    if ((await a.db.doc(`profiles/${uid}`).get()).get("managed")) return json({ ok: false, error: "Children’s accounts are deleted by their parent in Family hub." });
+    if ((await a.db.doc(`admins/${uid}`).get()).get("role") === "owner" && (await a.db.collection("admins").where("role", "==", "owner").get()).size <= 1)
+      return json({ ok: false, error: "You’re the only owner. Add another owner before deleting your account." });
+    await wipeAccount(a, uid);
+    return json({ ok: true });
+  }
+
   // owners and admins delete an account (and everything that belongs to it)
   if (action === "deleteUser") {
     const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
@@ -335,5 +400,22 @@ export async function wipeAccount(a: Admin, target: string): Promise<void> {
   ].map((c) => a.db.doc(`${c}/${target}`).delete().catch(() => {})));
   if (username) await a.db.doc(`usernames/${username}`).delete().catch(() => {});
   if (email) await a.db.doc(`emails/${email.toLowerCase()}`).delete().catch(() => {});
+  // everything else that points at them (payments and prize records are kept)
+  const delQ = async (q: FirebaseFirestore.Query) => { try { const snap = await q.get(); await Promise.all(snap.docs.map((d) => a.db.recursiveDelete(d.ref))); } catch { /* not used, or needs an index */ } };
+  const col = (c: string) => a.db.collection(c);
+  await Promise.all([
+    ...["city_presence", "city_wallets", "city_homes", "usage", "playtime"].map((c) => a.db.doc(`${c}/${target}`).delete().catch(() => {})),
+    delQ(col("friendRequests").where("from", "==", target)), delQ(col("friendRequests").where("to", "==", target)),
+    delQ(col("challenges").where("from", "==", target)), delQ(col("challenges").where("to", "==", target)),
+    delQ(col("city_chats").where("members", "array-contains", target)),
+    delQ(col("city_phones").where("uid", "==", target)), delQ(col("city_plots").where("owner", "==", target)),
+    delQ(col("city_knocks").where("from", "==", target)), delQ(col("city_knocks").where("to", "==", target)),
+    delQ(col("city_matches").where("a", "==", target)), delQ(col("city_matches").where("b", "==", target)),
+    delQ(col("city_rooms").where("owner", "==", target)), delQ(col("city_enquiries").where("from", "==", target)),
+    delQ(col("city_ads").where("from", "==", target)), delQ(col("city_home_likes").where("from", "==", target)),
+    delQ(col("city_transfers").where("from", "==", target)), delQ(col("city_transfers").where("to", "==", target)),
+    delQ(a.db.collectionGroup("posts").where("uid", "==", target)),
+    delQ(a.db.collectionGroup("messages").where("uid", "==", target)),
+  ]);
   await a.auth.deleteUser(target).catch(() => {});
 }

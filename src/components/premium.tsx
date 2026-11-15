@@ -1,3 +1,5 @@
+import { useState as useLocalState } from "react";
+import { signOut as fbSignOut } from "firebase/auth";
 import { useSyncExternalStore } from "react";
 import { Crown, LockKeyhole, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -187,4 +189,82 @@ export function WorksheetLink({ url, className }: { url: string; className?: str
   const { premium, config } = usePremium();
   if (config.ticks?.worksheets && !premium) return <p className={className ?? "mt-1 text-sm font-semibold text-muted-foreground"}>📄 Worksheet: Premium</p>;
   return <a href={url} target="_blank" rel="noreferrer" className={className ?? "mt-1 inline-block text-sm font-semibold underline"}>Download the worksheet</a>;
+}
+
+const qBox = "h-10 w-full border-2 border-foreground bg-background px-3 text-sm";
+
+/** "Ask for a quote": a short form, then a thank-you message (and emails). */
+export function QuoteButton({ className }: { className?: string }) {
+  const [open, setOpen] = useLocalState(false);
+  const [sent, setSent] = useLocalState(false);
+  const [busy, setBusy] = useLocalState(false);
+  const [f, setF] = useLocalState({ org: "", adults: 1, kids: 0, phone: "", note: "" });
+  const submit = async () => {
+    setBusy(true);
+    const r = await callPremium("requestQuote", f);
+    setBusy(false);
+    if (r.ok) setSent(true); else toast.error(r.error ?? "Couldn't send. Try again.");
+  };
+  return <>
+    <button className={className ?? "mt-5 w-full border-2 border-foreground bg-background px-4 py-2 font-semibold"} onClick={() => { setOpen(true); setSent(false); }}>Ask for a quote</button>
+    {open && <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setOpen(false)}>
+      <div className="w-full max-w-md border-2 border-foreground bg-background p-5 shadow-brutal" onClick={(e) => e.stopPropagation()}>
+        {sent ? <>
+          <p className="text-4xl">✅</p>
+          <h2 className="mt-2 font-serif text-3xl">Thank you!</h2>
+          <p className="mt-2 text-sm">We’ve received your request. Our team will review it and email you a payment link, usually within 1–2 working days. We’ve also sent you a confirmation email.</p>
+          <button className="mt-5 w-full border-2 border-foreground bg-primary px-4 py-2 font-bold" onClick={() => setOpen(false)}>Done</button>
+        </> : <>
+          <h2 className="font-serif text-3xl">Ask for a quote</h2>
+          <p className="mt-1 text-sm text-muted-foreground">For schools, madrasahs and large families. Tell us what you need.</p>
+          <div className="mt-4 grid gap-3">
+            <label className="text-xs font-bold uppercase">School, madrasah or family name<input className={qBox} value={f.org} onChange={(e) => setF({ ...f, org: e.target.value })} /></label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-bold uppercase">Adults<input type="number" min={1} className={qBox} value={f.adults} onChange={(e) => setF({ ...f, adults: Math.max(1, Number(e.target.value) || 1) })} /></label>
+              <label className="text-xs font-bold uppercase">Children<input type="number" min={0} className={qBox} value={f.kids} onChange={(e) => setF({ ...f, kids: Math.max(0, Number(e.target.value) || 0) })} /></label>
+            </div>
+            <label className="text-xs font-bold uppercase">Phone (optional)<input className={qBox} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></label>
+            <label className="text-xs font-bold uppercase">Anything else (optional)<textarea className="min-h-20 w-full border-2 border-foreground bg-background p-2 text-sm" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
+          </div>
+          <div className="mt-5 flex gap-2">
+            <button className="flex-1 border-2 border-foreground px-4 py-2 font-semibold" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="flex-1 border-2 border-foreground bg-primary px-4 py-2 font-bold disabled:opacity-50" disabled={busy} onClick={() => void submit()}>{busy ? "Sending…" : "Send request"}</button>
+          </div>
+        </>}
+      </div>
+    </div>}
+  </>;
+}
+
+/** Private plans an admin approved for this user. */
+export function MyCustomPlans() {
+  const { config, activatePremium } = usePremium();
+  const me = auth.currentUser?.uid;
+  const mine = config.plans.filter((p) => !p.visible && p.forUid && p.forUid === me);
+  if (!mine.length) return null;
+  return <div className="grid gap-3">{mine.map((p) => { const year = (p.priceYearly ?? 0) > 0; const price = year ? p.priceYearly ?? 0 : p.priceMonthly ?? 0; return <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-secondary p-5 text-secondary-foreground shadow-brutal">
+    <div><small className="text-xs font-bold uppercase">Your custom plan</small><p className="font-serif text-2xl">{p.name}</p><p className="text-sm">₦{price.toLocaleString()} per {year ? "year" : "month"} · {p.seats}</p></div>
+    <button className="border-2 border-foreground bg-primary px-4 py-2 font-bold text-foreground" onClick={() => activatePremium(p.id, year ? "year" : "month")}>Pay now</button>
+  </div>; })}</div>;
+}
+
+/** Settings: delete my account (app stores require this). */
+export function DeleteMyAccount() {
+  const [busy, setBusy] = useLocalState(false);
+  const del = async () => {
+    const typed = window.prompt("This permanently deletes your account, progress, points and Premium. It can’t be undone.\n\nType DELETE to confirm.");
+    if (typed === null) return;
+    if (typed !== "DELETE") { toast.error("Not deleted: you didn’t type DELETE."); return; }
+    setBusy(true);
+    const r = await callPremium("deleteMe", { confirm: "DELETE" });
+    setBusy(false);
+    if (!r.ok) { toast.error(r.error ?? "Couldn't delete your account."); return; }
+    await fbSignOut(auth).catch(() => {});
+    window.location.href = "/";
+  };
+  return <div className="mt-6 border-2 border-destructive p-5">
+    <p className="font-serif text-2xl">Delete my account</p>
+    <p className="mt-1 text-sm text-muted-foreground">Permanently removes your account and everything in it: progress, XP, points, Premium and saved books. Payment records are kept for our accounts.</p>
+    <button disabled={busy} onClick={() => void del()} className="mt-4 border-2 border-destructive px-4 py-2 text-sm font-bold text-destructive disabled:opacity-50">{busy ? "Deleting…" : "Delete my account"}</button>
+  </div>;
 }

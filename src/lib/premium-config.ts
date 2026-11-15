@@ -1,5 +1,5 @@
 /** Premium settings. The admin changes them (siteConfig/premium); these are the defaults. */
-export type PlanDef = { id: string; name: string; price: number; priceUsd?: number; adults?: number; priceMonthly?: number; priceYearly?: number; usdMonthly?: number; usdYearly?: number; period: "month" | "year"; seats: string; kids: number; points: string[]; visible: boolean };
+export type PlanDef = { id: string; name: string; price: number; priceUsd?: number; adults?: number; forUid?: string; priceMonthly?: number; priceYearly?: number; usdMonthly?: number; usdYearly?: number; period: "month" | "year"; seats: string; kids: number; points: string[]; visible: boolean };
 export type RedeemOpt = { points: number; days: number; on: boolean };
 export type PremiumConfig = { trialDays: number; plans: PlanDef[]; redeem: RedeemOpt[]; topicCost: number; premiumTopics: string[]; cardMarkPerk: boolean; usdAbroad: boolean; promos: Promo[];
   features: Record<string, { on: boolean; free: number; premium: number }>; ticks: Record<string, boolean>; pointsPerXp: number };

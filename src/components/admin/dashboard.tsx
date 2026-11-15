@@ -17,6 +17,7 @@ type Stats = {
   recentPays: { email: string; amount: number; currency: string; planId: string; at: number }[];
   recentUsers: { name: string; email: string; created: number }[];
   quizTopics: { topic: string; plays: number }[];
+  quotes?: number;
 };
 const lineConfig = { count: { label: "New sign-ups", color: "var(--secondary)" } } satisfies ChartConfig;
 const barConfig = { count: { label: "Users", color: "var(--secondary)" } } satisfies ChartConfig;
@@ -61,6 +62,9 @@ export function Dashboard({ go }: { go: (s: Section) => void }) {
       <Kpi label="Revenue this month" value={naira(ngn)} note={usd ? `+ $${usd.toLocaleString()}` : (s.recentPays.length ? "from Paystack" : "no payments yet")} tone="secondary" />
     </div>
 
+    {(s.quotes ?? 0) > 0 && <div className="mt-5 border-2 border-foreground bg-muted p-3">
+      <button onClick={() => go("premium" as Section)} className="flex w-full items-center justify-between gap-2 border-2 border-foreground bg-background px-3 py-2 text-left text-sm font-semibold"><span>{s.quotes} plan request{s.quotes === 1 ? "" : "s"} waiting</span><Pill value="new" /></button>
+    </div>}
     {s.reports > 0 && <div className="mt-5 border-2 border-foreground bg-muted p-3">
       <button onClick={() => go("community")} className="flex w-full items-center justify-between gap-2 border-2 border-foreground bg-background px-3 py-2 text-left text-sm font-semibold"><span>{s.reports} report{s.reports === 1 ? "" : "s"} to review</span><Pill value="open" /></button>
     </div>}
