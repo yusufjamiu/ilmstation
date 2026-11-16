@@ -9,7 +9,7 @@ import { Page, Panel } from "@/components/admin/ui";
 
 type Advisor = { id: string; name: string; title: string; bio: string; photoUrl: string };
 type Partner = { id: string; name: string; kind: string; url: string; logoUrl: string };
-type About = { mission: string; advisors: Advisor[]; partners: Partner[] };
+type About = { mission: string; team: Advisor[]; advisors: Advisor[]; partners: Partner[] };
 
 const DEFAULT_MISSION = `IlmStation is a home for Islamic learning, built for Muslim families. We want every child, teen and adult to learn a little every day, in a way that is joyful, trustworthy and close to the Qur'an and Sunnah.
 
@@ -25,8 +25,8 @@ function useAbout() {
   useEffect(() => {
     getDoc(doc(db, "siteConfig", "about")).then((s) => {
       const d = (s.data() ?? {}) as Partial<About>;
-      setA({ mission: d.mission?.trim() ? d.mission : DEFAULT_MISSION, advisors: d.advisors ?? [], partners: d.partners ?? [] });
-    }).catch(() => setA({ mission: DEFAULT_MISSION, advisors: [], partners: [] }));
+      setA({ mission: d.mission?.trim() ? d.mission : DEFAULT_MISSION, team: d.team ?? [], advisors: d.advisors ?? [], partners: d.partners ?? [] });
+    }).catch(() => setA({ mission: DEFAULT_MISSION, team: [], advisors: [], partners: [] }));
   }, []);
   return a;
 }
@@ -40,6 +40,18 @@ export function AboutPage() {
     <p className="text-xs font-bold uppercase text-muted-foreground">About us</p>
     <h1 className="mt-2 font-serif text-5xl leading-none sm:text-7xl">About IlmStation</h1>
     <div className="mt-8 max-w-3xl border-t-2 border-foreground pt-2">{a.mission.split(/\n\s*\n/).map((p, i) => <p key={i} className="mt-4 text-lg leading-8">{p}</p>)}</div>
+
+    {a.team.length > 0 && <section className="mt-16">
+      <h2 className="font-serif text-4xl">Our team</h2>
+      <p className="mt-2 text-muted-foreground">The people building IlmStation.</p>
+      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{a.team.map((v) => <div key={v.id} className="border-2 border-foreground bg-background p-5 shadow-brutal-sm">
+        {v.photoUrl ? <img src={v.photoUrl} alt={v.name} className="size-24 border-2 border-foreground object-cover" />
+          : <div className="grid size-24 place-items-center border-2 border-foreground bg-primary font-serif text-3xl">{initials(v.name)}</div>}
+        <p className="mt-4 font-serif text-2xl leading-tight">{v.name}</p>
+        {v.title && <p className="text-sm font-semibold">{v.title}</p>}
+        {v.bio && <p className="mt-2 text-sm text-muted-foreground">{v.bio}</p>}
+      </div>)}</div>
+    </section>}
 
     {a.advisors.length > 0 && <section className="mt-16">
       <h2 className="font-serif text-4xl">Our advisors</h2>
@@ -88,6 +100,7 @@ export function AboutSection() {
   useEffect(() => { if (loaded && !a) setA(loaded); }, [loaded, a]);
   if (!a) return <Page eyebrow="Website" title="About page"><p className="text-sm text-muted-foreground">Loading…</p></Page>;
   const setAdv = (i: number, p: Partial<Advisor>) => setA({ ...a, advisors: a.advisors.map((x, j) => (j === i ? { ...x, ...p } : x)) });
+  const setTeam = (i: number, p: Partial<Advisor>) => setA({ ...a, team: a.team.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const setPar = (i: number, p: Partial<Partner>) => setA({ ...a, partners: a.partners.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const upload = async (file: File | undefined, key: string, done: (url: string) => void) => {
     if (!file) return;
@@ -107,6 +120,20 @@ export function AboutSection() {
       <textarea className="min-h-56 w-full border-2 border-foreground bg-background p-3 text-sm leading-6" value={a.mission} onChange={(e) => setA({ ...a, mission: e.target.value })} />
       <p className="mt-1 text-xs text-muted-foreground">A blank line starts a new paragraph.</p>
     </Panel>
+
+    <div className="mt-6"><Panel title="Our team" tag={a.team.length ? `${a.team.length} shown` : "Hidden until you add one"}>
+      <div className="grid gap-3">{a.team.map((v, i) => <div key={v.id} className="grid gap-2 border-2 border-foreground p-3 sm:grid-cols-[6rem_1fr]">
+        <div>{v.photoUrl ? <img src={v.photoUrl} alt="" className="size-24 border-2 border-foreground object-cover" /> : <div className="grid size-24 place-items-center border-2 border-dashed border-foreground text-xs">No photo</div>}
+          <label className="mt-1 block cursor-pointer text-xs font-semibold underline">{busy === v.id ? "Uploading…" : v.photoUrl ? "Change" : "Upload photo"}<input type="file" accept="image/*" className="hidden" onChange={(e) => { void upload(e.target.files?.[0], v.id, (url) => setTeam(i, { photoUrl: url })); e.target.value = ""; }} /></label>
+          {v.photoUrl && <button className="block text-xs underline" onClick={() => setTeam(i, { photoUrl: "" })}>Remove photo</button>}</div>
+        <div className="grid gap-2">
+          <div className="grid gap-2 sm:grid-cols-2"><input className={box} placeholder="Name, e.g. Jamiu Yusuf" value={v.name} onChange={(e) => setTeam(i, { name: e.target.value })} /><input className={box} placeholder="Role, e.g. Founder" value={v.title} onChange={(e) => setTeam(i, { title: e.target.value })} /></div>
+          <textarea className="min-h-16 w-full border-2 border-foreground bg-background p-2 text-sm" placeholder="Short bio (one or two sentences)" value={v.bio} onChange={(e) => setTeam(i, { bio: e.target.value })} />
+          <div className="flex gap-2"><Button size="sm" variant="outline" aria-label="Move up" onClick={() => setA({ ...a, team: move(a.team, i, -1) })}><ArrowUp /></Button><Button size="sm" variant="outline" aria-label="Move down" onClick={() => setA({ ...a, team: move(a.team, i, 1) })}><ArrowDown /></Button><Button size="sm" variant="outline" aria-label="Remove" onClick={() => setA({ ...a, team: a.team.filter((_, j) => j !== i) })}><Trash2 /></Button></div>
+        </div>
+      </div>)}</div>
+      <Button variant="outline" className="mt-3" onClick={() => setA({ ...a, team: [...a.team, { id: newId(), name: "", title: "", bio: "", photoUrl: "" }] })}><Plus /> Add team member</Button>
+    </Panel></div>
 
     <div className="mt-6"><Panel title="Advisors" tag={a.advisors.length ? `${a.advisors.length} shown` : "Hidden until you add one"}>
       <p className="-mt-1 mb-3 text-xs text-muted-foreground">Only list people who have agreed to be shown.</p>
