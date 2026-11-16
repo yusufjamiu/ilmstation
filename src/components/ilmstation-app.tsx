@@ -1,4 +1,4 @@
-import { NotifyCard } from "@/components/notify";
+import { NotifyCard, NotifyPrompt } from "@/components/notify";
 import { InstallBanner, InstallCard } from "@/components/install-app";
 import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
@@ -138,6 +138,7 @@ export function IlmStationApp() {
         <PresenceBeat />
         <AdhanWatcher />
         <InstallBanner />
+        <NotifyPrompt />
         {screen === "home" && (isKid ? <KidHome go={selectScreen} /> : <HomeScreen go={selectScreen} onShare={openShare} />)}
         {screen === "kidgames" && <KidGames />}
         {screen === "games" && <KidGames audience="all" />}
