@@ -1,3 +1,5 @@
+import { AboutSection } from "@/components/about";
+import { Info as AboutIcon } from "lucide-react";
 import { LegalSection } from "@/components/legal";
 import { Scale as LegalIcon } from "lucide-react";
 import { useState } from "react";
@@ -36,7 +38,7 @@ import { WorldAdvertsSection, WorldAwardSection, WorldQuizzesSection, WorldRaces
 import { WorldContentSection } from "./world-content";
 import { seedAdverts, type Advert } from "./world-data";
 
-export const sections = ["dashboard", "users", "study", "library", "ramadan", "cards", "wisdom", "xp", "adhan", "languages", "premium", "kidGames", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "legal", "settings"] as const;
+export const sections = ["dashboard", "users", "study", "library", "ramadan", "cards", "wisdom", "xp", "adhan", "languages", "premium", "kidGames", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "about", "legal", "settings"] as const;
 export type Section = (typeof sections)[number];
 
 const nav: { id: Section; label: string; icon: typeof Users; group: string }[] = [
@@ -52,6 +54,7 @@ const nav: { id: Section; label: string; icon: typeof Users; group: string }[] =
   { id: "languages", label: "Languages", icon: Languages, group: "App" },
   { id: "premium", label: "Premium", icon: CrownIcon, group: "App" },
   { id: "kidGames", label: "Games & quizzes", icon: Gamepad2, group: "App" },
+  { id: "about", label: "About page", icon: AboutIcon, group: "Platform" },
   { id: "legal", label: "Legal pages", icon: LegalIcon, group: "Platform" },
   { id: "content", label: "Quiz content", icon: BookOpenCheck, group: "App" },
   { id: "billing", label: "Plans & billing", icon: CreditCard, group: "App" },
@@ -153,6 +156,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
           {current === "premium" && <PremiumSection />}
           {current === "kidGames" && <KidGamesSection />}
           {current === "legal" && <LegalSection />}
+          {current === "about" && <AboutSection />}
           {current === "content" && <ContentSection />}
           {current === "events" && <EventsSection />}
           {current === "centres" && <CentresSection />}
