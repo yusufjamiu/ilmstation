@@ -12,12 +12,17 @@ function useInstall() {
   const [env, setEnv] = useState({ standalone: true, ios: false });
   useEffect(() => {
     const nav = navigator as Navigator & { standalone?: boolean };
-    setEnv({ standalone: window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true, ios: /iphone|ipad|ipod/i.test(nav.userAgent) });
+    const isApp = window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
+    let known = false;
+    try { if (isApp) localStorage.setItem("appInstalled", "1"); known = localStorage.getItem("appInstalled") === "1"; } catch { /* ignore */ }
+    setEnv({ standalone: isApp || known, ios: /iphone|ipad|ipod/i.test(nav.userAgent) });
+    const installed = () => { try { localStorage.setItem("appInstalled", "1"); } catch { /* ignore */ } setEnv((e) => ({ ...e, standalone: true })); };
+    window.addEventListener("appinstalled", installed);
     setCan(!!deferred);
     const on = () => setCan(true);
     window.addEventListener("ilm-installable", on);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-    return () => window.removeEventListener("ilm-installable", on);
+    return () => { window.removeEventListener("ilm-installable", on); window.removeEventListener("appinstalled", installed); };
   }, []);
   const install = async () => { if (!deferred) return; await deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; setCan(false); };
   return { can, install, ...env };
