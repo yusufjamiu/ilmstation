@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PublicShell } from "@/components/public-site";
-import { SponsorshipPage } from "@/components/family";
+import { SponsorPage } from "@/components/sponsor-page";
 
 export const Route = createFileRoute("/sponsorship")({
   head: () => ({
@@ -13,5 +13,5 @@ export const Route = createFileRoute("/sponsorship")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <PublicShell><SponsorshipPage /></PublicShell>,
+  component: () => <PublicShell><SponsorPage /></PublicShell>,
 });

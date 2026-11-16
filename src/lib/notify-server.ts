@@ -1,3 +1,4 @@
+import { esc, layout, sendEmail } from "./email-server";
 import { getApps } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { admin } from "./money-server";
@@ -43,6 +44,26 @@ export async function handleNotify(request: Request): Promise<Response> {
 
   // Ramadan quizzes that just opened
   const opened = (await a.db.collection("ramadanDays").where("opensAt", ">", now.getTime() - WINDOW * 60_000).where("opensAt", "<=", now.getTime()).get().catch(() => null))?.docs ?? [];
+
+  // Ramadan winners: email + notification once results are out
+  const outNow = (await a.db.collection("ramadanDays").where("resultsAt", ">", now.getTime() - 60 * 60_000).where("resultsAt", "<=", now.getTime()).get().catch(() => null))?.docs ?? [];
+  for (const dd of outNow) {
+    if (dd.get("winnersNotified")) continue;
+    await dd.ref.set({ winnersNotified: true }, { merge: true });
+    const w = Number(dd.get("winners") ?? 3), prize = String(dd.get("prize") ?? "");
+    const rows = (await a.db.collection(`ramadanResults/${dd.id}/list`).orderBy("rankKey").limit(w * 2).get()).docs.filter((r) => r.get("correct") === true && r.get("recentWinner") !== true).slice(0, w);
+    for (const r of rows) {
+      const name = String(r.get("name") ?? "").split(" ")[0];
+      try {
+        const em = (await a.auth.getUser(r.id)).email ?? "";
+        await sendEmail(em, `🏆 You won Day ${dd.id}'s prize quiz!`, layout("Congratulations, you won! 🏆",
+          `<p>Assalamu alaikum${name ? ` ${esc(name)}` : ""}. You're one of today's winners of the Ramadan prize quiz${prize ? `: <b>${esc(prize)}</b>` : ""}.</p><p>Open <b>Ramadan</b> in the app and send your details <b>within 7 days</b> so we can send your prize.</p>`,
+          { label: "Claim my prize", url: "https://www.ilmstation.com/app?s=ramadan" }));
+      } catch { /* no email */ }
+      const toks = (((await a.db.doc(`push/${r.id}`).get()).get("tokens") as string[]) ?? []).filter(Boolean);
+      if (toks.length) await messaging.sendEachForMulticast({ tokens: toks, data: { title: "🏆 You won today’s prize quiz!", body: "Open Ramadan and send your details to claim your prize.", url: "/app?s=ramadan", tag: `won${dd.id}` }, webpush: { headers: { Urgency: "high" } } }).catch(() => null);
+    }
+  }
 
   const users = await a.db.collection("push").get();
   let sent = 0;

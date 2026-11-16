@@ -9,7 +9,7 @@ const KID_DOMAIN = "kids.ilmstation.com";
 const int = (v: unknown, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-export async function handleFamily(request: Request): Promise<Response> {
+async function handleFamilyInner(request: Request): Promise<Response> {
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
   const a = await admin();
   if (!a) return json({ error: "Server not set up" }, 500);
@@ -201,4 +201,27 @@ export async function handleFamily(request: Request): Promise<Response> {
   }
 
   return json({ error: "Unknown action" }, 400);
+}
+
+/** Wraps the family actions: after a parent creates a child's account, email the parent the login details. */
+export async function handleFamily(request: Request): Promise<Response> {
+  const body = (await request.clone().json().catch(() => ({}))) as Record<string, unknown>;
+  const res = await handleFamilyInner(request);
+  if (body.action !== "createChild" || !res.ok) return res;
+  try {
+    const out = (await res.clone().json()) as { ok?: boolean };
+    if (!out.ok) return res;
+    const a = await admin();
+    if (!a) return res;
+    const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const parent = await a.auth.getUser((await a.auth.verifyIdToken(token)).uid);
+    const d = (body.data ?? body) as Record<string, unknown>;
+    const child = String(d.name ?? "your child"), username = String(d.username ?? "").trim().toLowerCase();
+    await sendEmail(parent.email ?? "", `${child}'s IlmStation account is ready`, layout(`${child}'s account is ready 🎉`,
+      `<p>Assalamu alaikum. You've created an IlmStation account for <b>${esc(child)}</b>.</p>
+      <p><b>Username:</b> ${esc(username)}<br><b>Password:</b> the one you chose (you can reset it any time in Family hub)</p>
+      <p>To log in, go to <b>ilmstation.com</b> → <b>Log in</b>, and type the username (no email needed). Or open Family hub on your phone and tap <b>Open on this device</b>.</p>`,
+      { label: "Open Family hub", url: "https://www.ilmstation.com/app?s=family" }));
+  } catch { /* email is a bonus */ }
+  return res;
 }
