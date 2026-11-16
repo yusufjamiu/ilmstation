@@ -40,7 +40,15 @@ function SurahPicker({ value, onChange }: { value: number; onChange: (n: number)
   return <select value={value} onChange={e => onChange(Number(e.target.value))} aria-label="Surah" className="h-11 min-w-0 flex-1 border-2 border-foreground bg-background px-3 sm:max-w-xs">{surahList.map(s => <option key={s.n} value={s.n}>{s.n}. {s.name} · {s.arabic}</option>)}</select>;
 }
 
-const GOLD = "#9a7b2f";
+const GOLD = "var(--mus-gold)";
+/* mushaf colours: cream paper in light mode, deep brown page with cream text in dark mode */
+if (typeof document !== "undefined" && !document.getElementById("mushaf-colors")) {
+  const st = document.createElement("style"); st.id = "mushaf-colors";
+  st.textContent = `:root{--mus-paper:var(--mus-paper);--mus-ink:#1b1a17;--mus-muted:#6b5520;--mus-band:#f3e8c6;--mus-gold:#9a7b2f}
+.dark,[data-theme="dark"]{--mus-paper:#1c1812;--mus-ink:#efe6d2;--mus-muted:#d1b46c;--mus-band:#2b2417;--mus-gold:#b8964a}
+@media (prefers-color-scheme:dark){:root:not(.light):not([data-theme="light"]){--mus-paper:#1c1812;--mus-ink:#efe6d2;--mus-muted:#d1b46c;--mus-band:#2b2417;--mus-gold:#b8964a}}`;
+  document.head.appendChild(st);
+}
 const QFONT = '"Amiri Quran","Amiri",serif';
 const TOTAL_PAGES = 604;
 const arDigits = (n: number) => n.toLocaleString("ar-EG");
@@ -102,22 +110,22 @@ function MushafPage({ page, ayahs, focus, onSelect }: { page: number; ayahs: Pag
   const blocks: { head?: PageAyah; items: PageAyah[] }[] = [];
   for (const a of ayahs) { if (a.n === 1) blocks.push({ head: a, items: [a] }); else if (blocks.length) blocks[blocks.length - 1]!.items.push(a); else blocks.push({ items: [a] }); }
   const first = ayahs[0];
-  return <div ref={frame} style={{ boxSizing: "border-box", aspectRatio: "5 / 7.4", maxWidth: "34rem", width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", background: "#fdf8ea", border: `3px double ${GOLD}`, boxShadow: `inset 0 0 0 4px #fdf8ea, inset 0 0 0 5px ${GOLD}`, padding: ".9rem 1.1rem .7rem", color: "#1b1a17" }}>
+  return <div ref={frame} style={{ boxSizing: "border-box", aspectRatio: "5 / 7.4", maxWidth: "34rem", width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", background: "var(--mus-paper)", border: `3px double ${GOLD}`, boxShadow: `inset 0 0 0 4px var(--mus-paper), inset 0 0 0 5px ${GOLD}`, padding: ".9rem 1.1rem .7rem", color: "var(--mus-ink)" }}>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri+Quran&display=swap" precedence="default"/>
-    <div dir="rtl" style={{ display: "flex", justifyContent: "space-between", fontFamily: QFONT, fontSize: ".95rem", color: "#6b5520", borderBottom: `1px solid ${GOLD}`, paddingBottom: ".25rem", marginBottom: ".4rem" }}><span>الجزء {first ? arDigits(first.juz) : ""}</span><span>{first?.surahName}</span></div>
+    <div dir="rtl" style={{ display: "flex", justifyContent: "space-between", fontFamily: QFONT, fontSize: ".95rem", color: "var(--mus-muted)", borderBottom: `1px solid ${GOLD}`, paddingBottom: ".25rem", marginBottom: ".4rem" }}><span>الجزء {first ? arDigits(first.juz) : ""}</span><span>{first?.surahName}</span></div>
     <div ref={body} dir="rtl" lang="ar" style={{ flex: 1, minHeight: 0, overflow: "hidden", fontFamily: QFONT, lineHeight: 2.05, textAlign: "justify", textAlignLast: "center", display: "flex", flexDirection: "column", justifyContent: "center" }}>
       {blocks.map((blk, bi) => <div key={bi}>
         {blk.head && <div style={{ textAlign: "center", margin: ".15em 0 .25em" }}>
-          <div style={{ border: `2px solid ${GOLD}`, outline: `1px solid ${GOLD}`, outlineOffset: "3px", background: "#f3e8c6", padding: ".05em .8em", display: "block", fontSize: ".85em", lineHeight: 1.7 }}>{blk.head.surahName}</div>
+          <div style={{ border: `2px solid ${GOLD}`, outline: `1px solid ${GOLD}`, outlineOffset: "3px", background: "var(--mus-band)", padding: ".05em .8em", display: "block", fontSize: ".85em", lineHeight: 1.7 }}>{blk.head.surahName}</div>
           {blk.head.surah !== 1 && blk.head.surah !== 9 && <div style={{ fontSize: ".9em", marginTop: ".2em", lineHeight: 1.8 }}>بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</div>}
         </div>}
         <p style={{ margin: 0 }}>{blk.items.map(a => {
           const key = `${a.surah}:${a.n}`;
-          return <span key={key} onClick={() => onSelect(a)} style={{ cursor: "pointer", background: focus === key ? "rgba(214,170,60,.22)" : undefined, borderRadius: ".3em", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>{a.text} <span aria-label={`Verse ${a.n}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "1.5em", height: "1.5em", margin: "0 .15em", borderRadius: "50%", border: `1.5px solid ${GOLD}`, boxShadow: `0 0 0 2px #fdf8ea, 0 0 0 3px ${GOLD}`, fontSize: ".5em", color: "#6b5520", verticalAlign: "middle", background: "#fdf8ea" }}>{arDigits(a.n)}</span>{" "}</span>;
+          return <span key={key} onClick={() => onSelect(a)} style={{ cursor: "pointer", background: focus === key ? "rgba(214,170,60,.22)" : undefined, borderRadius: ".3em", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>{a.text} <span aria-label={`Verse ${a.n}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "1.5em", height: "1.5em", margin: "0 .15em", borderRadius: "50%", border: `1.5px solid ${GOLD}`, boxShadow: `0 0 0 2px var(--mus-paper), 0 0 0 3px ${GOLD}`, fontSize: ".5em", color: "var(--mus-muted)", verticalAlign: "middle", background: "var(--mus-paper)" }}>{arDigits(a.n)}</span>{" "}</span>;
         })}</p>
       </div>)}
     </div>
-    <div style={{ textAlign: "center", fontFamily: QFONT, color: "#6b5520", borderTop: `1px solid ${GOLD}`, marginTop: ".4rem", paddingTop: ".25rem" }}>{arDigits(page)}</div>
+    <div style={{ textAlign: "center", fontFamily: QFONT, color: "var(--mus-muted)", borderTop: `1px solid ${GOLD}`, marginTop: ".4rem", paddingTop: ".25rem" }}>{arDigits(page)}</div>
   </div>;
 }
 
@@ -192,10 +200,10 @@ function QcfPage({ page, layout, ayahs, focus, onSelect }: { page: number; layou
   layout.lines.forEach(l => { const w = l.words[0]; if (w && w.verse === 1 && w.pos === 1) startAt.set(l.line, Number(w.key.split(":")[0])); });
   const nameOf = (n: number) => ayahs.find(a => a.surah === n)?.surahName ?? `سُورَةُ ${surahList.find(s => s.n === n)?.arabic ?? ""}`;
   const first = ayahs[0];
-  const banner = (n: number) => <div style={{ width: "100%", border: `2px solid ${GOLD}`, outline: `1px solid ${GOLD}`, outlineOffset: "3px", background: "#f3e8c6", textAlign: "center", fontFamily: QFONT, fontSize: "1.1rem", lineHeight: 1.6, padding: ".05em .6em" }}>{nameOf(n)}</div>;
-  return <div ref={frame} style={{ boxSizing: "border-box", aspectRatio: "5 / 7.4", maxWidth: "34rem", width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", background: "#fdf8ea", border: `3px double ${GOLD}`, boxShadow: `inset 0 0 0 4px #fdf8ea, inset 0 0 0 5px ${GOLD}`, padding: ".8rem 1rem .6rem", color: "#1b1a17" }}>
+  const banner = (n: number) => <div style={{ width: "100%", border: `2px solid ${GOLD}`, outline: `1px solid ${GOLD}`, outlineOffset: "3px", background: "var(--mus-band)", textAlign: "center", fontFamily: QFONT, fontSize: "1.1rem", lineHeight: 1.6, padding: ".05em .6em" }}>{nameOf(n)}</div>;
+  return <div ref={frame} style={{ boxSizing: "border-box", aspectRatio: "5 / 7.4", maxWidth: "34rem", width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", background: "var(--mus-paper)", border: `3px double ${GOLD}`, boxShadow: `inset 0 0 0 4px var(--mus-paper), inset 0 0 0 5px ${GOLD}`, padding: ".8rem 1rem .6rem", color: "var(--mus-ink)" }}>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri+Quran&display=swap" precedence="default"/>
-    <div dir="rtl" style={{ display: "flex", justifyContent: "space-between", fontFamily: QFONT, fontSize: ".95rem", color: "#6b5520", borderBottom: `1px solid ${GOLD}`, paddingBottom: ".25rem", marginBottom: ".35rem" }}><span>الجزء {first ? arDigits(first.juz) : ""}</span><span>{first?.surahName}</span></div>
+    <div dir="rtl" style={{ display: "flex", justifyContent: "space-between", fontFamily: QFONT, fontSize: ".95rem", color: "var(--mus-muted)", borderBottom: `1px solid ${GOLD}`, paddingBottom: ".25rem", marginBottom: ".35rem" }}><span>الجزء {first ? arDigits(first.juz) : ""}</span><span>{first?.surahName}</span></div>
     <div ref={area} dir="rtl" lang="ar" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {Array.from({ length: layout.total }, (_, i) => i + 1).map(row => {
         const line = byLine.get(row);
@@ -212,7 +220,7 @@ function QcfPage({ page, layout, ayahs, focus, onSelect }: { page: number; layou
         </div>;
       })}
     </div>
-    <div style={{ textAlign: "center", fontFamily: QFONT, color: "#6b5520", borderTop: `1px solid ${GOLD}`, marginTop: ".35rem", paddingTop: ".2rem" }}>{arDigits(page)}</div>
+    <div style={{ textAlign: "center", fontFamily: QFONT, color: "var(--mus-muted)", borderTop: `1px solid ${GOLD}`, marginTop: ".35rem", paddingTop: ".2rem" }}>{arDigits(page)}</div>
   </div>;
 }
 
