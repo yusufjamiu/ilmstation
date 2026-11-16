@@ -139,6 +139,16 @@ export async function handlePremium(request: Request): Promise<Response> {
   if (action === "confirm") return json(await applyPayment(a, uid, String(data.reference ?? "").slice(0, 100)));
 
   // notifications: this device, location for prayer times, and which ones are on
+  // send a test notification to this user's devices
+  if (action === "pushTest") {
+    const tokens = (((await a.db.doc(`push/${uid}`).get()).get("tokens") as string[]) ?? []).filter(Boolean);
+    if (!tokens.length) return json({ ok: false, error: "Turn on notifications first." });
+    const { getApps } = await import("firebase-admin/app");
+    const { getMessaging } = await import("firebase-admin/messaging");
+    const r = await getMessaging(getApps()[0]).sendEachForMulticast({ tokens, data: { title: "🔔 IlmStation test", body: "Notifications are working. Barakallahu feek!", url: "/app?s=settings", tag: "test" }, webpush: { headers: { Urgency: "high" } } });
+    return json(r.successCount ? { ok: true } : { ok: false, error: r.responses[0]?.error?.message ?? "Couldn't send." });
+  }
+
   if (action === "pushRegister" || action === "pushGet" || action === "pushPrefs") {
     const pref = a.db.doc(`push/${uid}`);
     const cur = (await pref.get()).data() ?? {};

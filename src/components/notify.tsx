@@ -79,7 +79,10 @@ export function NotifyCard() {
         <span><b className="text-sm">{t}</b><br /><span className="text-xs text-muted-foreground">{k === "prayer" && !hasLoc ? "Needs your location: tap “Update” below" : d}</span></span>
         <input type="checkbox" className="size-5" checked={prefs[k]} onChange={(e) => void toggle(k, e.target.checked)} />
       </label>)}</div>
-      <button disabled={busy} onClick={() => void turnOn()} className="mt-3 text-sm font-semibold underline">{busy ? "Updating…" : "Update this device and my location"}</button>
+      <div className="mt-3 flex flex-wrap gap-4">
+        <button onClick={() => void callPremium("pushTest", {}).then((r) => r.ok ? toast.success("Test sent. Check your notifications.") : toast.error(r.error ?? "Couldn't send."))} className="border-2 border-foreground bg-primary px-3 py-1.5 text-sm font-bold">Send me a test</button>
+        <button disabled={busy} onClick={() => void turnOn()} className="text-sm font-semibold underline">{busy ? "Updating…" : "Update this device and my location"}</button>
+      </div>
     </>}
   </div>;
 }
