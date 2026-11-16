@@ -79,7 +79,7 @@ export async function handlePremium(request: Request): Promise<Response> {
       const e = await tx.get(ref);
       if (e.exists && e.get("trialUsed")) return false;
       const cur = Number(e.get("premiumUntil") ?? 0);
-      const trialEnd = cfg.trialDays > 0 ? now + cfg.trialDays * DAY : 0;
+      const trialEnd = !usedBefore && cfg.trialDays > 0 ? now + cfg.trialDays * DAY : 0;
       tx.set(ref, {
         trialUsed: true, points: Number(e.get("points") ?? 0), unlocked: (e.get("unlocked") as string[]) ?? [], createdAt: now,
         ...(trialEnd > cur ? { premiumUntil: trialEnd, plan: "trial", source: "trial" } : {}),
@@ -90,7 +90,7 @@ export async function handlePremium(request: Request): Promise<Response> {
     if (isNew && usedBefore) await ref.set({ premiumUntil: 0, source: "trial-used" }, { merge: true });
     if (emailKey && !usedBefore) await a.db.doc(`trialEmails/${emailKey}`).set({ at: now });
     // first visit: welcome email (once)
-    if (isNew && email && !usedBefore) {
+    if (isNew && email) {
       const name = (((await a.db.doc(`profiles/${uid}`).get()).get("name") as string) ?? "").split(" ")[0] || "friend";
       const trialEnd = cfg.trialDays > 0 ? new Date(now + cfg.trialDays * DAY).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "";
       await sendEmail(email, "Welcome to IlmStation", layout(`Welcome, ${name}!`,
