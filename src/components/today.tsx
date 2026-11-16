@@ -409,7 +409,7 @@ export function PrayerCard() {
     <div className="mt-3 border-t-2 border-foreground/20 pt-3 text-sm">
       <CityPicker city={city} onPick={(c) => { setCity(c); if (uid) void setDoc(doc(db, "ramadanProgress", uid), { city: c }, { merge: true }).catch(() => {}); }} />
       <label className="mt-3 block text-xs font-bold uppercase text-muted-foreground">Calculation
-        <select value={methodPick} onChange={(e) => { setMethodPick(e.target.value); remember("prayerMethod", e.target.value); window.dispatchEvent(new Event("prayerprefs")); }} className="mt-1 block h-9 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case text-foreground">
+        <select value={methodPick} onChange={(e) => { setMethodPick(e.target.value); remember("prayerMethod", e.target.value); window.dispatchEvent(new Event("prayerprefs")); if (uid) void setDoc(doc(db, "ramadanProgress", uid), { prayerMethod: e.target.value }, { merge: true }).catch(() => {}); }} className="mt-1 block h-9 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case text-foreground">
           {METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </label>

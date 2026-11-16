@@ -87,14 +87,23 @@ export async function handleNotify(request: Request): Promise<Response> {
       }
     }
     if (prefs.ramadan) for (const r of opened) if (!done[`ramadan${r.id}`]) out.push({ key: `ramadan${r.id}`, title: `🏆 Day ${r.id} prize quiz is open`, body: r.get("prize") ? `Answer quickly to win ${r.get("prize")}.` : "Answer quickly to win today’s prizes.", url: "/app?s=ramadan" });
-    if (prefs.prayer && typeof d.lat === "number" && typeof d.lng === "number") {
-      let times = d.times as { day: string; tz: string; list: Record<string, number> } | undefined;
-      if (!times || times.day !== t.date) {
+    // same city and method as the Today page (else the phone's location)
+    const rp = prefs.prayer ? ((await a.db.doc(`ramadanProgress/${u.id}`).get()).data() ?? {}) : {};
+    const city = rp.city as { name?: string; country?: string; lat?: number; lng?: number; method?: number } | undefined;
+    const pick = String(rp.prayerMethod ?? d.method ?? "");
+    const meth = !pick || pick === "country" ? (city?.method != null ? String(city.method) : "") : pick;
+    const where = city?.lat != null && city?.lng != null ? `timings/${t.dmy}?latitude=${city.lat}&longitude=${city.lng}`
+      : city?.name ? `timingsByCity/${t.dmy}?city=${encodeURIComponent(city.name)}&country=${encodeURIComponent(city.country ?? "")}`
+      : typeof d.lat === "number" && typeof d.lng === "number" ? `timings/${t.dmy}?latitude=${d.lat}&longitude=${d.lng}` : "";
+    const tkey = `${where}|${meth}`;
+    if (prefs.prayer && where) {
+      let times = d.times as { day: string; tz: string; list: Record<string, number>; key?: string } | undefined;
+      if (!times || times.day !== t.date || times.key !== tkey) {
         try {
-          const m = /^\d+$/.test(String(d.method ?? "")) ? `&method=${d.method}` : "";
-          const j = (await (await fetch(`https://api.aladhan.com/v1/timings/${t.dmy}?latitude=${d.lat}&longitude=${d.lng}${m}`)).json()) as { data?: { timings?: Record<string, string>; meta?: { timezone?: string } } };
+          const m = /^\d+$/.test(meth) ? `&method=${meth}` : "";
+          const j = (await (await fetch(`https://api.aladhan.com/v1/${where}${m}`)).json()) as { data?: { timings?: Record<string, string>; meta?: { timezone?: string } } };
           const list = Object.fromEntries(PRAYERS.map((p) => [p, hm(j.data?.timings?.[p] ?? "")]));
-          times = { day: t.date, tz: j.data?.meta?.timezone || tz, list };
+          times = { day: t.date, tz: j.data?.meta?.timezone || tz, list, key: tkey };
           await u.ref.set({ times }, { merge: true });
         } catch { times = undefined; }
       }
