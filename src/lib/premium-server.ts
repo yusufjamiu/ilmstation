@@ -138,6 +138,28 @@ export async function handlePremium(request: Request): Promise<Response> {
   // back from Paystack: check the payment
   if (action === "confirm") return json(await applyPayment(a, uid, String(data.reference ?? "").slice(0, 100)));
 
+  // notifications: this device, location for prayer times, and which ones are on
+  if (action === "pushRegister" || action === "pushGet" || action === "pushPrefs") {
+    const pref = a.db.doc(`push/${uid}`);
+    const cur = (await pref.get()).data() ?? {};
+    const defaults = { wisdom: true, prayer: true, streak: true, kahf: true, ramadan: true };
+    const prefsNow = { ...defaults, ...((cur.prefs as object) ?? {}) };
+    if (action === "pushGet") return json({ ok: true, on: ((cur.tokens as string[]) ?? []).length > 0, prefs: prefsNow, hasLocation: typeof cur.lat === "number" });
+    if (action === "pushPrefs") {
+      const p = (data.prefs ?? {}) as Record<string, unknown>;
+      const next = Object.fromEntries(Object.keys(defaults).map((k) => [k, p[k] !== false]));
+      await pref.set({ prefs: next }, { merge: true });
+      return json({ ok: true, prefs: next });
+    }
+    const token = String(data.token ?? "");
+    if (!token || token.length > 4096) return json({ ok: false, error: "No device token." });
+    const tokens = [token, ...((cur.tokens as string[]) ?? []).filter((x) => x !== token)].slice(0, 5);
+    const lat = Number(data.lat), lng = Number(data.lng);
+    const loc = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : {};
+    await pref.set({ tokens, prefs: prefsNow, tz: String(data.tz ?? "Africa/Lagos").slice(0, 60), method: String(data.method ?? "").slice(0, 20), ...loc, times: null, at: now }, { merge: true });
+    return json({ ok: true, prefs: prefsNow, hasLocation: "lat" in loc || typeof cur.lat === "number" });
+  }
+
   // daily limits (IlmBot questions, quick quizzes, duels, lessons, cards)
   if (action === "use") {
     const key = String(data.feature ?? "");
@@ -410,7 +432,7 @@ export async function wipeAccount(a: Admin, target: string): Promise<void> {
   const delQ = async (q: FirebaseFirestore.Query) => { try { const snap = await q.get(); await Promise.all(snap.docs.map((d) => a.db.recursiveDelete(d.ref))); } catch { /* not used, or needs an index */ } };
   const col = (c: string) => a.db.collection(c);
   await Promise.all([
-    ...["city_presence", "city_wallets", "city_homes", "usage", "playtime"].map((c) => a.db.doc(`${c}/${target}`).delete().catch(() => {})),
+    ...["city_presence", "city_wallets", "city_homes", "usage", "playtime", "push"].map((c) => a.db.doc(`${c}/${target}`).delete().catch(() => {})),
     delQ(col("friendRequests").where("from", "==", target)), delQ(col("friendRequests").where("to", "==", target)),
     delQ(col("challenges").where("from", "==", target)), delQ(col("challenges").where("to", "==", target)),
     delQ(col("city_chats").where("members", "array-contains", target)),

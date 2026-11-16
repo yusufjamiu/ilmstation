@@ -113,6 +113,8 @@ export default {
       return import("./lib/stats-server").then((m) => m.handleStats(request));
     if (url.pathname === "/api/cron/weekly")
       return import("./lib/report-server").then((m) => m.handleWeekly(request));
+    if (url.pathname === "/api/cron/notify")
+      return import("./lib/notify-server").then((m) => m.handleNotify(request));
     if (url.pathname === "/api/cron/daily")
       return import("./lib/report-server").then((m) => m.handleDaily(request));
     if (url.pathname === "/api/email-test")

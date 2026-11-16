@@ -1,0 +1,98 @@
+import { getApps } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
+import { admin } from "./money-server";
+
+/** Called every minute by cron-job.org: sends whatever notifications are due. */
+const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "content-type": "application/json" } });
+type Prefs = { wisdom: boolean; prayer: boolean; streak: boolean; kahf: boolean; ramadan: boolean };
+const WISDOM_AT = 7 * 60 + 30, STREAK_AT = 19 * 60, KAHF_AT = 9 * 60, WINDOW = 15;
+const PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
+
+function local(now: Date, tz: string) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" })
+    .formatToParts(now).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, dmy: `${p.day}-${p.month}-${p.year}`, mins: Number(p.hour) * 60 + Number(p.minute), weekday: p.weekday };
+}
+const due = (mins: number, at: number) => mins >= at && mins < at + WINDOW;
+const hm = (s: string) => { const m = /(\d{1,2}):(\d{2})/.exec(s); return m ? Number(m[1]) * 60 + Number(m[2]) : -1; };
+
+export async function handleNotify(request: Request): Promise<Response> {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return json({ error: "Not allowed" }, 401);
+  const a = await admin();
+  if (!a) return json({ error: "Server not set up" }, 500);
+  const messaging = getMessaging(getApps()[0]);
+  const now = new Date();
+
+  // today's Daily Wisdom (pinned for today, else the day's rotation)
+  let wisdomText = "";
+  const wisdomFor = async (date: string) => {
+    if (wisdomText) return wisdomText;
+    try {
+      const docs = (await a.db.collection("wisdom").get()).docs.map((d) => d.data()).filter((w) => !w.hidden);
+      const pinned = docs.find((w) => [w.date, w.pinDate, w.pinned].includes(date));
+      const list = docs.filter((w) => !w.date && !w.pinDate && typeof w.pinned !== "string").sort((x, y) => Number(x.order ?? x.createdAt ?? 0) - Number(y.order ?? y.createdAt ?? 0));
+      const day = Math.floor((Date.parse(date) - Date.parse(`${date.slice(0, 4)}-01-01`)) / 86_400_000);
+      const w = pinned ?? (list.length ? list[day % list.length] : undefined);
+      const text = String(w?.text ?? w?.english ?? w?.translation ?? "").trim();
+      const src = String(w?.source ?? w?.ref ?? "").trim();
+      wisdomText = text ? `${text.length > 150 ? `${text.slice(0, 147)}…` : text}${src ? ` · ${src}` : ""}` : "";
+    } catch { wisdomText = ""; }
+    return wisdomText || "A new reminder is waiting for you. Tap to read and share it.";
+  };
+
+  // Ramadan quizzes that just opened
+  const opened = (await a.db.collection("ramadanDays").where("opensAt", ">", now.getTime() - WINDOW * 60_000).where("opensAt", "<=", now.getTime()).get().catch(() => null))?.docs ?? [];
+
+  const users = await a.db.collection("push").get();
+  let sent = 0;
+  for (const u of users.docs) {
+    const d = u.data();
+    const tokens = ((d.tokens as string[]) ?? []).filter(Boolean);
+    if (!tokens.length) continue;
+    const prefs = (d.prefs ?? {}) as Prefs;
+    const tz = String(d.tz || "Africa/Lagos");
+    const t = local(now, tz);
+    const done = (d.sent?.day === t.date ? d.sent.keys : {}) as Record<string, boolean>;
+    const out: { key: string; title: string; body: string; url: string }[] = [];
+
+    if (prefs.wisdom && due(t.mins, WISDOM_AT) && !done.wisdom) out.push({ key: "wisdom", title: "🌅 Today’s Daily Wisdom", body: await wisdomFor(t.date), url: "/app?s=home" });
+    if (prefs.kahf && t.weekday === "Fri" && due(t.mins, KAHF_AT) && !done.kahf) out.push({ key: "kahf", title: "📖 Jumu‘ah Mubarak", body: "Don’t forget to read Surah Al-Kahf today.", url: "/app?s=home" });
+    if (prefs.streak && due(t.mins, STREAK_AT) && !done.streak) {
+      const lastSeen = Number((await a.db.doc(`players/${u.id}`).get()).get("lastSeen") ?? 0);
+      if (local(new Date(lastSeen || 0), tz).date !== t.date) {
+        const count = Number(((await a.db.doc(`profiles/${u.id}`).get()).get("streak") as { count?: number } | undefined)?.count ?? 0);
+        out.push({ key: "streak", title: count > 1 ? `🔥 Keep your ${count}-day streak!` : "🔥 A little learning today?", body: "Open IlmStation for a quick quiz or today’s wisdom.", url: "/app" });
+      }
+    }
+    if (prefs.ramadan) for (const r of opened) if (!done[`ramadan${r.id}`]) out.push({ key: `ramadan${r.id}`, title: `🏆 Day ${r.id} prize quiz is open`, body: r.get("prize") ? `Answer quickly to win ${r.get("prize")}.` : "Answer quickly to win today’s prizes.", url: "/app?s=ramadan" });
+    if (prefs.prayer && typeof d.lat === "number" && typeof d.lng === "number") {
+      let times = d.times as { day: string; tz: string; list: Record<string, number> } | undefined;
+      if (!times || times.day !== t.date) {
+        try {
+          const m = /^\d+$/.test(String(d.method ?? "")) ? `&method=${d.method}` : "";
+          const j = (await (await fetch(`https://api.aladhan.com/v1/timings/${t.dmy}?latitude=${d.lat}&longitude=${d.lng}${m}`)).json()) as { data?: { timings?: Record<string, string>; meta?: { timezone?: string } } };
+          const list = Object.fromEntries(PRAYERS.map((p) => [p, hm(j.data?.timings?.[p] ?? "")]));
+          times = { day: t.date, tz: j.data?.meta?.timezone || tz, list };
+          await u.ref.set({ times }, { merge: true });
+        } catch { times = undefined; }
+      }
+      if (times) {
+        const pt = local(now, times.tz);
+        for (const p of PRAYERS) if (times.list[p] >= 0 && pt.mins >= times.list[p] && pt.mins < times.list[p] + 10 && !done[`p${p}`])
+          out.push({ key: `p${p}`, title: `🕌 It’s time for ${p}`, body: "Hayya ‘ala-s-salah. Come to prayer.", url: "/app?s=home" });
+      }
+    }
+    if (!out.length) continue;
+
+    const bad = new Set<string>();
+    for (const m of out) {
+      const r = await messaging.sendEachForMulticast({ tokens, data: { title: m.title, body: m.body, url: m.url, tag: m.key }, webpush: { headers: { Urgency: "high", TTL: "3600" } } }).catch(() => null);
+      r?.responses.forEach((x, i) => { const c = x.error?.code ?? ""; if (c.includes("registration-token-not-registered") || c.includes("invalid-registration-token") || c.includes("invalid-argument")) bad.add(tokens[i]); });
+      if (r?.successCount) sent++;
+      done[m.key] = true;
+    }
+    await u.ref.set({ sent: { day: t.date, keys: done }, ...(bad.size ? { tokens: tokens.filter((x) => !bad.has(x)) } : {}) }, { merge: true });
+  }
+  return json({ ok: true, sent });
+}

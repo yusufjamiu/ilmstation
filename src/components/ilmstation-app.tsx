@@ -1,3 +1,4 @@
+import { NotifyCard } from "@/components/notify";
 import { InstallBanner, InstallCard } from "@/components/install-app";
 import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
@@ -157,6 +158,7 @@ export function IlmStationApp() {
         {screen === "cards" && <CardsScreen />}
         {screen === "family" && <FamilyScreen />}
         {screen === "settings" && <SettingsScreen onOnboarding={() => setOnboarding(true)} />}
+        {screen === "settings" && <NotifyCard />}
         {screen === "settings" && <InstallCard />}
         {screen === "settings" && <DeleteMyAccount />}
       </main>
