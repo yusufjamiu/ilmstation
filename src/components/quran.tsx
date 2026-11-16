@@ -45,8 +45,7 @@ const GOLD = "var(--mus-gold)";
 if (typeof document !== "undefined" && !document.getElementById("mushaf-colors")) {
   const st = document.createElement("style"); st.id = "mushaf-colors";
   st.textContent = `:root{--mus-paper:var(--mus-paper);--mus-ink:#1b1a17;--mus-muted:#6b5520;--mus-band:#f3e8c6;--mus-gold:#9a7b2f}
-.dark,[data-theme="dark"]{--mus-paper:#1c1812;--mus-ink:#efe6d2;--mus-muted:#d1b46c;--mus-band:#2b2417;--mus-gold:#b8964a}
-@media (prefers-color-scheme:dark){:root:not(.light):not([data-theme="light"]){--mus-paper:#1c1812;--mus-ink:#efe6d2;--mus-muted:#d1b46c;--mus-band:#2b2417;--mus-gold:#b8964a}}`;
+.dark,[data-theme="dark"]{--mus-paper:#1c1812;--mus-ink:#efe6d2;--mus-muted:#d1b46c;--mus-band:#2b2417;--mus-gold:#b8964a}`;
   document.head.appendChild(st);
 }
 const QFONT = '"Amiri Quran","Amiri",serif';
@@ -281,7 +280,7 @@ function Tilawah() {
     return () => { cancelled = true; };
   }, [page, tick]);
 
-  const go = (p: number) => { if (p >= 1 && p <= TOTAL_PAGES) { setPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); } };
+  const go = (p: number) => { if (p >= 1 && p <= TOTAL_PAGES) setPage(p); };
   const currentSurah = ayahs?.[0]?.surah ?? 1;
   return <div className="mt-4 min-w-0 space-y-4">
     <section className={cn(panel, "space-y-3")}>
