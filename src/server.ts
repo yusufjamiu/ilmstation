@@ -105,6 +105,8 @@ export default {
       return import("./lib/premium-server").then((m) => m.handlePremium(request));
     if (url.pathname === "/api/family")
       return import("./lib/family-server").then((m) => m.handleFamily(request));
+    if (url.pathname === "/api/version")
+      return new Response(JSON.stringify({ v: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "dev" }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
     if (url.pathname === "/api/reset")
       return import("./lib/reset-server").then((m) => m.handleReset(request));
     if (url.pathname === "/api/img")
