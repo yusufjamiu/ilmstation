@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { IlmStationApp } from "@/components/ilmstation-app";
+import { AppGate } from "@/components/app-gate";
 
 export const Route = createFileRoute("/app")({
   head:()=>({meta:[
@@ -8,5 +8,5 @@ export const Route = createFileRoute("/app")({
     {property:"og:title",content:"Today’s Quest — IlmStation Dashboard"},
     {property:"og:description",content:"Continue your daily Islamic learning journey."},
     {property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"},
-  ]}),component:IlmStationApp,
+  ]}),component:AppGate,
 });
