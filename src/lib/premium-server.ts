@@ -152,13 +152,15 @@ export async function handlePremium(request: Request): Promise<Response> {
   if (action === "pushRegister" || action === "pushGet" || action === "pushPrefs") {
     const pref = a.db.doc(`push/${uid}`);
     const cur = (await pref.get()).data() ?? {};
-    const defaults = { wisdom: true, prayer: true, streak: true, kahf: true, ramadan: true };
+    const defaults = { wisdom: true, prayer: true, streak: true, kahf: true, ramadan: true, tilawah: false };
     const prefsNow = { ...defaults, ...((cur.prefs as object) ?? {}) };
-    if (action === "pushGet") return json({ ok: true, on: ((cur.tokens as string[]) ?? []).length > 0, prefs: prefsNow, hasLocation: typeof cur.lat === "number" });
+    if (action === "pushGet") return json({ ok: true, on: ((cur.tokens as string[]) ?? []).length > 0, prefs: prefsNow, hasLocation: typeof cur.lat === "number", tilawahAt: cur.tilawahAt ?? "05:30", tilawahDays: cur.tilawahDays ?? [0, 1, 2, 3, 4, 5, 6] });
     if (action === "pushPrefs") {
       const p = (data.prefs ?? {}) as Record<string, unknown>;
       const next = Object.fromEntries(Object.keys(defaults).map((k) => [k, p[k] !== false]));
-      await pref.set({ prefs: next }, { merge: true });
+      const tAt = /^\d{2}:\d{2}$/.test(String(data.tilawahAt ?? "")) ? String(data.tilawahAt) : (cur.tilawahAt ?? "05:30");
+      const tDays = Array.isArray(data.tilawahDays) ? (data.tilawahDays as unknown[]).map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6) : (cur.tilawahDays ?? [0, 1, 2, 3, 4, 5, 6]);
+      await pref.set({ prefs: next, tilawahAt: tAt, tilawahDays: tDays }, { merge: true });
       return json({ ok: true, prefs: next });
     }
     const token = String(data.token ?? "");

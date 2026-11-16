@@ -5,7 +5,7 @@ import { admin } from "./money-server";
 
 /** Called every minute by cron-job.org: sends whatever notifications are due. */
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "content-type": "application/json" } });
-type Prefs = { wisdom: boolean; prayer: boolean; streak: boolean; kahf: boolean; ramadan: boolean };
+type Prefs = { wisdom: boolean; prayer: boolean; streak: boolean; kahf: boolean; ramadan: boolean; tilawah?: boolean };
 const WISDOM_AT = 7 * 60 + 30, STREAK_AT = 19 * 60, KAHF_AT = 9 * 60, WINDOW = 15;
 const PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
 
@@ -79,6 +79,15 @@ export async function handleNotify(request: Request): Promise<Response> {
 
     if (prefs.wisdom && due(t.mins, WISDOM_AT) && !done.wisdom) out.push({ key: "wisdom", title: "🌅 Today’s Daily Wisdom", body: await wisdomFor(t.date), url: "/app?s=home" });
     if (prefs.kahf && t.weekday === "Fri" && due(t.mins, KAHF_AT) && !done.kahf) out.push({ key: "kahf", title: "📖 Jumu‘ah Mubarak", body: "Don’t forget to read Surah Al-Kahf today.", url: "/app?s=home" });
+    if (prefs.tilawah && !done.tilawah) {
+      const at = hm(String(d.tilawahAt ?? "05:30"));
+      const days = (d.tilawahDays as number[] | undefined) ?? [0, 1, 2, 3, 4, 5, 6];
+      const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(t.weekday);
+      if (at >= 0 && days.includes(wd) && due(t.mins, at)) {
+        const pg = Number(((await a.db.doc(`hifz/${u.id}`).get()).get("tilawah") as { page?: number } | undefined)?.page ?? 0);
+        out.push({ key: "tilawah", title: "📖 Time for your daily tilawah", body: pg > 1 ? `Continue from page ${pg}. A few pages bring light to your day.` : "Open the Qur’an and read a few pages today.", url: "/app?s=hifz" });
+      }
+    }
     if (prefs.streak && due(t.mins, STREAK_AT) && !done.streak) {
       const lastSeen = Number((await a.db.doc(`players/${u.id}`).get()).get("lastSeen") ?? 0);
       if (local(new Date(lastSeen || 0), tz).date !== t.date) {

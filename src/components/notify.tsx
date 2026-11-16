@@ -5,10 +5,11 @@ import { toast } from "sonner";
 import { callPremium } from "@/components/premium";
 
 /** Settings → Notifications: turn on push, choose which ones. */
-type Prefs = { wisdom: boolean; prayer: boolean; streak: boolean; kahf: boolean; ramadan: boolean };
+type Prefs = { wisdom: boolean; prayer: boolean; streak: boolean; kahf: boolean; ramadan: boolean; tilawah: boolean };
 const LABELS: [keyof Prefs, string, string][] = [
   ["wisdom", "🌅 Daily Wisdom", "Every morning at 7:30"],
   ["prayer", "🕌 Prayer times", "At each of the five prayers"],
+  ["tilawah", "📖 Daily tilawah", "At the time you choose below"],
   ["streak", "🔥 Streak reminder", "In the evening, if you haven't learned yet"],
   ["kahf", "📖 Friday Al-Kahf", "Friday morning"],
   ["ramadan", "🏆 Ramadan prize quiz", "When each day's quiz opens"],
@@ -41,14 +42,17 @@ export function NotifyCard() {
   const [state, setState] = useState<"loading" | "off" | "on" | "unsupported" | "denied">("loading");
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [hasLoc, setHasLoc] = useState(true);
+  const [tAt, setTAt] = useState("05:30");
+  const [tDays, setTDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     void (async () => {
       const ok = (await isSupported().catch(() => false)) && "Notification" in window && "serviceWorker" in navigator;
       if (!ok) { setState("unsupported"); return; }
       if (Notification.permission === "denied") { setState("denied"); return; }
-      const r = (await callPremium("pushGet", {})) as { ok?: boolean; on?: boolean; prefs?: Prefs; hasLocation?: boolean };
+      const r = (await callPremium("pushGet", {})) as { ok?: boolean; on?: boolean; prefs?: Prefs; hasLocation?: boolean; tilawahAt?: string; tilawahDays?: number[] };
       setPrefs(r.prefs ?? null); setHasLoc(r.hasLocation !== false);
+      if (r.tilawahAt) setTAt(r.tilawahAt); if (r.tilawahDays) setTDays(r.tilawahDays);
       setState(r.on && Notification.permission === "granted" ? "on" : "off");
     })();
   }, []);
@@ -66,7 +70,7 @@ export function NotifyCard() {
     if (!prefs) return;
     const next = { ...prefs, [k]: v };
     setPrefs(next);
-    const r = await callPremium("pushPrefs", { prefs: next });
+    const r = await callPremium("pushPrefs", { prefs: next, tilawahAt: tAt, tilawahDays: tDays });
     if (!r.ok) toast.error("Couldn't save.");
   };
   return <div className="mt-6 border-2 border-foreground p-5">
@@ -81,6 +85,12 @@ export function NotifyCard() {
         <span><b className="text-sm">{t}</b><br /><span className="text-xs text-muted-foreground">{k === "prayer" && !hasLoc ? "Needs your location: tap “Update” below" : d}</span></span>
         <input type="checkbox" className="size-5" checked={prefs[k]} onChange={(e) => void toggle(k, e.target.checked)} />
       </label>)}</div>
+      {prefs.tilawah && <div className="mt-2 grid gap-2 border-2 border-foreground bg-muted p-3">
+        <label className="flex items-center justify-between gap-3 text-sm font-semibold">Tilawah time
+          <input type="time" value={tAt} onChange={(e) => setTAt(e.target.value)} onBlur={() => void callPremium("pushPrefs", { prefs, tilawahAt: tAt, tilawahDays: tDays }).then((r) => r.ok ? toast.success("Tilawah time saved") : toast.error("Couldn't save."))} className="h-9 border-2 border-foreground bg-background px-2" />
+        </label>
+        <div className="flex flex-wrap gap-1">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => { const on = tDays.includes(i); return <button key={d} onClick={() => { const next = on ? tDays.filter((x) => x !== i) : [...tDays, i].sort(); setTDays(next); void callPremium("pushPrefs", { prefs, tilawahAt: tAt, tilawahDays: next }); }} className={`border-2 border-foreground px-2 py-1 text-xs font-bold ${on ? "bg-primary" : "bg-background"}`}>{d}</button>; })}</div>
+      </div>}
       <div className="mt-3 flex flex-wrap gap-4">
         <button onClick={() => void callPremium("pushTest", {}).then((r) => r.ok ? toast.success("Test sent. Check your notifications.") : toast.error(r.error ?? "Couldn't send."))} className="border-2 border-foreground bg-primary px-3 py-1.5 text-sm font-bold">Send me a test</button>
         <button disabled={busy} onClick={() => void turnOn()} className="text-sm font-semibold underline">{busy ? "Updating…" : "Update this device and my location"}</button>
