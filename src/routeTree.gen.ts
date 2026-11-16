@@ -18,8 +18,11 @@ import { Route as CityRouteImport } from './routes/city'
 import { Route as EventsRouteImport } from './routes/events'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlayRouteImport } from './routes/play'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PrizeRulesRouteImport } from './routes/prize-rules'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SponsorshipRouteImport } from './routes/sponsorship'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as WorldRouteImport } from './routes/world'
 import { Route as AdminWorldRouteImport } from './routes/admin.world'
 
@@ -68,6 +71,16 @@ const PlayRoute = PlayRouteImport.update({
   path: '/play',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrizeRulesRoute = PrizeRulesRouteImport.update({
+  id: '/prize-rules',
+  path: '/prize-rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -76,6 +89,11 @@ const SignupRoute = SignupRouteImport.update({
 const SponsorshipRoute = SponsorshipRouteImport.update({
   id: '/sponsorship',
   path: '/sponsorship',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorldRoute = WorldRouteImport.update({
@@ -99,8 +117,11 @@ export interface FileRoutesByFullPath {
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
+  '/privacy': typeof PrivacyRoute
+  '/prize-rules': typeof PrizeRulesRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/terms': typeof TermsRoute
   '/world': typeof WorldRoute
   '/admin/world': typeof AdminWorldRoute
 }
@@ -114,8 +135,11 @@ export interface FileRoutesByTo {
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
+  '/privacy': typeof PrivacyRoute
+  '/prize-rules': typeof PrizeRulesRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/terms': typeof TermsRoute
   '/world': typeof WorldRoute
   '/admin/world': typeof AdminWorldRoute
 }
@@ -130,8 +154,11 @@ export interface FileRoutesById {
   '/events': typeof EventsRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
+  '/privacy': typeof PrivacyRoute
+  '/prize-rules': typeof PrizeRulesRoute
   '/signup': typeof SignupRoute
   '/sponsorship': typeof SponsorshipRoute
+  '/terms': typeof TermsRoute
   '/world': typeof WorldRoute
   '/admin/world': typeof AdminWorldRoute
 }
@@ -147,8 +174,11 @@ export interface FileRouteTypes {
     | '/events'
     | '/login'
     | '/play'
+    | '/privacy'
+    | '/prize-rules'
     | '/signup'
     | '/sponsorship'
+    | '/terms'
     | '/world'
     | '/admin/world'
   fileRoutesByTo: FileRoutesByTo
@@ -162,8 +192,11 @@ export interface FileRouteTypes {
     | '/events'
     | '/login'
     | '/play'
+    | '/privacy'
+    | '/prize-rules'
     | '/signup'
     | '/sponsorship'
+    | '/terms'
     | '/world'
     | '/admin/world'
   id:
@@ -177,8 +210,11 @@ export interface FileRouteTypes {
     | '/events'
     | '/login'
     | '/play'
+    | '/privacy'
+    | '/prize-rules'
     | '/signup'
     | '/sponsorship'
+    | '/terms'
     | '/world'
     | '/admin/world'
   fileRoutesById: FileRoutesById
@@ -193,8 +229,11 @@ export interface RootRouteChildren {
   EventsRoute: typeof EventsRoute
   LoginRoute: typeof LoginRoute
   PlayRoute: typeof PlayRoute
+  PrivacyRoute: typeof PrivacyRoute
+  PrizeRulesRoute: typeof PrizeRulesRoute
   SignupRoute: typeof SignupRoute
   SponsorshipRoute: typeof SponsorshipRoute
+  TermsRoute: typeof TermsRoute
   WorldRoute: typeof WorldRoute
 }
 
@@ -263,6 +302,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prize-rules': {
+      id: '/prize-rules'
+      path: '/prize-rules'
+      fullPath: '/prize-rules'
+      preLoaderRoute: typeof PrizeRulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -275,6 +328,13 @@ declare module '@tanstack/react-router' {
       path: '/sponsorship'
       fullPath: '/sponsorship'
       preLoaderRoute: typeof SponsorshipRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/world': {
@@ -314,8 +374,11 @@ const rootRouteChildren: RootRouteChildren = {
   EventsRoute: EventsRoute,
   LoginRoute: LoginRoute,
   PlayRoute: PlayRoute,
+  PrivacyRoute: PrivacyRoute,
+  PrizeRulesRoute: PrizeRulesRoute,
   SignupRoute: SignupRoute,
   SponsorshipRoute: SponsorshipRoute,
+  TermsRoute: TermsRoute,
   WorldRoute: WorldRoute,
 }
 export const routeTree = rootRouteImport

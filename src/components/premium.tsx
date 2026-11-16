@@ -266,5 +266,6 @@ export function DeleteMyAccount() {
     <p className="font-serif text-2xl">Delete my account</p>
     <p className="mt-1 text-sm text-muted-foreground">Permanently removes your account and everything in it: progress, XP, points, Premium and saved books. Payment records are kept for our accounts.</p>
     <button disabled={busy} onClick={() => void del()} className="mt-4 border-2 border-destructive px-4 py-2 text-sm font-bold text-destructive disabled:opacity-50">{busy ? "Deleting…" : "Delete my account"}</button>
+    <p className="mt-4 flex flex-wrap gap-4 text-sm font-semibold"><a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a><a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms of Use</a><a href="/prize-rules" target="_blank" rel="noreferrer" className="underline">Prize Rules</a></p>
   </div>;
 }
