@@ -483,6 +483,11 @@ async function resetPassword() {
   const entered = window.prompt("Enter the email you use for IlmStation. We'll send you a link to set a new password.")?.trim().toLowerCase();
   if (!entered) return;
   if (!entered.includes("@")) { toast("Children's passwords are reset by their parent in Family hub."); return; }
-  try { await sendPasswordResetEmail(resetAuth, entered, { url: "https://www.ilmstation.com/login" }); } catch { /* same message either way */ }
+  try { await sendPasswordResetEmail(resetAuth, entered, { url: "https://www.ilmstation.com/login" }); }
+  catch (e) {
+    const code = (e as { code?: string }).code ?? "";
+    console.error("Password reset failed:", e);
+    if (code && code !== "auth/user-not-found") { toast.error(`Couldn't send the reset email (${code}). Please try again later.`); return; }
+  }
   toast.success("If an account uses this email, a reset link is on its way. Check your inbox and spam folder.");
 }
