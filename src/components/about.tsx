@@ -1,3 +1,4 @@
+import { collection as fsCol, limit as fsLimit, onSnapshot as fsSnap, orderBy as fsOrder, query as fsQuery, updateDoc as fsUpdate } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
@@ -9,7 +10,7 @@ import { Page, Panel } from "@/components/admin/ui";
 
 type Advisor = { id: string; name: string; title: string; bio: string; photoUrl: string };
 type Partner = { id: string; name: string; kind: string; url: string; logoUrl: string };
-type About = { mission: string; team: Advisor[]; advisors: Advisor[]; partners: Partner[] };
+type About = { mission: string; team: Advisor[]; advisors: Advisor[]; partners: Partner[]; flyerTitle: string; flyerPoints: string[] };
 
 const DEFAULT_MISSION = `IlmStation is a home for Islamic learning, built for Muslim families. We want every child, teen and adult to learn a little every day, in a way that is joyful, trustworthy and close to the Qur'an and Sunnah.
 
@@ -17,6 +18,95 @@ We bring together daily reminders, quizzes, a library of books and audiobooks, Q
 
 IlmStation is built in Nigeria by IlmStation Limited, with care for authentic sources, good manners and the safety of children.`;
 const KINDS = ["Masjid", "School", "Madrasah", "MSSN", "Sponsor", "Organisation"];
+const ENQUIRY_KINDS = ["Masjid", "School", "Madrasah", "MSSN", "Scholar or teacher", "Sponsor", "Other"];
+const FLYER_TITLE = "Bring IlmStation to your community";
+const FLYER_POINTS = ["Daily Islamic learning for kids, teens and adults", "Quizzes, library, Qur'an memorisation and lessons", "Free Premium seats for your students", "Your name on our partners page"];
+
+/** Draw the square partnership flyer. */
+function drawFlyer(c: HTMLCanvasElement, title: string, points: string[]) {
+  const W = 1080; c.width = W; c.height = W;
+  const x = c.getContext("2d"); if (!x) return;
+  const wrap = (text: string, maxW: number) => { const out: string[] = []; let line = ""; for (const w of text.split(" ")) { const t = line ? `${line} ${w}` : w; if (x.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t; } if (line) out.push(line); return out; };
+  x.fillStyle = "#e8c25b"; x.fillRect(0, 0, W, W);
+  x.fillStyle = "#1c1a17"; x.fillRect(74, 74, W - 128, W - 128);
+  x.fillStyle = "#f7f3ea"; x.fillRect(54, 54, W - 128, W - 128);
+  x.lineWidth = 8; x.strokeStyle = "#1c1a17"; x.strokeRect(54, 54, W - 128, W - 128);
+  x.fillStyle = "#e8c25b"; x.fillRect(110, 120, 420, 64); x.strokeRect(110, 120, 420, 64);
+  x.fillStyle = "#1c1a17"; x.font = "bold 34px Arial, sans-serif"; x.textBaseline = "middle"; x.fillText("PARTNER WITH US", 140, 153);
+  x.textBaseline = "alphabetic"; x.font = "76px Georgia, serif";
+  let y = 300; for (const l of wrap(title, 820)) { x.fillText(l, 110, y); y += 88; }
+  y += 20; x.font = "38px Arial, sans-serif";
+  for (const p of points.slice(0, 5)) { x.fillStyle = "#1c1a17"; x.fillRect(110, y - 30, 30, 30); x.fillStyle = "#e8c25b"; x.font = "bold 26px Arial"; x.fillText("✓", 114, y - 6); x.fillStyle = "#1c1a17"; x.font = "38px Arial, sans-serif"; for (const [i, l] of wrap(p, 760).entries()) { x.fillText(l, 165, y + i * 48); } y += 48 * wrap(p, 760).length + 26; }
+  x.fillStyle = "#1c1a17"; x.fillRect(110, 860, 80, 80); x.fillStyle = "#f7f3ea"; x.font = "56px Georgia, serif"; x.fillText("I", 138, 920);
+  x.fillStyle = "#1c1a17"; x.font = "46px Georgia, serif"; x.fillText("IlmStation", 210, 900);
+  x.font = "28px Arial, sans-serif"; x.fillText("ilmstation.com/about · admin@ilmstation.com", 210, 940);
+}
+async function flyerFile(title: string, points: string[]) {
+  const c = document.createElement("canvas"); drawFlyer(c, title, points);
+  return new Promise<File | null>((res) => c.toBlob((b) => res(b ? new File([b], "ilmstation-partner.png", { type: "image/png" }) : null), "image/png"));
+}
+async function downloadFlyer(title: string, points: string[]) {
+  const f = await flyerFile(title, points); if (!f) return;
+  const url = URL.createObjectURL(f); const link = document.createElement("a"); link.href = url; link.download = f.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** About page: flyer + "Partner with us" form. */
+function PartnerSection({ title, points }: { title: string; points: string[] }) {
+  const [f, setF] = useState({ name: "", org: "", kind: "Masjid", phone: "", email: "", message: "", website: "" });
+  const [busy, setBusy] = useState(false); const [done, setDone] = useState(false);
+  const canShare = typeof navigator !== "undefined" && "share" in navigator;
+  const send = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/partner", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) });
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (j.ok) setDone(true); else toast.error(j.error ?? "Couldn't send. Try again.");
+    } catch { toast.error("Couldn't send. Check your connection."); } finally { setBusy(false); }
+  };
+  const share = async () => { const file = await flyerFile(title, points); if (!file) return; try { await navigator.share({ files: [file], title: "Partner with IlmStation", text: "https://www.ilmstation.com/about" }); } catch { /* cancelled */ } };
+  return <section className="mt-16 grid gap-6 border-2 border-foreground bg-primary p-6 shadow-brutal lg:grid-cols-2">
+    <div>
+      <h2 className="font-serif text-4xl">Partner with us</h2>
+      <p className="mt-2">Are you a masjid, school, madrasah, MSSN branch or organisation that would like to work with IlmStation, or a scholar who would like to help review content? We would love to hear from you.</p>
+      <ul className="mt-4 space-y-2 text-sm">{points.map((p) => <li key={p} className="flex gap-2"><span className="font-bold">✓</span>{p}</li>)}</ul>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button onClick={() => void downloadFlyer(title, points)} className="border-2 border-foreground bg-background px-4 py-2 font-bold">📥 Download flyer</button>
+        {canShare && <button onClick={() => void share()} className="border-2 border-foreground bg-background px-4 py-2 font-bold">Share</button>}
+      </div>
+      <p className="mt-2 text-xs">A square image to share on WhatsApp and social media.</p>
+    </div>
+    <div className="border-2 border-foreground bg-background p-4">
+      {done ? <div className="py-6 text-center"><p className="text-4xl">✅</p><p className="mt-2 font-serif text-3xl">Thank you!</p><p className="mt-1 text-sm">We’ll be in touch soon, in shaa Allah.</p></div> : <div className="grid gap-2">
+        <input className={box} placeholder="Your name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <div className="grid gap-2 sm:grid-cols-[1fr_11rem]"><input className={box} placeholder="Organisation (optional)" value={f.org} onChange={(e) => setF({ ...f, org: e.target.value })} />
+          <select className={box} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{ENQUIRY_KINDS.map((k) => <option key={k}>{k}</option>)}</select></div>
+        <div className="grid gap-2 sm:grid-cols-2"><input className={box} inputMode="tel" placeholder="Phone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /><input className={box} type="email" placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
+        <textarea className="min-h-24 w-full border-2 border-foreground bg-background p-2 text-sm" placeholder="How would you like to work together?" value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} />
+        <input className="hidden" tabIndex={-1} autoComplete="off" value={f.website} onChange={(e) => setF({ ...f, website: e.target.value })} aria-hidden="true" />
+        <button disabled={busy} onClick={() => void send()} className="border-2 border-foreground bg-foreground px-4 py-2 font-bold text-background disabled:opacity-50">{busy ? "Sending…" : "Send message"}</button>
+      </div>}
+    </div>
+  </section>;
+}
+
+type Enquiry = { id: string; name: string; org: string; kind: string; phone: string; email: string; message: string; status: string; createdAt: number };
+/** Admin: partnership enquiries. */
+function Enquiries() {
+  const [rows, setRows] = useState<Enquiry[]>([]);
+  useEffect(() => fsSnap(fsQuery(fsCol(db, "partnerEnquiries"), fsOrder("createdAt", "desc"), fsLimit(50)), (s) => setRows(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Enquiry, "id">) }))), () => {}), []);
+  const fresh = rows.filter((r) => r.status === "new").length;
+  return <Panel title="Partnership enquiries" tag={fresh ? `${fresh} new` : `${rows.length} total`}>
+    {!rows.length ? <p className="text-sm text-muted-foreground">No enquiries yet. They arrive from the form on the About page.</p>
+    : <div className="grid gap-2">{rows.map((r) => <div key={r.id} className={`grid gap-1 border-2 border-foreground p-3 ${r.status === "new" ? "bg-primary/30" : ""}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="font-semibold">{r.org || r.name} <span className="font-normal text-muted-foreground">· {r.kind} · {new Date(r.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span></p>
+        <select className="h-9 border-2 border-foreground bg-background px-2 text-sm" value={r.status} onChange={(e) => { void fsUpdate(doc(db, "partnerEnquiries", r.id), { status: e.target.value }).catch(() => toast.error("Couldn't update.")); }}><option value="new">New</option><option value="contacted">Contacted</option><option value="closed">Closed</option></select>
+      </div>
+      <p className="text-sm">{r.name}{r.phone ? ` · ${r.phone}` : ""}{r.email ? ` · ${r.email}` : ""}</p>
+      {r.message && <p className="text-sm text-muted-foreground">“{r.message}”</p>}
+    </div>)}</div>}
+  </Panel>;
+}
 const box = "h-10 w-full border-2 border-foreground bg-background px-3 text-sm";
 const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -25,8 +115,8 @@ function useAbout() {
   useEffect(() => {
     getDoc(doc(db, "siteConfig", "about")).then((s) => {
       const d = (s.data() ?? {}) as Partial<About>;
-      setA({ mission: d.mission?.trim() ? d.mission : DEFAULT_MISSION, team: d.team ?? [], advisors: d.advisors ?? [], partners: d.partners ?? [] });
-    }).catch(() => setA({ mission: DEFAULT_MISSION, team: [], advisors: [], partners: [] }));
+      setA({ mission: d.mission?.trim() ? d.mission : DEFAULT_MISSION, team: d.team ?? [], advisors: d.advisors ?? [], partners: d.partners ?? [], flyerTitle: d.flyerTitle?.trim() ? d.flyerTitle : FLYER_TITLE, flyerPoints: d.flyerPoints?.length ? d.flyerPoints : FLYER_POINTS });
+    }).catch(() => setA({ mission: DEFAULT_MISSION, team: [], advisors: [], partners: [], flyerTitle: FLYER_TITLE, flyerPoints: FLYER_POINTS }));
   }, []);
   return a;
 }
@@ -75,11 +165,7 @@ export function AboutPage() {
           : <div key={p.id} className="border-2 border-foreground bg-background p-4 text-center shadow-brutal-sm">{inner}</div>; })}</div>
     </section>}
 
-    <section className="mt-16 border-2 border-foreground bg-primary p-6 shadow-brutal">
-      <h2 className="font-serif text-3xl">Partner with us</h2>
-      <p className="mt-2 max-w-2xl">Are you a masjid, school, madrasah, MSSN branch or organisation that would like to work with IlmStation, or a scholar who would like to help review content? We would love to hear from you.</p>
-      <a href="mailto:admin@ilmstation.com?subject=Partnering%20with%20IlmStation" className="mt-4 inline-block border-2 border-foreground bg-background px-4 py-2 font-bold">admin@ilmstation.com</a>
-    </section>
+    <PartnerSection title={a.flyerTitle} points={a.flyerPoints} />
   </main>;
 }
 
@@ -162,6 +248,12 @@ export function AboutSection() {
       </div>)}</div>
       <Button variant="outline" className="mt-3" onClick={() => setA({ ...a, partners: [...a.partners, { id: newId(), name: "", kind: "Masjid", url: "", logoUrl: "" }] })}><Plus /> Add partner</Button>
     </Panel></div>
+    <div className="mt-6"><Panel title="Partnership flyer" tag="On the About page">
+      <label className="block text-xs font-bold uppercase">Title<input className={box} value={a.flyerTitle} onChange={(e) => setA({ ...a, flyerTitle: e.target.value })} /></label>
+      <label className="mt-3 block text-xs font-bold uppercase">Points (one per line, up to 5)<textarea className="min-h-28 w-full border-2 border-foreground bg-background p-2 text-sm font-normal normal-case" value={a.flyerPoints.join("\n")} onChange={(e) => setA({ ...a, flyerPoints: e.target.value.split("\n").slice(0, 5) })} /></label>
+      <Button variant="outline" className="mt-3" onClick={() => void downloadFlyer(a.flyerTitle, a.flyerPoints.filter((x) => x.trim()))}>📥 Preview flyer</Button>
+    </Panel></div>
+    <div className="mt-6"><Enquiries /></div>
     <div className="mt-6 flex justify-end">{actions}</div>
   </Page>;
 }
