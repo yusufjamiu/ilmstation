@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 type Prompt = Event & { prompt: () => Promise<void>; userChoice: Promise<unknown> };
 let deferred: Prompt | null = null;
 if (typeof window !== "undefined") {
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e as Prompt; window.dispatchEvent(new Event("ilm-installable")); });
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e as Prompt; try { localStorage.removeItem("appInstalled"); } catch { /* ignore */ } window.dispatchEvent(new Event("ilm-installable")); });
 }
 
 function useInstall() {
@@ -14,12 +14,12 @@ function useInstall() {
     const nav = navigator as Navigator & { standalone?: boolean };
     const isApp = window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
     let known = false;
-    try { if (isApp) localStorage.setItem("appInstalled", "1"); known = localStorage.getItem("appInstalled") === "1"; } catch { /* ignore */ }
+    try { if (isApp) localStorage.setItem("appInstalled", "1"); known = localStorage.getItem("appInstalled") === "1" && !deferred; } catch { /* ignore */ }
     setEnv({ standalone: isApp || known, ios: /iphone|ipad|ipod/i.test(nav.userAgent) });
     const installed = () => { try { localStorage.setItem("appInstalled", "1"); } catch { /* ignore */ } setEnv((e) => ({ ...e, standalone: true })); };
     window.addEventListener("appinstalled", installed);
     setCan(!!deferred);
-    const on = () => setCan(true);
+    const on = () => { setCan(true); if (!window.matchMedia("(display-mode: standalone)").matches) setEnv((e) => ({ ...e, standalone: false })); };
     window.addEventListener("ilm-installable", on);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
     return () => { window.removeEventListener("ilm-installable", on); window.removeEventListener("appinstalled", installed); };
