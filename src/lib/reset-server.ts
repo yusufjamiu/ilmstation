@@ -22,10 +22,20 @@ export async function handleReset(request: Request): Promise<Response> {
   if (n >= 5) return json({ ok: true });
   await rref.set({ day, n: n + 1 });
   try {
-    const link = await a.auth.generatePasswordResetLink(email, { url: "https://www.ilmstation.com/login" });
+    let link = "";
+    try { link = await a.auth.generatePasswordResetLink(email, { url: "https://www.ilmstation.com/login" }); }
+    catch (e) {
+      const code = String((e as { code?: string }).code ?? "");
+      if (code.includes("user-not-found")) throw e;
+      console.error("Reset link with return page failed, trying without:", code, e);
+      link = await a.auth.generatePasswordResetLink(email);
+    }
     await sendEmail(email, "Reset your IlmStation password", layout("Reset your password",
       `<p>Assalamu alaikum. We received a request to reset the password for your IlmStation account.</p><p>Tap the button to choose a new password. The link works for 1 hour.</p><p style="font-size:13px;color:#6b6458">If you didn't ask for this, you can ignore this email. Your password won't change.</p>`,
       { label: "Set a new password", url: link }));
-  } catch { /* no account with this email: say nothing */ }
+  } catch (e) {
+    const code = String((e as { code?: string }).code ?? "");
+    if (!code.includes("user-not-found")) console.error("Password reset failed:", code, e);
+  }
   return json({ ok: true });
 }
