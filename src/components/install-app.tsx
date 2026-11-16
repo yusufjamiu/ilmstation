@@ -57,7 +57,7 @@ export function InstallCard() {
 }
 
 /** Website: a gentle "Get the app" bar on phones, after a short wait. Closed = hidden for 7 days. */
-export function InstallNudge({ delay = 8000 }: { delay?: number }) {
+export function InstallNudge({ delay = 2000 }: { delay?: number }) {
   const { can, install, standalone, ios } = useInstall();
   const [show, setShow] = useState(false);
   useEffect(() => {
