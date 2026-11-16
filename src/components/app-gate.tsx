@@ -50,7 +50,7 @@ function CompleteProfile() {
     setBusy(true);
     try {
       const email = (u.email ?? "").trim().toLowerCase();
-      await setDoc(doc(db, "profiles", u.uid), { name: name.trim(), email, language: "en", gender, zone, interests: [], level: "Beginner", quizScore: null, xp: 0, createdAt: new Date().toISOString() });
+      await setDoc(doc(db, "profiles", u.uid), { name: name.trim(), email, language: (() => { try { return sessionStorage.getItem("signupLang") || document.documentElement.lang || "en"; } catch { return "en"; } })(), gender, zone, interests: [], level: "Beginner", quizScore: null, xp: 0, createdAt: new Date().toISOString() });
       if (email) await setDoc(doc(db, "emails", email), { uid: u.uid }).catch(() => {});
       window.location.reload();
     } catch { toast.error("Couldn't save. Try again."); setBusy(false); }
