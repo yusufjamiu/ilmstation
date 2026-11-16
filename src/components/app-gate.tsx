@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { toast } from "sonner";
 import { auth, db } from "@/lib/firebase";
@@ -41,16 +41,21 @@ export function AppGate() {
 function CompleteProfile() {
   const u = auth.currentUser;
   const [name, setName] = useState(u?.displayName ?? "");
+  const [uname, setUname] = useState(((u?.email ?? "").split("@")[0] || (u?.displayName ?? "")).toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20));
   const [zone, setZone] = useState<"youth" | "adult" | "">("");
   const [gender, setGender] = useState<"male" | "female" | "">("");
   const [busy, setBusy] = useState(false);
   const save = async () => {
     if (!u) return;
-    if (name.trim().length < 2 || !zone || !gender) { toast.error("Please fill in all three."); return; }
+    if (name.trim().length < 2 || !zone || !gender) { toast.error("Please fill in your name, and choose Teen/Adult and Brother/Sister."); return; }
+    const un = uname.trim().toLowerCase();
+    if (!/^[a-z0-9_]{3,20}$/.test(un)) { toast.error("Username: 3–20 letters, numbers or _ (no spaces)."); return; }
     setBusy(true);
     try {
       const email = (u.email ?? "").trim().toLowerCase();
-      await setDoc(doc(db, "profiles", u.uid), { name: name.trim(), email, language: (() => { try { return sessionStorage.getItem("signupLang") || document.documentElement.lang || "en"; } catch { return "en"; } })(), gender, zone, interests: [], level: "Beginner", quizScore: null, xp: 0, createdAt: new Date().toISOString() });
+      if ((await getDoc(doc(db, "usernames", un))).exists()) { toast.error("That username is taken. Please choose another."); setBusy(false); return; }
+      await setDoc(doc(db, "usernames", un), { uid: u.uid });
+      await setDoc(doc(db, "profiles", u.uid), { name: name.trim(), username: un, email, language: (() => { try { return sessionStorage.getItem("signupLang") || document.documentElement.lang || "en"; } catch { return "en"; } })(), gender, zone, interests: [], level: "Beginner", quizScore: null, xp: 0, createdAt: new Date().toISOString() });
       if (email) await setDoc(doc(db, "emails", email), { uid: u.uid }).catch(() => {});
       window.location.reload();
     } catch { toast.error("Couldn't save. Try again."); setBusy(false); }
@@ -62,6 +67,8 @@ function CompleteProfile() {
       <h1 className="mt-6 font-serif text-5xl leading-none">Almost there!</h1>
       <p className="mt-2 text-muted-foreground">Tell us a little about you, so we can set up your learning.</p>
       <label className="mt-6 block text-xs font-bold uppercase">Your name<input className="mt-1 h-12 w-full border-2 border-foreground bg-background px-3 text-base font-normal normal-case" value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <label className="mt-4 block text-xs font-bold uppercase">Username<span className="mt-1 flex items-center border-2 border-foreground bg-background"><span className="pl-3 text-muted-foreground">@</span><input className="h-12 w-full bg-transparent px-1 text-base font-normal normal-case outline-none" value={uname} onChange={(e) => setUname(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20))} /></span></label>
+      <p className="mt-1 text-xs text-muted-foreground">Friends find you by this on the leaderboard and in duels.</p>
       <p className="mt-5 text-xs font-bold uppercase">I am a</p>
       <div className="mt-1 grid grid-cols-2 gap-2"><button className={pickBtn(zone === "youth")} onClick={() => setZone("youth")}>Teen (13–17)</button><button className={pickBtn(zone === "adult")} onClick={() => setZone("adult")}>Adult (18+)</button></div>
       <div className="mt-2 grid grid-cols-2 gap-2"><button className={pickBtn(gender === "male")} onClick={() => setGender("male")}>Brother</button><button className={pickBtn(gender === "female")} onClick={() => setGender("female")}>Sister</button></div>
