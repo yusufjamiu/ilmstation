@@ -105,6 +105,8 @@ export default {
       return import("./lib/premium-server").then((m) => m.handlePremium(request));
     if (url.pathname === "/api/family")
       return import("./lib/family-server").then((m) => m.handleFamily(request));
+    if (url.pathname === "/api/reset")
+      return import("./lib/reset-server").then((m) => m.handleReset(request));
     if (url.pathname === "/api/img")
       return import("./lib/img-server").then((m) => m.handleImg(request));
     if (url.pathname === "/api/partner")
