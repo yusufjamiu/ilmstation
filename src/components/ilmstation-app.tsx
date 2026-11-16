@@ -1,3 +1,4 @@
+import { InstallBanner, InstallCard } from "@/components/install-app";
 import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
 import { isQuote, lagosDate } from "@/lib/premium-config";
@@ -135,6 +136,7 @@ export function IlmStationApp() {
         </header>
         <PresenceBeat />
         <AdhanWatcher />
+        <InstallBanner />
         {screen === "home" && (isKid ? <KidHome go={selectScreen} /> : <HomeScreen go={selectScreen} onShare={openShare} />)}
         {screen === "kidgames" && <KidGames />}
         {screen === "games" && <KidGames audience="all" />}
@@ -155,6 +157,7 @@ export function IlmStationApp() {
         {screen === "cards" && <CardsScreen />}
         {screen === "family" && <FamilyScreen />}
         {screen === "settings" && <SettingsScreen onOnboarding={() => setOnboarding(true)} />}
+        {screen === "settings" && <InstallCard />}
         {screen === "settings" && <DeleteMyAccount />}
       </main>
     </div>
