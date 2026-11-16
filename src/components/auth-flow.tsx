@@ -1,3 +1,5 @@
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth as resetAuth } from "@/lib/firebase";
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -105,7 +107,7 @@ export function LoginPage() {
         <Field label="Email address" icon={AtSign}>
           <input type="text" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="Email (or username for children)" autoComplete="username" autoCapitalize="none" className={inputClass} />
         </Field>
-        <Field label="Password" icon={LockKeyhole} hint={<button type="button" onClick={() => toast("Password reset is coming soon.")} className="mt-1.5 text-sm font-semibold underline underline-offset-4">Forgot password?</button>}>
+        <Field label="Password" icon={LockKeyhole} hint={<button type="button" onClick={() => void resetPassword()} className="mt-1.5 text-sm font-semibold underline underline-offset-4">Forgot password?</button>}>
           <PasswordInput value={password} onChange={(v) => { setPassword(v); setError(""); }} placeholder="Your password" autoComplete="current-password" />
         </Field>
         {error && <p role="alert" className="border-2 border-destructive p-3 text-sm font-semibold text-destructive">{error}</p>}
@@ -474,4 +476,13 @@ function backToCity() {
   }
   window.location.href = "/world";
   return true;
+}
+
+/** "Forgot password?": email a reset link (children: their parent resets it in Family hub). */
+async function resetPassword() {
+  const entered = window.prompt("Enter the email you use for IlmStation. We'll send you a link to set a new password.")?.trim().toLowerCase();
+  if (!entered) return;
+  if (!entered.includes("@")) { toast("Children's passwords are reset by their parent in Family hub."); return; }
+  try { await sendPasswordResetEmail(resetAuth, entered, { url: "https://www.ilmstation.com/login" }); } catch { /* same message either way */ }
+  toast.success("If an account uses this email, a reset link is on its way. Check your inbox and spam folder.");
 }
