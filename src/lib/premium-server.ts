@@ -332,6 +332,10 @@ export async function handlePremium(request: Request): Promise<Response> {
   // a user deletes their own account
   if (action === "deleteMe") {
     if (String(data.confirm ?? "") !== "DELETE") return json({ ok: false, error: "Type DELETE to confirm." });
+    try {
+      const dec = await a.auth.verifyIdToken((request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""));
+      if (Date.now() / 1000 - Number(dec.auth_time ?? 0) > 300) return json({ ok: false, error: "Please confirm your password again." });
+    } catch { return json({ ok: false, error: "Please log in again." }, 401); }
     if ((await a.db.doc(`profiles/${uid}`).get()).get("managed")) return json({ ok: false, error: "Children’s accounts are deleted by their parent in Family hub." });
     if ((await a.db.doc(`admins/${uid}`).get()).get("role") === "owner" && (await a.db.collection("admins").where("role", "==", "owner").get()).size <= 1)
       return json({ ok: false, error: "You’re the only owner. Add another owner before deleting your account." });

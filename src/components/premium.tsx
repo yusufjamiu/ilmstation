@@ -1,3 +1,4 @@
+import { EmailAuthProvider, GoogleAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup } from "firebase/auth";
 import { useState as useLocalState } from "react";
 import { signOut as fbSignOut } from "firebase/auth";
 import { useSyncExternalStore } from "react";
@@ -248,24 +249,46 @@ export function MyCustomPlans() {
   </div>; })}</div>;
 }
 
-/** Settings: delete my account (app stores require this). */
+/** Settings: delete my account (type DELETE + confirm password, or Google). */
 export function DeleteMyAccount() {
+  const [open, setOpen] = useLocalState(false);
+  const [word, setWord] = useLocalState("");
+  const [pw, setPw] = useLocalState("");
   const [busy, setBusy] = useLocalState(false);
+  const [err, setErr] = useLocalState("");
+  const user = auth.currentUser;
+  const google = !!user?.providerData.some((p) => p.providerId === "google.com") && !user?.providerData.some((p) => p.providerId === "password");
   const del = async () => {
-    const typed = window.prompt("This permanently deletes your account, progress, points and Premium. It can’t be undone.\n\nType DELETE to confirm.");
-    if (typed === null) return;
-    if (typed !== "DELETE") { toast.error("Not deleted: you didn’t type DELETE."); return; }
-    setBusy(true);
+    if (!user) return;
+    if (word !== "DELETE") { setErr("Type DELETE in capital letters."); return; }
+    setBusy(true); setErr("");
+    try {
+      if (google) await reauthenticateWithPopup(user, new GoogleAuthProvider());
+      else await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email ?? "", pw));
+      await user.getIdToken(true);
+    } catch { setBusy(false); setErr(google ? "Google confirmation didn’t complete." : "That password isn’t right."); return; }
     const r = await callPremium("deleteMe", { confirm: "DELETE" });
-    setBusy(false);
-    if (!r.ok) { toast.error(r.error ?? "Couldn't delete your account."); return; }
+    if (!r.ok) { setBusy(false); setErr(r.error ?? "Couldn't delete your account."); return; }
     await fbSignOut(auth).catch(() => {});
     window.location.href = "/";
   };
   return <div className="mt-6 border-2 border-destructive p-5">
     <p className="font-serif text-2xl">Delete my account</p>
     <p className="mt-1 text-sm text-muted-foreground">Permanently removes your account and everything in it: progress, XP, points, Premium and saved books. Payment records are kept for our accounts.</p>
-    <button disabled={busy} onClick={() => void del()} className="mt-4 border-2 border-destructive px-4 py-2 text-sm font-bold text-destructive disabled:opacity-50">{busy ? "Deleting…" : "Delete my account"}</button>
+    <button onClick={() => { setOpen(true); setWord(""); setPw(""); setErr(""); }} className="mt-4 border-2 border-destructive px-4 py-2 text-sm font-bold text-destructive">Delete my account</button>
     <p className="mt-4 flex flex-wrap gap-4 text-sm font-semibold"><a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a><a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms of Use</a><a href="/prize-rules" target="_blank" rel="noreferrer" className="underline">Prize Rules</a></p>
+    {open && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => !busy && setOpen(false)}>
+      <div className="w-full max-w-md border-2 border-foreground bg-background p-5 shadow-brutal" onClick={(e) => e.stopPropagation()}>
+        <p className="font-serif text-3xl">Delete your account?</p>
+        <p className="mt-2 text-sm">This can’t be undone. Your progress, XP, points and Premium will be gone.</p>
+        <label className="mt-4 block text-xs font-bold uppercase">Type DELETE<input className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 text-sm" value={word} onChange={(e) => setWord(e.target.value)} autoCapitalize="characters" /></label>
+        {!google && <label className="mt-3 block text-xs font-bold uppercase">Your password<input type="password" autoComplete="current-password" className="mt-1 h-11 w-full border-2 border-foreground bg-background px-3 text-sm" value={pw} onChange={(e) => setPw(e.target.value)} /></label>}
+        {err && <p role="alert" className="mt-3 text-sm font-semibold text-destructive">{err}</p>}
+        <div className="mt-5 flex gap-2">
+          <button disabled={busy} onClick={() => setOpen(false)} className="flex-1 border-2 border-foreground px-4 py-2 font-semibold">Cancel</button>
+          <button disabled={busy || word !== "DELETE" || (!google && !pw)} onClick={() => void del()} className="flex-1 border-2 border-destructive bg-destructive px-4 py-2 font-bold text-white disabled:opacity-50">{busy ? "Deleting…" : google ? "Confirm with Google" : "Delete permanently"}</button>
+        </div>
+      </div>
+    </div>}
   </div>;
 }
