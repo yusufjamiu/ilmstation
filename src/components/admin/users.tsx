@@ -1,3 +1,4 @@
+import { useEffect as useEntEffect, useState as useEntState } from "react";
 import { callPremium } from "@/components/premium";
 import { Trash2 as DeleteIcon } from "lucide-react";
 import { toast as notify } from "sonner";
@@ -52,6 +53,8 @@ export function UsersSection() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [plan, setPlan] = useState<Plan | "all">("all");
+  const [ents, setEnts] = useEntState<Record<string, Ent>>({});
+  useEntEffect(() => { getDocs(collection(db, "entitlements")).then((snap) => setEnts(Object.fromEntries(snap.docs.map((d) => [d.id, d.data() as Ent])))).catch(() => {}); }, []);
   const [zone, setZone] = useState<string>("all");
   const [status, setStatus] = useState<Status | "all">("all");
   const [open, setOpen] = useState<User | null>(null);
@@ -83,7 +86,7 @@ export function UsersSection() {
     { key: "name", label: "User", render: (u) => <div className="min-w-0"><p className="font-semibold">{u.name}</p><p className="truncate text-xs text-muted-foreground">{u.email}</p></div> },
     { key: "zone", label: "Zone", render: (u) => zoneNames[u.zone] ?? "—" },
     { key: "gender", label: "Gender", render: (u) => <span className="capitalize">{u.gender || "—"}</span>, mobile: false },
-    { key: "plan", label: "Plan", render: (u) => planNames[u.plan] },
+    { key: "plan", label: "Premium", render: (u) => premLabel(ents[u.id]) },
     { key: "xp", label: "XP", render: (u) => <span className="tabular-nums">{u.xp.toLocaleString()}</span>, className: "text-right" },
     { key: "joined", label: "Joined", render: (u) => <span className="tabular-nums">{u.joined || "—"}</span>, mobile: false },
     { key: "status", label: "Status", render: (u) => <Pill value={u.status} /> },
@@ -142,4 +145,14 @@ export function UsersSection() {
     </Dialog>
     {dialog}
   </Page>;
+}
+
+type Ent = { premiumUntil?: number; familyUntil?: number; source?: string; plan?: string };
+/** Free, Trial, a paid plan, or Family, with the end date. */
+function premLabel(e?: Ent) {
+  const own = Number(e?.premiumUntil ?? 0), fam = Number(e?.familyUntil ?? 0), until = Math.max(own, fam);
+  if (until <= Date.now()) return "Free";
+  const d = new Date(until).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  if (fam > own) return `Family · ${d}`;
+  return `${e?.source === "trial" ? "Trial" : e?.plan || "Premium"} · ${d}`;
 }
