@@ -56,3 +56,35 @@ export async function handleEmailTest(request: Request): Promise<Response> {
   const result = await sendEmail(to, "IlmStation test email", layout("It works!", "<p>This is a test email from IlmStation.</p>"));
   return json({ to, result, hasKey: !!process.env.RESEND_API_KEY, from: process.env.EMAIL_FROM ?? "(EMAIL_FROM not set)" });
 }
+
+/** Every morning: "trial ends in 2 days" and "Premium ends in 3 days" emails (once each). */
+export async function handleDaily(request: Request): Promise<Response> {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return json({ error: "Not allowed" }, 401);
+  const a = await admin();
+  if (!a) return json({ error: "Server not set up" }, 500);
+  const DAY = 86_400_000, now = Date.now();
+  const snap = await a.db.collection("entitlements").where("premiumUntil", ">", now).where("premiumUntil", "<", now + 3 * DAY).get();
+  let sent = 0;
+  for (const d of snap.docs) {
+    const until = Number(d.get("premiumUntil") ?? 0);
+    const trial = d.get("source") === "trial";
+    const flag = trial ? "remindTrial" : "remindEnd";
+    if (Number(d.get(flag) ?? 0) === until) continue; // already reminded for this end date
+    if (trial && until - now > 2 * DAY) continue;      // trials: 2 days before
+    let to = "";
+    try { to = (await a.auth.getUser(d.id)).email ?? ""; } catch { continue; }
+    if (!to || to.endsWith("@kids.ilmstation.com")) continue;
+    const name = String((await a.db.doc(`profiles/${d.id}`).get()).get("name") ?? "").split(" ")[0];
+    const date = new Date(until).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    const ok = trial
+      ? await sendEmail(to, "Your free trial ends in 2 days", layout("Your free trial ends soon",
+          `<p>Assalamu alaikum${name ? ` ${esc(name)}` : ""}. Your free Premium trial ends on <b>${date}</b>.</p><p>Keep enjoying every Premium book, audiobook, lesson and game by choosing a plan. Monthly and yearly options are available.</p>`,
+          { label: "Choose a plan", url: "https://www.ilmstation.com/app?s=rewards" }))
+      : await sendEmail(to, "Your Premium ends in 3 days", layout("Your Premium ends soon",
+          `<p>Assalamu alaikum${name ? ` ${esc(name)}` : ""}. Your IlmStation Premium ends on <b>${date}</b>.</p><p>Renew to keep your Premium books, audio, lessons and games. Your progress is always kept.</p>`,
+          { label: "Renew Premium", url: "https://www.ilmstation.com/app?s=rewards" }));
+    if (ok === true) { await d.ref.set({ [flag]: until }, { merge: true }); sent++; }
+  }
+  return json({ ok: true, sent });
+}

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { esc, layout, sendEmail } from "./email-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { admin } from "./money-server";
@@ -72,6 +73,8 @@ export async function handlePremium(request: Request): Promise<Response> {
 
   // first visit: start the free trial (once); finish any payment left open
   if (action === "status") {
+    const emailKey = email ? createHash("sha256").update(email.toLowerCase()).digest("hex") : "";
+    const usedBefore = emailKey ? (await a.db.doc(`trialEmails/${emailKey}`).get()).exists : false;
     const isNew = await a.db.runTransaction(async (tx) => {
       const e = await tx.get(ref);
       if (e.exists && e.get("trialUsed")) return false;
@@ -83,8 +86,11 @@ export async function handlePremium(request: Request): Promise<Response> {
       }, { merge: true });
       return true;
     });
+    // this email already had a trial on an earlier (deleted) account: no new trial, no welcome
+    if (isNew && usedBefore) await ref.set({ premiumUntil: 0, source: "trial-used" }, { merge: true });
+    if (emailKey && !usedBefore) await a.db.doc(`trialEmails/${emailKey}`).set({ at: now });
     // first visit: welcome email (once)
-    if (isNew && email) {
+    if (isNew && email && !usedBefore) {
       const name = (((await a.db.doc(`profiles/${uid}`).get()).get("name") as string) ?? "").split(" ")[0] || "friend";
       const trialEnd = cfg.trialDays > 0 ? new Date(now + cfg.trialDays * DAY).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : "";
       await sendEmail(email, "Welcome to IlmStation", layout(`Welcome, ${name}!`,

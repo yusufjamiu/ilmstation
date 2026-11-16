@@ -1,0 +1,10 @@
+name: Daily reminders
+on:
+  schedule:
+    - cron: "0 7 * * *" # every day 07:00 UTC (8am in Nigeria)
+  workflow_dispatch: {}
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -X POST https://www.ilmstation.com/api/cron/daily -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
