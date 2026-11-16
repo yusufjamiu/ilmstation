@@ -50,3 +50,24 @@ export function InstallCard() {
       : <p className="mt-1 text-sm text-muted-foreground">Open ilmstation.com in Chrome (Android) or Safari (iPhone) to install it on your phone.</p>}
   </div>;
 }
+
+/** Website: a gentle "Get the app" bar on phones, after a short wait. Closed = hidden for 7 days. */
+export function InstallNudge({ delay = 20000 }: { delay?: number }) {
+  const { can, install, standalone, ios } = useInstall();
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let until = 0;
+    try { until = Number(localStorage.getItem("nudgeHiddenUntil") ?? 0); } catch { /* ignore */ }
+    if (Date.now() < until || window.innerWidth >= 768) return undefined;
+    const t = setTimeout(() => setShow(true), delay);
+    return () => clearTimeout(t);
+  }, [delay]);
+  if (!show || standalone || (!can && !ios)) return null;
+  const close = () => { setShow(false); try { localStorage.setItem("nudgeHiddenUntil", String(Date.now() + 7 * 86_400_000)); } catch { /* ignore */ } };
+  return <div className="fixed inset-x-3 bottom-3 z-50 flex items-center gap-3 border-2 border-foreground bg-primary p-3 shadow-brutal">
+    <span className="grid size-10 shrink-0 place-items-center border-2 border-foreground bg-foreground font-serif text-xl text-background">I</span>
+    <span className="min-w-0 flex-1 text-sm"><b>Get the IlmStation app</b><br />{can ? "Quick, full-screen learning on your phone." : <IosSteps />}</span>
+    {can && <button onClick={() => void install()} className="shrink-0 border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold">Install</button>}
+    <button onClick={close} aria-label="Close" className="shrink-0 border-2 border-foreground bg-background px-2.5 py-1.5 text-sm font-bold">✕</button>
+  </div>;
+}
