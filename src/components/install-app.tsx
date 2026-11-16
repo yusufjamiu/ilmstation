@@ -33,9 +33,9 @@ const IosSteps = () => <span>Tap <b>Share</b> <span aria-hidden>⬆️</span> at
 export function InstallBanner() {
   const { can, install, standalone, ios } = useInstall();
   const [hidden, setHidden] = useState(true);
-  useEffect(() => { try { setHidden(localStorage.getItem("installDismissed") === "1"); } catch { setHidden(false); } }, []);
+  useEffect(() => { try { setHidden(Date.now() < Number(localStorage.getItem("installHiddenUntil") ?? 0)); } catch { setHidden(false); } }, []);
   if (standalone || hidden || (!can && !ios)) return null;
-  const close = () => { setHidden(true); try { localStorage.setItem("installDismissed", "1"); } catch { /* ignore */ } };
+  const close = () => { setHidden(true); try { localStorage.setItem("installHiddenUntil", String(Date.now() + 7 * 86_400_000)); } catch { /* ignore */ } };
   return <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-primary p-3 shadow-brutal-sm">
     <span className="text-sm"><b>📲 Install IlmStation</b> on your phone for quick, full-screen access. {ios && !can && <IosSteps />}</span>
     <span className="flex gap-2">
