@@ -215,6 +215,7 @@ export function SignupFlow() {
 
   return <AuthShell mode="signup" aside={aside}>
     {step < steps.length - 1 && <StepHeader step={step} />}
+    {step <= 1 && <GoogleButton />}
     {step === 0 && <LanguageStep value={draft.language} onNext={(language) => { update({ language }); setLanguage(language); next(); }} />}
     {step === 1 && <AccountStep draft={draft} existingEmail={account?.email} serverError={accountError} onBack={back} onNext={(name, username, email) => { setAccountError(""); update({ name, username, email }); next(); }} />}
     {step === 2 && <PasswordStep onBack={back} onNext={(password) => { update({ password }); next(); }} />}
