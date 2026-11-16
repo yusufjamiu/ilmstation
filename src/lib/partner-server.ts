@@ -30,8 +30,8 @@ export async function handlePartner(request: Request): Promise<Response> {
   await a.db.collection("partnerEnquiries").add({ name, org, kind, phone, email, message, status: "new", createdAt: Date.now() });
   const summary = `<p><b>${esc(org || name)}</b>${kind ? ` · ${esc(kind)}` : ""}</p><p>${esc(name)}${phone ? ` · ${esc(phone)}` : ""}${email ? ` · ${esc(email)}` : ""}</p>${message ? `<p>“${esc(message)}”</p>` : ""}`;
   const team = await a.db.collection("admins").where("role", "in", ["owner", "admin"]).get();
-  await Promise.all(team.docs.map((d) => String(d.get("email") ?? "")).filter(Boolean).map((to) => sendEmail(to, `New partnership enquiry from ${org || name}`,
-    layout("New partnership enquiry", summary, { label: "Open the admin", url: "https://www.ilmstation.com/admin?section=about" }))));
+  await Promise.all(team.docs.map((d) => String(d.get("email") ?? "")).filter(Boolean).map((to) => sendEmail(to, `${kind === "Sponsor" ? "New sponsor enquiry" : "New partnership enquiry"} from ${org || name}`,
+    layout(kind === "Sponsor" ? "New sponsor enquiry" : "New partnership enquiry", summary, { label: "Open the admin", url: `https://www.ilmstation.com/admin?section=${kind === "Sponsor" ? "sponsors" : "about"}` }))));
   if (email) await sendEmail(email, "Thank you for reaching out to IlmStation", layout("Thank you for reaching out",
     `<p>Assalamu alaikum ${esc(name.split(" ")[0])}. Thank you for your interest in partnering with IlmStation. We've received your message and will be in touch soon, in shaa Allah.</p>${summary}`));
   return json({ ok: true });

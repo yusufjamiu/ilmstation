@@ -93,7 +93,7 @@ type Enquiry = { id: string; name: string; org: string; kind: string; phone: str
 /** Admin: partnership enquiries. */
 function Enquiries() {
   const [rows, setRows] = useState<Enquiry[]>([]);
-  useEffect(() => fsSnap(fsQuery(fsCol(db, "partnerEnquiries"), fsOrder("createdAt", "desc"), fsLimit(50)), (s) => setRows(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Enquiry, "id">) }))), () => {}), []);
+  useEffect(() => fsSnap(fsQuery(fsCol(db, "partnerEnquiries"), fsOrder("createdAt", "desc"), fsLimit(50)), (s) => setRows(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Enquiry, "id">) })).filter((r) => r.kind !== "Sponsor")), () => {}), []);
   const fresh = rows.filter((r) => r.status === "new").length;
   return <Panel title="Partnership enquiries" tag={fresh ? `${fresh} new` : `${rows.length} total`}>
     {!rows.length ? <p className="text-sm text-muted-foreground">No enquiries yet. They arrive from the form on the About page.</p>

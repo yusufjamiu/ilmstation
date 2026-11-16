@@ -1,3 +1,4 @@
+import { RealSponsors } from "./real-sponsors";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Mail } from "lucide-react";
@@ -22,6 +23,7 @@ export function SponsorsSection() {
   </div>;
   const active = sponsors.filter((s) => s.status === "active");
   if (tab === "tiers") return <SponsorTiersSection tabs={tabs} />;
+  if (tab === "sponsors") return <RealSponsors tabs={tabs} />;
 
   const move = (s: Sponsor, status: SponsorStatus) => {
     setSponsors((l) => l.map((x) => (x.id === s.id ? { ...x, status } : x)));
