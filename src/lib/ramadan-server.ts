@@ -132,13 +132,13 @@ export async function handleRamadanPayout(request: Request): Promise<Response> {
     return reply(401, { error: "signed-out" });
   }
 
-  let body: { action?: unknown; day?: unknown; bankCode?: unknown; accountNumber?: unknown; phone?: unknown };
+  let body: { action?: unknown; day?: unknown; bankCode?: unknown; accountNumber?: unknown; phone?: unknown; network?: unknown; address?: unknown; fullName?: unknown };
   try { body = await request.json(); } catch { return reply(400, { error: "bad-request" }); }
   const day = Number(body.day);
   const bankCode = typeof body.bankCode === "string" ? body.bankCode : "";
   const acct = typeof body.accountNumber === "string" ? body.accountNumber.trim() : "";
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-  if (!Number.isInteger(day) || day < 1 || day > 30 || !bankCode || !/^\d{10}$/.test(acct)) return reply(400, { error: "bad-request" });
+  if (!Number.isInteger(day) || day < 1 || day > 30) return reply(400, { error: "bad-request" });
 
   const db = a.db;
   // only real winners of that day, after results
@@ -148,6 +148,22 @@ export async function handleRamadanPayout(request: Request): Promise<Response> {
   const top = await db.collection(`ramadanResults/${day}/list`).orderBy("rankKey").limit(w).get();
   const winner = top.docs.some((x) => x.id === uid && x.get("correct") === true && x.get("recentWinner") !== true);
   if (!winner) return reply(403, { error: "not-winner" });
+
+  // airtime, data and gifts: phone, network or delivery address instead of a bank account
+  const prizeType = String(dd.get("prizeType") ?? "cash");
+  if (prizeType !== "cash") {
+    const network = typeof body.network === "string" ? body.network.trim().slice(0, 20) : "";
+    const address = typeof body.address === "string" ? body.address.trim().slice(0, 300) : "";
+    const fullName = typeof body.fullName === "string" ? body.fullName.trim().slice(0, 80) : "";
+    if (!/^\+?\d{7,15}$/.test(phone.replace(/[\s-]/g, ""))) return reply(400, { error: "bad-phone" });
+    if ((prizeType === "airtime" || prizeType === "data") && !network) return reply(400, { error: "bad-network" });
+    if (prizeType === "gift" && (!address || !fullName)) return reply(400, { error: "bad-address" });
+    const pid = `${day}_${uid}`;
+    if ((await db.doc(`ramadanPayouts/${pid}`).get()).get("paid") === true) return reply(409, { error: "paid" });
+    await db.doc(`ramadanPayouts/${pid}`).set({ uid, day: String(day), prizeType, phone, network, address, fullName, paid: false, at: Date.now() }, { merge: true });
+    return reply(200, { ok: true });
+  }
+  if (!bankCode || !/^\d{10}$/.test(acct)) return reply(400, { error: "bad-request" });
 
   const accountName = await resolveAccount(acct, bankCode);
   if (!accountName) return reply(400, { error: "bad-account" });
@@ -163,7 +179,7 @@ export async function handleRamadanPayout(request: Request): Promise<Response> {
 
   const bank = (await nigerianBanks()).find((b) => b.code === bankCode)?.name ?? bankCode;
   await db.doc(`ramadanPayouts/${id}`).set({
-    uid, day: String(day), accountName, bank, bankCode, accountNumber: acct, accountLast4: acct.slice(-4), phone, paid: false, at: Date.now(),
+    uid, day: String(day), prizeType: "cash", accountName, bank, bankCode, accountNumber: acct, accountLast4: acct.slice(-4), phone, paid: false, at: Date.now(),
   }, { merge: true });
   return reply(200, { ok: true, accountName });
 }

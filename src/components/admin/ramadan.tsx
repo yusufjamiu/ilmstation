@@ -11,12 +11,12 @@ type Config = { year: number; start: string; days: number; winCooldownDays?: num
 type QuizQ = { q: string; options: string[]; answer: number };
 type Form = {
   title: string; lesson: string; duaArabic: string; duaText: string; hadith: string; quiz: QuizQ[];
-  opens: string; results: string; maxEntries: number; winners: number; prize: string; sponsors: string;
+  opens: string; results: string; maxEntries: number; winners: number; prize: string; prizeType: string; sponsors: string;
 };
 type SavedDay = { title?: string; lesson?: string; duaArabic?: string; duaText?: string; hadith?: string; quiz?: { q: string; options: string[] }[];
-  opensAt?: number; resultsAt?: number; maxEntries?: number; winners?: number; prize?: string; sponsors?: string[] };
+  opensAt?: number; resultsAt?: number; maxEntries?: number; winners?: number; prize?: string; prizeType?: string; sponsors?: string[] };
 
-const EMPTY: Form = { title: "", lesson: "", duaArabic: "", duaText: "", hadith: "", quiz: [], opens: "", results: "", maxEntries: 1000, winners: 3, prize: "", sponsors: "" };
+const EMPTY: Form = { title: "", lesson: "", duaArabic: "", duaText: "", hadith: "", quiz: [], opens: "", results: "", maxEntries: 1000, winners: 3, prize: "", prizeType: "cash", sponsors: "" };
 const blankQ = (): QuizQ => ({ q: "", options: ["", "", "", ""], answer: 0 });
 const toInput = (ms?: number) => (ms ? new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -50,7 +50,7 @@ export function RamadanSection() {
       ...EMPTY, title: saved?.title ?? "", lesson: saved?.lesson ?? "", duaArabic: saved?.duaArabic ?? "", duaText: saved?.duaText ?? "", hadith: saved?.hadith ?? "",
       quiz: (saved?.quiz ?? []).map((q) => ({ q: q.q, options: [...q.options, "", "", "", ""].slice(0, 4), answer: 0 })),
       opens: toInput(saved?.opensAt), results: toInput(saved?.resultsAt), maxEntries: saved?.maxEntries ?? 1000, winners: saved?.winners ?? 3,
-      prize: saved?.prize ?? "", sponsors: (saved?.sponsors ?? []).join("\n"),
+      prize: saved?.prize ?? "", prizeType: saved?.prizeType ?? "cash", sponsors: (saved?.sponsors ?? []).join("\n"),
     };
     setForm(base);
     getDoc(doc(db, "ramadanKeys", String(day))).then((s) => {
@@ -95,7 +95,7 @@ export function RamadanSection() {
       await setDoc(doc(db, "ramadanDays", String(day)), {
         title: form.title.trim(), lesson: form.lesson.trim(), duaArabic: form.duaArabic.trim(), duaText: form.duaText.trim(), hadith: form.hadith.trim(),
         quiz: quiz.map(({ q, options }) => ({ q, options })), // answers are NOT stored here
-        ...(prizeOn ? { opensAt, resultsAt, maxEntries: Number(form.maxEntries), winners: Number(form.winners), prize: form.prize.trim(), sponsors } : {}),
+        ...(prizeOn ? { opensAt, resultsAt, maxEntries: Number(form.maxEntries), winners: Number(form.winners), prize: form.prize.trim(), prizeType: form.prizeType, sponsors } : {}),
       });
       await setDoc(doc(db, "ramadanKeys", String(day)), { answers: quiz.map((q) => q.answer) }); // admin-only until results time
       record(`Saved Ramadan day ${day}: ${form.title.trim()}`); toast.success(`Day ${day} saved`);
@@ -182,7 +182,8 @@ export function RamadanSection() {
               <Field label="Results shown (e.g. after Tarawih)"><input type="datetime-local" className={inputCls} value={form.results} onChange={(e) => setForm({ ...form, results: e.target.value })} /></Field>
               <Field label="Entry limit"><input type="number" min={1} className={inputCls} value={form.maxEntries} onChange={(e) => setForm({ ...form, maxEntries: Number(e.target.value) })} /></Field>
               <Field label="Number of winners"><input type="number" min={1} className={inputCls} value={form.winners} onChange={(e) => setForm({ ...form, winners: Number(e.target.value) })} /></Field>
-              <Field label="Prize (per winner)"><input className={inputCls} value={form.prize} onChange={(e) => setForm({ ...form, prize: e.target.value })} placeholder="e.g. ₦5,000 each" /></Field>
+              <Field label="Prize type"><select className={inputCls} value={form.prizeType} onChange={(e) => setForm({ ...form, prizeType: e.target.value })}><option value="cash">💵 Cash (bank transfer)</option><option value="airtime">📱 Airtime / recharge card</option><option value="data">🌐 Data bundle</option><option value="gift">🎁 Gift or book (delivered)</option></select></Field>
+              <Field label="Prize (per winner)"><input className={inputCls} value={form.prize} onChange={(e) => setForm({ ...form, prize: e.target.value })} placeholder={({ cash: "e.g. ₦5,000 each", airtime: "e.g. ₦1,000 airtime", data: "e.g. 2GB data", gift: "e.g. A copy of Riyad as-Salihin" } as Record<string, string>)[form.prizeType] ?? "e.g. ₦5,000 each"} /></Field>
               <Field label="Sponsors (one per line)"><textarea rows={3} className={`${inputCls} h-auto py-2`} value={form.sponsors} onChange={(e) => setForm({ ...form, sponsors: e.target.value })} placeholder={"Al-Barakah Foods\nCrescent Bank"} /></Field>
             </div>
           </fieldset>
@@ -202,7 +203,7 @@ export function RamadanSection() {
 }
 
 type Row = { uid: string; name: string; at: number; correct: boolean; recentWinner?: boolean };
-type Payout = { accountName?: string; bank?: string; accountNumber?: string; accountLast4?: string; phone?: string; paid?: boolean };
+type Payout = { accountName?: string; bank?: string; accountNumber?: string; accountLast4?: string; phone?: string; paid?: boolean; prizeType?: string; network?: string; address?: string; fullName?: string };
 
 function Winners({ day, resultsAt, winners, max }: { day: number; resultsAt: number; winners: number; max: number }) {
   const [count, setCount] = useState(0);
@@ -226,7 +227,7 @@ function Winners({ day, resultsAt, winners, max }: { day: number; resultsAt: num
   const markPaid = async (uid: string) => {
     try {
       await updateDoc(doc(db, "ramadanPayouts", `${day}_${uid}`), { paid: true, paidAt: Date.now(), accountNumber: deleteField() });
-      toast.success("Marked as paid. The account number has been deleted.");
+      toast.success("Marked as sent.");
       load();
     } catch { toast.error("Couldn't update. Try again."); }
   };
@@ -238,8 +239,10 @@ function Winners({ day, resultsAt, winners, max }: { day: number; resultsAt: num
       <ol className="mt-2 grid gap-1 text-sm">{rows.map((r, i) => { const isWin = winIds.includes(r.uid); const p = payouts[r.uid]; return <li key={r.uid} className={cn("border-2 border-foreground px-3 py-2", isWin && "bg-primary")}>
         <div className="flex justify-between gap-2"><b>{isWin ? "🏆 " : ""}{i + 1}. {r.name}{r.recentWinner && <span className="font-normal"> · recent winner</span>}</b><span className="tabular-nums">{new Date(r.at).toLocaleTimeString()}</span></div>
         {isWin && (!p ? <p className="mt-1 text-xs">Payout details not sent yet</p> : <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span>{p.accountName} · {p.bank} · {p.accountNumber ?? `••••${p.accountLast4 ?? ""}`} · {p.phone}</span>
-          {p.paid ? <b>Paid ✓</b> : <Button size="sm" onClick={() => void markPaid(r.uid)}>Mark as paid</Button>}
+          <span>{(p.prizeType ?? "cash") === "cash" ? `💵 ${p.accountName ?? ""} · ${p.bank ?? ""} · ${p.accountNumber ?? `••••${p.accountLast4 ?? ""}`} · ${p.phone ?? ""}`
+            : p.prizeType === "gift" ? `🎁 ${p.fullName ?? ""} · ${p.phone ?? ""} · ${p.address ?? ""}`
+            : `${p.prizeType === "data" ? "🌐" : "📱"} ${p.network ?? ""} · ${p.phone ?? ""}`}</span>
+          {p.paid ? <b>Sent ✓</b> : <Button size="sm" onClick={() => void markPaid(r.uid)}>Mark as sent</Button>}
         </div>)}
       </li>; })}</ol>}
   </div>;

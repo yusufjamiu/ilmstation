@@ -1,3 +1,5 @@
+import { doc as rqDoc, getDoc as rqGetDoc } from "firebase/firestore";
+import { auth as rqAuth, db as rqDb } from "@/lib/firebase";
 import { useEffect, useState } from "react";
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { Trophy } from "lucide-react";
@@ -175,58 +177,61 @@ const PERR: Record<string, string> = {
 };
 type Saved = { accountName?: string; bank?: string; accountLast4?: string; paid?: boolean };
 
+const NETWORKS = ["MTN", "Airtel", "Glo", "9mobile"];
+const PAYOUT_ERRORS: Record<string, string> = {
+  "not-out": "Results aren't out yet.", "not-winner": "Only today's winners can claim.", "bad-account": "We couldn't find that account. Check the bank and number.",
+  "bad-phone": "Enter a valid phone number.", "bad-network": "Choose your network.", "bad-address": "Enter your full name and delivery address.",
+  duplicate: "That bank account has already claimed today.", paid: "Your prize has already been sent.", "bad-request": "Please fill in all the details.",
+};
 function PayoutForm({ n }: { n: number }) {
-  const uid = auth.currentUser?.uid ?? "";
-  const [banks, setBanks] = useState<{ name: string; code: string }[]>([]);
-  const [bankCode, setBankCode] = useState("");
-  const [acct, setAcct] = useState("");
-  const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
-  const [saved, setSaved] = useState<Saved | null>(null);
+  const [type, setType] = useState("");
+  const [saved, setSaved] = useState<Record<string, unknown> | null>(null);
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => { fetch("/api/ramadan-payout?action=banks").then((r) => r.json()).then((j) => setBanks(j.banks ?? [])).catch(() => {}); }, []);
-  useEffect(() => onSnapshot(doc(db, "ramadanPayouts", `${n}_${uid}`), (s) => setSaved(s.exists() ? (s.data() as Saved) : null), () => {}), [n, uid]);
-
+  const [banks, setBanks] = useState<{ name: string; code: string }[]>([]);
+  const [bankCode, setBankCode] = useState(""); const [acct, setAcct] = useState(""); const [name, setName] = useState("");
+  const [phone, setPhone] = useState(""); const [network, setNetwork] = useState(""); const [fullName, setFullName] = useState(""); const [address, setAddress] = useState("");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const uid = rqAuth.currentUser?.uid;
+  useEffect(() => {
+    void rqGetDoc(rqDoc(rqDb, "ramadanDays", String(n))).then((d) => setType(String(d.get("prizeType") ?? "cash"))).catch(() => setType("cash"));
+    if (uid) void rqGetDoc(rqDoc(rqDb, "ramadanPayouts", `${n}_${uid}`)).then((d) => setSaved(d.exists() ? d.data() : null)).catch(() => {});
+  }, [n, uid]);
+  useEffect(() => { if (type === "cash") fetch("/api/ramadan-payout?action=banks").then((r) => r.json()).then((j) => setBanks(j.banks ?? [])).catch(() => {}); }, [type]);
   const call = async (action: "resolve" | "save") => {
-    setBusy(true);
+    setBusy(true); setErr("");
     try {
-      const token = await auth.currentUser!.getIdToken();
+      const token = await rqAuth.currentUser?.getIdToken();
       const r = await fetch("/api/ramadan-payout", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action, day: n, bankCode, accountNumber: acct, phone }) });
+        body: JSON.stringify({ action, day: n, bankCode, accountNumber: acct, phone, network, address, fullName }) });
       const out = (await r.json().catch(() => ({}))) as { error?: string; accountName?: string };
-      if (!r.ok) { toast(PERR[out.error ?? ""] ?? "Something went wrong. Try again."); return null; }
+      if (out.error) { setErr(PAYOUT_ERRORS[out.error] ?? "Something went wrong. Try again."); return null; }
+      if (action === "save") { setSaved({ prizeType: type, accountName: out.accountName, bank: banks.find((b) => b.code === bankCode)?.name, accountLast4: acct.slice(-4), phone, network, address, fullName, paid: false }); setEditing(false); }
       return out;
-    } catch { toast("Check your connection and try again."); return null; } finally { setBusy(false); }
+    } catch { setErr("Something went wrong. Try again."); return null; } finally { setBusy(false); }
   };
-
-  const note = <p className="mt-2 text-xs text-muted-foreground">Cash prizes are paid to Nigerian bank accounts. IlmStation will never ask for your PIN, OTP or BVN.</p>;
-  if (saved?.paid) return <p className="mt-3 font-semibold">Paid ✓ to {saved.bank} ••••{saved.accountLast4}. Jazakallahu khairan!</p>;
-  if (saved && !editing) return <div className="mt-3">
-    <p className="font-semibold">Details received ✓</p>
-    <p className="text-sm">{saved.accountName} · {saved.bank} ••••{saved.accountLast4}. We’ll send your prize soon, in sha Allah.</p>
-    <Button className="mt-2" size="sm" variant="outline" onClick={() => setEditing(true)}>Change details</Button>
+  const field = "h-11 w-full border-2 border-foreground bg-background px-3 text-sm";
+  if (!type) return null;
+  if (saved?.paid) return <div className="mt-4 border-2 border-foreground bg-primary p-4"><p className="font-bold">🎉 Your prize has been sent. Barakallahu feek!</p></div>;
+  if (saved && !editing) return <div className="mt-4 border-2 border-foreground bg-muted p-4">
+    <p className="font-bold">✅ Details received</p>
+    <p className="text-sm">{type === "cash" ? `${saved.accountName ?? ""} · ${saved.bank ?? ""} ••••${saved.accountLast4 ?? ""}` : type === "gift" ? `${saved.fullName ?? ""} · ${saved.phone ?? ""} · ${saved.address ?? ""}` : `${saved.network ?? ""} · ${saved.phone ?? ""}`}</p>
+    <p className="mt-1 text-sm">We'll send your prize within 7 days, in shaa Allah.</p>
+    <button className="mt-2 text-sm font-semibold underline" onClick={() => setEditing(true)}>Change details</button>
   </div>;
-
-  const input = "h-10 w-full border-2 border-foreground bg-background px-3";
-  return <div className="mt-4 grid gap-2">
-    <p className="text-sm font-semibold">Where should we send your prize?</p>
-    <select className={input} value={bankCode} onChange={(e) => { setBankCode(e.target.value); setName(""); }} aria-label="Bank">
-      <option value="">{banks.length ? "Choose your bank" : "Loading banks…"}</option>
-      {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
-    </select>
-    <input className={input} inputMode="numeric" maxLength={10} placeholder="Account number (10 digits)" value={acct} onChange={(e) => { setAcct(e.target.value.replace(/\D/g, "")); setName(""); }} />
-    <input className={input} inputMode="tel" placeholder="Phone number" value={phone} onChange={(e) => setPhone(e.target.value)} />
-    {!name
+  return <div className="mt-4 grid gap-3 border-2 border-foreground bg-background p-4">
+    <p className="font-bold">{({ cash: "💵 Where should we send your prize?", airtime: "📱 Your phone number for the airtime", data: "🌐 Your phone number for the data", gift: "🎁 Where should we deliver your prize?" } as Record<string, string>)[type]}</p>
+    {type === "cash" && <>
+      <select className={field} value={bankCode} onChange={(e) => { setBankCode(e.target.value); setName(""); }} aria-label="Bank"><option value="">Choose your bank</option>{banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}</select>
+      <input className={field} inputMode="numeric" maxLength={10} placeholder="10-digit account number" value={acct} onChange={(e) => { setAcct(e.target.value.replace(/\D/g, "")); setName(""); }} />
+      {name && <p className="text-sm">Account name: <b>{name}</b></p>}
+    </>}
+    {(type === "airtime" || type === "data") && <select className={field} value={network} onChange={(e) => setNetwork(e.target.value)} aria-label="Network"><option value="">Choose your network</option>{NETWORKS.map((x) => <option key={x}>{x}</option>)}</select>}
+    {type === "gift" && <input className={field} placeholder="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />}
+    <input className={field} inputMode="tel" placeholder="Phone number, e.g. 0803 123 4567" value={phone} onChange={(e) => setPhone(e.target.value)} />
+    {type === "gift" && <textarea className="min-h-20 w-full border-2 border-foreground bg-background p-3 text-sm" placeholder="Delivery address (street, area, city, state)" value={address} onChange={(e) => setAddress(e.target.value)} />}
+    {err && <p role="alert" className="text-sm font-semibold text-destructive">{err}</p>}
+    {type === "cash" && !name
       ? <Button disabled={busy || !bankCode || acct.length !== 10} onClick={() => void call("resolve").then((o) => o?.accountName && setName(o.accountName))}>{busy ? "Checking…" : "Check account"}</Button>
-      : <div className="border-2 border-foreground p-3">
-          <p className="text-sm">Account name: <b>{name}</b>. Is this you?</p>
-          <div className="mt-2 flex gap-2">
-            <Button disabled={busy || !phone.trim()} onClick={() => void call("save").then((o) => { if (o) { toast.success("Thank you! We’ll send your prize soon, in sha Allah."); setEditing(false); } })}>Yes, send</Button>
-            <Button variant="outline" onClick={() => setName("")}>No, change</Button>
-          </div>
-        </div>}
-    {note}
+      : <Button disabled={busy} onClick={() => void call("save")}>{busy ? "Sending…" : "Send my details"}</Button>}
   </div>;
 }
