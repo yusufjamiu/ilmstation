@@ -25,20 +25,20 @@ export async function handleNotify(request: Request): Promise<Response> {
   const now = new Date();
 
   // today's Daily Wisdom (pinned for today, else the day's rotation)
-  let wisdomText = "";
+  const wisdomCache: Record<string, string> = {};
   const wisdomFor = async (date: string) => {
-    if (wisdomText) return wisdomText;
+    if (wisdomCache[date]) return wisdomCache[date];
     try {
-      const docs = (await a.db.collection("wisdom").get()).docs.map((d) => d.data()).filter((w) => !w.hidden);
-      const pinned = docs.find((w) => [w.date, w.pinDate, w.pinned].includes(date));
-      const list = docs.filter((w) => !w.date && !w.pinDate && typeof w.pinned !== "string").sort((x, y) => Number(x.order ?? x.createdAt ?? 0) - Number(y.order ?? y.createdAt ?? 0));
-      const day = Math.floor((Date.parse(date) - Date.parse(`${date.slice(0, 4)}-01-01`)) / 86_400_000);
+      const docs = (await a.db.collection("wisdom").get()).docs.map((d) => d.data()).filter((w) => w.active !== false && String(w.text ?? "").trim());
+      const pinned = docs.find((w) => w.date === date);
+      const list = docs.filter((w) => !w.date).sort((x, y) => Number(x.createdAt ?? 0) - Number(y.createdAt ?? 0));
+      const day = Math.floor((Date.parse(date) - Date.parse(`${date.slice(0, 4)}-01-01`)) / 86_400_000) + 1;
       const w = pinned ?? (list.length ? list[day % list.length] : undefined);
       const text = String(w?.text ?? w?.english ?? w?.translation ?? "").trim();
       const src = String(w?.source ?? w?.ref ?? "").trim();
-      wisdomText = text ? `${text.length > 150 ? `${text.slice(0, 147)}…` : text}${src ? ` · ${src}` : ""}` : "";
-    } catch { wisdomText = ""; }
-    return wisdomText || "A new reminder is waiting for you. Tap to read and share it.";
+      wisdomCache[date] = text ? `${text.length > 150 ? `${text.slice(0, 147)}…` : text}${src ? ` · ${src}` : ""}` : "";
+    } catch { wisdomCache[date] = ""; }
+    return wisdomCache[date] || "A new reminder is waiting for you. Tap to read and share it.";
   };
 
   // Ramadan quizzes that just opened
