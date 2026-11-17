@@ -1,3 +1,5 @@
+import { doc as gpDoc, onSnapshot as gpSnap, setDoc as gpSet } from "firebase/firestore";
+import { auth as gpAuth, db as gpDb } from "@/lib/firebase";
 import { doc as fsDoc } from "firebase/firestore";
 import { callPremium, UnlockDialog, usePremium } from "@/components/premium";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
@@ -21,13 +23,12 @@ export function KidHome({ go }: { go: Go }) {
   const tiles = [
     ["kidgames", "Games", "Fun quizzes · earn stars", Play, "bg-primary"],
     ["study", "Study", "Your lessons", GraduationCap, "bg-secondary text-secondary-foreground"],
-    ["library", "Library", "Stories and books", Library, "bg-background"],
   ] as const;
   return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Assalamu alaikum</p>
     <h1 className="font-serif text-5xl leading-none sm:text-6xl">Hi, {firstName || "friend"}! 👋</h1>
     <p className="mt-3 text-lg text-muted-foreground">What would you like to do today?</p>
-    <div className="mt-6 grid gap-4 sm:grid-cols-3">{tiles.map(([id, t, b, Icon, tint]) => <button key={id} onClick={() => go(id)} className={cn("flex min-h-44 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", tint)}>
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">{tiles.map(([id, t, b, Icon, tint]) => <button key={id} onClick={() => go(id)} className={cn("flex min-h-44 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", tint)}>
       <Icon className="size-12" />
       <span><b className="block font-serif text-4xl leading-none">{t}</b><span className="text-sm font-semibold">{b}</span></span>
     </button>)}</div>
@@ -36,7 +37,7 @@ export function KidHome({ go }: { go: Go }) {
 }
 
 type KidQ = { q: string; options: string[]; answer: number; why?: string };
-type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number };
+type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number; gameType?: string; subject?: string; order?: number };
 const TINT: Record<string, string> = { yellow: "bg-primary", green: "bg-secondary text-secondary-foreground", white: "bg-background", grey: "bg-muted" };
 const STARTERS: KidGame[] = ([["Dua", "🤲", "yellow"], ["Qur’an", "📖", "green"], ["Seerah", "🌙", "white"], ["Arabic", "✍️", "grey"]] as const)
   .map(([t, e, c]) => ({ id: `start-${t}`, title: t, emoji: e, tint: TINT[c]!, questions: quizQuestionsFor(t).slice(0, 5) as KidQ[] }));
@@ -47,7 +48,7 @@ function useKidGames(audience: "kids" | "all") {
   useEffect(() => onSnapshot(query(collection(db, "kidGames"), where("status", "==", "published")), (s) => {
     const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as { title: string; emoji: string; color: string; order: number; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number }) }))
       .sort((a, b) => a.order - b.order)
-      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl, audience: g.audience ?? "kids", tier: g.tier ?? "free", cost: g.cost ?? 0, minLevel: g.minLevel ?? 0 }))
+      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl, audience: g.audience ?? "kids", tier: g.tier ?? "free", cost: g.cost ?? 0, minLevel: g.minLevel ?? 0, gameType: (g as { gameType?: string }).gameType ?? "quiz", subject: (g as { subject?: string }).subject || g.title, order: (g as { order?: number }).order ?? 0 }))
       .filter((g) => g.audience === audience && (g.kind === "html" ? !!g.htmlUrl : g.questions.length > 0));
     setGames(list.length ? list : audience === "kids" ? STARTERS : []);
   }, () => {}), [audience]);
@@ -71,6 +72,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
   const start = (g: KidGame) => { if (!open(g)) { setLocked({ id: `game-${g.id}`, title: g.title, cost: g.cost ?? 0 }); return; } setGame(g); setI(0); setPick(null); setScore(0); setDone(false); };
   const pt = usePlaytime(!!game && !done);
 
+  if (!game && audience === "kids") return <KidGameHub games={games} open={open} start={start} locked={locked} setLocked={setLocked} />;
   if (!game) return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
     <h1 className="font-serif text-5xl leading-none">{audience === "all" ? "Games & quizzes" : "Games 🎮"}</h1>
@@ -119,7 +121,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
         <Button size="lg" className="mt-4 w-full" onClick={() => {
           if (i + 1 < qs.length) { setI(i + 1); setPick(null); return; }
           setDone(true);
-          void awardXp("quiz", { correct: score, total: qs.length, difficulty: "Beginner", topic: `Kids: ${game.title}` });
+          void awardXp("quiz", { correct: score, total: qs.length, difficulty: "Beginner", topic: `Kids: ${game.title}` }); markPlayed(game.id, score, qs.length);
         }}>{i + 1 < qs.length ? "Next question" : "See my stars"}</Button>
       </div>}
     </section>
@@ -136,7 +138,7 @@ function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () =>
       setDone(true);
       const total = Math.max(1, Math.min(50, Number(d.total) || 5));
       const correct = Math.max(0, Math.min(total, Number(d.score ?? total) || 0));
-      void awardXp("quiz", { correct, total, difficulty: "Beginner", topic: `Kids: ${game.title}` });
+      void awardXp("quiz", { correct, total, difficulty: "Beginner", topic: `Kids: ${game.title}` }); markPlayed(game.id, correct, total);
     };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
@@ -148,7 +150,7 @@ function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () =>
     </div>
     {done && <p className="mt-3 border-2 border-foreground bg-primary p-3 font-bold">🎉 Masha’Allah! Well done.</p>}
     <iframe title={game.title} src={game.htmlUrl} sandbox="allow-scripts" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
-    {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner", topic: `Kids: ${game.title}` }); }}>I’ve finished</Button>}
+    {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner", topic: `Kids: ${game.title}` }); markPlayed(game.id, 3, 5); }}>I’ve finished</Button>}
   </div>;
 }
 
@@ -188,4 +190,72 @@ export function useShowQuickQuiz() {
   const [v, setV] = useState(true);
   useEffect(() => onSnapshot(fsDoc(db, "siteConfig", "play"), (snap) => setV(snap.get("showQuickQuiz") !== false), () => {}), []);
   return v;
+}
+
+/* ---------- Kids games: type → subject → Quiz 1, 2, 3 (continue where you stopped) ---------- */
+type Played = Record<string, { score: number; total: number; at: number }>;
+function markPlayed(id: string, score: number, total: number) {
+  const uid = gpAuth.currentUser?.uid;
+  if (uid) void gpSet(gpDoc(gpDb, "gameProgress", uid), { done: { [id]: { score, total, at: Date.now() } } }, { merge: true }).catch(() => {});
+}
+function useGameProgress(): Played {
+  const [done, setDone] = useState<Played>({});
+  useEffect(() => { const uid = gpAuth.currentUser?.uid; if (!uid) return undefined; return gpSnap(gpDoc(gpDb, "gameProgress", uid), (s) => setDone((s.get("done") as Played) ?? {}), () => {}); }, []);
+  return done;
+}
+const GAME_TYPES: [string, string, string][] = [["quiz", "🧠", "Quizzes"], ["puzzle", "🧩", "Puzzles"], ["memory", "🃏", "Memory games"]];
+function KidGameHub({ games, open, start, locked, setLocked }: {
+  games: KidGame[]; open: (g: KidGame) => boolean; start: (g: KidGame) => void;
+  locked: { id: string; title: string; cost: number } | undefined; setLocked: (v: { id: string; title: string; cost: number } | undefined) => void;
+}) {
+  const done = useGameProgress();
+  const [type, setType] = useState<string | undefined>();
+  const [subj, setSubj] = useState<string | undefined>();
+  const subjOf = (g: KidGame) => g.subject || g.title;
+  const typeOf = (g: KidGame) => g.gameType ?? "quiz";
+  const inSubject = (t: string, sb: string) => games.filter((g) => typeOf(g) === t && subjOf(g) === sb).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const label = (t: string) => (GAME_TYPES.find(([id]) => id === t)?.[2] ?? "Games").replace(/s$/, "").replace(/ games$/, "");
+  // continue: the subject played most recently → its next unfinished game
+  const last = games.filter((g) => done[g.id]).sort((a, b) => done[b.id].at - done[a.id].at)[0];
+  const cont = last ? inSubject(typeOf(last), subjOf(last)).find((g) => !done[g.id]) : undefined;
+  const contN = cont ? inSubject(typeOf(cont), subjOf(cont)).indexOf(cont) + 1 : 0;
+  const back = (t: string, f: () => void) => <button onClick={f} className="mb-4 border-2 border-foreground bg-background px-4 py-2 text-lg font-bold">← {t}</button>;
+  const dialog = <UnlockDialog item={locked} onOpenChange={(o) => { if (!o) setLocked(undefined); }} />;
+  const play = (g: KidGame) => (open(g) ? start(g) : setLocked({ id: `game-${g.id}`, title: g.title, cost: g.cost ?? 0 }));
+
+  if (type && subj) { const list = inSubject(type, subj); const next = list.find((g) => !done[g.id]); return <div className="iq-rise">{dialog}
+    {back("Subjects", () => setSubj(undefined))}
+    <h1 className="font-serif text-5xl leading-none">{list[0]?.emoji ?? "🎮"} {subj}</h1>
+    <p className="mt-2 text-lg text-muted-foreground">{list.filter((g) => done[g.id]).length} of {list.length} done ⭐</p>
+    <div className="mt-6 grid gap-4">{list.map((g, i) => { const d = done[g.id]; const isNext = g === next; return <button key={g.id} onClick={() => play(g)}
+      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", d ? "bg-primary" : isNext ? "bg-secondary text-secondary-foreground" : "bg-background")}>
+      <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-2xl text-foreground">{d ? "⭐" : i + 1}</span>
+      <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">{label(type)} {i + 1}{g.title && g.title !== subj ? ` · ${g.title}` : ""}</b>
+        <span className="text-sm">{!open(g) ? "🔒 Premium" : d ? `${d.score} of ${d.total} right · play again` : isNext ? "▶ Next" : g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
+    </button>; })}</div>
+  </div>; }
+
+  if (type) { const subs = [...new Set(games.filter((g) => typeOf(g) === type).map(subjOf))]; return <div className="iq-rise">{dialog}
+    {back("Games", () => setType(undefined))}
+    <h1 className="font-serif text-5xl leading-none">{GAME_TYPES.find(([id]) => id === type)?.[1]} {GAME_TYPES.find(([id]) => id === type)?.[2]}</h1>
+    <p className="mt-3 text-lg text-muted-foreground">Pick a subject!</p>
+    <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">{subs.map((sb, i) => { const list = inSubject(type, sb); return <button key={sb} onClick={() => setSubj(sb)}
+      className={cn("flex aspect-square flex-col items-center justify-center gap-2 border-2 border-foreground p-4 text-center shadow-brutal transition-transform hover:-translate-y-1", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-[#d7ecd9] text-[#1c1a17]", "bg-[#f7d9c4] text-[#1c1a17]"][i % 4])}>
+      <span className="text-5xl">{list[0]?.emoji ?? "🎮"}</span><b className="text-xl leading-tight">{sb}</b>
+      <span className="text-sm font-semibold">{list.filter((g) => done[g.id]).length} of {list.length} ⭐</span>
+    </button>; })}</div>
+  </div>; }
+
+  return <div className="iq-rise">{dialog}
+    <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
+    <h1 className="font-serif text-5xl leading-none">Games 🎮</h1>
+    <p className="mt-3 text-lg text-muted-foreground">What do you want to play?</p>
+    {cont && <button onClick={() => play(cont)} className="mt-6 flex w-full items-center gap-4 border-2 border-foreground bg-secondary p-5 text-left text-secondary-foreground shadow-brutal">
+      <span className="text-4xl">▶</span><span><b className="block text-xl">Continue</b><span className="text-sm">{subjOf(cont)} · {label(typeOf(cont))} {contN}</span></span>
+    </button>}
+    <div className="mt-6 grid gap-4 sm:grid-cols-3">{GAME_TYPES.map(([id, e, name], i) => { const has = games.some((g) => typeOf(g) === id); return <button key={id} disabled={!has} onClick={() => setType(id)}
+      className={cn("flex min-h-40 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition-transform", has ? "hover:-translate-y-1" : "opacity-60", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-background"][i % 3])}>
+      <span className="text-5xl">{e}</span><span><b className="block font-serif text-3xl leading-none">{name}</b><span className="text-sm font-semibold">{has ? "Tap to play" : "Coming soon"}</span></span>
+    </button>; })}</div>
+  </div>;
 }
