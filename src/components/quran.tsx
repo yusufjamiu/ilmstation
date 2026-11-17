@@ -282,22 +282,33 @@ function Tilawah() {
 
   const go = (p: number) => { if (p >= 1 && p <= TOTAL_PAGES) setPage(p); };
   const currentSurah = ayahs?.[0]?.surah ?? 1;
+  const [opened, setOpened] = useState(false);
+  if (!opened) return <div className="mt-4 min-w-0">
+    <section className={cn(panel, "space-y-4")}>
+      <div className="flex items-center gap-2"><BookOpen className="size-5"/><h2 className="font-serif text-2xl">Tilawah</h2></div>
+      <p className="text-sm text-muted-foreground">Choose a surah to start reading.</p>
+      <SurahPicker value={currentSurah} onChange={n => { void pageOfSurah(n).then(p => { go(p); setOpened(true); }).catch(() => setError(true)); }}/>
+      <div className="flex flex-wrap gap-2">
+        {saved !== null && <Button variant="secondary" onClick={() => { go(saved); setOpened(true); }}>Continue where I stopped (page {saved})</Button>}
+        <Button variant="outline" onClick={() => { go(1); setOpened(true); }}>Start from the beginning</Button>
+      </div>
+    </section>
+  </div>;
   return <div className="mt-4 min-w-0 space-y-4">
-    <section className={cn(panel, "space-y-3")}>
-      <div className="flex flex-wrap items-center gap-3"><BookOpen className="size-5"/><h2 className="font-serif text-2xl">Tilawah</h2><span className="text-sm text-muted-foreground">Read page by page. Tap a verse for its meaning.</span></div>
+    <section className="border-2 border-foreground bg-background p-2">
       <div className="flex flex-wrap items-center gap-2">
         <SurahPicker value={currentSurah} onChange={n => { void pageOfSurah(n).then(go).catch(() => setError(true)); }}/>
-        <form className="flex items-center gap-2" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder={`Page 1-${TOTAL_PAGES}`} aria-label="Go to page" className="h-11 w-32 border-2 border-foreground bg-background px-3"/><Button type="submit" variant="outline">Go</Button></form>
-        {saved !== null && saved !== page && <Button variant="secondary" onClick={() => go(saved)}>Continue where I stopped (page {saved})</Button>}
+        <form className="flex items-center gap-2" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder={`Page 1-${TOTAL_PAGES}`} aria-label="Go to page" className="h-10 w-24 border-2 border-foreground bg-background px-2 text-sm"/><Button type="submit" size="sm" variant="outline">Go</Button></form>
+        {saved !== null && saved !== page && <Button size="sm" variant="secondary" onClick={() => go(saved)}>Continue (p. {saved})</Button>}
       </div>
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
       {layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={key => setPick(ayahs.find(a => `${a.surah}:${a.n}` === key) ?? null)}/> : <MushafPage page={page} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={a => setPick(a)}/>}
       {pick && <section className={cn(panel, "space-y-1")}><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s => s.n === pick.surah)?.name} · verse {pick.n}</p><p className="text-sm leading-relaxed">{pick.meaning}</p></section>}
       <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
-        <Button variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)}><ArrowLeft /> Next page</Button>
-        <span className="text-sm font-bold">{page} / {TOTAL_PAGES}</span>
-        <Button variant="outline" disabled={page <= 1} onClick={() => go(page - 1)}>Previous page <ArrowRight /></Button>
+        <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
+        <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
+        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page">Previous <ArrowRight /></Button>
       </div>
     </>}
   </div>;
@@ -364,7 +375,7 @@ export function QuranScreen() {
   const [section, setSection] = useState<Section>("hifz");
   const practice = section === "hifz" || section === "revision";
   return <div>
-    <div className="flex flex-wrap gap-1 border-b-2 border-foreground" role="tablist" aria-label="Quran sections">{sections.map(item => <button key={item.id} role="tab" aria-selected={section === item.id} onClick={() => setSection(item.id)} className={cn("-mb-0.5 border-2 border-foreground px-4 py-2 text-sm font-bold", section === item.id ? "bg-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>{item.label}</button>)}</div>
+    <div className="grid grid-cols-4 gap-2" role="tablist" aria-label="Quran sections">{sections.map(item => <button key={item.id} role="tab" aria-selected={section === item.id} onClick={() => setSection(item.id)} className={cn("border-2 border-foreground px-1 py-2.5 text-sm font-bold shadow-brutal-sm transition-transform hover:-translate-y-0.5", section === item.id ? "bg-primary text-foreground" : "bg-background")}>{item.label}</button>)}</div>
     {practice && <HifzScreen section={section === "revision" ? "revision" : "hifz"} onGoRevision={() => setSection("revision")}/>}
     {section === "tilawah" && <Tilawah/>}
     {section === "listen" && <Listen/>}
