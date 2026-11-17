@@ -1,3 +1,4 @@
+import { useEffect as useEffectL, useState as useStateL } from "react";
 import { GoogleAuthProvider, getRedirectResult, signInWithPopup, signInWithRedirect } from "firebase/auth";
 import { useEffect as useGEffect, useState as useGState } from "react";
 import { sendPasswordResetEmail } from "firebase/auth";
@@ -61,6 +62,9 @@ function PasswordInput({ value, onChange, placeholder, autoComplete, invalid }: 
 /* ---------------------------------- Login ---------------------------------- */
 
 export function LoginPage() {
+  const [kid, setKidRaw] = useStateL(false);
+  useEffectL(() => { try { setKidRaw(localStorage.getItem("loginKid") === "1"); } catch { /* ignore */ } }, []);
+  const setKid = (v: boolean) => { setKidRaw(v); try { localStorage.setItem("loginKid", v ? "1" : "0"); } catch { /* ignore */ } };
   const { logIn, loggedIn, account, firstName, logOut } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -105,12 +109,16 @@ export function LoginPage() {
       <p className="text-xs font-bold uppercase text-secondary">Seek · Learn · Grow</p>
       <h1 className="mt-2 font-serif text-5xl leading-none sm:text-6xl">Log in</h1>
       <p className="mt-3 text-muted-foreground">Pick up today’s quest where you left it.</p>
-      <GoogleButton />
+      <div className="mt-5 grid grid-cols-2 gap-2" role="tablist">
+        <button type="button" role="tab" aria-selected={!kid} onClick={() => setKid(false)} className={`border-2 border-foreground px-3 py-3 text-base font-bold shadow-brutal-sm transition ${!kid ? "bg-foreground text-background" : "bg-background"}`}>🧑 Teen & Adult</button>
+        <button type="button" role="tab" aria-selected={kid} onClick={() => setKid(true)} className={`border-2 border-foreground px-3 py-3 text-base font-bold shadow-brutal-sm transition ${kid ? "bg-primary text-foreground" : "bg-background"}`}>🧒 Child</button>
+      </div>
+      {kid ? <p className="mt-4 border-2 border-foreground bg-primary/25 p-3 text-sm font-semibold">👋 Ask your parent for your username and password.</p> : <GoogleButton />}
         <form noValidate onSubmit={submit} className="mt-8 grid gap-5">
-        <Field label="Email address" icon={AtSign}>
-          <input type="text" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="Email (or username for children)" autoComplete="username" autoCapitalize="none" className={inputClass} />
+        <Field label={kid ? "Username" : "Email address"} icon={AtSign}>
+          <input type="text" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder={kid ? "e.g. amina_10" : "Email address"} autoComplete="username" autoCapitalize="none" className={inputClass} />
         </Field>
-        <Field label="Password" icon={LockKeyhole} hint={<button type="button" onClick={() => void resetPassword()} className="mt-1.5 text-sm font-semibold underline underline-offset-4">Forgot password?</button>}>
+        <Field label="Password" icon={LockKeyhole} hint={kid ? <p className="mt-1.5 text-sm text-muted-foreground">Forgot it? Ask your parent.</p> : <button type="button" onClick={() => void resetPassword()} className="mt-1.5 text-sm font-semibold underline underline-offset-4">Forgot password?</button>}>
           <PasswordInput value={password} onChange={(v) => { setPassword(v); setError(""); }} placeholder="Your password" autoComplete="current-password" />
         </Field>
         {error && <p role="alert" className="border-2 border-destructive p-3 text-sm font-semibold text-destructive">{error}</p>}

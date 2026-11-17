@@ -915,3 +915,16 @@ const EXTRA_ID_TL2: Record<string, { id: string; tl: string }> = {
   "Notifications are off": { id: "Notifikasi nonaktif", tl: "Naka-off ang mga abiso" },
 };
 for (const [k, v] of Object.entries(EXTRA_ID_TL2)) DICT[k] = { ...(DICT[k] ?? {}), ...v };
+
+// login: adult / child
+DICT["🧑 Teen & Adult"] = { ...(DICT["🧑 Teen & Adult"] ?? {}), ar: "🧑 يافع وبالغ", fr: "🧑 Ado et adulte", ur: "🧑 نوجوان اور بالغ", ha: "🧑 Matashi da babba", id: "🧑 Remaja & Dewasa", tl: "🧑 Kabataan at Matanda" };
+DICT["🧒 Child"] = { ...(DICT["🧒 Child"] ?? {}), ar: "🧒 طفل", fr: "🧒 Enfant", ur: "🧒 بچہ", ha: "🧒 Yaro", id: "🧒 Anak", tl: "🧒 Bata" };
+DICT["👋 Ask your parent for your username and password."] = { ...(DICT["👋 Ask your parent for your username and password."] ?? {}), ar: "👋 اطلب من والديك اسم المستخدم وكلمة المرور.", fr: "👋 Demande ton nom d’utilisateur et ton mot de passe à tes parents.", ur: "👋 اپنا یوزر نیم اور پاس ورڈ والدین سے پوچھیں۔", ha: "👋 Tambayi iyayenka sunan mai amfani da kalmar sirrinka.", id: "👋 Minta nama pengguna dan kata sandi kepada orang tuamu.", tl: "👋 Itanong sa magulang mo ang iyong username at password." };
+DICT["Forgot it? Ask your parent."] = { ...(DICT["Forgot it? Ask your parent."] ?? {}), ar: "نسيتها؟ اسأل والديك.", fr: "Oublié ? Demande à tes parents.", ur: "بھول گئے؟ والدین سے پوچھیں۔", ha: "Ka manta? Tambayi iyayenka.", id: "Lupa? Tanya orang tuamu.", tl: "Nakalimutan? Itanong sa magulang mo." };
+DICT["e.g. amina_10"] = { ...(DICT["e.g. amina_10"] ?? {}), ar: "مثال: amina_10", fr: "ex. amina_10", ur: "مثلاً amina_10", ha: "misali amina_10", id: "mis. amina_10", tl: "hal. amina_10" };
+DICT["Email address"] = { ...(DICT["Email address"] ?? {}), ar: "البريد الإلكتروني", fr: "Adresse e-mail", ur: "ای میل ایڈریس", ha: "Adireshin imel", id: "Alamat email", tl: "Email address" };
+DICT["Log in to IlmStation"] = { ...(DICT["Log in to IlmStation"] ?? {}), ar: "سجّل الدخول إلى IlmStation", fr: "Se connecter à IlmStation", ur: "IlmStation میں لاگ ان کریں", ha: "Shiga IlmStation", id: "Masuk ke IlmStation", tl: "Mag-log in sa IlmStation" };
+DICT["Pick up today’s quest where you left it."] = { ...(DICT["Pick up today’s quest where you left it."] ?? {}), ar: "تابع مهمة اليوم من حيث توقفت.", fr: "Reprenez la quête du jour là où vous l’avez laissée.", ur: "آج کی مہم وہیں سے جاری رکھیں جہاں چھوڑی تھی۔", ha: "Ci gaba da aikin yau daga inda ka tsaya.", id: "Lanjutkan misi hari ini dari tempat terakhir.", tl: "Ituloy ang misyon ngayon kung saan ka huminto." };
+DICT["Seek · Learn · Grow"] = { ...(DICT["Seek · Learn · Grow"] ?? {}), ar: "اطلب · تعلّم · انمُ", fr: "Chercher · Apprendre · Grandir", ur: "تلاش · سیکھیں · بڑھیں", ha: "Nema · Koyo · Girma", id: "Cari · Belajar · Tumbuh", tl: "Maghanap · Matuto · Lumago" };
+DICT["OR"] = { ...(DICT["OR"] ?? {}), ar: "أو", fr: "OU", ur: "یا", ha: "KO", id: "ATAU", tl: "O" };
+DICT["Ta-Ha 20:114"] = { ...(DICT["Ta-Ha 20:114"] ?? {}), ar: "طه ٢٠:١١٤", fr: "Ta-Ha 20:114", ur: "طٰہٰ 20:114", ha: "Ta-Ha 20:114", id: "Taha 20:114", tl: "Ta-Ha 20:114" };
