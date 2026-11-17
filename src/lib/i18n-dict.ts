@@ -928,3 +928,11 @@ DICT["Pick up today’s quest where you left it."] = { ...(DICT["Pick up today�
 DICT["Seek · Learn · Grow"] = { ...(DICT["Seek · Learn · Grow"] ?? {}), ar: "اطلب · تعلّم · انمُ", fr: "Chercher · Apprendre · Grandir", ur: "تلاش · سیکھیں · بڑھیں", ha: "Nema · Koyo · Girma", id: "Cari · Belajar · Tumbuh", tl: "Maghanap · Matuto · Lumago" };
 DICT["OR"] = { ...(DICT["OR"] ?? {}), ar: "أو", fr: "OU", ur: "یا", ha: "KO", id: "ATAU", tl: "O" };
 DICT["Ta-Ha 20:114"] = { ...(DICT["Ta-Ha 20:114"] ?? {}), ar: "طه ٢٠:١١٤", fr: "Ta-Ha 20:114", ur: "طٰہٰ 20:114", ha: "Ta-Ha 20:114", id: "Taha 20:114", tl: "Ta-Ha 20:114" };
+
+DICT["Teen & Adult"] = { ...(DICT["Teen & Adult"] ?? {}), ar: "يافع وبالغ", fr: "Ado et adulte", ur: "نوجوان اور بالغ", ha: "Matashi da babba", id: "Remaja & Dewasa", tl: "Kabataan at Matanda" };
+DICT["Child"] = { ...(DICT["Child"] ?? {}), ar: "طفل", fr: "Enfant", ur: "بچہ", ha: "Yaro", id: "Anak", tl: "Bata" };
+DICT["Log in with Google or your email"] = { ...(DICT["Log in with Google or your email"] ?? {}), ar: "سجّل الدخول عبر Google أو بريدك", fr: "Connectez-vous avec Google ou votre e-mail", ur: "Google یا اپنے ای میل سے لاگ ان کریں", ha: "Shiga da Google ko imel ɗinka", id: "Masuk dengan Google atau email Anda", tl: "Mag-log in gamit ang Google o email mo" };
+DICT["Log in with the username your parent gave you"] = { ...(DICT["Log in with the username your parent gave you"] ?? {}), ar: "سجّل الدخول باسم المستخدم الذي أعطاك إياه والداك", fr: "Connecte-toi avec le nom d’utilisateur donné par tes parents", ur: "والدین کے دیے گئے یوزر نیم سے لاگ ان کریں", ha: "Shiga da sunan mai amfani da iyayenka suka ba ka", id: "Masuk dengan nama pengguna dari orang tuamu", tl: "Mag-log in gamit ang username na ibinigay ng magulang mo" };
+DICT["Change"] = { ...(DICT["Change"] ?? {}), ar: "تغيير", fr: "Changer", ur: "تبدیل کریں", ha: "Canza", id: "Ubah", tl: "Palitan" };
+DICT["🧑 Teen & Adult"] = { ...(DICT["🧑 Teen & Adult"] ?? {}), ar: "🧑 يافع وبالغ", fr: "🧑 Ado et adulte", ur: "🧑 نوجوان اور بالغ", ha: "🧑 Matashi da babba", id: "🧑 Remaja & Dewasa", tl: "🧑 Kabataan at Matanda" };
+DICT["New to IlmStation?"] = { ...(DICT["New to IlmStation?"] ?? {}), ar: "جديد في IlmStation؟", fr: "Nouveau sur IlmStation ?", ur: "IlmStation پر نئے ہیں؟", ha: "Sabo a IlmStation?", id: "Baru di IlmStation?", tl: "Bago sa IlmStation?" };

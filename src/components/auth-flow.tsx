@@ -62,9 +62,9 @@ function PasswordInput({ value, onChange, placeholder, autoComplete, invalid }: 
 /* ---------------------------------- Login ---------------------------------- */
 
 export function LoginPage() {
-  const [kid, setKidRaw] = useStateL(false);
-  useEffectL(() => { try { setKidRaw(localStorage.getItem("loginKid") === "1"); } catch { /* ignore */ } }, []);
-  const setKid = (v: boolean) => { setKidRaw(v); try { localStorage.setItem("loginKid", v ? "1" : "0"); } catch { /* ignore */ } };
+  const [who, setWho] = useStateL<null | "adult" | "kid">(null);
+  const kid = who === "kid";
+  void useEffectL;
   const { logIn, loggedIn, account, firstName, logOut } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -109,11 +109,22 @@ export function LoginPage() {
       <p className="text-xs font-bold uppercase text-secondary">Seek · Learn · Grow</p>
       <h1 className="mt-2 font-serif text-5xl leading-none sm:text-6xl">Log in</h1>
       <p className="mt-3 text-muted-foreground">Pick up today’s quest where you left it.</p>
-      <div className="mt-5 grid grid-cols-2 gap-2" role="tablist">
-        <button type="button" role="tab" aria-selected={!kid} onClick={() => setKid(false)} className={`border-2 border-foreground px-3 py-3 text-base font-bold shadow-brutal-sm transition ${!kid ? "bg-foreground text-background" : "bg-background"}`}>🧑 Teen & Adult</button>
-        <button type="button" role="tab" aria-selected={kid} onClick={() => setKid(true)} className={`border-2 border-foreground px-3 py-3 text-base font-bold shadow-brutal-sm transition ${kid ? "bg-primary text-foreground" : "bg-background"}`}>🧒 Child</button>
-      </div>
-      {kid ? <p className="mt-4 border-2 border-foreground bg-primary/25 p-3 text-sm font-semibold">👋 Ask your parent for your username and password.</p> : <GoogleButton />}
+      {!who ? <div data-login-pick className="mt-6 grid gap-3">
+        <button type="button" onClick={() => setWho("adult")} className="flex w-full items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition hover:-translate-y-0.5 bg-background hover:bg-primary/15">
+          <span className="text-4xl">🧑</span>
+          <span><b className="block text-xl">Teen & Adult</b><span className="text-sm text-muted-foreground">Log in with Google or your email</span></span>
+        </button>
+        <button type="button" onClick={() => setWho("kid")} className="flex w-full items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition hover:-translate-y-0.5 bg-primary/30 hover:bg-primary/50">
+          <span className="text-4xl">🧒</span>
+          <span><b className="block text-xl">Child</b><span className="text-sm text-muted-foreground">Log in with the username your parent gave you</span></span>
+        </button>
+        <p className="mt-3 text-sm">New to IlmStation? <a href="/signup" className="font-bold underline underline-offset-4">Create an account</a></p>
+      </div> : <div className="mt-5 flex items-center justify-between border-2 border-foreground px-4 py-3">
+        <b>{kid ? "🧒 Child" : "🧑 Teen & Adult"}</b>
+        <button type="button" onClick={() => setWho(null)} className="text-sm font-semibold underline underline-offset-4">Change</button>
+      </div>}
+      {!who && <style>{"[data-login-pick] ~ *{display:none!important}"}</style>}
+      {who && (kid ? <p className="mt-4 border-2 border-foreground bg-primary/25 p-3 text-sm font-semibold">👋 Ask your parent for your username and password.</p> : <GoogleButton />)}
         <form noValidate onSubmit={submit} className="mt-8 grid gap-5">
         <Field label={kid ? "Username" : "Email address"} icon={AtSign}>
           <input type="text" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder={kid ? "e.g. amina_10" : "Email address"} autoComplete="username" autoCapitalize="none" className={inputClass} />
