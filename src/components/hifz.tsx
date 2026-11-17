@@ -1,3 +1,4 @@
+import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
 import { awardXp } from "@/lib/xp";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -406,7 +407,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
     if (cached) { setVerses(cached); setLoadError(""); return; }
     let cancelled = false;
     setVerses(null); setLoadError("");
-    fetch(`https://api.alquran.cloud/v1/surah/${active}/editions/quran-uthmani,en.sahih`).then(res => res.json()).then((json: { data: { ayahs: { text: string }[] }[] }) => {
+    fetch(`https://api.alquran.cloud/v1/surah/${active}/editions/quran-uthmani,${quranEdition()}`).then(res => res.json()).then((json: { data: { ayahs: { text: string }[] }[] }) => {
       const [ar, en] = json.data;
       if (!ar || !en) throw new Error("missing");
       const list = ar.ayahs.map((ayah, i) => ({ arabic: i === 0 && active !== 1 && ayah.text.startsWith("بِسْمِ") ? ayah.text.split(" ").slice(4).join(" ") : ayah.text, meaning: en.ayahs[i]?.text ?? "" }));

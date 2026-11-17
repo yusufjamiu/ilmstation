@@ -1,3 +1,4 @@
+import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
@@ -479,7 +480,7 @@ function KahfReader({ open, onOpenChange, done, onDone }: { open: boolean; onOpe
     if (!open) return;
     if (!document.querySelector(`link[href="${QURAN_FONT}"]`)) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = QURAN_FONT; document.head.appendChild(l); }
     if (ayat) return;
-    fetch("https://api.alquran.cloud/v1/surah/18/editions/quran-uthmani,en.sahih").then((r) => r.json()).then((j) => {
+    fetch(`https://api.alquran.cloud/v1/surah/18/editions/quran-uthmani,${quranEdition()}`).then((r) => r.json()).then((j) => {
       const ar = (j?.data?.[0]?.ayahs ?? []) as { numberInSurah: number; text: string; page: number }[];
       const en = (j?.data?.[1]?.ayahs ?? []) as { text: string }[];
       if (!ar.length) { setErr(true); return; }

@@ -112,3 +112,9 @@ export function LanguageCard() {
     <div className="mt-3"><LanguageSelect /></div>
   </div>;
 }
+
+/** Qur'an meaning in the user's language (trusted published translations). */
+const QURAN_EDITIONS: Record<string, string> = { en: "en.sahih", ar: "ar.muyassar", fr: "fr.hamidullah", ur: "ur.jalandhry", ha: "ha.gumi" };
+export function quranEdition(): string {
+  try { return QURAN_EDITIONS[localStorage.getItem("iq_lang") ?? "en"] ?? "en.sahih"; } catch { return "en.sahih"; }
+}

@@ -1,3 +1,4 @@
+import { quranEdition } from "@/components/language";
 import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
@@ -25,7 +26,7 @@ function useSurah(n: number) {
     if (cached) { setVerses(cached); setError(false); return; }
     let cancelled = false;
     setVerses(null); setError(false);
-    fetch(`https://api.alquran.cloud/v1/surah/${n}/editions/quran-uthmani,en.sahih`).then(res => res.json()).then((json: { data: { ayahs: { text: string }[] }[] }) => {
+    fetch(`https://api.alquran.cloud/v1/surah/${n}/editions/quran-uthmani,${quranEdition()}`).then(res => res.json()).then((json: { data: { ayahs: { text: string }[] }[] }) => {
       const [ar, en] = json.data;
       if (!ar || !en) throw new Error("missing");
       const list = ar.ayahs.map((a, i) => ({ arabic: i === 0 && n !== 1 && a.text.startsWith("بِسْمِ") ? a.text.split(" ").slice(4).join(" ") : a.text, meaning: en.ayahs[i]?.text ?? "" }));
@@ -57,7 +58,7 @@ type PageAyah = { surah: number; surahName: string; n: number; text: string; mea
 const pageCache = new Map<number, PageAyah[]>();
 /** One page of the printed Madinah mushaf: exactly the verses that sit on that page. */
 async function fetchAlquranCloud(page: number): Promise<PageAyah[]> {
-  const json = await withTimeout(fetch(`https://api.alquran.cloud/v1/page/${page}/editions/quran-uthmani,en.sahih`).then(res => res.json()), 12000) as { data: { ayahs: { text: string; numberInSurah: number; juz: number; surah: { number: number; name: string } }[] }[] };
+  const json = await withTimeout(fetch(`https://api.alquran.cloud/v1/page/${page}/editions/quran-uthmani,${quranEdition()}`).then(res => res.json()), 12000) as { data: { ayahs: { text: string; numberInSurah: number; juz: number; surah: { number: number; name: string } }[] }[] };
   const [ar, en] = json.data;
   if (!ar || !en) throw new Error("missing");
   return ar.ayahs.map((a, i) => ({ surah: a.surah.number, surahName: a.surah.name, n: a.numberInSurah, juz: a.juz, meaning: en.ayahs[i]?.text ?? "", text: a.numberInSurah === 1 && a.surah.number !== 1 && a.text.startsWith("بِسْمِ") ? a.text.split(" ").slice(4).join(" ") : a.text }));
