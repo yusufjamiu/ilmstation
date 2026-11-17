@@ -286,18 +286,18 @@ function Tilawah() {
   if (!opened) return <div className="mt-4 min-w-0">
     <section className={cn(panel, "space-y-4")}>
       <div className="flex items-center gap-2"><BookOpen className="size-5"/><h2 className="font-serif text-2xl">Tilawah</h2></div>
-      <p className="text-sm text-muted-foreground">Choose a surah to start reading.</p>
-      <SurahPicker value={currentSurah} onChange={n => { void pageOfSurah(n).then(p => { go(p); setOpened(true); }).catch(() => setError(true)); }}/>
       <div className="flex flex-wrap gap-2">
         {saved !== null && <Button variant="secondary" onClick={() => { go(saved); setOpened(true); }}>Continue where I stopped (page {saved})</Button>}
         <Button variant="outline" onClick={() => { go(1); setOpened(true); }}>Start from the beginning</Button>
       </div>
+      <p className="text-sm text-muted-foreground">Or choose a surah:</p>
+      <SurahList onPick={n => { void pageOfSurah(n).then(p => { go(p); setOpened(true); }).catch(() => setError(true)); }}/>
     </section>
   </div>;
   return <div className="mt-4 min-w-0 space-y-4">
     <section className="border-2 border-foreground bg-background p-2">
       <div className="flex flex-wrap items-center gap-2">
-        <SurahPicker value={currentSurah} onChange={n => { void pageOfSurah(n).then(go).catch(() => setError(true)); }}/>
+        <Button size="sm" variant="outline" onClick={() => setOpened(false)}>☰ Surahs</Button>
         <form className="flex items-center gap-2" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder={`Page 1-${TOTAL_PAGES}`} aria-label="Go to page" className="h-10 w-24 border-2 border-foreground bg-background px-2 text-sm"/><Button type="submit" size="sm" variant="outline">Go</Button></form>
         {saved !== null && saved !== page && <Button size="sm" variant="secondary" onClick={() => go(saved)}>Continue (p. {saved})</Button>}
       </div>
@@ -322,6 +322,7 @@ function Listen() {
   const [reciter, setReciter] = useState(reciters[0]!.id);
   const [speed, setSpeed] = useState(1);
   const [repeat, setRepeat] = useState(false);
+  const [chosen, setChosen] = useState(false);
   const audio = useRef<HTMLAudioElement | null>(null);
   const { verses, error, retry } = useSurah(surah);
   const meta = surahList.find(s => s.n === surah)!;
@@ -344,11 +345,17 @@ function Listen() {
     if (idx < last) setIdx(i => i + 1); else setPlaying(false);
   }
   const [a, b] = pageSlice([0, Math.max(0, last)], idx);
+  if (!chosen) return <div className="mt-4 min-w-0">
+    <section className={cn(panel, "space-y-4")}>
+      <div className="flex items-center gap-2"><Headphones className="size-5"/><h2 className="font-serif text-2xl">Listen</h2></div>
+      <p className="text-sm text-muted-foreground">Choose a surah to listen to.</p>
+      <SurahList onPick={n => { audio.current?.pause(); setPlaying(false); setSurah(n); setIdx(0); setChosen(true); }}/>
+    </section>
+  </div>;
   return <div className="mt-4 min-w-0 space-y-4">
-    <section className={cn(panel, "space-y-3")}>
-      <div className="flex flex-wrap items-center gap-3"><Headphones className="size-5"/><h2 className="font-serif text-2xl">Listen</h2><span className="text-sm text-muted-foreground">Follow the highlighted verse as it is recited.</span></div>
+    <section className="border-2 border-foreground bg-background p-2">
       <div className="flex flex-wrap items-center gap-2">
-        <SurahPicker value={surah} onChange={n => { audio.current?.pause(); setPlaying(false); setSurah(n); setIdx(0); }}/>
+        <Button size="sm" variant="outline" onClick={() => { audio.current?.pause(); setPlaying(false); setChosen(false); }}>☰ Surahs</Button>
         <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="h-11 min-w-0 border-2 border-foreground bg-background px-3">{reciters.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
         <select value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="Playback speed" className="h-11 border-2 border-foreground bg-background px-3">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select>
       </div>
@@ -372,12 +379,36 @@ function Listen() {
 
 /** The Quran area: Hifz, Tilawah (reading), Revision and Listen. */
 export function QuranScreen() {
-  const [section, setSection] = useState<Section>("hifz");
+  const [section, setSection] = useState<Section | null>(null);
   const practice = section === "hifz" || section === "revision";
+  const info: Record<string, [string, string]> = { hifz: ["📖", "Memorise step by step"], tilawah: ["📜", "Read the mushaf page by page"], revision: ["🔁", "Review what you've memorised"], listen: ["🎧", "Listen to beautiful recitations"] };
+  if (!section) return <div className="iq-rise">
+    <p className="text-xs font-bold uppercase text-muted-foreground">Qur’an</p>
+    <h1 className="font-serif text-4xl leading-none sm:text-5xl">What would you like to do?</h1>
+    <div className="mt-6 grid gap-3">{sections.map(item => <button key={item.id} onClick={() => setSection(item.id)} className="flex items-center gap-4 border-2 border-foreground bg-background p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5">
+      <span className="text-4xl">{info[item.id]?.[0] ?? "📖"}</span>
+      <span className="min-w-0 flex-1"><b className="block font-serif text-3xl leading-none">{item.label}</b><span className="text-sm text-muted-foreground">{info[item.id]?.[1] ?? ""}</span></span>
+      <ArrowRight className="size-5 shrink-0" />
+    </button>)}</div>
+  </div>;
   return <div>
-    <div className="grid grid-cols-4 gap-2" role="tablist" aria-label="Quran sections">{sections.map(item => <button key={item.id} role="tab" aria-selected={section === item.id} onClick={() => setSection(item.id)} className={cn("border-2 border-foreground px-1 py-2.5 text-sm font-bold shadow-brutal-sm transition-transform hover:-translate-y-0.5", section === item.id ? "bg-primary text-foreground" : "bg-background")}>{item.label}</button>)}</div>
+    <button onClick={() => setSection(null)} className="mb-2 border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold shadow-brutal-sm">← Qur’an</button>
     {practice && <HifzScreen section={section === "revision" ? "revision" : "hifz"} onGoRevision={() => setSection("revision")}/>}
     {section === "tilawah" && <Tilawah/>}
     {section === "listen" && <Listen/>}
+  </div>;
+}
+
+/** All 114 surahs in a scrolling list, with search. */
+function SurahList({ onPick, note }: { onPick: (n: number) => void; note?: (n: number) => string }) {
+  const [q, setQ] = useState("");
+  const list = surahList.filter(x => !q.trim() || `${x.n} ${x.name} ${x.arabic}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return <div className="border-2 border-foreground bg-background">
+    <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search a surah…" aria-label="Search a surah" className="h-11 w-full border-b-2 border-foreground bg-background px-3 text-sm outline-none"/>
+    <div>{list.map(x => <button key={x.n} onClick={() => onPick(x.n)} className="flex w-full items-center gap-3 border-b border-foreground/20 px-3 py-3 text-left last:border-b-0 hover:bg-muted">
+      <span className="grid size-9 shrink-0 place-items-center border-2 border-foreground text-sm font-bold">{x.n}</span>
+      <span className="min-w-0 flex-1"><b className="block">{x.name}</b>{note && <span className="text-xs text-muted-foreground">{note(x.n)}</span>}</span>
+      <span className="font-arabic text-xl" dir="rtl" lang="ar">{x.arabic}</span>
+    </button>)}{!list.length && <p className="p-4 text-sm text-muted-foreground">No surah matches.</p>}</div>
   </div>;
 }
