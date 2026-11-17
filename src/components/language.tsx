@@ -69,7 +69,8 @@ function fixText(n: Text, lang: Lang) {
   const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
   const el = n.parentElement; if (!el || el.closest(SKIP)) return;
   const was = orig.get(n);
-  const key = was && trWord(was, lang) === cur ? was : (DICT[cur] ? cur : was && cur === was ? was : undefined);
+  const known = !!was && (cur === was || Object.values((DICT[was] as Record<string, string> | undefined) ?? {}).includes(cur));
+  const key = known ? was : (DICT[cur] ? cur : undefined);
   if (!key) return;
   orig.set(n, key);
   const want = trWord(key, lang) ?? key;
