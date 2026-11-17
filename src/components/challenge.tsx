@@ -421,3 +421,5 @@ export function ChallengeScreen() {
     </div>
   </div>;
 }
+
+export { topics as duelTopics, questionsFor as duelQuestions };

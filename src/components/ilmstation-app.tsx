@@ -1,3 +1,4 @@
+import { FamilyHalaqah as FamilyHalaqahLive } from "@/components/halaqah";
 import { QuestMap as QuestMapReal } from "@/components/study";
 import { TrendingUp as YTrend, Target as YTarget, Award as YAward, Wallet as YWallet, Users as YUsers, Baby as YFamily, Crown as YCrown, Share2 as YShare, BookOpen as YBook, Settings as YCog, HelpCircle as YHelp, FileText as YDoc, LogOut as YLogOut, ChevronRight as YChevron, Star as YStar, Zap as YZap, Flame as YFlame } from "lucide-react";
 import { doc as yDoc, getDoc as yGet } from "firebase/firestore";
@@ -259,55 +260,7 @@ function Stat({ label, value }: { label:string; value:string }) { return <div cl
 function QuestScreen({ onShare }: { onShare: () => void }) { void onShare; return <Frame eyebrow="Curriculum journey" title="Quest Map"><QuestMapReal /></Frame>; }
 
 
-function HalaqahScreen({onShare}:{onShare:()=>void}){
-  const [phase,setPhase]=useState(0);
-  const [topic,setTopic]=useState("Aqeedah");
-  const [round,setRound]=useState(0);
-  const [choice,setChoice]=useState<number>();
-  const [score,setScore]=useState(0);
-  const rounds=quizQuestionsFor(topic);
-  const current=rounds[round];
-  const start=async()=>{if(!(await consumeFeature("quickquiz")))return;setRound(0);setScore(0);setChoice(undefined);setPhase(2)};
-  const qqTime=usePlaytime(phase===2);
-  if(phase===2&&qqTime.locked)return <TimeUp resetsAt={qqTime.resetsAt} kid={false} onBack={()=>setPhase(0)}/>;
-  const [invitee,setInvitee]=useState("");
-  const [invited,setInvited]=useState<string[]>([]);
-  const sendInvite=()=>{
-    const v=invitee.trim();
-    if(!v)return;
-    const isEmail=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-    if(!isEmail&&v.length<3){toast.error("Enter a username or email");return}
-    if(invited.some(i=>i.toLowerCase()===v.toLowerCase())){toast.error("Already invited");return}
-    setInvited(p=>[...p,v]);setInvitee("");
-    toast.success(`Invite sent to ${v}`);
-  };
-  if(phase===0)return <Frame eyebrow="Family learning" title="Halaqah"><div className="grid gap-5 md:grid-cols-2"><Panel title="Create a room" tag="Host"><label className="text-sm font-semibold">Topic<select value={topic} onChange={e=>setTopic(e.target.value)} className="mt-1 block h-11 w-full border-2 border-foreground bg-background px-3">{topics.map(t=><option key={t}>{t}</option>)}</select></label><p className="mt-4 text-sm text-muted-foreground">{rounds.length} rounds · visual and knowledge questions</p><Button className="mt-5" onClick={()=>setPhase(1)}>Create room</Button></Panel><Panel title="Join a room" tag="Guest"><Field label="Room code" placeholder="IQ-XXXX"/><Button variant="outline" className="mt-5" onClick={start}>Join game</Button></Panel></div></Frame>;
-  if(phase===1)return <Frame eyebrow="Waiting room" title="IQ-7K4M"><Panel title="Invite your family" tag={`${3+invited.length} of 6 joined`}>
-    <div className="grid grid-cols-3 gap-3">{["Imran","Amina","Maryam"].map(n=><div className="border-2 border-foreground bg-muted p-4 text-center" key={n}><span className="mx-auto grid size-12 place-items-center bg-primary font-serif text-xl">{n[0]}</span><b className="mt-2 block">{n}</b></div>)}</div>
-    <div className="mt-6 border-2 border-foreground bg-muted/50 p-4">
-      <b className="text-sm">Invite by username or email</b>
-      <div className="mt-2 flex gap-2">
-        <input value={invitee} onChange={e=>setInvitee(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendInvite()} placeholder="@username or name@email.com" className="h-11 min-w-0 flex-1 border-2 border-foreground bg-background px-3 text-sm" />
-        <Button onClick={sendInvite}><UserPlus/> Invite</Button>
-      </div>
-      {invited.length>0&&<div className="mt-3 flex flex-wrap gap-2">{invited.map(i=><span key={i} className="inline-flex items-center gap-1.5 border-2 border-foreground bg-background px-2 py-1 text-xs font-bold"><Check className="size-3.5"/> {i} · invited</span>)}</div>}
-    </div>
-    <div className="mt-6 flex flex-wrap gap-3"><Button variant="outline" onClick={()=>toast.success("Room code copied")}>Copy code</Button><Button onClick={start}>Start game</Button></div>
-  </Panel></Frame>;
-  if(phase===2&&current)return <Frame eyebrow={`Live game · Round ${round+1} of ${rounds.length}`} title="Family Halaqah"><Panel title={current.q} tag={topic}>{current.visual&&round===0&&<QuizVisual kind={current.visual} compact/>}<div className="mt-5 grid gap-3 sm:grid-cols-2">{current.options.map((a,i)=><Button key={a} variant="outline" className={cn("min-h-14 justify-start text-left", choice!==undefined&&i===current.answer&&"bg-secondary text-secondary-foreground",choice===i&&i!==current.answer&&"bg-destructive text-destructive-foreground")} disabled={choice!==undefined} onClick={()=>{setChoice(i);if(i===current.answer)setScore(s=>s+1)}}>{a}</Button>)}</div>{choice!==undefined&&<div className="mt-5"><p className="text-sm">{current.why}</p><Button className="mt-3" onClick={()=>{if(round+1<rounds.length){setRound(r=>r+1);setChoice(undefined)}else setPhase(3)}}>{round+1<rounds.length?"Next round":"See results"}</Button></div>}</Panel></Frame>;
-  return <Frame eyebrow="Family results" title="Learning together"><Panel title="Your round summary" tag="Room IQ-7K4M"><div className="grid gap-3 sm:grid-cols-2"><Stat label="Correct answers" value={`${score} / ${rounds.length}`}/><Stat label="Topic" value={topic}/></div><p className="mt-5 text-sm text-muted-foreground">Every answer is a chance to learn together. Try another topic as a family.</p><div className="mt-6 flex flex-wrap gap-3"><Button onClick={()=>setPhase(0)}>Play again</Button><Button variant="outline" onClick={onShare}><Share2/> Share results</Button></div></Panel></Frame>
-}
-
-
-
-const articles=[
-  {id:"tawakkul",t:"Understanding Tawakkul",c:"Aqeedah",m:"8 min",tier:"free" as Tier,cost:0},
-  {id:"mercy",t:"Mercy in the Prophetic Tradition",c:"Hadith",m:"12 min",tier:"free" as Tier,cost:0},
-  {id:"hudaybiyyah",t:"The Treaty of Hudaybiyyah",c:"Seerah",m:"10 min",tier:"premium" as Tier,cost:300},
-  {id:"wudu",t:"A Practical Guide to Wudu",c:"Fiqh",m:"6 min",tier:"free" as Tier,cost:0},
-  {id:"tafsir-mulk",t:"Tafsir of Surah Al-Mulk",c:"Tafsir",m:"22 min",tier:"premium" as Tier,cost:450},
-  {id:"arabic-grammar",t:"Classical Arabic: Building Sentences",c:"Arabic",m:"18 min",tier:"premium" as Tier,cost:400},
-];
+function HalaqahScreen({ onShare }: { onShare: () => void }) { void onShare; return <Frame eyebrow="Family learning" title="Family Halaqah"><FamilyHalaqahLive /></Frame>; }
 function WisdomScreen({onShare}:{onShare:(card?:ShareCard)=>void}){const[saved,setSaved]=useState(false);return <Frame eyebrow="A new entry every Fajr" title="Daily Wisdom"><Panel title="Today · Patience" tag="Hadith"><p className="font-arabic text-4xl leading-loose" dir="rtl">وَمَن يَتَصَبَّرْ يُصَبِّرْهُ اللَّهُ</p><p className="mt-4 font-serif text-3xl italic">“Whoever strives to be patient, Allah will make him patient.”</p><p className="mt-3 text-sm text-muted-foreground">Sahih al-Bukhari 1469 · Authenticated</p><div className="mt-6 flex gap-3"><Button onClick={()=>{setSaved(!saved);toast.success(saved?"Removed from bookmarks":"Wisdom saved")}}>{saved?"Saved ✓":"Bookmark"}</Button><Button variant="outline" onClick={() => onShare(patienceCard)}><Share2/> Share</Button></div></Panel><h2 className="mb-4 mt-8 font-serif text-3xl">Recent wisdom</h2><div className="grid gap-3 md:grid-cols-3">{["Gratitude","Sincerity","Good character"].map((x,i)=><button key={x} className="border-2 border-foreground p-5 text-left hover:bg-primary"><span className="text-xs uppercase text-muted-foreground">{i+1} day ago</span><h3 className="mt-2 font-serif text-2xl">{x}</h3><p className="mt-2 text-sm">A sourced reflection from Qur’an and Sunnah.</p></button>)}</div></Frame>}
 
 function BotScreen(){const[messages,setMessages]=useState<{from:string;text:string}[]>([]);const[input,setInput]=useState("");const send=(text=input)=>{if(!text.trim())return;setMessages(m=>[...m,{from:"you",text},{from:"bot",text:"Sabr is steadfast patience rooted in trust in Allah. The Qur’an pairs patience with prayer as sources of help. For personal religious rulings, please consult a qualified scholar. · Source: Qur’an 2:153"}]);setInput("")};return <Frame eyebrow="8 of 10 sessions remaining" title="Ask IlmBot"><Panel title="Sourced Islamic learning assistant" tag="Not a fatwa service"><div className="min-h-80 space-y-3">{messages.length===0?<div><p className="font-serif text-3xl">What would you like to understand?</p><div className="mt-5 flex flex-wrap gap-2">{["Explain sabr simply","What is the meaning of Ihsan?","Tell me about Surah Al-Mulk"].map(q=><Button key={q} variant="outline" onClick={()=>send(q)}>{q}</Button>)}</div></div>:messages.map((m,i)=><div key={i} className={cn("max-w-2xl border-2 border-foreground p-4",m.from==="you"?"ml-auto bg-primary":"bg-muted")}><b className="text-xs uppercase">{m.from==="you"?"You":"IlmBot"}</b><p className="mt-1">{m.text}</p></div>)}</div><form className="mt-5 flex gap-2 border-t-2 border-foreground pt-4" onSubmit={e=>{e.preventDefault();send()}}><input aria-label="Ask IlmBot" value={input} onChange={e=>setInput(e.target.value)} className="h-11 flex-1 border-2 border-foreground bg-background px-3" placeholder="Ask a learning question…"/><Button type="submit">Send</Button></form></Panel></Frame>}
