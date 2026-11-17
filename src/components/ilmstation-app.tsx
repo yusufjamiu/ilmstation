@@ -1,3 +1,4 @@
+import { TrendingUp as YTrend, Target as YTarget, Award as YAward, Wallet as YWallet, Users as YUsers, Baby as YFamily, Crown as YCrown, Share2 as YShare, BookOpen as YBook, Settings as YCog, HelpCircle as YHelp, FileText as YDoc, LogOut as YLogOut, ChevronRight as YChevron, Star as YStar, Zap as YZap, Flame as YFlame } from "lucide-react";
 import { doc as yDoc, getDoc as yGet } from "firebase/firestore";
 import { auth as yAuth, db as yDb } from "@/lib/firebase";
 import { useLanguage as useAppLang, useLiveLanguages as useLiveAppLangs, type Lang as AppLang } from "@/components/language";
@@ -414,15 +415,18 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
   }, []);
   const kid = me.zone === "kids";
   const until = pr.premiumUntil ? new Date(pr.premiumUntil).toLocaleDateString() : "";
-  const status = pr.premium ? (pr.trial ? `🎁 Free trial${until ? ` · until ${until}` : ""}` : `👑 Premium${until ? ` · until ${until}` : ""}`) : "Free plan";
-  const tile = (emoji: string, title: string, sub: string, on: () => void) => <button key={title} onClick={on} className="flex items-start gap-3 border-2 border-foreground bg-background p-4 text-left shadow-brutal-sm transition hover:bg-primary/15">
-    <span className="text-3xl leading-none">{emoji}</span><span><b className="block">{title}</b><span className="text-xs text-muted-foreground">{sub}</span></span></button>;
+  const status = pr.premium ? `${pr.trial ? "Free trial" : "Premium"}${until ? ` · until ${until}` : ""}` : "Free plan";
+  const tile = (Icon: typeof YTrend, title: string, sub: string, on: () => void) => <button key={title} onClick={on} className="flex items-center gap-3 border-2 border-foreground bg-background p-4 text-left shadow-brutal-sm transition hover:bg-primary/15">
+    <span className="grid size-11 shrink-0 place-items-center border-2 border-foreground bg-primary"><Icon className="size-5" /></span>
+    <span className="min-w-0"><b className="block">{title}</b><span className="text-xs text-muted-foreground">{sub}</span></span></button>;
   const invite = async () => {
     const data = { title: "IlmStation", text: "Learn, play and grow with me on IlmStation", url: "https://www.ilmstation.com" };
     try { if (navigator.share) { await navigator.share(data); return; } await navigator.clipboard.writeText(data.url); toast.success("Link copied"); } catch { /* cancelled */ }
   };
   const initial = (me.name || me.username || "?").trim().charAt(0).toUpperCase();
-  const row = "flex w-full items-center justify-between border-b-2 border-foreground py-3 text-left font-semibold";
+  const row = "flex w-full items-center justify-between border-b-2 border-foreground py-3.5 text-left font-semibold";
+  const label = (Icon: typeof YTrend, text: string) => <span className="flex items-center gap-3"><Icon className="size-5" />{text}</span>;
+  const chip = "flex items-center gap-1.5 border-2 border-foreground bg-background px-2 py-1";
   return <Frame eyebrow="Your account" title={kid ? "Me" : "You"}>
     <section className="border-2 border-foreground bg-primary p-5 shadow-brutal">
       <div className="flex items-center gap-4">
@@ -433,35 +437,35 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
-        {me.level !== undefined && <span className="border-2 border-foreground bg-background px-2 py-1">Level {me.level}</span>}
-        {me.xp !== undefined && <span className="border-2 border-foreground bg-background px-2 py-1">{me.xp} XP</span>}
-        {me.streak !== undefined && <span className="border-2 border-foreground bg-background px-2 py-1">🔥 {me.streak}</span>}
-        {!kid && <span className="border-2 border-foreground bg-background px-2 py-1">{status}</span>}
+        {me.level !== undefined && <span className={chip}><YStar className="size-4" /><span>Level</span> {me.level}</span>}
+        {me.xp !== undefined && <span className={chip}><YZap className="size-4" />{me.xp} XP</span>}
+        {me.streak !== undefined && <span className={chip}><YFlame className="size-4" />{me.streak}</span>}
+        {!kid && <span className={chip}><YCrown className="size-4" />{status}</span>}
       </div>
     </section>
     <div className="mt-5 grid gap-3 sm:grid-cols-2">
       {kid ? <>
-        {tile("📈", "My progress", "Stars, levels and streak", () => go("progress"))}
-        {tile("⭐", "My badges", "Everything you’ve earned", () => go("progress"))}
-        {tile("📚", "My lessons", "Keep learning", () => go("study"))}
-        {tile("⚙️", "Settings", "Language and more", () => go("settings"))}
+        {tile(YTrend, "My progress", "Stars, levels and streak", () => go("progress"))}
+        {tile(YAward, "My badges", "Everything you’ve earned", () => go("progress"))}
+        {tile(YBook, "My lessons", "Keep learning", () => go("study"))}
+        {tile(YCog, "Settings", "Language and more", () => go("settings"))}
       </> : <>
-        {tile("📈", "Progress", "Your learning record", () => go("progress"))}
-        {tile("🎯", "Quests", "Daily and weekly goals", () => go("quests"))}
-        {tile("🏅", "Badges", "Everything you’ve earned", () => go("progress"))}
-        {tile("💰", "Wallet & points", `${pr.points ?? 0} points · swap for Premium`, () => go("rewards"))}
-        {tile("👥", "Friends & challenges", "Your circle", () => go("community"))}
-        {tile("👨‍👩‍👧", "Family hub", "Children’s accounts and family plan", () => go("family"))}
-        {tile("👑", "Premium", pr.premium ? "Your plan" : "See plans", () => go("rewards" as Screen))}
-        {tile("📤", "Invite friends", "Share IlmStation", () => void invite())}
+        {tile(YTrend, "Progress", "Your learning record", () => go("progress"))}
+        {tile(YTarget, "Quests", "Daily and weekly goals", () => go("quests"))}
+        {tile(YAward, "Badges", "Everything you’ve earned", () => go("progress"))}
+        {tile(YWallet, "Wallet & points", `${pr.points ?? 0} points · swap for Premium`, () => go("rewards"))}
+        {tile(YUsers, "Friends & challenges", "Your circle", () => go("community"))}
+        {tile(YFamily, "Family hub", "Children’s accounts and family plan", () => go("family"))}
+        {tile(YCrown, "Premium", pr.premium ? "Your plan" : "See plans", () => go("rewards" as Screen))}
+        {tile(YShare, "Invite friends", "Share IlmStation", () => void invite())}
       </>}
     </div>
     <div className="mt-6 border-t-2 border-foreground">
-      {!kid && <button className={row} onClick={() => go("settings")}><span>⚙️ Settings</span><span>›</span></button>}
-      <a className={row} href="mailto:admin@ilmstation.com"><span>❓ Help & contact</span><span>›</span></a>
-      <a className={row} href="/privacy" target="_blank" rel="noreferrer"><span>📄 Privacy Policy</span><span>›</span></a>
-      <a className={row} href="/terms" target="_blank" rel="noreferrer"><span>📄 Terms of Use</span><span>›</span></a>
-      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/" }); }}><span>🚪 Log out</span><span>›</span></button>
+      {!kid && <button className={row} onClick={() => go("settings")}>{label(YCog, "Settings")}<YChevron className="size-4" /></button>}
+      <a className={row} href="mailto:admin@ilmstation.com">{label(YHelp, "Help & contact")}<YChevron className="size-4" /></a>
+      <a className={row} href="/privacy" target="_blank" rel="noreferrer">{label(YDoc, "Privacy Policy")}<YChevron className="size-4" /></a>
+      <a className={row} href="/terms" target="_blank" rel="noreferrer">{label(YDoc, "Terms of Use")}<YChevron className="size-4" /></a>
+      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/" }); }}>{label(YLogOut, "Log out")}<YChevron className="size-4" /></button>
     </div>
   </Frame>;
 }

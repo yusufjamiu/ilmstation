@@ -967,3 +967,6 @@ DICT["🚪 Log out"] = { ...(DICT["🚪 Log out"] ?? {}), ar: "🚪 تسجيل �
 DICT["Link copied"] = { ...(DICT["Link copied"] ?? {}), ar: "تم نسخ الرابط", fr: "Lien copié", ur: "لنک کاپی ہو گیا", ha: "An kwafa hanyar", id: "Tautan disalin", tl: "Nakopya ang link" };
 DICT["Logged out"] = { ...(DICT["Logged out"] ?? {}), ar: "تم تسجيل الخروج", fr: "Déconnecté", ur: "لاگ آؤٹ ہو گئے", ha: "An fita", id: "Berhasil keluar", tl: "Naka-log out" };
 DICT["Level {n}"] = { ...(DICT["Level {n}"] ?? {}), ar: "المستوى {n}", fr: "Niveau {n}", ur: "لیول {n}", ha: "Mataki {n}", id: "Level {n}", tl: "Antas {n}" };
+
+DICT["Help & contact"] = { ...(DICT["Help & contact"] ?? {}), ar: "المساعدة والتواصل", fr: "Aide et contact", ur: "مدد اور رابطہ", ha: "Taimako da tuntuɓa", id: "Bantuan & kontak", tl: "Tulong at contact" };
+DICT["Free trial"] = { ...(DICT["Free trial"] ?? {}), ar: "تجربة مجانية", fr: "Essai gratuit", ur: "مفت آزمائش", ha: "Gwaji kyauta", id: "Uji coba gratis", tl: "Libreng trial" };
