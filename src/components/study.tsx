@@ -1,3 +1,4 @@
+import { Check as QCheck, Lock as QLock, MapPin as QPin } from "lucide-react";
 import { useLanguage as useAppLangS } from "@/components/language";
 import { usePremium as useKidPremium } from "@/components/premium";
 import { catFor } from "@/components/study-core";
@@ -297,5 +298,77 @@ function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }
       className={cn("border-2 border-foreground p-6 text-left shadow-brutal transition-transform hover:-translate-y-1", KID_TINTS[i % KID_TINTS.length])}>
       <span className="text-5xl">📚</span><b className="mt-2 block font-serif text-3xl">{c.name}</b>
     </button>)}</div>
+  </div>;
+}
+
+/** Quest Map: the Study curriculum as a journey. Chapters = categories, stops = subjects. */
+export function QuestMap() {
+  const raw = useStudyCategories() as unknown;
+  const all = ((Array.isArray(raw) ? raw : (raw as { cats?: Category[] } | null)?.cats) ?? []) as (Category & { live?: boolean })[];
+  const cats = all.filter((c) => c.live !== false);
+  const [catId, setCatId] = useState<string | undefined>(undefined);
+  const [subjectId, setSubjectId] = useState<string | undefined>(undefined);
+  const [lessonId, setLessonId] = useState<string | undefined>(undefined);
+  const cid = catId ?? cats[0]?.id;
+  const { uid, progress } = useStudyMe();
+  const voice = useVoiceLang();
+  const { premium } = useKidPremium();
+  const subjects = useDocs<Subject>("studySubjects", cid ? [["category", cid]] : [], !!cid);
+  const lessonsAll = useDocs<Lesson>("studyLessons", [], true);
+  useEffect(() => { window.scrollTo?.(0, 0); }, [cid, subjectId, lessonId]);
+  const done = (id: string) => !!progress.done?.[id];
+  const list = (subjects ?? []).slice().sort((a, b) => a.order - b.order);
+  const lessonsOf = (sid: string) => (lessonsAll ?? []).filter((l) => l.subjectId === sid).sort((a, b) => a.order - b.order);
+  const pctOf = (sid: string) => { const ls = lessonsOf(sid); return ls.length ? Math.round((ls.filter((l) => done(l.id)).length / ls.length) * 100) : 0; };
+  const firstOpen = list.findIndex((x) => pctOf(x.id) < 100 || !lessonsOf(x.id).length);
+  const status = (i: number) => (firstOpen === -1 || i < firstOpen ? "done" : i === firstOpen ? "current" : "locked");
+  const totalLessons = list.reduce((n, x) => n + lessonsOf(x.id).length, 0);
+  const totalDone = list.reduce((n, x) => n + lessonsOf(x.id).filter((l) => done(l.id)).length, 0);
+  const overall = totalLessons ? Math.round((totalDone / totalLessons) * 100) : 0;
+  const subject = list.find((x) => x.id === subjectId);
+  const lessons = subject ? lessonsOf(subject.id) : [];
+  const lesson = lessons.find((l) => l.id === lessonId);
+
+  if (lesson) return <LessonPlayer key={lesson.id} lesson={lesson} lang={voice.lang} uid={uid} done={done(lesson.id)} note={progress.notes?.[lesson.id] ?? ""} onExit={() => setLessonId(undefined)} onFinished={() => {}} />;
+  if (subject) return <div className="iq-rise">
+    <button onClick={() => setSubjectId(undefined)} className="mb-4 border-2 border-foreground bg-background px-4 py-2 font-bold shadow-brutal-sm">← Map</button>
+    <h2 className="font-serif text-4xl leading-tight">{subject.name}</h2>
+    {subject.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{subject.nameAr}</p>}
+    <p className="mt-2 text-sm text-muted-foreground">{lessons.filter((l) => done(l.id)).length} / {lessons.length}</p>
+    <div className="mt-5 grid gap-3">{lessons.map((l, i) => { const locked = l.tier === "premium" && !premium; return <button key={l.id} onClick={() => (locked ? toast("This lesson is Premium.") : setLessonId(l.id))}
+      className={cn("flex items-center gap-4 border-2 border-foreground p-4 text-left shadow-brutal-sm", done(l.id) ? "bg-primary/40" : "bg-background", locked && "opacity-70")}>
+      <span className="grid size-11 shrink-0 place-items-center border-2 border-foreground bg-background font-bold">{done(l.id) ? <QCheck className="size-5" /> : i + 1}</span>
+      <span className="min-w-0 flex-1"><b className="block leading-tight">{l.title}</b><span className="text-xs text-muted-foreground">{l.mins ? `${l.mins} min` : ""}</span></span>
+      {locked && <QLock className="size-4" />}
+    </button>; })}
+    {!lessons.length && <p className="border-2 border-dashed border-foreground p-5 text-sm">Coming soon</p>}</div>
+  </div>;
+
+  return <div className="iq-rise">
+    {cats.length > 1 && <div className="mb-4 flex flex-wrap gap-2">{cats.map((c) => <button key={c.id} onClick={() => setCatId(c.id)} className={cn("border-2 border-foreground px-3 py-1.5 text-sm font-bold", c.id === cid ? "bg-foreground text-background" : "bg-background")}>{c.name}</button>)}</div>}
+    <section className="border-2 border-foreground bg-primary p-4 shadow-brutal">
+      <p className="text-xs font-bold uppercase">{cats.find((c) => c.id === cid)?.name ?? ""}</p>
+      <div className="mt-2 flex items-center gap-3"><div className="h-3 flex-1 border-2 border-foreground bg-background"><div className="h-full bg-secondary" style={{ width: `${overall}%` }} /></div><b className="tabular-nums">{overall}%</b></div>
+      <p className="mt-1 text-xs">{totalDone} / {totalLessons}</p>
+    </section>
+    {subjects === undefined || subjects === null ? <p className="mt-6 text-sm text-muted-foreground">Loading…</p> : !list.length ? <p className="mt-6 border-2 border-dashed border-foreground p-6 text-sm">Coming soon</p> :
+    <div className="relative mx-auto mt-8 max-w-md pb-6">
+      <div className="absolute bottom-0 left-1/2 top-0 -translate-x-1/2 border-l-4 border-dashed border-foreground/25" />
+      {list.map((x, i) => { const st = status(i); const pct = pctOf(x.id); const left = i % 2 === 0;
+        return <div key={x.id} className={cn("relative mb-6 flex", left ? "justify-start" : "justify-end")}>
+          <button onClick={() => (st === "locked" ? toast(`Finish ${list[firstOpen]?.name ?? "the previous stop"} first`) : setSubjectId(x.id))}
+            className={cn("relative z-10 flex w-[82%] items-center gap-3 border-2 border-foreground p-3 text-left shadow-brutal transition hover:-translate-y-0.5", st === "current" ? "bg-primary" : st === "done" ? "bg-background" : "bg-muted opacity-75")}>
+            <span className={cn("grid size-12 shrink-0 place-items-center rounded-full border-2 border-foreground font-serif text-xl", st === "done" ? "bg-secondary text-background" : st === "current" ? "bg-background" : "bg-muted")}>
+              {st === "done" ? <QCheck className="size-6" /> : st === "locked" ? <QLock className="size-5" /> : i + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <b className="block truncate leading-tight">{x.name}</b>
+              <span className="text-xs text-muted-foreground">{lessonsOf(x.id).length} lessons · {pct}%</span>
+              {st === "current" && <span className="mt-1 block h-2 border border-foreground bg-background"><span className="block h-full bg-secondary" style={{ width: `${pct}%` }} /></span>}
+            </span>
+            {st === "current" && <QPin className="size-5 shrink-0" />}
+          </button>
+        </div>; })}
+    </div>}
   </div>;
 }
