@@ -10,7 +10,7 @@ import { duelQuestions, duelTopics } from "@/components/challenge";
 type HQ = { q: string; options: string[]; a: number; why?: string };
 type Room = {
   code: string; host: string; hostName: string; topic: string; status: "lobby" | "question" | "reveal" | "done";
-  qIndex: number; questions: HQ[]; players: Record<string, { name: string }>; answers: Record<string, Record<string, number>>; qStartedAt: number; createdAt: number;
+  qIndex: number; questions: HQ[]; players: Record<string, { name: string }>; answers: Record<string, Record<string, number>>; qStartedAt: number; createdAt: number; secs?: number;
 };
 const SECS = 20;
 const norm = (x: unknown): HQ => {
@@ -33,6 +33,7 @@ export function FamilyHalaqah() {
   const [room, setRoom] = useState<Room | null>(null);
   const [topic, setTopic] = useState(duelTopics[0]);
   const [rounds, setRounds] = useState(5);
+  const [secs, setSecs] = useState(20);
   const [join, setJoin] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -45,7 +46,8 @@ export function FamilyHalaqah() {
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
   const ref = code ? doc(db, "halaqahRooms", code) : null;
   const host = !!room && room.host === uid;
-  const left = room ? Math.max(0, SECS - Math.floor((now - room.qStartedAt) / 1000)) : SECS;
+  const limit = room?.secs ?? SECS;
+  const left = room ? Math.max(0, limit - Math.floor((now - room.qStartedAt) / 1000)) : limit;
   const answered = room ? Object.keys(room.answers?.[room.qIndex] ?? {}).length : 0;
   const playerCount = room ? Object.keys(room.players ?? {}).length : 0;
 
@@ -60,7 +62,7 @@ export function FamilyHalaqah() {
     setBusy(true);
     try {
       const c = newCode(); const name = await myName();
-      await setDoc(doc(db, "halaqahRooms", c), { code: c, host: uid, hostName: name, topic, status: "lobby", qIndex: 0, questions: duelQuestions(topic, rounds).map(norm), players: { [uid]: { name } }, answers: {}, qStartedAt: 0, createdAt: Date.now() });
+      await setDoc(doc(db, "halaqahRooms", c), { code: c, host: uid, hostName: name, topic, status: "lobby", qIndex: 0, questions: duelQuestions(topic, rounds).map(norm), players: { [uid]: { name } }, answers: {}, qStartedAt: 0, createdAt: Date.now(), secs });
       setCode(c);
     } catch { toast.error("Couldn't create the room. Try again."); }
     setBusy(false);
@@ -95,6 +97,8 @@ export function FamilyHalaqah() {
       <div className="mt-2 flex flex-wrap gap-2">{duelTopics.map((t) => <button key={t} onClick={() => setTopic(t)} className={cn("border-2 border-foreground px-3 py-1.5 text-sm font-semibold", t === topic ? "bg-primary" : "bg-background")}>{t}</button>)}</div>
       <p className="mt-4 text-sm font-semibold">Questions</p>
       <div className="mt-2 flex gap-2">{[5, 10].map((n) => <button key={n} onClick={() => setRounds(n)} className={cn("border-2 border-foreground px-4 py-1.5 text-sm font-bold", n === rounds ? "bg-primary" : "bg-background")}>{n}</button>)}</div>
+      <p className="mt-4 text-sm font-semibold">Time per question</p>
+      <div className="mt-2 flex gap-2">{[10, 20, 30, 45].map((n) => <button key={n} onClick={() => setSecs(n)} className={cn("border-2 border-foreground px-3 py-1.5 text-sm font-bold", n === secs ? "bg-primary" : "bg-background")}>{n}s</button>)}</div>
       <Button className="mt-5 w-full" disabled={busy} onClick={() => void create()}>{busy ? <Loader2 className="animate-spin" /> : <Users />} Create a room</Button>
     </section>
     <section className={panel}>
@@ -111,7 +115,7 @@ export function FamilyHalaqah() {
   const list = board(room);
 
   if (room.status === "lobby") return <section className={panel}>
-    <p className="text-xs font-bold uppercase text-muted-foreground">Room code · {room.topic}</p>
+    <p className="text-xs font-bold uppercase text-muted-foreground">Room code · {room.topic} · {limit}s per question</p>
     <p className="mt-1 font-mono text-5xl tracking-widest">{room.code}</p>
     <div className="mt-3 flex flex-wrap gap-2">
       <Button size="sm" variant="outline" onClick={() => { void navigator.clipboard?.writeText(room.code); toast.success("Copied"); }}><Copy /> Copy code</Button>
