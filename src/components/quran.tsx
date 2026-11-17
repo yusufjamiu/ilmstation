@@ -342,6 +342,8 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
   const [chosen, setChosen] = useState(false);
   const [lastL] = useState<{ surah: number; idx: number } | null>(() => { try { const v = JSON.parse(localStorage.getItem("ilmstation:listen-last") ?? "null"); return v && typeof v.surah === "number" ? v : null; } catch { return null; } });
   const [askL, setAskL] = useState(false);
+  const [autoNext, setAutoNext] = useState(() => { try { return localStorage.getItem("listenAutoNext") !== "0"; } catch { return true; } });
+  const [showMeaning, setShowMeaning] = useState(false);
   useEffect(() => { if (chosen) { try { localStorage.setItem("ilmstation:listen-last", JSON.stringify({ surah, idx })); } catch { /* ignore */ } } }, [chosen, surah, idx]);
   useEffect(() => { if (!lastL) return; try { if (sessionStorage.getItem("listenAsked")) return; sessionStorage.setItem("listenAsked", "1"); } catch { /* ignore */ } setAskL(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const resume = () => { if (!lastL) return; setAskL(false); setSurah(lastL.surah); setIdx(lastL.idx); setChosen(true); };
@@ -365,7 +367,7 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
   function ended() {
     const el = audio.current;
     if (repeat && el) { el.currentTime = 0; void el.play(); return; }
-    if (idx < last) setIdx(i => i + 1); else setPlaying(false);
+    if (idx < last) setIdx(i => i + 1); else if (autoNext && surah < 114) { setSurah(x => x + 1); setIdx(0); } else setPlaying(false);
   }
   const [a, b] = pageSlice([0, Math.max(0, last)], idx);
   if (!chosen) return <div className="mt-1 min-w-0 sm:mt-4">
@@ -397,10 +399,18 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
       </div>
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this surah. Check your connection and try again.</p><Button className="mt-3" onClick={retry}>Try again</Button></section> : !verses ? <p className="text-sm text-muted-foreground">Loading the surah…</p> : <>
-      <PageView verses={verses.slice(a, b + 1)} from={a} revealUpTo={verses.length} focus={idx} peek={false} onSelect={n => setIdx(n)} title={meta.arabic} juz={meta.juz} number={surah}/>
+      <PageView verses={verses.slice(a, b + 1)} from={a} revealUpTo={verses.length} focus={idx} peek={false} onSelect={n => { setIdx(n); setShowMeaning(true); }} title={meta.arabic} juz={meta.juz} number={surah}/>
+      {showMeaning && verses[idx] && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setShowMeaning(false)}>
+        <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {idx + 1}</p><button onClick={() => setShowMeaning(false)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
+          <p dir="rtl" lang="ar" className="mt-3 text-right font-arabic text-3xl leading-[2]">{(verses[idx] as { text?: string }).text}</p>
+          <p className="mt-3 text-base leading-relaxed">{verses[idx]?.meaning}</p>
+          <Button className="mt-5 w-full" onClick={() => void verseCard((verses[idx] as { text?: string }).text ?? "", verses[idx]?.meaning ?? "", `${meta.name} · ${surah}:${idx + 1}`)}>📥 Download card</Button>
+        </div>
+      </div>}
       <section className={cn(panel, "space-y-3")}>
         <p className="text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {idx + 1} of {verses.length}</p>
-        <p className="text-sm leading-relaxed">{verses[idx]?.meaning}</p>
+        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={autoNext} onChange={e => { setAutoNext(e.target.checked); try { localStorage.setItem("listenAutoNext", e.target.checked ? "1" : "0"); } catch { /* ignore */ } }}/> Auto-play next surah</label>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="icon" aria-label="Previous verse" disabled={idx === 0} onClick={() => setIdx(i => Math.max(0, i - 1))}><SkipBack /></Button>
           <Button onClick={toggle}>{playing ? <Pause /> : <Play />}{playing ? "Pause" : "Play"}</Button>
@@ -447,4 +457,35 @@ function SurahList({ onPick, note }: { onPick: (n: number) => void; note?: (n: n
       <span className="font-arabic text-xl" dir="rtl" lang="ar">{x.arabic}</span>
     </button>)}{!list.length && <p className="p-4 text-sm text-muted-foreground">No surah matches.</p>}</div>
   </div>;
+}
+
+/** A square verse card (Arabic, meaning, reference) in IlmStation style. */
+async function verseCard(arabic: string, meaning: string, ref: string) {
+  const W = 1080, c = document.createElement("canvas"); c.width = W; c.height = W;
+  const x = c.getContext("2d"); if (!x) return;
+  try { await Promise.all([document.fonts.load('52px "Amiri Quran"'), document.fonts.load('52px "Amiri"')]); } catch { /* use what's there */ }
+  const wrap = (t: string, maxW: number) => { const out: string[] = []; let line = ""; for (const w of t.split(" ")) { const tt = line ? `${line} ${w}` : w; if (x.measureText(tt).width > maxW && line) { out.push(line); line = w; } else line = tt; } if (line) out.push(line); return out; };
+  x.fillStyle = "#e8c25b"; x.fillRect(0, 0, W, W);
+  x.fillStyle = "#1c1a17"; x.fillRect(74, 74, W - 128, W - 128);
+  x.fillStyle = "#f7f3ea"; x.fillRect(54, 54, W - 128, W - 128);
+  x.lineWidth = 8; x.strokeStyle = "#1c1a17"; x.strokeRect(54, 54, W - 128, W - 128);
+  x.fillStyle = "#e8c25b"; x.fillRect(110, 112, 190, 58); x.strokeRect(110, 112, 190, 58);
+  x.fillStyle = "#1c1a17"; x.font = "bold 30px Arial, sans-serif"; x.textBaseline = "middle"; x.fillText("QUR’AN", 140, 142); x.textBaseline = "alphabetic";
+  let size = 58, lines: string[] = [];
+  for (; size >= 30; size -= 4) { x.font = `${size}px "Amiri Quran", "Amiri", serif`; lines = wrap(arabic, 820); if (lines.length * size * 1.9 <= 400) break; }
+  x.direction = "rtl"; x.textAlign = "right"; let y = 270;
+  for (const l of lines) { x.fillText(l, W - 110, y); y += size * 1.9; }
+  x.direction = "ltr"; x.textAlign = "left";
+  let ms = 36, mlines: string[] = [];
+  for (; ms >= 22; ms -= 2) { x.font = `${ms}px Georgia, serif`; mlines = wrap(meaning, 820); if (y + 20 + mlines.length * ms * 1.4 <= 830) break; }
+  y += 20; for (const l of mlines) { x.fillText(l, 110, y); y += ms * 1.4; }
+  x.font = "bold 30px Arial, sans-serif"; x.fillText(ref, 110, 880);
+  x.fillRect(110, 905, 60, 60); x.fillStyle = "#f7f3ea"; x.font = "42px Georgia, serif"; x.fillText("I", 130, 950);
+  x.fillStyle = "#1c1a17"; x.font = "34px Georgia, serif"; x.fillText("IlmStation · ilmstation.com", 188, 948);
+  const blob = await new Promise<Blob | null>(r => c.toBlob(r, "image/png"));
+  if (!blob) return;
+  const file = new File([blob], "ilmstation-verse.png", { type: "image/png" });
+  const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
+  if (nav.canShare?.({ files: [file] })) { try { await nav.share({ files: [file], text: `${ref} · via IlmStation` }); return; } catch { /* fall back to download */ } }
+  const u = URL.createObjectURL(file); const a = document.createElement("a"); a.href = u; a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
 }
