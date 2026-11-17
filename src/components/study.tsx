@@ -1,3 +1,4 @@
+import { usePremium as useKidPremium } from "@/components/premium";
 import { catFor } from "@/components/study-core";
 import { useAuth } from "@/components/auth";
 import { liveVoiceLangs } from "@/components/study-core";
@@ -58,6 +59,7 @@ export function StudyScreen() {
   const examView = useExam(view.exam);
 
   useEffect(() => { window.scrollTo?.(0, 0); }, [view]);
+  if (studyAcct?.zone === "kids") return <KidStudy cats={cats ?? []} />;
   if (!cats) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const cat = cats.find((c) => c.id === view.cat);
   const stages = stagesOf(cat);
@@ -226,5 +228,73 @@ function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLe
         <p className="text-sm">{r?.passed ? `Passed · best score ${r.best}%` : allDone ? `Pass mark ${exam.passMark}%${r ? ` · best so far ${r.best}%` : ""}` : "Finish all the lessons to unlock the exam."}</p></div>
       {!r?.passed && <Button disabled={!allDone} onClick={() => onExam(exam.id)}>{r ? "Try again" : "Take the exam"}</Button>}
     </div>}
+  </div>;
+}
+
+/* ---------------- Kids: big tiles, simple lists, stars ---------------- */
+const KID_TINTS = ["bg-primary", "bg-secondary text-secondary-foreground", "bg-[#d7ecd9] text-[#1c1a17]", "bg-[#f7d9c4] text-[#1c1a17]", "bg-[#d9e3f7] text-[#1c1a17]"];
+function kidEmoji(name: string) {
+  const n = name.toLowerCase();
+  if (/letter|qa.?idah|alphabet|huruf|arab/.test(n)) return "🔤";
+  if (/dua|du.?a|supplicat/.test(n)) return "🤲";
+  if (/prophet|nabi|anbiya|stor|seerah|sirah/.test(n)) return "🌙";
+  if (/salah|salat|prayer|wudu/.test(n)) return "🕌";
+  if (/manner|adab|akhlaq|character/.test(n)) return "💛";
+  if (/qur|surah|juz|hifz/.test(n)) return "📖";
+  return "⭐";
+}
+function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }[] }) {
+  const live = cats.filter((c) => c.live !== false);
+  const [catId, setCatId] = useState<string | undefined>(undefined);
+  const [subjectId, setSubjectId] = useState<string | undefined>(undefined);
+  const [lessonId, setLessonId] = useState<string | undefined>(undefined);
+  const cid = catId ?? (live.length === 1 ? live[0].id : undefined);
+  const { uid, progress } = useStudyMe();
+  const voice = useVoiceLang();
+  const { premium } = useKidPremium();
+  const subjects = useDocs<Subject>("studySubjects", cid ? [["category", cid]] : [], !!cid);
+  const lessonsAll = useDocs<Lesson>("studyLessons", subjectId ? [["subjectId", subjectId]] : [], !!subjectId);
+  useEffect(() => { window.scrollTo?.(0, 0); }, [cid, subjectId, lessonId]);
+  const subject = (subjects ?? []).find((x) => x.id === subjectId);
+  const lessons = (lessonsAll ?? []).filter((l) => l.subjectId === subjectId).sort((a, b) => a.order - b.order);
+  const lesson = lessons.find((l) => l.id === lessonId);
+  const done = (id: string) => !!progress.done?.[id];
+  const back = (label: string, onClick: () => void) => <button onClick={onClick} className="mb-4 border-2 border-foreground bg-background px-4 py-2 text-lg font-bold">← {label}</button>;
+
+  if (lesson) return <LessonPlayer key={lesson.id} lesson={lesson} lang={voice.lang} uid={uid} done={done(lesson.id)} note={progress.notes?.[lesson.id] ?? ""} onExit={() => setLessonId(undefined)} onFinished={() => {}} />;
+
+  if (subject) return <div className="iq-rise">
+    {back("Subjects", () => setSubjectId(undefined))}
+    <h1 className="font-serif text-5xl leading-none">{kidEmoji(subject.name)} {subject.name}</h1>
+    <p className="mt-2 text-lg text-muted-foreground">{lessons.filter((l) => done(l.id)).length} of {lessons.length} done ⭐</p>
+    {!lessons.length && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-lg">New lessons are coming soon! 🌟</p>}
+    <div className="mt-6 grid gap-4">{lessons.map((l, i) => { const locked = l.tier === "premium" && !premium; return <button key={l.id} onClick={() => (locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
+      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", locked && "opacity-70")}>
+      <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-3xl">{done(l.id) ? "⭐" : i + 1}</span>
+      <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">{l.title}</b><span className="text-sm text-muted-foreground">{l.mins ? `${l.mins} min` : ""}{locked ? " · 🔒 Premium" : ""}</span></span>
+    </button>; })}</div>
+  </div>;
+
+  if (cid) return <div className="iq-rise">
+    {live.length > 1 && back("Back", () => setCatId(undefined))}
+    <h1 className="font-serif text-5xl leading-none">Study 📚</h1>
+    <p className="mt-3 text-lg text-muted-foreground">Pick something to learn!</p>
+    {subjects && !subjects.length && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-lg">New lessons are coming soon! 🌟</p>}
+    <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">{(subjects ?? []).slice().sort((a, b) => a.order - b.order).map((x, i) => <button key={x.id} onClick={() => setSubjectId(x.id)}
+      className={cn("flex aspect-square flex-col items-center justify-center gap-2 border-2 border-foreground p-4 text-center shadow-brutal transition-transform hover:-translate-y-1", KID_TINTS[i % KID_TINTS.length])}>
+      <span className="text-5xl">{kidEmoji(x.name)}</span>
+      <b className="text-xl leading-tight">{x.name}</b>
+      {x.nameAr && <span dir="rtl" className="text-sm opacity-80">{x.nameAr}</span>}
+    </button>)}</div>
+  </div>;
+
+  return <div className="iq-rise">
+    <h1 className="font-serif text-5xl leading-none">Study 📚</h1>
+    <p className="mt-3 text-lg text-muted-foreground">Pick something to learn!</p>
+    {!live.length && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-lg">New lessons are coming soon! 🌟</p>}
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">{live.map((c, i) => <button key={c.id} onClick={() => setCatId(c.id)}
+      className={cn("border-2 border-foreground p-6 text-left shadow-brutal transition-transform hover:-translate-y-1", KID_TINTS[i % KID_TINTS.length])}>
+      <span className="text-5xl">📚</span><b className="mt-2 block font-serif text-3xl">{c.name}</b>
+    </button>)}</div>
   </div>;
 }
