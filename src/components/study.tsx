@@ -1,3 +1,4 @@
+import { useLanguage as useAppLangS } from "@/components/language";
 import { usePremium as useKidPremium } from "@/components/premium";
 import { catFor } from "@/components/study-core";
 import { useAuth } from "@/components/auth";
@@ -54,6 +55,8 @@ export function StudyScreen() {
   const { uid, progress, results } = useStudyMe();
   const voice = useVoiceLang();
   useVoiceLangs();
+  const appLang = useAppLangS().lang;
+  useEffect(() => { if (voice.lang !== appLang) voice.set(appLang); }, [appLang]); // eslint-disable-line react-hooks/exhaustive-deps
   const subjects = useDocs<Subject>("studySubjects", view.cat ? [["category", view.cat]] : [], !!view.cat);
   const stageLessons = useDocs<Lesson>("studyLessons", view.stage ? [["stage", view.stage]] : [], !!view.stage);
   const examView = useExam(view.exam);
@@ -74,9 +77,7 @@ export function StudyScreen() {
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><small className="text-xs font-bold uppercase text-muted-foreground">Study</small>
         <h1 className="font-serif text-4xl leading-none sm:text-5xl">What will you learn today?</h1></div>
-      <label className="flex items-center gap-2 border-2 border-foreground bg-background px-3 py-2 text-sm font-semibold"><Volume2 className="size-4" /> Lesson voice
-        <select value={voice.lang} onChange={(e) => voice.set(e.target.value)} className="bg-transparent outline-none" aria-label="Lesson voice language">{liveVoiceLangs().map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select>
-      </label>
+      
     </div>
     <div className="mt-6 grid gap-5 sm:grid-cols-2">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}
       className={cn("flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal transition-transform", c.live ? "hover:-translate-y-0.5" : "opacity-70")}>
