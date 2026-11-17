@@ -1,3 +1,5 @@
+import { doc as yDoc, getDoc as yGet } from "firebase/firestore";
+import { auth as yAuth, db as yDb } from "@/lib/firebase";
 import { useLanguage as useAppLang, useLiveLanguages as useLiveAppLangs, type Lang as AppLang } from "@/components/language";
 import { NotifyCard, NotifyPrompt } from "@/components/notify";
 import { InstallBanner, InstallCard } from "@/components/install-app";
@@ -66,7 +68,7 @@ function AchievementsTab() {
 import { cn } from "@/lib/utils";
 import { awardXp } from "@/lib/xp";
 
-type Screen = "home" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games";
+type Screen = "home" | "you" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games";
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
@@ -154,6 +156,7 @@ export function IlmStationApp() {
         {screen === "wisdom" && <WisdomScreen onShare={openShare} />}
         {screen === "bot" && <BotScreen />}
         {screen === "community" && <CommunityScreen go={selectScreen} onShare={openShare} />}
+        {screen === "you" && <YouScreen go={selectScreen} />}
         {screen === "progress" && <ProgressScreen onShare={openShare} />}
         {screen === "rewards" && <RewardsScreen />}
         {screen === "ramadan" && <RamadanScreen />}
@@ -178,7 +181,7 @@ function Sidebar({ current, onSelect, className, kid }: { current: Screen; onSel
 }
 
 function MobileNav({ current, onSelect, kid }: { current: Screen; onSelect: (s: Screen) => void; kid?: boolean }) {
-  const items: [Screen, string, typeof Home][] = kid ? [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library], ["settings", "Settings", Settings]] : [["home", "Today", Home], ["hifz", "Qur’an", BookOpen], ["study", "Study", GraduationCap], ["play", "Play", Play], ["community", "You", CircleUserRound]];
+  const items: [Screen, string, typeof Home][] = kid ? [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library], ["you", "Me", CircleUserRound]] : [["home", "Today", Home], ["hifz", "Qur’an", BookOpen], ["study", "Study", GraduationCap], ["play", "Play", Play], ["you", "You", CircleUserRound]];
   return <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t-2 border-foreground bg-background lg:hidden">{items.map(([id, label, Icon]) => <button key={id} onClick={() => onSelect(id)} className={cn("flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-[11px] sm:text-xs", current === id && "bg-primary font-bold")}><Icon className="size-5 shrink-0" /><span className="truncate">{label}</span></button>)}</nav>;
 }
 
@@ -393,4 +396,72 @@ function PlansPanel(){
       </div>;
     })}</div>
   </div>;
+}
+
+/** "You": everything about the user in one place. */
+function YouScreen({ go }: { go: (s: Screen) => void }) {
+  const { logOut } = useAuth(); const navigate = useNavigate();
+  const pr = usePremium() as unknown as { premium: boolean; trial?: boolean; premiumUntil?: number | string | null; points?: number };
+  const [me, setMe] = useState<{ name?: string; username?: string; zone?: string; xp?: number; level?: number; streak?: number }>({});
+  useEffect(() => {
+    const u = yAuth.currentUser; if (!u) return;
+    void Promise.all([yGet(yDoc(yDb, "profiles", u.uid)), yGet(yDoc(yDb, "players", u.uid))]).then(([a, b]) => {
+      const pa = (a.data() ?? {}) as Record<string, unknown>, pb = (b.data() ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+      setMe({ name: (pa.name ?? pa.displayName ?? u.displayName ?? "") as string, username: pa.username as string, zone: pa.zone as string,
+        xp: num(pb.xp) ?? num(pa.xp), level: num(pb.level) ?? num(pa.level), streak: num(pb.streak) ?? num(pa.streak) });
+    }).catch(() => {});
+  }, []);
+  const kid = me.zone === "kids";
+  const until = pr.premiumUntil ? new Date(pr.premiumUntil).toLocaleDateString() : "";
+  const status = pr.premium ? (pr.trial ? `🎁 Free trial${until ? ` · until ${until}` : ""}` : `👑 Premium${until ? ` · until ${until}` : ""}`) : "Free plan";
+  const tile = (emoji: string, title: string, sub: string, on: () => void) => <button key={title} onClick={on} className="flex items-start gap-3 border-2 border-foreground bg-background p-4 text-left shadow-brutal-sm transition hover:bg-primary/15">
+    <span className="text-3xl leading-none">{emoji}</span><span><b className="block">{title}</b><span className="text-xs text-muted-foreground">{sub}</span></span></button>;
+  const invite = async () => {
+    const data = { title: "IlmStation", text: "Learn, play and grow with me on IlmStation", url: "https://www.ilmstation.com" };
+    try { if (navigator.share) { await navigator.share(data); return; } await navigator.clipboard.writeText(data.url); toast.success("Link copied"); } catch { /* cancelled */ }
+  };
+  const initial = (me.name || me.username || "?").trim().charAt(0).toUpperCase();
+  const row = "flex w-full items-center justify-between border-b-2 border-foreground py-3 text-left font-semibold";
+  return <Frame eyebrow="Your account" title={kid ? "Me" : "You"}>
+    <section className="border-2 border-foreground bg-primary p-5 shadow-brutal">
+      <div className="flex items-center gap-4">
+        <span className="grid size-16 shrink-0 place-items-center border-2 border-foreground bg-foreground font-serif text-3xl text-background">{initial}</span>
+        <div className="min-w-0">
+          <p className="truncate font-serif text-3xl leading-tight">{me.name || "Your profile"}</p>
+          {me.username && <p className="text-sm font-semibold">@{me.username}</p>}
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
+        {me.level !== undefined && <span className="border-2 border-foreground bg-background px-2 py-1">Level {me.level}</span>}
+        {me.xp !== undefined && <span className="border-2 border-foreground bg-background px-2 py-1">{me.xp} XP</span>}
+        {me.streak !== undefined && <span className="border-2 border-foreground bg-background px-2 py-1">🔥 {me.streak}</span>}
+        {!kid && <span className="border-2 border-foreground bg-background px-2 py-1">{status}</span>}
+      </div>
+    </section>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      {kid ? <>
+        {tile("📈", "My progress", "Stars, levels and streak", () => go("progress"))}
+        {tile("⭐", "My badges", "Everything you’ve earned", () => go("progress"))}
+        {tile("📚", "My lessons", "Keep learning", () => go("study"))}
+        {tile("⚙️", "Settings", "Language and more", () => go("settings"))}
+      </> : <>
+        {tile("📈", "Progress", "Your learning record", () => go("progress"))}
+        {tile("🎯", "Quests", "Daily and weekly goals", () => go("quests"))}
+        {tile("🏅", "Badges", "Everything you’ve earned", () => go("progress"))}
+        {tile("💰", "Wallet & points", `${pr.points ?? 0} points · swap for Premium`, () => go("rewards"))}
+        {tile("👥", "Friends & challenges", "Your circle", () => go("community"))}
+        {tile("👨‍👩‍👧", "Family hub", "Children’s accounts and family plan", () => go("family"))}
+        {tile("👑", "Premium", pr.premium ? "Your plan" : "See plans", () => go("rewards" as Screen))}
+        {tile("📤", "Invite friends", "Share IlmStation", () => void invite())}
+      </>}
+    </div>
+    <div className="mt-6 border-t-2 border-foreground">
+      {!kid && <button className={row} onClick={() => go("settings")}><span>⚙️ Settings</span><span>›</span></button>}
+      <a className={row} href="mailto:admin@ilmstation.com"><span>❓ Help & contact</span><span>›</span></a>
+      <a className={row} href="/privacy" target="_blank" rel="noreferrer"><span>📄 Privacy Policy</span><span>›</span></a>
+      <a className={row} href="/terms" target="_blank" rel="noreferrer"><span>📄 Terms of Use</span><span>›</span></a>
+      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/" }); }}><span>🚪 Log out</span><span>›</span></button>
+    </div>
+  </Frame>;
 }
