@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
 
 type Kind = "Qur’an" | "Hadith" | "Scholar" | "Dua" | "Reminder";
-type Item = { id: string; kind: Kind; arabic: string; text: string; source: string; date: string; active: boolean; createdAt: number };
+type Item = { id: string; kind: Kind; arabic: string; text: string; source: string; date: string; active: boolean; createdAt: number; tr?: Record<string, string> };
 const pad = (n: number) => String(n).padStart(2, "0");
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const dayOfYear = () => { const d = new Date(); return Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 0)) / 86_400_000); };
@@ -86,6 +86,10 @@ export function WisdomSection() {
             <Field label="Type"><select className={inputCls} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })}><option value="Qur’an">Qur’an</option><option value="Hadith">Hadith</option><option value="Scholar">Words of scholars / imams</option><option value="Dua">Dua</option><option value="Reminder">Reminder</option></select></Field>
             <Field label="Arabic (optional)"><textarea rows={3} dir="rtl" className={`${inputCls} h-auto py-2 font-arabic text-2xl`} value={form.arabic} onChange={(e) => setForm({ ...form, arabic: e.target.value })} /></Field>
             <Field label="Text / translation"><textarea rows={2} className={`${inputCls} h-auto py-2`} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} /></Field>
+            <details className="border-2 border-foreground p-2"><summary className="cursor-pointer text-sm font-semibold">🌍 Translations (optional)</summary>
+              {([["ar", "العربية · Arabic"], ["fr", "Français · French"], ["ur", "اردو · Urdu"], ["ha", "Hausa"]] as const).map(([c, label]) => <Field key={c} label={label}><textarea rows={2} dir={c === "ar" || c === "ur" ? "rtl" : "ltr"} className={`${inputCls} h-auto py-2`} value={form.tr?.[c] ?? ""} onChange={(e) => setForm({ ...form, tr: { ...(form.tr ?? {}), [c]: e.target.value } })} /></Field>)}
+              <p className="mt-1 text-xs text-muted-foreground">Users see the translation for their language. Empty = they see the English text.</p>
+            </details>
             <Field label="Source"><input className={inputCls} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder={({ "Qur’an": "e.g. Al-Baqarah · 2:286", Hadith: "e.g. Sahih al-Bukhari 1", Scholar: "e.g. Imam ash-Shafi‘i, Diwan", Dua: "e.g. Sahih Muslim 2722", Reminder: "e.g. IlmStation" } as Record<string, string>)[form.kind]} /></Field>
             <Field label="Pin to a date (optional)"><input type="date" className={inputCls} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             <p className="-mt-2 text-xs text-muted-foreground">Leave empty to add it to the daily rotation.</p>

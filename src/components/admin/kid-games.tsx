@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
 
 type Q = { q: string; options: string[]; answer: number; why: string };
-type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string; audience?: "kids" | "all"; tier?: "free" | "premium"; cost?: number; minLevel?: number; gameType?: string; subject?: string };
+type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string; audience?: "kids" | "all"; tier?: "free" | "premium"; cost?: number; minLevel?: number; gameType?: string; subject?: string; lang?: string };
 const COLORS: [string, string][] = [["yellow", "Yellow"], ["green", "Green"], ["white", "White"], ["grey", "Grey"]];
 const blankQ = (): Q => ({ q: "", options: ["", "", "", ""], answer: 0, why: "" });
 
@@ -77,7 +77,7 @@ export function KidGamesSection() {
     <Panel title="Games" tag={`${rows.filter((g) => g.status === "published").length} published`}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">No games yet. Add the first one.</p> : <ul className="grid gap-2">{rows.map((g, i) => <li key={g.id} className={`flex flex-wrap items-center gap-3 border-2 border-foreground p-3 ${g.status === "draft" ? "opacity-70" : ""}`}>
         <span className="text-3xl">{g.emoji}</span>
-        <div className="min-w-0 flex-1"><p className="font-semibold">{g.title}</p><p className="text-xs text-muted-foreground">{g.audience === "all" ? "Teens & adults" : "Kids"} · {({ quiz: "🧠 Quiz", puzzle: "🧩 Puzzle", memory: "🃏 Memory" } as Record<string, string>)[g.gameType ?? "quiz"]}{g.subject ? ` · ${g.subject}` : ""} · {g.tier === "premium" ? `Premium${g.cost ? ` · ${g.cost} pts` : ""} · ` : ""}{g.kind === "html" ? "HTML game" : `${g.questions.length} questions`} · {g.status === "published" ? "Published" : "Draft"}</p></div>
+        <div className="min-w-0 flex-1"><p className="font-semibold">{g.title}</p><p className="text-xs text-muted-foreground">{g.audience === "all" ? "Teens & adults" : "Kids"} · {({ quiz: "🧠 Quiz", puzzle: "🧩 Puzzle", memory: "🃏 Memory" } as Record<string, string>)[g.gameType ?? "quiz"]}{g.subject ? ` · ${g.subject}` : ""}{g.lang && g.lang !== "all" ? ` · ${g.lang.toUpperCase()}` : ""} · {g.tier === "premium" ? `Premium${g.cost ? ` · ${g.cost} pts` : ""} · ` : ""}{g.kind === "html" ? "HTML game" : `${g.questions.length} questions`} · {g.status === "published" ? "Published" : "Draft"}</p></div>
         <div className="flex gap-1">
           <Button size="sm" variant="outline" aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}><ArrowUp /></Button>
           <Button size="sm" variant="outline" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => void move(i, 1)}><ArrowDown /></Button>
@@ -105,6 +105,7 @@ export function KidGamesSection() {
               <Field label="Subject (e.g. Duas)"><input list="game-subjects" className={inputCls} value={form.subject ?? ""} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Duas" />
                 <datalist id="game-subjects">{[...new Set(rows.map((r) => r.subject).filter(Boolean))].map((x) => <option key={x} value={x} />)}</datalist></Field>
             </div>
+            <Field label="Language"><select className={inputCls} value={form.lang ?? "all"} onChange={(e) => setForm({ ...form, lang: e.target.value })}><option value="all">All languages</option><option value="en">English</option><option value="ar">العربية · Arabic</option><option value="fr">Français · French</option><option value="ur">اردو · Urdu</option><option value="ha">Hausa</option></select></Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Who it’s for"><select className={inputCls} value={form.audience ?? "kids"} onChange={(e) => setForm({ ...form, audience: e.target.value as "kids" | "all" })}><option value="kids">Kids</option><option value="all">Teens & adults</option></select></Field>
               <Field label="Access"><select className={inputCls} value={form.tier ?? "free"} onChange={(e) => setForm({ ...form, tier: e.target.value as "free" | "premium" })}><option value="free">Free</option><option value="premium">👑 Premium</option></select></Field>

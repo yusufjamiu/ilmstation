@@ -210,10 +210,10 @@ export function useTodaysWisdom(): Wisdom & { id: string } {
   const fallback = { kind: fb.kind, arabic: fb.arabic, text: fb.text, source: fb.source, id: `b${fb.index}` };
   if (!list) return fallback;
   const pinned = list.find((x) => x.active !== false && x.date === dayKey());
-  if (pinned) return pinned;
+  if (pinned) return localizeWisdom(pinned);
   const pool = list.filter((x) => x.active !== false && !x.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   if (!pool.length) return fallback;
-  return pool[dayOfYear() % pool.length]!;
+  return localizeWisdom(pool[dayOfYear() % pool.length]!);
 }
 
 export function DailyWisdom({ onShare, w: given }: { onShare: (card: ShareCard) => void; w?: Wisdom & { id: string } }) {
@@ -652,4 +652,11 @@ export function AdhanWatcher() {
       <Button size="sm" variant="ghost" onClick={() => { stop(); try { localStorage.setItem("adhanOn", "0"); } catch { /* private mode */ } window.dispatchEvent(new Event("prayerprefs")); toast("Adhan turned off. You can turn it back on from Prayer times."); }}>Turn off adhan</Button>
     </div>
   </div>;
+}
+
+/** Today's wisdom in the user's language, when a translation exists. */
+function localizeWisdom<W extends { text: string }>(w: W): W {
+  let ui = "en"; try { ui = localStorage.getItem("iq_lang") ?? "en"; } catch { /* ignore */ }
+  const t = (w as unknown as { tr?: Record<string, string> }).tr?.[ui]?.trim();
+  return t ? { ...w, text: t } : w;
 }

@@ -37,7 +37,7 @@ export function KidHome({ go }: { go: Go }) {
 }
 
 type KidQ = { q: string; options: string[]; answer: number; why?: string };
-type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number; gameType?: string; subject?: string; order?: number };
+type KidGame = { id: string; title: string; emoji: string; tint: string; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number; gameType?: string; subject?: string; order?: number; lang?: string };
 const TINT: Record<string, string> = { yellow: "bg-primary", green: "bg-secondary text-secondary-foreground", white: "bg-background", grey: "bg-muted" };
 const STARTERS: KidGame[] = ([["Dua", "🤲", "yellow"], ["Qur’an", "📖", "green"], ["Seerah", "🌙", "white"], ["Arabic", "✍️", "grey"]] as const)
   .map(([t, e, c]) => ({ id: `start-${t}`, title: t, emoji: e, tint: TINT[c]!, questions: quizQuestionsFor(t).slice(0, 5) as KidQ[] }));
@@ -48,8 +48,8 @@ function useKidGames(audience: "kids" | "all") {
   useEffect(() => onSnapshot(query(collection(db, "kidGames"), where("status", "==", "published")), (s) => {
     const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as { title: string; emoji: string; color: string; order: number; questions: KidQ[]; kind?: "quiz" | "html"; htmlUrl?: string; audience?: string; tier?: string; cost?: number; minLevel?: number }) }))
       .sort((a, b) => a.order - b.order)
-      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl, audience: g.audience ?? "kids", tier: g.tier ?? "free", cost: g.cost ?? 0, minLevel: g.minLevel ?? 0, gameType: (g as { gameType?: string }).gameType ?? "quiz", subject: (g as { subject?: string }).subject || g.title, order: (g as { order?: number }).order ?? 0 }))
-      .filter((g) => g.audience === audience && (g.kind === "html" ? !!g.htmlUrl : g.questions.length > 0));
+      .map((g) => ({ id: g.id, title: g.title, emoji: g.emoji, tint: TINT[g.color] ?? "bg-background", questions: g.questions ?? [], kind: g.kind, htmlUrl: g.htmlUrl, audience: g.audience ?? "kids", tier: g.tier ?? "free", cost: g.cost ?? 0, minLevel: g.minLevel ?? 0, gameType: (g as { gameType?: string }).gameType ?? "quiz", subject: (g as { subject?: string }).subject || g.title, order: (g as { order?: number }).order ?? 0, lang: (g as { lang?: string }).lang ?? "all" }))
+      .filter((g) => g.audience === audience && (g.kind === "html" ? !!g.htmlUrl : g.questions.length > 0)).filter((g, _i, arr) => langOk(g, arr));
     setGames(list.length ? list : audience === "kids" ? STARTERS : []);
   }, () => {}), [audience]);
   return games;
@@ -258,4 +258,12 @@ function KidGameHub({ games, open, start, locked, setLocked }: {
       <span className="text-5xl">{e}</span><span><b className="block font-serif text-3xl leading-none">{name}</b><span className="text-sm font-semibold">{has ? "Tap to play" : "Coming soon"}</span></span>
     </button>; })}</div>
   </div>;
+}
+
+/** Games in the user's language (+ "all"); English when their language has none yet. */
+function langOk(g: { lang?: string }, arr: { lang?: string }[]) {
+  let ui = "en"; try { ui = localStorage.getItem("iq_lang") ?? "en"; } catch { /* ignore */ }
+  const l = g.lang ?? "all";
+  if (l === "all" || l === ui) return true;
+  return l === "en" && !arr.some((x) => x.lang === ui);
 }
