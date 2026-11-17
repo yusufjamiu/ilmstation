@@ -1,3 +1,4 @@
+import { consumeFeature } from "@/components/premium";
 import { useEffect, useState } from "react";
 import { deleteField, doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { Check, Copy, Crown, Loader2, LogOut, Play, Share2, Timer, Trophy, Users, X } from "lucide-react";
@@ -60,6 +61,7 @@ export function FamilyHalaqah() {
   const create = async () => {
     if (!uid) return toast.error("Log in first.");
     setBusy(true);
+    if (!(await consumeFeature("halaqah"))) { toast("You’ve hosted today’s free games. Go Premium to host without limits, or join someone else’s room."); setBusy(false); return; }
     try {
       const c = newCode(); const name = await myName();
       await setDoc(doc(db, "halaqahRooms", c), { code: c, host: uid, hostName: name, topic, status: "lobby", qIndex: 0, questions: duelQuestions(topic, rounds).map(norm), players: { [uid]: { name } }, answers: {}, qStartedAt: 0, createdAt: Date.now(), secs });
