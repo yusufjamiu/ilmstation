@@ -1,3 +1,4 @@
+import { LiveLanguagesAdmin } from "@/components/admin/languages-live";
 import { FlyersSection } from "./flyers";
 import { Image as FlyerIcon } from "lucide-react";
 import { AboutSection } from "@/components/about";
@@ -155,7 +156,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
           {current === "wisdom" && <WisdomSection />}
           {current === "xp" && <XpSection />}
           {current === "adhan" && <AdhanSection />}
-          {current === "languages" && <LanguagesSection />}
+          {current === "languages" && <><LiveLanguagesAdmin /><div className="mt-6"><LanguagesSection /></div></>}
           {current === "premium" && <PremiumSection />}
           {current === "kidGames" && <KidGamesSection />}
           {current === "legal" && <LegalSection />}

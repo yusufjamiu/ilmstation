@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DICT } from "@/lib/i18n-dict";
-import { doc as lDoc, setDoc as lSet } from "firebase/firestore";
+import { doc as lDoc, setDoc as lSet, onSnapshot as lSnap } from "firebase/firestore";
 import { auth as lAuth, db as lDb } from "@/lib/firebase";
 
 export const languages = [
@@ -14,6 +14,8 @@ export const languages = [
   { code: "fr", label: "French", native: "Français", dir: "ltr" },
   { code: "ur", label: "Urdu", native: "اردو", dir: "rtl" },
   { code: "ha", label: "Hausa", native: "Hausa", dir: "ltr" },
+  { code: "id", label: "Indonesian", native: "Bahasa Indonesia", dir: "ltr" },
+  { code: "tl", label: "Filipino", native: "Filipino", dir: "ltr" },
 ] as const;
 export type Lang = (typeof languages)[number]["code"];
 
@@ -30,7 +32,7 @@ const dict: Record<string, Partial<Record<Lang, string>>> = {
 
 const KEY = "iq_lang";
 const subs = new Set<() => void>();
-const detect = (): Lang => { try { for (const n of navigator.languages ?? [navigator.language]) { const c = n.slice(0, 2).toLowerCase(); if (languages.some((l) => l.code === c)) return c as Lang; } } catch { /* ignore */ } return "en"; };
+const detect = (): Lang => { try { for (const n of navigator.languages ?? [navigator.language]) { const low = n.toLowerCase(); const c = low.startsWith("fil") || low.startsWith("tl") ? "tl" : low.slice(0, 2) === "in" ? "id" : low.slice(0, 2); if (languages.some((l) => l.code === c)) return c as Lang; } } catch { /* ignore */ } return "en"; };
 const read = (): Lang => { try { const v = localStorage.getItem(KEY); if (languages.some((l) => l.code === v)) return v as Lang; const d = detect(); localStorage.setItem(KEY, d); return d; } catch { return "en"; } };
 
 export function useLanguage() {
@@ -42,6 +44,7 @@ export function useLanguage() {
 
 export function LanguageSelect({ className }: { className?: string }) {
   const { lang, set } = useLanguage();
+  const liveLangs = useLiveLanguages();
   const current = languages.find((l) => l.code === lang)!;
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
   return <DropdownMenu>
@@ -53,7 +56,7 @@ export function LanguageSelect({ className }: { className?: string }) {
     <DropdownMenuContent align="end" className="w-56 rounded-none border-2 border-foreground p-1 shadow-brutal">
       <DropdownMenuLabel className="text-xs uppercase text-muted-foreground">Choose language</DropdownMenuLabel>
       <DropdownMenuSeparator className="bg-foreground" />
-      {languages.map((l) => <DropdownMenuItem key={l.code} onSelect={() => { set(l.code); toast.success(`Language set to ${l.label}`); }} className={cn("flex cursor-pointer items-center justify-between rounded-none px-3 py-2", l.code === lang && "bg-primary text-foreground focus:bg-primary")}>
+      {liveLangs.map((l) => <DropdownMenuItem key={l.code} onSelect={() => { set(l.code); toast.success(`Language set to ${l.label}`); }} className={cn("flex cursor-pointer items-center justify-between rounded-none px-3 py-2", l.code === lang && "bg-primary text-foreground focus:bg-primary")}>
         <span><span className="block font-semibold" dir={l.dir}>{l.native}</span><span className="text-xs text-muted-foreground">{l.label}</span></span>
         {l.code === lang && <Check className="size-4" />}
       </DropdownMenuItem>)}
@@ -79,7 +82,7 @@ function fixText(n: Text, lang: Lang) {
   const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
   const el = n.parentElement; if (!el || el.closest(SKIP)) return;
   const was = orig.get(n);
-  const known = !!was && (cur === was || (["ar", "fr", "ur", "ha"] as Lang[]).some((l) => trAny(was, l) === cur));
+  const known = !!was && (cur === was || (["ar", "fr", "ur", "ha", "id", "tl"] as Lang[]).some((l) => trAny(was, l) === cur));
   const key = known ? was : (isKey(cur) ? cur : undefined);
   if (!key) return;
   orig.set(n, key);
@@ -103,7 +106,9 @@ function sweep(root: Node, lang: Lang) {
 let obs: MutationObserver | null = null;
 /** Put once near the top of the app: applies language, direction and the translator. */
 export function LanguageBoot() {
-  const { lang } = useLanguage();
+  const { lang, set } = useLanguage();
+  const liveL = useLiveLanguages();
+  useEffect(() => { if (liveReady && !liveL.some((l) => l.code === lang)) set("en"); }, [lang, liveL]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const dir = languages.find((l) => l.code === lang)?.dir ?? "ltr";
     document.documentElement.lang = lang; document.documentElement.dir = dir;
@@ -126,7 +131,22 @@ export function LanguageCard() {
 }
 
 /** Qur'an meaning in the user's language (trusted published translations). */
-const QURAN_EDITIONS: Record<string, string> = { en: "en.sahih", ar: "ar.muyassar", fr: "fr.hamidullah", ur: "ur.jalandhry", ha: "ha.gumi" };
+const QURAN_EDITIONS: Record<string, string> = { en: "en.sahih", ar: "ar.muyassar", fr: "fr.hamidullah", ur: "ur.jalandhry", ha: "ha.gumi", id: "id.indonesian", tl: "en.sahih" };
 export function quranEdition(): string {
   try { return QURAN_EDITIONS[localStorage.getItem("iq_lang") ?? "en"] ?? "en.sahih"; } catch { return "en.sahih"; }
+}
+
+/** Languages the admin has switched on (Admin → Languages). English is always on. */
+export const DEFAULT_LIVE = ["en", "ar", "fr", "ur", "ha"];
+let live: string[] = DEFAULT_LIVE; let liveReady = false; let liveStarted = false;
+const liveSubs = new Set<() => void>();
+function startLive() {
+  if (liveStarted) return; liveStarted = true;
+  lSnap(lDoc(lDb, "siteConfig", "languages"), (snap) => {
+    const e = snap.data()?.enabled; live = Array.isArray(e) ? ["en", ...e.filter((x: string) => x !== "en")] : DEFAULT_LIVE; liveReady = true; liveSubs.forEach((f) => f());
+  }, () => { liveReady = true; });
+}
+export function useLiveLanguages() {
+  const v = useSyncExternalStore((cb) => { startLive(); liveSubs.add(cb); return () => liveSubs.delete(cb); }, () => live, () => DEFAULT_LIVE);
+  return languages.filter((l) => v.includes(l.code));
 }

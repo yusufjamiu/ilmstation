@@ -25,7 +25,7 @@ export function LanguagesSection() {
     setSaving(true);
     try {
       const out = list.map((l) => ({ code: l.code.trim().toLowerCase(), name: l.name.trim(), ...(l.hidden ? { hidden: true } : {}) }));
-      await setDoc(doc(db, "siteConfig", "languages"), { voice: out, updatedAt: Date.now() });
+      await setDoc(doc(db, "siteConfig", "languages"), { voice: out, updatedAt: Date.now() }, { merge: true });
       setList(out); record("Updated teaching languages"); toast.success("Saved. It shows in Study straight away.");
     } catch { toast.error("Couldn't save. Check you are an admin."); } finally { setSaving(false); }
   };
