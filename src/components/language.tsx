@@ -63,7 +63,7 @@ export function LanguageSelect({ className }: { className?: string }) {
 
 /* ---------- whole-app translator: swaps known phrases on screen, flips Arabic/Urdu to right-to-left ---------- */
 const orig = new WeakMap<Text, string>();
-const SKIP = "script,style,textarea,code,pre,[data-no-translate],[lang='ar'],[dir='rtl'][lang],.font-arabic";
+const SKIP = "script,style,textarea,code,pre,[data-no-translate],[lang='ar']:not(html),.font-arabic";
 function trWord(key: string, lang: Lang): string | undefined { return lang === "en" ? undefined : (DICT[key] as Record<string, string> | undefined)?.[lang]; }
 function fixText(n: Text, lang: Lang) {
   const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
@@ -96,6 +96,7 @@ export function LanguageBoot() {
   useEffect(() => {
     const dir = languages.find((l) => l.code === lang)?.dir ?? "ltr";
     document.documentElement.lang = lang; document.documentElement.dir = dir;
+    if (!document.getElementById("i18n-bidi")) { const st = document.createElement("style"); st.id = "i18n-bidi"; st.textContent = "[dir=rtl] p,[dir=rtl] li,[dir=rtl] h1,[dir=rtl] h2,[dir=rtl] h3,[dir=rtl] span,[dir=rtl] b,[dir=rtl] small,[dir=rtl] label{unicode-bidi:plaintext}"; document.head.appendChild(st); }
     obs?.disconnect();
     sweep(document.body, lang);
     obs = new MutationObserver((list) => { for (const m of list) { if (m.type === "characterData") fixText(m.target as Text, lang); else m.addedNodes.forEach((n) => sweep(n, lang)); } });
