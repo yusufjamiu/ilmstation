@@ -3,7 +3,7 @@ import { InstallBanner, InstallCard } from "@/components/install-app";
 import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
 import { isQuote, lagosDate } from "@/lib/premium-config";
-import { KidGames, KidHome, useShowQuickQuiz } from "@/components/kids";
+import { KidGames, KidHome, TimeUp, usePlaytime, useShowQuickQuiz } from "@/components/kids";
 import { AdhanWatcher } from "@/components/today";
 import { KahfReminder } from "@/components/today";
 import { KIND_LABEL, useTodaysWisdom } from "@/components/today";
@@ -263,6 +263,8 @@ function HalaqahScreen({onShare}:{onShare:()=>void}){
   const rounds=quizQuestionsFor(topic);
   const current=rounds[round];
   const start=async()=>{if(!(await consumeFeature("quickquiz")))return;setRound(0);setScore(0);setChoice(undefined);setPhase(2)};
+  const qqTime=usePlaytime(phase===2);
+  if(phase===2&&qqTime.locked)return <TimeUp resetsAt={qqTime.resetsAt} kid={false} onBack={()=>setPhase(0)}/>;
   const [invitee,setInvitee]=useState("");
   const [invited,setInvited]=useState<string[]>([]);
   const sendInvite=()=>{

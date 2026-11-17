@@ -155,7 +155,7 @@ function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () =>
 }
 
 /** Counts play time on the server (every 30 seconds while a game is open). */
-function usePlaytime(active: boolean) {
+export function usePlaytime(active: boolean) {
   const [st, setSt] = useState<{ left: number; resetsAt: number } | null>(null);
   useEffect(() => {
     if (!active) return undefined;
@@ -171,7 +171,7 @@ function usePlaytime(active: boolean) {
   return { left: st?.left ?? -1, resetsAt: st?.resetsAt ?? 0, locked: !!st && st.left === 0 };
 }
 
-function TimeUp({ resetsAt, kid, onBack }: { resetsAt: number; kid: boolean; onBack: () => void }) {
+export function TimeUp({ resetsAt, kid, onBack }: { resetsAt: number; kid: boolean; onBack: () => void }) {
   const { premium, activatePremium } = usePremium();
   const at = resetsAt ? new Date(resetsAt).toLocaleString([], { weekday: "long", hour: "numeric", minute: "2-digit" }) : "tomorrow";
   return <div className="iq-rise mx-auto max-w-2xl border-2 border-foreground bg-background p-8 text-center shadow-brutal">

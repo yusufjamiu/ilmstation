@@ -160,7 +160,7 @@ function PlaySettings() {
     try { await setDoc(doc(db, "siteConfig", "play"), { ...pc, updatedAt: Date.now() }); toast.success("Saved"); } catch { toast.error("Couldn't save."); } finally { setSaving(false); }
   };
   return <div className="mb-5"><Panel title="Daily play time" tag={pc.on ? "On" : "Off"}>
-    <p className="-mt-1 mb-3 text-xs text-muted-foreground">How many minutes a day people can play Games & quizzes. 0 = unlimited.</p>
+    <p className="-mt-1 mb-3 text-xs text-muted-foreground">How many minutes a day people can play: Quick Quiz and Games & quizzes together (one shared daily allowance). 0 = unlimited.</p>
     <div className={`grid gap-3 sm:grid-cols-4 ${pc.on ? "" : "opacity-50"}`}>
       <Field label="Free users (min)"><input type="number" min={0} className={inputCls} value={pc.freeMinutes} onChange={(e) => setPc({ ...pc, freeMinutes: n(e.target.value) })} /></Field>
       <Field label="Premium (min)"><input type="number" min={0} className={inputCls} value={pc.premiumMinutes} onChange={(e) => setPc({ ...pc, premiumMinutes: n(e.target.value) })} /></Field>
