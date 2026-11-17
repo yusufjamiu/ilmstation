@@ -1,3 +1,4 @@
+import { catZones } from "@/components/study-core";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, BookOpen, ListOrdered, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
@@ -195,12 +196,14 @@ function Subjects({ cats }: { cats: Category[] }) {
     try {
       const b = writeBatch(db);
       const stages = firstLevel(cat);
-      DEFAULT_MADRASAH.forEach((d, i) => b.set(doc(db, "studySubjects", newId("sub") + i), {
+      const kidsOnly = catZones(cat).includes("kids") && !catZones(cat).includes("adult") && !catZones(cat).includes("youth");
+      const list = kidsOnly ? KIDS_STARTERS : DEFAULT_MADRASAH;
+      list.forEach((d, i) => b.set(doc(db, "studySubjects", newId("sub") + i), {
         category: cat.id, name: d.name, nameAr: d.nameAr, stages, syllabus: {}, order: rows.length + i, status: "draft", createdAt: Date.now(),
       } satisfies Omit<Subject, "id">));
       await b.commit();
-      record("Added starter Madrasah subjects");
-      toast.success("5 subjects added as drafts. Add their syllabus, then publish.");
+      record(kidsOnly ? "Added starter kids subjects" : "Added starter Madrasah subjects");
+      toast.success(`${list.length} subjects added as drafts. Add their lessons, then publish.`);
     } catch { toast.error("Couldn't save. Check you are an admin."); }
   };
 
@@ -335,3 +338,13 @@ function Subjects({ cats }: { cats: Category[] }) {
     {dialog}
   </>;
 }
+
+/** Starter subjects for a Kids-only category. */
+const KIDS_STARTERS = [
+  { name: "Arabic Letters (Qa'idah)", nameAr: "القاعدة النورانية" },
+  { name: "Daily Duas", nameAr: "الأدعية اليومية" },
+  { name: "Stories of the Prophets", nameAr: "قصص الأنبياء" },
+  { name: "Salah & Wudu", nameAr: "الصلاة والوضوء" },
+  { name: "Islamic Manners", nameAr: "الآداب الإسلامية" },
+  { name: "Short Surahs", nameAr: "قصار السور" },
+];
