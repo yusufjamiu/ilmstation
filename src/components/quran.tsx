@@ -295,11 +295,11 @@ function Tilawah() {
     </section>
   </div>;
   return <div className="mt-4 min-w-0 space-y-4">
-    <section className="border-2 border-foreground bg-background p-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="outline" onClick={() => setOpened(false)}>☰ Surahs</Button>
-        <form className="flex items-center gap-2" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder={`Page 1-${TOTAL_PAGES}`} aria-label="Go to page" className="h-10 w-24 border-2 border-foreground bg-background px-2 text-sm"/><Button type="submit" size="sm" variant="outline">Go</Button></form>
-        {saved !== null && saved !== page && <Button size="sm" variant="secondary" onClick={() => go(saved)}>Continue (p. {saved})</Button>}
+    <section className="border-2 border-foreground bg-background p-1.5">
+      <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+        <Button size="sm" variant="outline" className="shrink-0" onClick={() => setOpened(false)}>☰ Surahs</Button>
+        <form className="flex shrink-0 items-center gap-1.5" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="Page" aria-label="Go to page" className="h-9 w-16 border-2 border-foreground bg-background px-2 text-sm"/><Button type="submit" size="sm" variant="outline">Go</Button></form>
+        {saved !== null && saved !== page && <Button size="sm" variant="secondary" className="shrink-0" onClick={() => go(saved)}>↩ p.{saved}</Button>}
       </div>
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
