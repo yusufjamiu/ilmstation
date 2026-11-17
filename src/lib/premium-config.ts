@@ -2,7 +2,7 @@
 export type PlanDef = { id: string; name: string; price: number; priceUsd?: number; adults?: number; forUid?: string; priceMonthly?: number; priceYearly?: number; usdMonthly?: number; usdYearly?: number; period: "month" | "year"; seats: string; kids: number; points: string[]; visible: boolean };
 export type RedeemOpt = { points: number; days: number; on: boolean };
 export type PremiumConfig = { trialDays: number; plans: PlanDef[]; redeem: RedeemOpt[]; topicCost: number; premiumTopics: string[]; cardMarkPerk: boolean; usdAbroad: boolean; promos: Promo[];
-  features: Record<string, { on: boolean; free: number; premium: number }>; ticks: Record<string, boolean>; pointsPerXp: number };
+  features: Record<string, { on: boolean; free: number; premium: number }>; ticks: Record<string, boolean>; unlockDays: number; pointsPerXp: number };
 
 export const QUIZ_TOPICS = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
 
@@ -22,6 +22,7 @@ export const DEFAULT_PREMIUM: PremiumConfig = {
   promos: [],
   features: {},
   ticks: {},
+  unlockDays: 30,
   pointsPerXp: 1,
 };
 
@@ -40,6 +41,7 @@ export function mergePremium(d: unknown): PremiumConfig {
     promos: Array.isArray(s.promos) ? s.promos : [],
     features: Object.fromEntries(FEATURE_LIMITS.map((f) => [f.id, { on: f.on, free: f.free, premium: 0, ...((s.features as Record<string, object> | undefined)?.[f.id] ?? {}) }])),
     ticks: Object.fromEntries(FEATURE_TICKS.map((t) => [t.id, (s.ticks as Record<string, boolean> | undefined)?.[t.id] ?? t.on])),
+    unlockDays: Number(s.unlockDays ?? 30),
     pointsPerXp: s.pointsPerXp == null ? 1 : Math.max(0, Math.min(100, Number(s.pointsPerXp) || 0)),
   };
 }

@@ -244,9 +244,11 @@ export async function handlePremium(request: Request): Promise<Response> {
       const e = await tx.get(ref);
       const pts = Number(e.get("points") ?? 0);
       const un = (e.get("unlocked") as string[]) ?? [];
-      if (un.includes(id)) return { ok: true };
+      const until = (e.get("unlockUntil") as Record<string, number>) ?? {};
+      const days = Number(cfg.unlockDays ?? 30);
+      if (un.includes(id) && (!until[id] || until[id] > now)) return { ok: true };
       if (pts < cost) return { ok: false, error: `You need ${cost} points (you have ${pts}).` };
-      tx.set(ref, { points: pts - cost, unlocked: [...un, id] }, { merge: true });
+      tx.set(ref, { points: pts - cost, unlocked: un.includes(id) ? un : [...un, id], unlockUntil: { ...until, [id]: days > 0 ? now + days * DAY : 0 } }, { merge: true });
       return { ok: true };
     });
     return json(r);

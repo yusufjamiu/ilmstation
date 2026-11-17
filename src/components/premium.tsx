@@ -27,7 +27,7 @@ export async function callPremium(action: string, data: Record<string, unknown> 
   } catch { return { ok: false, error: "Check your connection and try again." }; }
 }
 
-type Ent = { premiumUntil: number; plan?: string; source?: string; points: number; unlocked: string[] };
+type Ent = { premiumUntil: number; plan?: string; source?: string; points: number; unlocked: string[]; unlockUntil?: Record<string, number> };
 type Family = { plan?: string; kids?: number; adults?: number; members: Member[] };
 type Snap = { ent: Ent; cfg: PremiumConfig; fam: Family; country: string };
 const EMPTY: Ent = { premiumUntil: 0, points: 0, unlocked: [] };
@@ -48,7 +48,7 @@ function start() {
     if (!u) return;
     unsub = onSnapshot(doc(db, "entitlements", u.uid), (s) => {
       const d = s.data() ?? {};
-      emit({ ent: { premiumUntil: Math.max(Number(d.premiumUntil ?? 0), Number(d.familyUntil ?? 0)), plan: d.plan as string | undefined, source: d.source as string | undefined, points: Number(d.points ?? 0), unlocked: Array.isArray(d.unlocked) ? (d.unlocked as string[]) : [] } });
+      emit({ ent: { premiumUntil: Math.max(Number(d.premiumUntil ?? 0), Number(d.familyUntil ?? 0)), plan: d.plan as string | undefined, source: d.source as string | undefined, points: Number(d.points ?? 0), unlocked: Array.isArray(d.unlocked) ? (d.unlocked as string[]) : [], unlockUntil: (d.unlockUntil as Record<string, number> | undefined) ?? {} } });
     }, () => {});
     // starts the free trial the first time, and finishes a payment left open
     void callPremium("status").then((r) => {
@@ -79,7 +79,7 @@ export function usePremium() {
     unlocked: s.ent.unlocked,
     config: s.cfg,
     kids: fam.kids, adults: fam.adults, members: fam.members,
-    canAccess: (id: string, tier: Tier) => tier === "free" || premium || s.ent.unlocked.includes(id),
+    canAccess: (id: string, tier: Tier) => tier === "free" || premium || (s.ent.unlocked.includes(id) && (!s.ent.unlockUntil?.[id] || s.ent.unlockUntil[id] > Date.now())),
     /** Paystack checkout comes in the next step. */
     country: s.country,
     /** Opens Paystack for the chosen plan. */

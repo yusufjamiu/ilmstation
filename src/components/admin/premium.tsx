@@ -95,7 +95,8 @@ export function PremiumSection() {
       <Panel title="What is Premium" tag="Across the app">
         <p className="-mt-1 mb-2 text-sm font-semibold">Premium quiz topics</p>
         <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">{QUIZ_TOPICS.map((t) => <label key={t} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.premiumTopics.includes(t)} onChange={(e) => setCfg({ ...cfg, premiumTopics: e.target.checked ? [...cfg.premiumTopics, t] : cfg.premiumTopics.filter((x) => x !== t) })} /> {t}</label>)}</div>
-        <div className="mt-3"><Field label="Points to unlock one Premium topic"><input type="number" min={0} className={inputCls} value={cfg.topicCost} onChange={(e) => setCfg({ ...cfg, topicCost: num(e.target.value) })} /></Field></div>
+        <div className="mt-3"><Field label="Points to unlock one Premium topic"><input type="number" min={0} className={inputCls} value={cfg.topicCost} onChange={(e) => setCfg({ ...cfg, topicCost: num(e.target.value) })} /></Field>
+            <Field label="Points unlocks last (days, 0 = forever)"><input type="number" min={0} className={inputCls} value={cfg.unlockDays} onChange={(e) => setCfg({ ...cfg, unlockDays: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} /></Field></div>
         <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={cfg.cardMarkPerk} onChange={(e) => setCfg({ ...cfg, cardMarkPerk: e.target.checked })} /> Premium members can remove the IlmStation mark on cards</label>
         <p className="mt-3 text-xs text-muted-foreground">Books, card designs and Study lessons are set one by one in their own admin pages (Free or Premium, points price, free from level).</p>
       </Panel>
