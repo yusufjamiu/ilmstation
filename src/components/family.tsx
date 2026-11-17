@@ -364,6 +364,17 @@ export function FamilyScreen() {
               </dl>}
               {m.role === "child" && m.status === "active" && k && <p className="mt-2 text-xs text-muted-foreground">Last active: {ago(k.lastActive)}</p>}
               <div className="mt-3 flex flex-wrap gap-2">
+                {m.managed && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                  const to = window.prompt(`Transfer ${m.name}'s account to another parent.\n\nEnter their IlmStation email:`)?.trim();
+                  if (!to) return;
+                  void callFamily("transferChild", { childUid: m.uid, toEmail: to }).then((r) => r.ok ? toast.success("Request sent. They’ll get an email to accept.") : toast.error(r.error ?? "Couldn't send."));
+                }}>🔁 Transfer</Button>}
+                {m.managed && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+                  if (!window.confirm(`Give ${m.name} their own account?\n\nOnly for children aged 13 or older. They’ll leave your Family hub and become a Teens account, keeping all their progress.\n\nPress OK to confirm ${m.name} is 13 or older.`)) return;
+                  const em = window.prompt(`Enter ${m.name}'s own email address. We'll email them a link to choose a password.`)?.trim();
+                  if (!em) return;
+                  void callFamily("releaseChild", { childUid: m.uid, email: em, confirm13: true }).then((r) => r.ok ? toast.success(`${m.name} now has their own account. We've emailed them.`) : toast.error(r.error ?? "Couldn't do that."));
+                }}>🎓 Own account (13+)</Button>}
                 {m.managed && <Button size="sm" disabled={busy} onClick={() => {
                   if (!window.confirm(`Switch this device to ${m.name}’s account? To switch back, you’ll log in again with your own password.`)) return;
                   void callFamily("childLogin", { uid: m.uid }).then(async (r) => {
@@ -384,7 +395,8 @@ export function FamilyScreen() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="border-2 border-dashed border-foreground p-5"><p className="text-xs font-bold uppercase text-muted-foreground">Coming soon</p><h3 className="font-serif text-2xl">Weekly progress email</h3><p className="mt-1 text-sm text-muted-foreground">Every Sunday, a short email with each child’s XP, streak, books and quizzes.</p></section>
-        <ChildForm onDone={() => void load()} />
+        <TransferInbox />
+      <ChildForm onDone={() => void load()} />
       </div>
     </div>
   </div>;
@@ -576,4 +588,17 @@ function KidsBot({ name }: { name: string }) {
       <Button type="submit" disabled={!text.trim()}>Ask</Button>
     </form>
   </section>;
+}
+
+/** Family hub: transfer requests sent to me (accept or decline). */
+function TransferInbox() {
+  const [rows, setRows] = useState<{ id: string; childName: string; fromName: string }[]>([]);
+  const load = () => void callFamily("transferList", {}).then((r) => setRows(((r as { inbox?: { id: string; childName: string; fromName: string }[] }).inbox) ?? []));
+  useEffect(load, []);
+  if (!rows.length) return null;
+  const answer = (id: string, accept: boolean) => void callFamily("transferAnswer", { id, accept }).then((r) => { if (r.ok) { toast.success(accept ? "Done! The child is now in your Family hub." : "Declined."); setTimeout(() => window.location.reload(), 900); } else toast.error(r.error ?? "Couldn't do that."); });
+  return <div className="mb-5 grid gap-2">{rows.map((t) => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-primary p-4 shadow-brutal-sm">
+    <span><b>🔁 Transfer request</b><br /><span className="text-sm">{t.fromName} wants to move <b>{t.childName}</b>’s account into your Family hub.</span></span>
+    <span className="flex gap-2"><Button size="sm" onClick={() => answer(t.id, true)}>Accept</Button><Button size="sm" variant="outline" onClick={() => answer(t.id, false)}>Decline</Button></span>
+  </div>)}</div>;
 }

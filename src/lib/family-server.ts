@@ -206,6 +206,7 @@ async function handleFamilyInner(request: Request): Promise<Response> {
 /** Wraps the family actions: after a parent creates a child's account, email the parent the login details. */
 export async function handleFamily(request: Request): Promise<Response> {
   const body = (await request.clone().json().catch(() => ({}))) as Record<string, unknown>;
+  if (["transferChild", "transferList", "transferAnswer", "releaseChild"].includes(String(body.action))) return handleChildMove(request, body);
   const res = await handleFamilyInner(request);
   if (body.action !== "createChild" || !res.ok) return res;
   try {
@@ -224,4 +225,92 @@ export async function handleFamily(request: Request): Promise<Response> {
       { label: "Open Family hub", url: "https://www.ilmstation.com/app?s=family" }));
   } catch { /* email is a bonus */ }
   return res;
+}
+
+/** Move a child to another parent, or give a 13+ child their own account. */
+type FamMember = { uid: string; email?: string; name: string; role: string; status: string; at?: number; managed?: boolean };
+async function handleChildMove(request: Request, body: Record<string, unknown>): Promise<Response> {
+  const out = (b: unknown, st = 200) => new Response(JSON.stringify(b), { status: st, headers: { "content-type": "application/json" } });
+  const a = await admin();
+  if (!a) return out({ ok: false, error: "Server not set up" }, 500);
+  let uid = "";
+  try { uid = (await a.auth.verifyIdToken((request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""))).uid; } catch { return out({ ok: false, error: "Please log in again." }, 401); }
+  const d = (body.data ?? body) as Record<string, unknown>;
+  const me = await a.auth.getUser(uid);
+  const myName = String((await a.db.doc(`profiles/${uid}`).get()).get("name") ?? me.displayName ?? "A parent");
+  const famRefOf = (o: string) => a.db.doc(`families/${o}`);
+  const removeFrom = async (owner: string, child: string) => {
+    const r = famRefOf(owner); const f = await r.get(); if (!f.exists) return;
+    const members = ((f.get("members") as FamMember[]) ?? []).filter((m) => m.uid !== child);
+    await r.set({ members, memberUids: members.filter((m) => m.status === "active").map((m) => m.uid) }, { merge: true });
+  };
+  const isMyChild = async (child: string) => {
+    const p = await a.db.doc(`profiles/${child}`).get();
+    return p.exists && p.get("managed") === true && (p.get("guardian") === uid || p.get("familyOf") === uid);
+  };
+
+  if (body.action === "transferList") {
+    const inbox = await a.db.collection("childTransfers").where("to", "==", uid).where("status", "==", "pending").get().catch(() => null);
+    return out({ ok: true, inbox: (inbox?.docs ?? []).map((x) => ({ id: x.id, childName: x.get("childName"), fromName: x.get("fromName"), at: x.get("at") })) });
+  }
+
+  if (body.action === "transferChild") {
+    const child = String(d.childUid ?? ""), toEmail = String(d.toEmail ?? "").trim().toLowerCase();
+    if (!(await isMyChild(child))) return out({ ok: false, error: "You can only transfer a child you manage." });
+    let target;
+    try { target = await a.auth.getUserByEmail(toEmail); } catch { return out({ ok: false, error: "No IlmStation account uses that email. Ask them to sign up first." }); }
+    if (target.uid === uid) return out({ ok: false, error: "That's your own account." });
+    if ((await a.db.doc(`profiles/${target.uid}`).get()).get("managed")) return out({ ok: false, error: "That account belongs to a child." });
+    const childName = String((await a.db.doc(`profiles/${child}`).get()).get("name") ?? "your child");
+    const ref = await a.db.collection("childTransfers").add({ child, childName, from: uid, fromName: myName, to: target.uid, toEmail, status: "pending", at: Date.now() });
+    await sendEmail(toEmail, `${myName} wants to transfer ${childName}'s IlmStation account to you`, layout("A child's account is being transferred to you",
+      `<p>Assalamu alaikum. <b>${esc(myName)}</b> would like to move <b>${esc(childName)}</b>'s IlmStation account into your Family hub. All of ${esc(childName)}'s progress stays.</p><p>Open <b>Family hub</b> to accept or decline.</p>`,
+      { label: "Open Family hub", url: "https://www.ilmstation.com/app?s=family" }));
+    return out({ ok: true, id: ref.id });
+  }
+
+  if (body.action === "transferAnswer") {
+    const tref = a.db.doc(`childTransfers/${String(d.id ?? "")}`);
+    const t = await tref.get();
+    if (!t.exists || t.get("to") !== uid || t.get("status") !== "pending") return out({ ok: false, error: "This request is no longer available." });
+    const child = String(t.get("child")), from = String(t.get("from")), childName = String(t.get("childName"));
+    const fromEmail = (await a.auth.getUser(from).catch(() => null))?.email ?? "";
+    if (d.accept !== true) {
+      await tref.set({ status: "declined", answeredAt: Date.now() }, { merge: true });
+      await sendEmail(fromEmail, `Transfer of ${childName}'s account was declined`, layout("Transfer declined", `<p>The transfer of <b>${esc(childName)}</b>'s account was declined. ${esc(childName)} is still in your Family hub.</p>`));
+      return out({ ok: true });
+    }
+    const childEmail = (await a.auth.getUser(child).catch(() => null))?.email ?? "";
+    await removeFrom(from, child);
+    const nref = famRefOf(uid); const nf = await nref.get();
+    const members = ((nf.get("members") as FamMember[]) ?? []).filter((m) => m.uid !== child);
+    members.push({ uid: child, email: childEmail, name: childName, role: "child", status: "active", at: Date.now(), managed: true });
+    await nref.set({ members, memberUids: members.filter((m) => m.status === "active").map((m) => m.uid), ...(nf.exists ? {} : { inviteEmails: [], ownerName: myName }) }, { merge: true });
+    await a.db.doc(`profiles/${child}`).set({ guardian: uid, familyOf: uid }, { merge: true });
+    await a.db.doc(`entitlements/${child}`).set({ familyUntil: FieldValue.delete() }, { merge: true }).catch(() => {});
+    await tref.set({ status: "accepted", answeredAt: Date.now() }, { merge: true });
+    await sendEmail(fromEmail, `${childName}'s account was transferred`, layout("Transfer complete", `<p><b>${esc(childName)}</b>'s account is now in <b>${esc(myName)}</b>'s Family hub. All progress was kept.</p>`));
+    return out({ ok: true });
+  }
+
+  if (body.action === "releaseChild") {
+    const child = String(d.childUid ?? ""), email = String(d.email ?? "").trim().toLowerCase();
+    if (d.confirm13 !== true) return out({ ok: false, error: "Please confirm your child is 13 or older." });
+    if (!(await isMyChild(child))) return out({ ok: false, error: "You can only do this for a child you manage." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.endsWith("@kids.ilmstation.com")) return out({ ok: false, error: "Enter your child's own email address." });
+    try { await a.auth.getUserByEmail(email); return out({ ok: false, error: "That email already has an account." }); } catch { /* free: good */ }
+    await a.auth.updateUser(child, { email, emailVerified: false });
+    const p = await a.db.doc(`profiles/${child}`).get();
+    const childName = String(p.get("name") ?? "your child");
+    await removeFrom(uid, child);
+    await a.db.doc(`profiles/${child}`).set({ managed: false, email, zone: "youth", guardian: FieldValue.delete(), familyOf: FieldValue.delete(), formerGuardian: uid }, { merge: true });
+    await a.db.doc(`emails/${email}`).set({ uid: child });
+    await a.db.doc(`entitlements/${child}`).set({ familyUntil: FieldValue.delete() }, { merge: true }).catch(() => {});
+    const link = await a.auth.generatePasswordResetLink(email);
+    await sendEmail(email, "Your own IlmStation account is ready", layout(`Welcome to your own account, ${esc(childName.split(" ")[0])}!`,
+      `<p>Assalamu alaikum. Your parent has given you your own IlmStation account. All your progress, XP and stars are still there.</p><p>Tap below to choose your password. Then log in with this email address (or your username).</p>`,
+      { label: "Choose my password", url: link }));
+    return out({ ok: true });
+  }
+  return out({ ok: false, error: "Unknown action" }, 400);
 }
