@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
@@ -333,97 +334,119 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
 
 /** Listen: play a surah verse by verse with the verse you hear highlighted on the page. */
 function Listen({ onBack }: { onBack?: () => void } = {}) {
-  const [surah, setSurah] = useState(1);
-  const [idx, setIdx] = useState(0);
+  type PageAyahs = Awaited<ReturnType<typeof loadPage>>;
+  const [page, setPage] = useState(1);
+  const [ayahs, setAyahs] = useState<PageAyahs | null>(null);
+  const [layout, setLayout] = useState<Awaited<ReturnType<typeof loadLayout>> | null>(null);
+  const [layoutFailed, setLayoutFailed] = useState(false);
+  const [error, setError] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [pos, setPos] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [reciter, setReciter] = useState(reciters[0]!.id);
   const [speed, setSpeed] = useState(1);
   const [repeat, setRepeat] = useState(false);
   const [chosen, setChosen] = useState(false);
-  const [lastL] = useState<{ surah: number; idx: number } | null>(() => { try { const v = JSON.parse(localStorage.getItem("ilmstation:listen-last") ?? "null"); return v && typeof v.surah === "number" ? v : null; } catch { return null; } });
+  const [jump, setJump] = useState("");
+  const [pick, setPick] = useState<number | null>(null);
+  const [lastL] = useState<{ page: number; pos: number } | null>(() => { try { const v = JSON.parse(localStorage.getItem("ilmstation:listen-page") ?? "null"); return v && typeof v.page === "number" ? v : null; } catch { return null; } });
   const [askL, setAskL] = useState(false);
-  const [autoNext, setAutoNext] = useState(() => { try { return localStorage.getItem("listenAutoNext") !== "0"; } catch { return true; } });
-  const [showMeaning, setShowMeaning] = useState(false);
-  useEffect(() => { if (chosen) { try { localStorage.setItem("ilmstation:listen-last", JSON.stringify({ surah, idx })); } catch { /* ignore */ } } }, [chosen, surah, idx]);
-  useEffect(() => { if (!lastL) return; try { if (sessionStorage.getItem("listenAsked")) return; sessionStorage.setItem("listenAsked", "1"); } catch { /* ignore */ } setAskL(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const resume = () => { if (!lastL) return; setAskL(false); setSurah(lastL.surah); setIdx(lastL.idx); setChosen(true); };
-  const lastName = lastL ? `${surahList.find(x => x.n === lastL.surah)?.name ?? ""} · verse ${lastL.idx + 1}` : "";
   const audio = useRef<HTMLAudioElement | null>(null);
-  const { verses, error, retry } = useSurah(surah);
-  const meta = surahList.find(s => s.n === surah)!;
-  const r = reciters.find(x => x.id === reciter) ?? reciters[0]!;
-  const src = `https://cdn.islamic.network/quran/audio/${r.bitrate}/${r.id}/${meta.start + idx}.mp3`;
-  const last = (verses?.length ?? meta.ayahs) - 1;
+  const pendingSurah = useRef(0);
+  const pendingPos = useRef(-1);
   useEffect(() => {
-    const el = audio.current; if (!el) return;
-    el.playbackRate = speed;
-    if (playing) el.play().catch(() => setPlaying(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, speed]);
-  function toggle() {
-    const el = audio.current; if (!el) return;
-    if (playing) { el.pause(); setPlaying(false); } else { el.playbackRate = speed; el.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); }
-  }
-  function ended() {
+    let cancelled = false; setAyahs(null); setLayout(null); setLayoutFailed(false); setError(false);
+    loadPage(page).then(list => {
+      if (cancelled) return; setAyahs(list);
+      if (pendingSurah.current) { const i = list.findIndex(x => x.surah === pendingSurah.current && x.n === 1); setPos(i >= 0 ? i : 0); pendingSurah.current = 0; }
+      else if (pendingPos.current >= 0) { setPos(Math.min(pendingPos.current, list.length - 1)); pendingPos.current = -1; }
+    }).catch(() => { if (!cancelled) setError(true); });
+    loadLayout(page).then(l => { if (!cancelled) setLayout(l); }).catch(() => { if (!cancelled) setLayoutFailed(true); });
+    return () => { cancelled = true; };
+  }, [page, tick]);
+  useEffect(() => { if (chosen && ayahs) { try { localStorage.setItem("ilmstation:listen-page", JSON.stringify({ page, pos })); } catch { /* ignore */ } } }, [chosen, page, pos, ayahs]);
+  useEffect(() => { if (!lastL) return; try { if (sessionStorage.getItem("listenAsked")) return; sessionStorage.setItem("listenAsked", "1"); } catch { /* ignore */ } setAskL(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const r = reciters.find(x => x.id === reciter) ?? reciters[0]!;
+  const cur = ayahs?.[pos];
+  const global = cur ? (surahList.find(x => x.n === cur.surah)?.start ?? 1) + cur.n - 1 : 0;
+  const src = cur ? `https://cdn.islamic.network/quran/audio/${r.bitrate}/${r.id}/${global}.mp3` : "";
+  useEffect(() => { const el = audio.current; if (!el || !src) return; el.playbackRate = speed; if (playing) el.play().catch(() => setPlaying(false)); }, [src, speed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = (p: number, at = 0) => { if (p >= 1 && p <= TOTAL_PAGES) { pendingPos.current = at; setPage(p); setPos(0); } };
+  const toggle = () => { const el = audio.current; if (!el) return; if (playing) { el.pause(); setPlaying(false); } else { el.playbackRate = speed; el.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); } };
+  const playFrom = (i: number) => { setPick(null); setPos(i); setPlaying(true); setTimeout(() => { const el = audio.current; if (el) { el.playbackRate = speed; void el.play().catch(() => setPlaying(false)); } }, 80); };
+  const ended = () => {
     const el = audio.current;
     if (repeat && el) { el.currentTime = 0; void el.play(); return; }
-    if (idx < last) setIdx(i => i + 1); else if (autoNext && surah < 114) { setSurah(x => x + 1); setIdx(0); } else setPlaying(false);
-  }
-  const [a, b] = pageSlice([0, Math.max(0, last)], idx);
+    if (ayahs && pos < ayahs.length - 1) setPos(i => i + 1); else if (page < TOTAL_PAGES) go(page + 1, 0); else setPlaying(false);
+  };
+  const next = () => { if (ayahs && pos < ayahs.length - 1) setPos(pos + 1); else go(page + 1, 0); };
+  const prev = () => { if (pos > 0) setPos(pos - 1); else if (page > 1) go(page - 1, 999); };
+  const resume = () => { if (!lastL) return; setAskL(false); go(lastL.page, lastL.pos); setChosen(true); };
+  const back = onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={() => { audio.current?.pause(); setPlaying(false); onBack(); }} aria-label="Back to Qur’an">←</Button>;
+  const modal = (body: ReactNode, close: () => void) => <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={close}>
+    <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>{body}</div></div>;
+  const x = (close: () => void) => <button onClick={close} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button>;
+
   if (!chosen) return <div className="mt-1 min-w-0 sm:mt-4">
     <section className={cn(panel, "space-y-4")}>
-      <div className="flex items-center gap-2">{onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={onBack} aria-label="Back to Qur’an">←</Button>}<Headphones className="size-5"/><h2 className="font-serif text-2xl">Listen</h2></div>
-      {lastL && <Button variant="secondary" onClick={resume}>Continue: {lastName}</Button>}
-      <p className="text-sm text-muted-foreground">Choose a surah to listen to.</p>
-      <SurahList onPick={n => { audio.current?.pause(); setPlaying(false); setSurah(n); setIdx(0); setChosen(true); }}/>
-    </section>
-    {askL && lastL && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setAskL(false)}>
-      <div className="w-full max-w-sm border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between"><p className="text-4xl">🎧</p><button onClick={() => setAskL(false)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
-        <p className="mt-2 font-serif text-3xl leading-tight">Continue listening?</p>
-        <p className="mt-1 text-sm text-muted-foreground">You stopped at {lastName}.</p>
-        <div className="mt-5 grid gap-2">
-          <Button onClick={resume}>Continue</Button>
-          <Button variant="outline" onClick={() => setAskL(false)}>Choose a surah</Button>
-        </div>
+      <div className="flex items-center gap-2">{back}<Headphones className="size-5"/><h2 className="font-serif text-2xl">Listen</h2></div>
+      <div className="flex flex-wrap gap-2">
+        {lastL && <Button variant="secondary" onClick={resume}>Continue from page {lastL.page}</Button>}
+        <Button variant="outline" onClick={() => { go(1); setChosen(true); }}>Start from the beginning</Button>
       </div>
-    </div>}
+      <p className="text-sm text-muted-foreground">Or choose a surah:</p>
+      <SurahList onPick={n => { pendingSurah.current = n; void pageOfSurah(n).then(p => { setPage(p); setPos(0); setChosen(true); }).catch(() => setError(true)); }}/>
+    </section>
+    {askL && lastL && modal(<>
+      <div className="flex items-start justify-between"><p className="text-4xl">🎧</p>{x(() => setAskL(false))}</div>
+      <p className="mt-2 font-serif text-3xl leading-tight">Continue listening?</p>
+      <p className="mt-1 text-sm text-muted-foreground">You stopped at page {lastL.page}.</p>
+      <div className="mt-5 grid gap-2"><Button onClick={resume}>Continue from page {lastL.page}</Button><Button variant="outline" onClick={() => setAskL(false)}>Choose a surah</Button></div>
+    </>, () => setAskL(false))}
   </div>;
+
+  const meta = cur ? surahList.find(s2 => s2.n === cur.surah) : undefined;
   return <div className="mt-1 min-w-0 space-y-3 sm:mt-4 sm:space-y-4">
-    <section className="border-2 border-foreground bg-background p-1.5">
+    <section className="space-y-1.5 border-2 border-foreground bg-background p-1.5">
       <div className="flex items-center gap-1.5">
-        {onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={onBack} aria-label="Back to Qur’an">←</Button>}
-        <Button size="sm" variant="outline" className="shrink-0" onClick={() => { audio.current?.pause(); setPlaying(false); setChosen(false); }}>☰ Surahs</Button>
-        <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="h-9 min-w-0 flex-1 border-2 border-foreground bg-background px-2 text-sm">{reciters.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        {back}
+        <Button size="sm" variant="outline" className="flex-1" onClick={() => { audio.current?.pause(); setPlaying(false); setChosen(false); }}>☰ Surahs</Button>
+        <form className="flex flex-1 items-center gap-1.5" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}>
+          <input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="Page" aria-label="Go to page" className="h-9 w-full min-w-0 border-2 border-foreground bg-background px-2 text-sm"/>
+          <Button type="submit" size="sm" variant="outline">Go</Button>
+        </form>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" variant="outline" aria-label="Previous verse" onClick={prev}>⏮</Button>
+        <Button size="sm" className="flex-1" onClick={toggle}>{playing ? "⏸ Pause" : "▶ Play"}</Button>
+        <Button size="sm" variant="outline" aria-label="Next verse" onClick={next}>⏭</Button>
+        <Button size="sm" variant={repeat ? "secondary" : "outline"} aria-label="Repeat verse" onClick={() => setRepeat(v => !v)}>🔁</Button>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="h-9 min-w-0 flex-1 border-2 border-foreground bg-background px-2 text-sm">{reciters.map(rc => <option key={rc.id} value={rc.id}>{rc.name}</option>)}</select>
         <select value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="Playback speed" className="h-9 shrink-0 border-2 border-foreground bg-background px-1 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select>
       </div>
+      {meta && cur && <p className="px-1 text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {cur.n}</p>}
     </section>
-    {error ? <section className={panel}><p className="text-sm">We couldn't load this surah. Check your connection and try again.</p><Button className="mt-3" onClick={retry}>Try again</Button></section> : !verses ? <p className="text-sm text-muted-foreground">Loading the surah…</p> : <>
-      <PageView verses={verses.slice(a, b + 1)} from={a} revealUpTo={verses.length} focus={idx} peek={false} onSelect={n => { setIdx(n); setShowMeaning(true); }} title={meta.arabic} juz={meta.juz} number={surah}/>
-      {showMeaning && verses[idx] && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setShowMeaning(false)}>
-        <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
-          <div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {idx + 1}</p><button onClick={() => setShowMeaning(false)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
-          <p dir="rtl" lang="ar" className="mt-3 text-right font-arabic text-3xl leading-[2]">{(verses[idx] as { text?: string }).text}</p>
-          <p className="mt-3 text-base leading-relaxed">{verses[idx]?.meaning}</p>
-          <Button className="mt-5 w-full" onClick={() => void verseCard((verses[idx] as { text?: string }).text ?? "", verses[idx]?.meaning ?? "", `${meta.name} · ${surah}:${idx + 1}`)}>📥 Download card</Button>
-        </div>
-      </div>}
-      <section className={cn(panel, "space-y-3")}>
-        <p className="text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {idx + 1} of {verses.length}</p>
-        <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={autoNext} onChange={e => { setAutoNext(e.target.checked); try { localStorage.setItem("listenAutoNext", e.target.checked ? "1" : "0"); } catch { /* ignore */ } }}/> Auto-play next surah</label>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="icon" aria-label="Previous verse" disabled={idx === 0} onClick={() => setIdx(i => Math.max(0, i - 1))}><SkipBack /></Button>
-          <Button onClick={toggle}>{playing ? <Pause /> : <Play />}{playing ? "Pause" : "Play"}</Button>
-          <Button variant="outline" size="icon" aria-label="Next verse" disabled={idx >= last} onClick={() => setIdx(i => Math.min(last, i + 1))}><SkipForward /></Button>
-          <Button variant={repeat ? "secondary" : "ghost"} aria-pressed={repeat} onClick={() => setRepeat(v => !v)}><Repeat /> Repeat verse</Button>
-        </div>
-        <audio ref={audio} src={src} preload="auto" onEnded={ended} onPause={() => { if (audio.current && !audio.current.ended) setPlaying(false); }} onPlay={() => setPlaying(true)}/>
-      </section>
+    {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
+      {layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={key => { const i = ayahs.findIndex(a2 => `${a2.surah}:${a2.n}` === key); if (i >= 0) setPick(i); }}/>
+        : <MushafPage page={page} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={a2 => { const i = ayahs.indexOf(a2); if (i >= 0) setPick(i); }}/>}
+      <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
+        <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
+        <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
+        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page">Previous <ArrowRight /></Button>
+      </div>
     </>}
+    <audio ref={audio} src={src || undefined} preload="auto" onEnded={ended} onPause={() => { if (audio.current && !audio.current.ended) setPlaying(false); }} onPlay={() => setPlaying(true)}/>
+    {pick !== null && ayahs?.[pick] && modal(<>
+      <div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s2 => s2.n === ayahs[pick]!.surah)?.name} · verse {ayahs[pick]!.n}</p>{x(() => setPick(null))}</div>
+      <p dir="rtl" lang="ar" className="mt-3 text-right font-arabic text-3xl leading-[2]">{(ayahs[pick] as { text?: string }).text}</p>
+      <p className="mt-3 text-base leading-relaxed">{ayahs[pick]!.meaning}</p>
+      <Button className="mt-5 w-full" onClick={() => playFrom(pick)}>▶ Play from this verse</Button>
+    </>, () => setPick(null))}
   </div>;
 }
 
-/** The Quran area: Hifz, Tilawah (reading), Revision and Listen. */
 export function QuranScreen() {
   const [section, setSection] = useState<Section | null>(null);
   const practice = section === "hifz" || section === "revision";

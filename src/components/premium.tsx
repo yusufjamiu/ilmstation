@@ -1,3 +1,4 @@
+import { useEffect as useFxEffect } from "react";
 import { EmailAuthProvider, GoogleAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup } from "firebase/auth";
 import { useState as useLocalState } from "react";
 import { signOut as fbSignOut } from "firebase/auth";
@@ -156,7 +157,7 @@ export function priceFor(p: PlanDef, period: Period, country: string, cfg: Premi
   const usd = cfg.usdAbroad && !!country && country !== "NG" && basePrice(p, period, true) > 0;
   const pr = finalPrice(cfg, p, period, usd, code);
   const fmt = (n: number) => (usd ? `$${n.toLocaleString()}` : `₦${n.toLocaleString()}`);
-  return { available: pr.base > 0, text: fmt(pr.final), was: pr.promo ? fmt(pr.base) : undefined, promo: pr.promo, base: pr.base };
+  return { available: pr.base > 0, text: fmt(pr.final), was: pr.promo ? fmt(pr.base) : undefined, promo: pr.promo, base: pr.base, final: pr.final, usd };
 }
 export function priceLabel(p: PlanDef, country: string, cfg: PremiumConfig) {
   const m = priceFor(p, "month", country, cfg);
@@ -291,4 +292,25 @@ export function DeleteMyAccount() {
       </div>
     </div>}
   </div>;
+}
+
+/** Country → its currency, for "≈ SAR 19" estimates (display only). */
+const COUNTRY_CUR: Record<string, string> = {
+  SA: "SAR", AE: "AED", QA: "QAR", KW: "KWD", BH: "BHD", OM: "OMR", JO: "JOD", EG: "EGP", MA: "MAD", DZ: "DZD", TN: "TND", TR: "TRY",
+  GB: "GBP", US: "USD", CA: "CAD", AU: "AUD", DE: "EUR", FR: "EUR", IT: "EUR", ES: "EUR", NL: "EUR", BE: "EUR", IE: "EUR", AT: "EUR", PT: "EUR", FI: "EUR", GR: "EUR",
+  GH: "GHS", KE: "KES", ZA: "ZAR", TZ: "TZS", UG: "UGX", SN: "XOF", NE: "XOF", ML: "XOF", BF: "XOF", CI: "XOF", BJ: "XOF", TG: "XOF", CM: "XAF", TD: "XAF", GM: "GMD", SL: "SLE", LR: "LRD", GN: "GNF", SD: "SDG",
+  PK: "PKR", IN: "INR", BD: "BDT", MY: "MYR", ID: "IDR", SG: "SGD",
+};
+export function useFx(country: string) {
+  const cur = COUNTRY_CUR[country] ?? "";
+  const [rates, setRates] = useLocalState<Record<string, number> | null>(null);
+  useFxEffect(() => { if (!cur || country === "NG") return; fetch("/api/fx").then((r) => r.json()).then((j: { rates?: Record<string, number> }) => setRates(j.rates ?? null)).catch(() => {}); }, [cur, country]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!cur || country === "NG" || !rates?.[cur]) return null;
+  return {
+    cur,
+    fmt: (amount: number, from: "USD" | "NGN") => {
+      const usd = from === "USD" ? amount : amount / (rates.NGN || 1);
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: cur, maximumFractionDigits: ["KWD", "BHD", "OMR", "JOD"].includes(cur) ? 1 : 0 }).format(usd * rates[cur]);
+    },
+  };
 }
