@@ -58,3 +58,26 @@ export function PlanRequests() {
     </div>; })}</div>}
   </Panel></div>;
 }
+
+/** Admin: give someone a free Family plan with chosen seats. */
+export function GiftFamily() {
+  const [f, setF] = useState({ email: "", days: 365, adults: 2, kids: 4 });
+  const [busy, setBusy] = useState(false);
+  const give = async () => {
+    if (!f.email.trim()) { toast.error("Enter their email"); return; }
+    setBusy(true);
+    const r = await callPremium("grantFamily", f);
+    setBusy(false);
+    if (r.ok) { toast.success("Free Family plan given. They've been emailed."); setF({ ...f, email: "" }); } else toast.error(r.error ?? "Couldn't do that.");
+  };
+  return <div className="mb-6"><Panel title="🎁 Give a free Family plan" tag="Partners, scholars, gifts">
+    <p className="-mt-1 mb-3 text-xs text-muted-foreground">They need an IlmStation account. They'll invite adults and create children's accounts in Family hub. 18250 days = forever.</p>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_7rem_6rem_6rem_auto] sm:items-end">
+      <label className="col-span-2 text-xs font-bold uppercase sm:col-span-1">Their email<input className={box} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="sheikh@example.com" /></label>
+      <label className="text-xs font-bold uppercase">Days<input type="number" min={1} className={box} value={f.days} onChange={(e) => setF({ ...f, days: Math.max(1, Number(e.target.value) || 1) })} /></label>
+      <label className="text-xs font-bold uppercase">Adults<input type="number" min={1} className={box} value={f.adults} onChange={(e) => setF({ ...f, adults: Math.max(1, Number(e.target.value) || 1) })} /></label>
+      <label className="text-xs font-bold uppercase">Children<input type="number" min={0} className={box} value={f.kids} onChange={(e) => setF({ ...f, kids: Math.max(0, Number(e.target.value) || 0) })} /></label>
+      <Button className="col-span-2 sm:col-span-1" disabled={busy} onClick={() => void give()}>{busy ? "Giving…" : "Give"}</Button>
+    </div>
+  </Panel></div>;
+}

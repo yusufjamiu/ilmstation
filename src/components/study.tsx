@@ -50,7 +50,7 @@ export function StudyScreen() {
   const [view, setView] = useState<View>({});
   const { cats: allCats } = useStudyCategories();
   const { account: studyAcct } = useAuth();
-  const cats = allCats.filter((c) => catFor(c, studyAcct?.zone));
+  const cats = allCats ? allCats.filter((c) => catFor(c, studyAcct?.zone)) : allCats;
   const { uid, progress, results } = useStudyMe();
   const voice = useVoiceLang();
   useVoiceLangs();

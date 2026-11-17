@@ -390,6 +390,33 @@ export async function handlePremium(request: Request): Promise<Response> {
   }
 
   // admins give Premium to someone by email
+  // admins give a free Family plan (their own private plan with chosen seats)
+  if (action === "grantFamily") {
+    const myRole = (await a.db.doc(`admins/${uid}`).get()).get("role");
+    if (myRole !== "owner" && myRole !== "admin") return json({ ok: false, error: "Only owners and admins can do this." }, 403);
+    const days = int(data.days, 1, 18250), adults = int(data.adults, 1, 20), kids = int(data.kids, 0, 50);
+    let target: { uid: string; email?: string };
+    try { target = await a.auth.getUserByEmail(String(data.email ?? "").trim().toLowerCase()); } catch { return json({ ok: false, error: "No account with that email." }); }
+    const planId = `gift-${target.uid}`;
+    const seats = `${adults} adult${adults === 1 ? "" : "s"} + ${kids} child${kids === 1 ? "" : "ren"}`;
+    const plan = { id: planId, name: "Gift · Family", price: 0, period: "month", priceMonthly: 0, priceYearly: 0, usdMonthly: 0, usdYearly: 0, adults, kids, seats, points: ["Free Family plan from IlmStation"], visible: false, forUid: target.uid };
+    const pref = a.db.doc("siteConfig/premium");
+    await a.db.runTransaction(async (tx) => {
+      const d = await tx.get(pref);
+      const plans = mergePremium((d.data() ?? {}) as never).plans.filter((p) => p.id !== planId);
+      tx.set(pref, { plans: [...plans, plan] }, { merge: true });
+    });
+    const tref = a.db.doc(`entitlements/${target.uid}`);
+    const until = Math.max(now, Number((await tref.get()).get("premiumUntil") ?? 0)) + days * DAY;
+    await tref.set({ premiumUntil: until, plan: planId, source: "admin", grantedBy: uid }, { merge: true });
+    const fam = await a.db.doc(`families/${target.uid}`).get();
+    for (const m of ((fam.get("memberUids") as string[]) ?? [])) await a.db.doc(`entitlements/${m}`).set({ familyUntil: until }, { merge: true });
+    await sendEmail(target.email ?? "", "You've been given a free IlmStation Family plan 🎁", layout("A free Family plan for you 🎁",
+      `<p>Assalamu alaikum. IlmStation has given you a free <b>Family plan</b> (${esc(seats)}), active until <b>${new Date(until).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</b>.</p><p>Open <b>Family hub</b> to invite family members by email and create your children's accounts. Everyone gets Premium.</p>`,
+      { label: "Open Family hub", url: "https://www.ilmstation.com/app?s=family" }));
+    return json({ ok: true, until });
+  }
+
   if (action === "grant") {
     if (!(await a.db.doc(`admins/${uid}`).get()).exists) return json({ ok: false, error: "Admins only." }, 403);
     const days = int(data.days, 1, 3650);

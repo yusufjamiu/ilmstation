@@ -1,4 +1,4 @@
-import { PlanRequests } from "./plan-requests";
+import { GiftFamily, PlanRequests } from "./plan-requests";
 import { FEATURE_LIMITS, FEATURE_TICKS } from "@/lib/premium-config";
 import { lagosDate, type Period, type Promo } from "@/lib/premium-config";
 import { useEffect, useState } from "react";
@@ -100,6 +100,7 @@ export function PremiumSection() {
         <p className="mt-3 text-xs text-muted-foreground">Books, card designs and Study lessons are set one by one in their own admin pages (Free or Premium, points price, free from level).</p>
       </Panel>
     </div>
+    <div className="mt-6"><GiftFamily /></div>
     <div className="mt-6"><PlanRequests /></div>
     <div className="mt-6"><Panel title="Premium features" tag="Free vs Premium">
       <p className="-mt-1 mb-3 text-xs text-muted-foreground">Daily limits reset at midnight (Nigeria time). 0 = unlimited. Game minutes are set in Games & quizzes. Books and audio are set per book in Library.</p>
