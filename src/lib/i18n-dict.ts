@@ -434,4 +434,6 @@ export const DICT: Record<string, T> = {
   "Explorer": { ar: "مستكشف", fr: "Explorateur", ur: "متلاشی", ha: "Mai bincike" },
   "Hafiz": { ar: "حافظ", fr: "Hafiz", ur: "حافظ", ha: "Hafizi" },
   "Teacher": { ar: "معلّم", fr: "Enseignant", ur: "استاد", ha: "Malami" },
+  // website, signup, app
+
 };
