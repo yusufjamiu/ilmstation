@@ -88,11 +88,6 @@ const paths = [
   { title: "40 Hadith for Daily Life", level: "All levels", lessons: 20, weeks: "7 weeks", tint: "bg-background" },
 ] as const;
 
-const testimonials = [
-  { quote: "Ten minutes before Fajr, every morning. IlmStation made consistency feel possible for the first time.", name: "Amina K.", detail: "Learner, Lagos · 96-day streak" },
-  { quote: "The centre became our family’s weekend anchor. The children ask when the next class is.", name: "Yusuf A.", detail: "Parent, Abuja · Family Learning" },
-  { quote: "I came for the Arabic room and stayed for the people. The conversations are genuinely careful.", name: "Safiyyah L.", detail: "Member, Kano · Sisters’ Study Circle" },
-] as const;
 
 const faqs = [
   { q: "Is IlmStation free to use?", a: "Yes—daily quests, chatrooms, and starter paths are free. Live events and centre programmes list their own arrangements, and you always see them before registering." },
@@ -272,7 +267,7 @@ export function CentresPage() {
 }
 
 type ChatMessage={id:number;author:string;text:string;time:string;own?:boolean};
-const starterMessages:Record<string,ChatMessage[]>={daily:[{id:1,author:"Amina",text:"Today’s ayah reminded me that consistency can be quiet.",time:"14:31"},{id:2,author:"Yusuf",text:"Beautiful reflection. I noticed the emphasis on patience too.",time:"14:34"}],sisters:[{id:1,author:"Maryam",text:"Welcome everyone. Tonight we’re sharing notes from the sincerity lesson.",time:"13:48"}],arabic:[{id:1,author:"Hassan",text:"Word of the day: علم — knowledge.",time:"12:20"}],parents:[{id:1,author:"Safiyyah",text:"What routines have helped your children enjoy Qur’an time?",time:"11:05"}]};
+const starterMessages: Record<string, ChatMessage[]> = new Proxy({}, { get: () => [] }) as Record<string, ChatMessage[]>;
 
 export function ChatroomsPage(){
   const [query,setQuery]=useState("");const[selected,setSelected]=useState<(typeof rooms)[number]>(rooms[0]);const[joined,setJoined]=useState<string[]>(["daily"]);const[text,setText]=useState("");const[messages,setMessages]=useState(starterMessages);
