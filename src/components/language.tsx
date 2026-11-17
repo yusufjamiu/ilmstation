@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { DICT } from "@/lib/i18n-dict";
+import { doc as lDoc, setDoc as lSet } from "firebase/firestore";
+import { auth as lAuth, db as lDb } from "@/lib/firebase";
 
 export const languages = [
   { code: "en", label: "English", native: "English", dir: "ltr" },
@@ -27,12 +30,13 @@ const dict: Record<string, Partial<Record<Lang, string>>> = {
 
 const KEY = "iq_lang";
 const subs = new Set<() => void>();
-const read = (): Lang => { try { const v = localStorage.getItem(KEY); return (languages.some((l) => l.code === v) ? v : "en") as Lang; } catch { return "en"; } };
+const detect = (): Lang => { try { for (const n of navigator.languages ?? [navigator.language]) { const c = n.slice(0, 2).toLowerCase(); if (languages.some((l) => l.code === c)) return c as Lang; } } catch { /* ignore */ } return "en"; };
+const read = (): Lang => { try { const v = localStorage.getItem(KEY); if (languages.some((l) => l.code === v)) return v as Lang; const d = detect(); localStorage.setItem(KEY, d); return d; } catch { return "en"; } };
 
 export function useLanguage() {
   const lang = useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, read, () => "en" as Lang);
-  const set = (l: Lang) => { localStorage.setItem(KEY, l); subs.forEach((f) => f()); };
-  const t = (s: string) => dict[s]?.[lang] ?? s;
+  const set = (l: Lang) => { localStorage.setItem(KEY, l); subs.forEach((f) => f()); const u = lAuth.currentUser; if (u) void lSet(lDoc(lDb, "profiles", u.uid), { language: l }, { merge: true }).catch(() => {}); };
+  const t = (s: string) => (lang === "en" ? s : (DICT[s] as Record<string, string> | undefined)?.[lang] ?? dict[s]?.[lang] ?? s);
   return { lang, set, t };
 }
 
@@ -55,4 +59,56 @@ export function LanguageSelect({ className }: { className?: string }) {
       </DropdownMenuItem>)}
     </DropdownMenuContent>
   </DropdownMenu>;
+}
+
+/* ---------- whole-app translator: swaps known phrases on screen, flips Arabic/Urdu to right-to-left ---------- */
+const orig = new WeakMap<Text, string>();
+const SKIP = "script,style,textarea,code,pre,[data-no-translate],[lang='ar'],[dir='rtl'][lang],.font-arabic";
+function trWord(key: string, lang: Lang): string | undefined { return lang === "en" ? undefined : (DICT[key] as Record<string, string> | undefined)?.[lang]; }
+function fixText(n: Text, lang: Lang) {
+  const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
+  const el = n.parentElement; if (!el || el.closest(SKIP)) return;
+  const was = orig.get(n);
+  const key = was && trWord(was, lang) === cur ? was : (DICT[cur] ? cur : was && cur === was ? was : undefined);
+  if (!key) return;
+  orig.set(n, key);
+  const want = trWord(key, lang) ?? key;
+  if (cur !== want) n.nodeValue = raw.replace(cur, want);
+}
+function fixAttrs(el: Element, lang: Lang) {
+  for (const a of ["placeholder", "aria-label", "title"]) {
+    const v = el.getAttribute(a); if (!v) continue;
+    const store = `data-i18n-${a}`; const base = el.getAttribute(store) ?? (DICT[v] ? v : null); if (!base) continue;
+    el.setAttribute(store, base); const want = trWord(base, lang) ?? base; if (v !== want) el.setAttribute(a, want);
+  }
+}
+function sweep(root: Node, lang: Lang) {
+  if (root.nodeType === 3) { fixText(root as Text, lang); return; }
+  if (root.nodeType !== 1) return;
+  const el = root as Element; if (el.closest(SKIP)) return;
+  fixAttrs(el, lang); el.querySelectorAll("[placeholder],[aria-label],[title]").forEach((x) => fixAttrs(x, lang));
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let t: Node | null; while ((t = w.nextNode())) fixText(t as Text, lang);
+}
+let obs: MutationObserver | null = null;
+/** Put once near the top of the app: applies language, direction and the translator. */
+export function LanguageBoot() {
+  const { lang } = useLanguage();
+  useEffect(() => {
+    const dir = languages.find((l) => l.code === lang)?.dir ?? "ltr";
+    document.documentElement.lang = lang; document.documentElement.dir = dir;
+    obs?.disconnect();
+    sweep(document.body, lang);
+    obs = new MutationObserver((list) => { for (const m of list) { if (m.type === "characterData") fixText(m.target as Text, lang); else m.addedNodes.forEach((n) => sweep(n, lang)); } });
+    obs.observe(document.body, { subtree: true, childList: true, characterData: true });
+    return () => obs?.disconnect();
+  }, [lang]);
+  return null;
+}
+/** Settings card: choose the app language. */
+export function LanguageCard() {
+  return <div className="mt-6 border-2 border-foreground p-5">
+    <p className="font-serif text-2xl">🌍 Language</p>
+    <p className="mt-1 text-sm text-muted-foreground">English · العربية · Français · اردو · Hausa</p>
+    <div className="mt-3"><LanguageSelect /></div>
+  </div>;
 }

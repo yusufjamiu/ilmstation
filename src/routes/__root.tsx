@@ -1,3 +1,4 @@
+import { LanguageBoot } from "@/components/language";
 import { UpdateBar } from "@/components/update-bar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -131,6 +132,7 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <UpdateBar />
+      <LanguageBoot />
       <Toaster position="bottom-right" />
     </QueryClientProvider>
   );
