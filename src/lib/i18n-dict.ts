@@ -188,4 +188,6 @@ export const DICT: Record<string, T> = {
   "Couldn't load the surah. Check your connection and try again.": { ar: "تعذّر تحميل السورة. تحقق من اتصالك وحاول مرة أخرى.", fr: "Impossible de charger la sourate. Vérifiez votre connexion et réessayez.", ur: "سورت لوڈ نہیں ہو سکی۔ اپنا کنکشن چیک کریں اور دوبارہ کوشش کریں۔", ha: "An kasa loda surar. Duba intanet ɗinka ka sake gwadawa." },
   "Read Surah Al-Kahf": { ar: "اقرأ سورة الكهف", fr: "Lire la sourate Al-Kahf", ur: "سورۃ الکہف پڑھیں", ha: "Karanta Suratul Kahfi" },
   "I’ve read Al-Kahf": { ar: "قرأتُ سورة الكهف", fr: "J’ai lu Al-Kahf", ur: "میں نے سورۃ الکہف پڑھ لی", ha: "Na karanta Suratul Kahfi" },
+  "Level": { ar: "المستوى", fr: "Niveau", ur: "لیول", ha: "Mataki" },
+  "▶ Next": { ar: "▶ التالي", fr: "▶ Suivant", ur: "▶ اگلا", ha: "▶ Na gaba" },
 };

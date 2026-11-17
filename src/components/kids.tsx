@@ -230,7 +230,7 @@ function KidGameHub({ games, open, start, locked, setLocked }: {
     <div className="mt-6 grid gap-4">{list.map((g, i) => { const d = done[g.id]; const isNext = g === next; return <button key={g.id} onClick={() => play(g)}
       className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", d ? "bg-primary" : isNext ? "bg-secondary text-secondary-foreground" : "bg-background")}>
       <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-2xl text-foreground">{d ? "⭐" : i + 1}</span>
-      <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">{label(type)} {i + 1}{g.title && g.title !== subj ? ` · ${g.title}` : ""}</b>
+      <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">Level {i + 1}{g.title && g.title !== subj ? ` · ${g.title}` : ""}</b>
         <span className="text-sm">{!open(g) ? "🔒 Premium" : d ? `${d.score} of ${d.total} right · play again` : isNext ? "▶ Next" : g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
     </button>; })}</div>
   </div>; }
@@ -251,7 +251,7 @@ function KidGameHub({ games, open, start, locked, setLocked }: {
     <h1 className="font-serif text-5xl leading-none">Games 🎮</h1>
     <p className="mt-3 text-lg text-muted-foreground">What do you want to play?</p>
     {cont && <button onClick={() => play(cont)} className="mt-6 flex w-full items-center gap-4 border-2 border-foreground bg-secondary p-5 text-left text-secondary-foreground shadow-brutal">
-      <span className="text-4xl">▶</span><span><b className="block text-xl">Continue</b><span className="text-sm">{subjOf(cont)} · {label(typeOf(cont))} {contN}</span></span>
+      <span className="text-4xl">▶</span><span><b className="block text-xl">Continue</b><span className="text-sm">{subjOf(cont)} · Level {contN}</span></span>
     </button>}
     <div className="mt-6 grid gap-4 sm:grid-cols-3">{GAME_TYPES.map(([id, e, name], i) => { const has = games.some((g) => typeOf(g) === id); return <button key={id} disabled={!has} onClick={() => setType(id)}
       className={cn("flex min-h-40 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition-transform", has ? "hover:-translate-y-1" : "opacity-60", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-background"][i % 3])}>
