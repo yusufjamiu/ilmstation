@@ -65,15 +65,25 @@ export function LanguageSelect({ className }: { className?: string }) {
 const orig = new WeakMap<Text, string>();
 const SKIP = "script,style,textarea,code,pre,[data-no-translate],[lang='ar']:not(html),.font-arabic";
 function trWord(key: string, lang: Lang): string | undefined { return lang === "en" ? undefined : (DICT[key] as Record<string, string> | undefined)?.[lang]; }
+const RTL_FIX = "[dir=rtl] .ml-auto{margin-left:0!important;margin-right:auto!important}[dir=rtl] .mr-auto{margin-right:0!important;margin-left:auto!important}[dir=rtl] [class*='space-x-']>:not([hidden])~:not([hidden]){--tw-space-x-reverse:1}" +
+  [["1", ".25rem"], ["1.5", ".375rem"], ["2", ".5rem"], ["3", ".75rem"], ["4", "1rem"]].map(([k, v]) => { const c = k.replace(".", "\\."); return `[dir=rtl] .ml-${c}{margin-left:0!important;margin-right:${v}!important}[dir=rtl] .mr-${c}{margin-right:0!important;margin-left:${v}!important}`; }).join("");
+function trAny(s: string, lang: Lang): string | undefined {
+  if (lang === "en") return undefined;
+  const d = (DICT[s] as Record<string, string> | undefined)?.[lang]; if (d) return d;
+  const nums = s.match(/\d+/g); if (!nums) return undefined;
+  const t = (DICT[s.replace(/\d+/g, "{n}")] as Record<string, string> | undefined)?.[lang]; if (!t) return undefined;
+  let k = 0; return t.replace(/\{n\}/g, () => nums[k++] ?? "");
+}
+const isKey = (s: string) => !!DICT[s] || (/\d/.test(s) && !!DICT[s.replace(/\d+/g, "{n}")]);
 function fixText(n: Text, lang: Lang) {
   const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
   const el = n.parentElement; if (!el || el.closest(SKIP)) return;
   const was = orig.get(n);
-  const known = !!was && (cur === was || Object.values((DICT[was] as Record<string, string> | undefined) ?? {}).includes(cur));
-  const key = known ? was : (DICT[cur] ? cur : undefined);
+  const known = !!was && (cur === was || (["ar", "fr", "ur", "ha"] as Lang[]).some((l) => trAny(was, l) === cur));
+  const key = known ? was : (isKey(cur) ? cur : undefined);
   if (!key) return;
   orig.set(n, key);
-  const want = trWord(key, lang) ?? key;
+  const want = trAny(key, lang) ?? key;
   if (cur !== want) n.nodeValue = raw.replace(cur, want);
 }
 function fixAttrs(el: Element, lang: Lang) {
@@ -97,7 +107,7 @@ export function LanguageBoot() {
   useEffect(() => {
     const dir = languages.find((l) => l.code === lang)?.dir ?? "ltr";
     document.documentElement.lang = lang; document.documentElement.dir = dir;
-    if (!document.getElementById("i18n-bidi")) { const st = document.createElement("style"); st.id = "i18n-bidi"; st.textContent = "[dir=rtl] p,[dir=rtl] li,[dir=rtl] h1,[dir=rtl] h2,[dir=rtl] h3,[dir=rtl] span,[dir=rtl] b,[dir=rtl] small,[dir=rtl] label{unicode-bidi:plaintext}"; document.head.appendChild(st); }
+    document.getElementById("i18n-bidi")?.remove(); { const st = document.createElement("style"); st.id = "i18n-bidi"; st.textContent = "[dir=rtl] p,[dir=rtl] li,[dir=rtl] h1,[dir=rtl] h2,[dir=rtl] h3,[dir=rtl] span,[dir=rtl] b,[dir=rtl] small,[dir=rtl] label{unicode-bidi:plaintext}" + RTL_FIX; document.head.appendChild(st); }
     obs?.disconnect();
     sweep(document.body, lang);
     obs = new MutationObserver((list) => { for (const m of list) { if (m.type === "characterData") fixText(m.target as Text, lang); else m.addedNodes.forEach((n) => sweep(n, lang)); } });
