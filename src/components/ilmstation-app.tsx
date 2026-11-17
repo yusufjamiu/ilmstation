@@ -124,7 +124,7 @@ export function IlmStationApp() {
       <Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="hidden lg:block" />
       {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="h-full w-64 overflow-y-auto overscroll-contain bg-background pb-24" /></div>}
       <main className="min-w-0 flex-1 pb-20 lg:pb-0">
-        <header className="sticky top-0 z-40 -mt-2 mb-6 flex items-center justify-between gap-3 bg-background py-2">
+        <header className="sticky top-0 z-40 -mt-2 mb-2 sm:mb-6 flex items-center justify-between gap-3 bg-background py-2">
           <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu /></Button>
           <div className="hidden sm:block"><p className="text-xs font-semibold uppercase text-muted-foreground">{todayLabel()}</p></div>
           <div className="ml-auto flex items-center gap-2">

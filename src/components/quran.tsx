@@ -289,7 +289,7 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
     try { if (sessionStorage.getItem("tilawahAsked")) return; sessionStorage.setItem("tilawahAsked", "1"); } catch { /* ignore */ }
     setAsk(true);
   }, [saved]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!opened) return <div className="mt-4 min-w-0">
+  if (!opened) return <div className="mt-1 min-w-0 sm:mt-4">
     <section className={cn(panel, "space-y-4")}>
       <div className="flex items-center gap-2">{onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={onBack} aria-label="Back to Qur’an">←</Button>}<BookOpen className="size-5"/><h2 className="font-serif text-2xl">Tilawah</h2></div>
       <div className="flex flex-wrap gap-2">
@@ -301,7 +301,7 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
     </section>
     {ask && saved !== null && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setAsk(false)}>
       <div className="w-full max-w-sm border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
-        <p className="text-4xl">📖</p>
+        <div className="flex items-start justify-between"><p className="text-4xl">📖</p><button onClick={() => setAsk(false)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
         <p className="mt-2 font-serif text-3xl leading-tight">Continue reading?</p>
         <p className="mt-1 text-sm text-muted-foreground">You stopped at page {saved}.</p>
         <div className="mt-5 grid gap-2">
@@ -311,12 +311,12 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
       </div>
     </div>}
   </div>;
-  return <div className="mt-4 min-w-0 space-y-4">
+  return <div className="mt-1 min-w-0 space-y-3 sm:mt-4 sm:space-y-4">
     <section className="border-2 border-foreground bg-background p-1.5">
-      <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+      <div className="flex items-center gap-1.5">
         {onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={onBack} aria-label="Back to Qur’an">←</Button>}
-        <Button size="sm" variant="outline" className="shrink-0" onClick={() => setOpened(false)}>☰ Surahs</Button>
-        <form className="flex shrink-0 items-center gap-1.5" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="Page" aria-label="Go to page" className="h-9 w-16 border-2 border-foreground bg-background px-2 text-sm"/><Button type="submit" size="sm" variant="outline">Go</Button></form>
+        <Button size="sm" variant="outline" className="flex-1" onClick={() => setOpened(false)}>☰ Surahs</Button>
+        <form className="flex flex-1 items-center gap-1.5" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}><input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="Page" aria-label="Go to page" className="h-9 w-full min-w-0 border-2 border-foreground bg-background px-2 text-sm"/><Button type="submit" size="sm" variant="outline">Go</Button></form>
       </div>
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
@@ -340,6 +340,12 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
   const [speed, setSpeed] = useState(1);
   const [repeat, setRepeat] = useState(false);
   const [chosen, setChosen] = useState(false);
+  const [lastL] = useState<{ surah: number; idx: number } | null>(() => { try { const v = JSON.parse(localStorage.getItem("ilmstation:listen-last") ?? "null"); return v && typeof v.surah === "number" ? v : null; } catch { return null; } });
+  const [askL, setAskL] = useState(false);
+  useEffect(() => { if (chosen) { try { localStorage.setItem("ilmstation:listen-last", JSON.stringify({ surah, idx })); } catch { /* ignore */ } } }, [chosen, surah, idx]);
+  useEffect(() => { if (!lastL) return; try { if (sessionStorage.getItem("listenAsked")) return; sessionStorage.setItem("listenAsked", "1"); } catch { /* ignore */ } setAskL(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const resume = () => { if (!lastL) return; setAskL(false); setSurah(lastL.surah); setIdx(lastL.idx); setChosen(true); };
+  const lastName = lastL ? `${surahList.find(x => x.n === lastL.surah)?.name ?? ""} · verse ${lastL.idx + 1}` : "";
   const audio = useRef<HTMLAudioElement | null>(null);
   const { verses, error, retry } = useSurah(surah);
   const meta = surahList.find(s => s.n === surah)!;
@@ -362,20 +368,32 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
     if (idx < last) setIdx(i => i + 1); else setPlaying(false);
   }
   const [a, b] = pageSlice([0, Math.max(0, last)], idx);
-  if (!chosen) return <div className="mt-4 min-w-0">
+  if (!chosen) return <div className="mt-1 min-w-0 sm:mt-4">
     <section className={cn(panel, "space-y-4")}>
       <div className="flex items-center gap-2">{onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={onBack} aria-label="Back to Qur’an">←</Button>}<Headphones className="size-5"/><h2 className="font-serif text-2xl">Listen</h2></div>
+      {lastL && <Button variant="secondary" onClick={resume}>Continue: {lastName}</Button>}
       <p className="text-sm text-muted-foreground">Choose a surah to listen to.</p>
       <SurahList onPick={n => { audio.current?.pause(); setPlaying(false); setSurah(n); setIdx(0); setChosen(true); }}/>
     </section>
+    {askL && lastL && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setAskL(false)}>
+      <div className="w-full max-w-sm border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between"><p className="text-4xl">🎧</p><button onClick={() => setAskL(false)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
+        <p className="mt-2 font-serif text-3xl leading-tight">Continue listening?</p>
+        <p className="mt-1 text-sm text-muted-foreground">You stopped at {lastName}.</p>
+        <div className="mt-5 grid gap-2">
+          <Button onClick={resume}>Continue</Button>
+          <Button variant="outline" onClick={() => setAskL(false)}>Choose a surah</Button>
+        </div>
+      </div>
+    </div>}
   </div>;
-  return <div className="mt-4 min-w-0 space-y-4">
-    <section className="border-2 border-foreground bg-background p-2">
-      <div className="flex flex-wrap items-center gap-2">
+  return <div className="mt-1 min-w-0 space-y-3 sm:mt-4 sm:space-y-4">
+    <section className="border-2 border-foreground bg-background p-1.5">
+      <div className="flex items-center gap-1.5">
         {onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={onBack} aria-label="Back to Qur’an">←</Button>}
         <Button size="sm" variant="outline" className="shrink-0" onClick={() => { audio.current?.pause(); setPlaying(false); setChosen(false); }}>☰ Surahs</Button>
-        <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="h-11 min-w-0 border-2 border-foreground bg-background px-3">{reciters.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
-        <select value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="Playback speed" className="h-11 border-2 border-foreground bg-background px-3">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select>
+        <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="h-9 min-w-0 flex-1 border-2 border-foreground bg-background px-2 text-sm">{reciters.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        <select value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="Playback speed" className="h-9 shrink-0 border-2 border-foreground bg-background px-1 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select>
       </div>
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this surah. Check your connection and try again.</p><Button className="mt-3" onClick={retry}>Try again</Button></section> : !verses ? <p className="text-sm text-muted-foreground">Loading the surah…</p> : <>
