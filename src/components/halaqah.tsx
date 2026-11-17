@@ -1,7 +1,7 @@
-import { consumeFeature } from "@/components/premium";
+import { consumeFeature, usePremium } from "@/components/premium";
 import { useEffect, useState } from "react";
 import { deleteField, doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
-import { Check, Copy, Crown, Loader2, LogOut, Play, Share2, Timer, Trophy, Users, X } from "lucide-react";
+import { Check, Copy, Crown, Loader2, Lock, LogOut, Play, Share2, Timer, Trophy, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,8 @@ export function FamilyHalaqah() {
   const [topic, setTopic] = useState(duelTopics[0]);
   const [rounds, setRounds] = useState(5);
   const [secs, setSecs] = useState(20);
+  const { canAccess, config } = usePremium();
+  const topicOpen = (t: string) => canAccess(`topic-${t}`, config.premiumTopics.includes(t) ? "premium" : "free");
   const [join, setJoin] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -60,6 +62,7 @@ export function FamilyHalaqah() {
 
   const create = async () => {
     if (!uid) return toast.error("Log in first.");
+    if (!topicOpen(topic)) return toast("Choose a free topic, or go Premium.");
     setBusy(true);
     if (!(await consumeFeature("halaqah"))) { toast("You’ve hosted today’s free games. Go Premium to host without limits, or join someone else’s room."); setBusy(false); return; }
     try {
@@ -96,7 +99,7 @@ export function FamilyHalaqah() {
       <p className="text-xs font-bold uppercase text-muted-foreground">Host</p>
       <h2 className="mt-1 font-serif text-3xl">Create a room</h2>
       <p className="mt-3 text-sm font-semibold">Topic</p>
-      <div className="mt-2 flex flex-wrap gap-2">{duelTopics.map((t) => <button key={t} onClick={() => setTopic(t)} className={cn("border-2 border-foreground px-3 py-1.5 text-sm font-semibold", t === topic ? "bg-primary" : "bg-background")}>{t}</button>)}</div>
+      <div className="mt-2 flex flex-wrap gap-2">{duelTopics.map((t) => { const open = topicOpen(t); return <button key={t} onClick={() => (open ? setTopic(t) : toast("This topic is Premium. Premium hosts can play it with the whole family."))} className={cn("flex items-center gap-1 border-2 border-foreground px-3 py-1.5 text-sm font-semibold", t === topic && open ? "bg-primary" : "bg-background", !open && "opacity-60")}>{!open && <Lock className="size-3.5" />}{t}</button>; })}</div>
       <p className="mt-4 text-sm font-semibold">Questions</p>
       <div className="mt-2 flex gap-2">{[5, 10].map((n) => <button key={n} onClick={() => setRounds(n)} className={cn("border-2 border-foreground px-4 py-1.5 text-sm font-bold", n === rounds ? "bg-primary" : "bg-background")}>{n}</button>)}</div>
       <p className="mt-4 text-sm font-semibold">Time per question</p>
