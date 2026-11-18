@@ -1,4 +1,4 @@
-import { check as rvCheck, listen as rvListen, isMark as rvIsMark } from "@/components/free-revision";
+import { checkUpTo as rvCheckUpTo, isMark as rvIsMark } from "@/components/free-revision";
 import { usePremium as usePremiumQ } from "@/components/premium";
 import { toast as qToast } from "sonner";
 import { quranEdition } from "@/components/language";
@@ -560,26 +560,31 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
   useEffect(() => () => { voiceRef.current = false; }, []);
   const textOf = (a: PageAyahs[number]) => { const t = (a as { text?: string }).text ?? ""; return a.n === 1 && a.surah !== 1 && a.surah !== 9 && t.startsWith("بِسْمِ") ? t.split(" ").slice(4).join(" ") : t; };
   const wordsOf = (a: PageAyahs[number]) => textOf(a).trim().split(/\s+/).filter(w => w && !rvIsMark(w));
-  function stopVoice() { voiceRef.current = false; setVoice(false); }
+  function stopVoice() { voiceRef.current = false; setVoice(false); try { recRef.current?.stop(); } catch { /* ignore */ } }
+  const recRef = useRef<{ stop: () => void } | null>(null);
   async function startVoice() {
     if (!premium) { qToast("Voice correction is Premium. Go Premium to revise by reciting."); return; }
     if (!ayahs) return;
-    voiceRef.current = true; setVoice(true);
-    let idx = focus; let heard = "";
-    while (voiceRef.current && ayahs && idx < ayahs.length) {
-      const words = wordsOf(ayahs[idx]!);
-      const text = await rvListen();
-      if (!voiceRef.current) return;
-      if (!text.trim()) continue;
-      heard = `${heard} ${text}`.trim();
-      const m = rvCheck(words, heard);
-      if (m.every(Boolean)) { setMarks(null); idx++; heard = ""; setFocus(idx); continue; }
-      const said = heard.split(/\s+/).filter(Boolean).length;
-      if (said >= words.length) { setMarks(m.map(x => (x ? "hit" : "miss"))); qToast("Check the red words, then recite the verse again."); heard = ""; }
-      else setMarks(m.map(x => (x ? "hit" : "hide")));
-    }
-    if (voiceRef.current && ayahs && idx >= ayahs.length) qToast.success("Page complete. Masha’Allah!");
-    stopVoice();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition; if (!SR) return;
+    const rec = new SR(); rec.lang = "ar-SA"; rec.continuous = true; rec.interimResults = false;
+    recRef.current = rec; voiceRef.current = true; setVoice(true);
+    let idx = focus; let heard = ""; let used = 0;
+    rec.onresult = (e: { results: ArrayLike<{ 0: { transcript: string } }> }) => {
+      const all = Array.from(e.results).map(r => r[0].transcript);
+      heard = `${heard} ${all.slice(used).join(" ")}`.trim(); used = all.length;
+      while (voiceRef.current && idx < ayahs.length && heard) {
+        const words = wordsOf(ayahs[idx]!);
+        const { marks: m, rest } = rvCheckUpTo(words, heard);
+        if (m.every(Boolean)) { idx++; setFocus(idx); setMarks(null); heard = rest; continue; }
+        if (heard.split(/\s+/).filter(Boolean).length >= words.length + 2) { setMarks(m.map(x => (x ? "hit" : "miss"))); qToast("Check the red words, then recite the verse again."); heard = ""; }
+        else setMarks(m.map(x => (x ? "hit" : "hide")));
+        break;
+      }
+      if (idx >= ayahs.length && voiceRef.current) { qToast.success("Page complete. Masha’Allah!"); stopVoice(); }
+    };
+    rec.onend = () => { if (voiceRef.current) { try { rec.start(); used = 0; } catch { stopVoice(); } } };
+    rec.start();
   }
   const go = (p: number) => { if (p >= 1 && p <= TOTAL_PAGES) setPage(p); };
 

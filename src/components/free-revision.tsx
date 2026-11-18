@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 type SurahMeta = { n: number; name: string; arabic?: string };
 type Ayah = { text: string; n: number; global: number };
-const norm = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "").replace(/([اوي])\1+/g, "$1");
+export const norm = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "").replace(/([اوي])\1+/g, "$1");
 export const isMark = (t: string) => /^[\u06D6-\u06ED\u0670]+$/.test(t);
 function near(a: string, b: string) {
   if (a === b) return true; const n = Math.max(a.length, b.length); if (n < 4) return false;
@@ -102,4 +102,11 @@ export function FreeRevision({ surahs, reciter }: { surahs: SurahMeta[]; reciter
     {state === "reveal" && <div className="mt-4 flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" onClick={play}><Volume2 /> Listen again</Button><Button size="sm" onClick={next}>Next verse</Button></div>}
     <Button variant="ghost" className="mt-4" onClick={() => { stop.current = true; setRun(false); }}>Stop</Button>
   </section>;
+}
+
+/** Like check(), but also says how many heard words were used, so the rest can carry on to the next verse. */
+export function checkUpTo(expected: string[], heard: string): { marks: boolean[]; rest: string } {
+  const raw = heard.split(/\s+/).filter((t) => norm(t)); const h = raw.map(norm); let p = 0;
+  const marks = expected.map((w) => { const e = norm(w); for (let k = p; k < Math.min(h.length, p + 4); k++) if (near(h[k]!, e)) { p = k + 1; return true; } return false; });
+  return { marks, rest: raw.slice(p).join(" ") };
 }
