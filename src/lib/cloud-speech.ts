@@ -12,6 +12,17 @@ async function getStream() {
   return shared;
 }
 
+/** A small "Checking…" chip while the recording is being checked. */
+function checking(on: boolean) {
+  let el = document.getElementById("cloud-checking");
+  if (!el) {
+    el = document.createElement("div"); el.id = "cloud-checking";
+    el.style.cssText = "position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:60;background:#1c1a17;color:#f7f3ea;font:600 14px system-ui,sans-serif;padding:8px 14px;border:2px solid #f7f3ea;display:none";
+    el.textContent = "Checking…"; document.body.appendChild(el);
+  }
+  el.style.display = on ? "block" : "none";
+}
+
 class CloudRecognition {
   lang = "ar-SA"; continuous = false; interimResults = false; maxAlternatives = 1;
   onstart: ((e: Ev) => void) | null = null; onaudiostart: ((e: Ev) => void) | null = null; onaudioend: ((e: Ev) => void) | null = null;
@@ -50,6 +61,7 @@ class CloudRecognition {
       if (this.aborted) { this.emit("end"); return; }
       if (!spoke) { this.emit("error", { error: "no-speech" }); this.emit("end"); return; }
       this.emit("speechend");
+      checking(true);
       try {
         const text = await transcribe(new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" }));
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,6 +70,7 @@ class CloudRecognition {
         const results: any = [result]; results.item = (i: number) => results[i];
         if (text.trim()) this.emit("result", { resultIndex: 0, results }); else this.emit("nomatch");
       } catch (e) { this.emit("error", { error: "network", message: (e as Error).message }); }
+      checking(false);
       this.emit("end");
     };
     rec.start(250); this.emit("start"); this.emit("audiostart");
@@ -65,7 +78,7 @@ class CloudRecognition {
       an.getFloatTimeDomainData(data); let sum = 0; for (const v of data) sum += v * v;
       const rms = Math.sqrt(sum / data.length); const now = Date.now();
       if (rms > 0.02) { if (!spoke) { this.emit("soundstart"); this.emit("speechstart"); } spoke = true; lastVoice = now; }
-      if ((spoke && now - lastVoice > 1500) || (!spoke && now - began > 8000) || now - began > 45000) { if (rec.state === "recording") rec.stop(); }
+      if ((spoke && now - lastVoice > 900) || (!spoke && now - began > 8000) || now - began > 45000) { if (rec.state === "recording") rec.stop(); }
     }, 100);
     if (this.stopped && rec.state === "recording") rec.stop();
   }
