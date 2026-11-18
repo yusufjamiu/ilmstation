@@ -209,8 +209,14 @@ function HomeScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
 
 function ProgressLine({ name, value }: { name: string; value: number }) { return <div className="mt-3"><div className="flex justify-between text-sm"><span>{name}</span><span className="font-serif">{value}%</span></div><div className="mt-1 h-2 border border-foreground"><div className="h-full bg-primary" style={{ width: `${value}%` }} /></div></div>; }
 function YouRank() { const appT = useAppLang().t; const { rows } = useLeaderboard(); const levels = useLevels(); return <>{rows.slice(0, 3).map((r, i) => <Rank key={r.id} n={String(i + 1)} name={`${r.name} · ${appT(levelFor(r.xp, levels).name)}`} xp={`${r.xp} XP`} active={r.me} />)}</>; }
-function Rank({ n, name, xp, active }: { n: string; name: string; xp: string; active?: boolean }) { return <div className={cn("mt-2 flex items-center justify-between px-2 py-1 text-sm", active && "border-2 border-foreground bg-primary shadow-brutal-sm")}><span><b className="me-2 font-serif">{n}</b>{name}</span><span className="font-serif text-lg">{xp}</span></div>; }
-
+function Rank({ n, name, xp, active }: { n: string; name: string; xp: string; active?: boolean }) {
+  const [user, level] = name.split(" · ");
+  return <div className={cn("mb-3 flex items-center gap-3 px-4 py-3", active && "border-2 border-foreground bg-primary shadow-brutal-sm")}>
+    <span className="w-6 shrink-0 text-center font-serif text-2xl">{n}</span>
+    <span className="min-w-0 flex-1 truncate"><bdi>{user}</bdi>{level ? <> · <span>{level}</span></> : null}</span>
+    <span className="shrink-0 font-serif text-2xl"><bdi>{xp}</bdi></span>
+  </div>;
+}
 function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?: ShareCard) => void }) {
   const [step, setStep] = useState<QuizStep>("choose"); const [topic, setTopic] = useState("Aqeedah"); const [difficulty, setDifficulty] = useState("Intermediate"); const [answer, setAnswer] = useState<string>(); const [question, setQuestion] = useState(1);
   const [correct, setCorrect] = useState(0);
