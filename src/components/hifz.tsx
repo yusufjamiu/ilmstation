@@ -241,7 +241,7 @@ export function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, ti
       <div style={{ border: `2px solid ${gold}`, outline: `1px solid ${gold}`, outlineOffset: "3px", background: "#f3e8c6", padding: ".3rem 1rem", fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1.5rem", display: "inline-block", minWidth: "60%" }}>سُورَةُ {title}</div>
       {number !== 1 && number !== 9 && <div style={{ fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1.7rem", marginTop: ".7rem" }}>بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</div>}
     </div>}
-    <p dir="rtl" lang="ar" style={{ margin: 0, fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "clamp(1.2rem, 5vw, 2.1rem)", lineHeight: 2.15, textAlign: "justify", textAlignLast: "center" }}>
+    <p dir="rtl" lang="ar" style={{ userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", margin: 0, fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "clamp(1.2rem, 5vw, 2.1rem)", lineHeight: 2.15, textAlign: "justify", textAlignLast: "center" }}>
       {verses.map((v, i) => {
         const n = from + i;
         const words = v.arabic.trim().split(/\s+/).filter(Boolean);

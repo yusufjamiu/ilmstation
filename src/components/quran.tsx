@@ -15,14 +15,14 @@ type Verse = { arabic: string; meaning: string };
 const sections: { id: Section; label: string }[] = [{ id: "hifz", label: "Hifz" }, { id: "tilawah", label: "Tilawah" }, { id: "revision", label: "Revision" }, { id: "listen", label: "Listen" }];
 const panel = "border-2 border-foreground bg-background p-5 shadow-brutal";
 
-const cache = new Map<number, Verse[]>();
+const cache = new Map<string, Verse[]>();
 /** Loads one surah (Uthmani text + English meaning). The spoken Bismillah is dropped from verse 1, as in Hifz. */
 function useSurah(n: number) {
-  const [verses, setVerses] = useState<Verse[] | null>(cache.get(n) ?? null);
+  const [verses, setVerses] = useState<Verse[] | null>(cache.get(`${quranEdition()}:${n}`) ?? null);
   const [error, setError] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const cached = cache.get(n);
+    const cached = cache.get(`${quranEdition()}:${n}`);
     if (cached) { setVerses(cached); setError(false); return; }
     let cancelled = false;
     setVerses(null); setError(false);
@@ -30,7 +30,7 @@ function useSurah(n: number) {
       const [ar, en] = json.data;
       if (!ar || !en) throw new Error("missing");
       const list = ar.ayahs.map((a, i) => ({ arabic: i === 0 && n !== 1 && a.text.startsWith("بِسْمِ") ? a.text.split(" ").slice(4).join(" ") : a.text, meaning: en.ayahs[i]?.text ?? "" }));
-      cache.set(n, list);
+      cache.set(`${quranEdition()}:${n}`, list);
       if (!cancelled) setVerses(list);
     }).catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
@@ -55,7 +55,7 @@ const TOTAL_PAGES = 604;
 const arDigits = (n: number) => n.toLocaleString("ar-EG");
 
 type PageAyah = { surah: number; surahName: string; n: number; text: string; meaning: string; juz: number };
-const pageCache = new Map<number, PageAyah[]>();
+const pageCache = new Map<string, PageAyah[]>();
 /** One page of the printed Madinah mushaf: exactly the verses that sit on that page. */
 async function fetchAlquranCloud(page: number): Promise<PageAyah[]> {
   const json = await withTimeout(fetch(`https://api.alquran.cloud/v1/page/${page}/editions/quran-uthmani,${quranEdition()}`).then(res => res.json()), 12000) as { data: { ayahs: { text: string; numberInSurah: number; juz: number; surah: { number: number; name: string } }[] }[] };
@@ -74,11 +74,11 @@ async function fetchQuranCom(page: number): Promise<PageAyah[]> {
 }
 /** Tries alquran.cloud, then Quran.com, and retries once, so one slow or blocked server doesn't break the page. */
 async function loadPage(page: number): Promise<PageAyah[]> {
-  const cached = pageCache.get(page);
+  const cached = pageCache.get(`${quranEdition()}:${page}`);
   if (cached) return cached;
   let lastError: unknown;
   for (const fetcher of [fetchAlquranCloud, fetchQuranCom, fetchAlquranCloud]) {
-    try { const list = await fetcher(page); pageCache.set(page, list); return list; } catch (e) { lastError = e; }
+    try { const list = await fetcher(page); pageCache.set(`${quranEdition()}:${page}`, list); return list; } catch (e) { lastError = e; }
   }
   throw lastError;
 }
@@ -322,7 +322,14 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
       </div>
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
-      {layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={key => setPick(ayahs.find(a => `${a.surah}:${a.n}` === key) ?? null)}/> : <MushafPage page={page} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={a => setPick(a)}/>}
+      {layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={key => setPick(prev => prev && `${prev.surah}:${prev.n}` === key ? null : ayahs.find(a => `${a.surah}:${a.n}` === key) ?? null)}/> : <MushafPage page={page} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={a => setPick(a)}/>}
+      {pick && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setPick(null)}>
+        <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(x => x.n === pick.surah)?.name} · {pick.surah}:{pick.n}</p><button onClick={() => setPick(null)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
+          <p dir="rtl" lang="ar" className="mt-3 text-right font-arabic text-3xl leading-[2]">{(pick as { text?: string }).text}</p>
+          <p className="mt-3 text-base leading-relaxed">{pick.meaning}</p>
+        </div>
+      </div>}
       {pick && <section className={cn(panel, "space-y-1")}><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s => s.n === pick.surah)?.name} · verse {pick.n}</p><p className="text-sm leading-relaxed">{pick.meaning}</p></section>}
       <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
         <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
@@ -512,4 +519,10 @@ async function verseCard(arabic: string, meaning: string, ref: string) {
   const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
   if (nav.canShare?.({ files: [file] })) { try { await nav.share({ files: [file], text: `${ref} · via IlmStation` }); return; } catch { /* fall back to download */ } }
   const u = URL.createObjectURL(file); const a = document.createElement("a"); a.href = u; a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
+}
+
+if (typeof document !== "undefined" && !document.getElementById("mushaf-noselect")) {
+  const st = document.createElement("style"); st.id = "mushaf-noselect";
+  st.textContent = '[style*="Amiri"],[style*="Amiri"] *,[style*="QCF"],[style*="QCF"] *,[style*="font-family: p"],[style*="font-family: p"] *,[style*="font-family:p"],[style*="font-family:p"] *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}';
+  document.head.appendChild(st);
 }
