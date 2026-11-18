@@ -100,12 +100,22 @@ const VERSE_BREAK_MS = 10 * 60 * 1000;
 /** Breaks a long ayah into shorter phrases so recitation can be checked piece by piece before the whole-verse pass. Short verses stay whole. */
 function splitIntoPhrases(arabic: string): string[] {
   const words = arabic.trim().split(/\s+/).filter(Boolean);
-  if (words.length <= LONG_VERSE_WORDS) return [arabic];
-  const phraseCount = Math.ceil(words.length / PHRASE_SIZE);
-  const size = Math.ceil(words.length / phraseCount);
-  const phrases: string[] = [];
-  for (let i = 0; i < words.length; i += size) phrases.push(words.slice(i, i + size).join(" "));
-  return phrases;
+  if (words.length <= 8) return [arabic.trim()];
+  // 1. natural stops: the waqf marks (ۖ ۗ ۘ ۙ ۚ ۛ)
+  const parts: string[][] = []; let cur: string[] = [];
+  for (const w of words) { cur.push(w); if (/[\u06D6-\u06DB]/.test(w)) { parts.push(cur); cur = []; } }
+  if (cur.length) parts.push(cur);
+  // 2. pieces still too long are cut about every 6 words
+  const cut: string[][] = [];
+  for (const p of parts) {
+    if (p.length <= 9) { cut.push(p); continue; }
+    const n = Math.ceil(p.length / 6), size = Math.ceil(p.length / n);
+    for (let i = 0; i < p.length; i += size) cut.push(p.slice(i, i + size));
+  }
+  // 3. tiny pieces join their neighbour
+  const merged: string[][] = [];
+  for (const p of cut) { const last = merged[merged.length - 1]; if (last && (last.length < 3 || p.length < 3) && last.length + p.length <= 10) last.push(...p); else merged.push([...p]); }
+  return merged.map((p) => p.join(" "));
 }
 
 const normWordBase = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "");
