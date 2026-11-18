@@ -620,6 +620,13 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
         {voice ? <Button size="sm" variant="destructive" className="flex-1" onClick={stopVoice}>■ Stop</Button>
           : <Button size="sm" className="flex-1" onClick={() => void startVoice()}>{premium ? "🎙️ Recite" : "🔒 Recite"}</Button>}
       </div>
+      {premium && marks?.includes("miss") && ayahs?.[focus] && <Button size="sm" variant="outline" className="w-full" onClick={() => {
+        const a = ayahs[focus]!; const g = (surahList.find(x => x.n === a.surah)?.start ?? 1) + a.n - 1;
+        stopVoice();
+        const au = new Audio(`https://cdn.islamic.network/quran/audio/128/ar.alafasy/${g}.mp3`);
+        au.onended = () => { void startVoice(); };
+        au.play().catch(() => qToast("Couldn't play the recitation."));
+      }}>🔊 Hear this verse</Button>}
       {voice && ayahs?.[focus] && <p className="px-1 text-xs font-bold uppercase text-muted-foreground">Listening · verse {ayahs[focus]!.n}</p>}
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p></section> : !ayahs ? <p className="text-sm text-muted-foreground">Loading the page…</p> :

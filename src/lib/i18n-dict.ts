@@ -1110,3 +1110,6 @@ DICT["Add this page to your memorised verses? It joins My Hifz portion and gets 
 DICT["✅ Add to my memorised"] = { ...(DICT["✅ Add to my memorised"] ?? {}), ar: "✅ أضف إلى محفوظي", fr: "✅ Ajouter à mes mémorisés", ur: "✅ میرے حفظ میں شامل کریں", ha: "✅ Ƙara cikin haddata", id: "✅ Tambahkan ke hafalanku", tl: "✅ Idagdag sa aking naisaulo" };
 DICT["Added to your memorised verses"] = { ...(DICT["Added to your memorised verses"] ?? {}), ar: "أُضيفت إلى محفوظك", fr: "Ajouté à vos versets mémorisés", ur: "آپ کے حفظ میں شامل ہو گیا", ha: "An ƙara cikin abin da ka haddace", id: "Ditambahkan ke hafalanmu", tl: "Naidagdag sa iyong naisaulo" };
 DICT["Next page"] = { ...(DICT["Next page"] ?? {}), ar: "الصفحة التالية", fr: "Page suivante", ur: "اگلا صفحہ", ha: "Shafi na gaba", id: "Halaman berikutnya", tl: "Susunod na pahina" };
+
+DICT["🔊 Hear this verse"] = { ...(DICT["🔊 Hear this verse"] ?? {}), ar: "🔊 استمع إلى هذه الآية", fr: "🔊 Écouter ce verset", ur: "🔊 یہ آیت سنیں", ha: "🔊 Saurari wannan aya", id: "🔊 Dengarkan ayat ini", tl: "🔊 Pakinggan ang talatang ito" };
+DICT["Couldn't play the recitation."] = { ...(DICT["Couldn't play the recitation."] ?? {}), ar: "تعذّر تشغيل التلاوة.", fr: "Impossible de lire la récitation.", ur: "تلاوت نہیں چل سکی۔", ha: "An kasa kunna karatun.", id: "Gagal memutar bacaan.", tl: "Hindi ma-play ang pagbigkas." };
