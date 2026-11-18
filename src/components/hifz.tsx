@@ -1,3 +1,4 @@
+import "@/lib/cloud-speech";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
 import { awardXp } from "@/lib/xp";
