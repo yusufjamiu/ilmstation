@@ -1018,3 +1018,8 @@ DICT["Next question"] = { ...(DICT["Next question"] ?? {}), ar: "السؤال ا
 DICT["See results"] = { ...(DICT["See results"] ?? {}), ar: "عرض النتائج", fr: "Voir les résultats", ur: "نتائج دیکھیں", ha: "Duba sakamako", id: "Lihat hasil", tl: "Tingnan ang resulta" };
 DICT["Play again"] = { ...(DICT["Play again"] ?? {}), ar: "العب مجددًا", fr: "Rejouer", ur: "دوبارہ کھیلیں", ha: "Sake wasa", id: "Main lagi", tl: "Maglaro muli" };
 DICT["Qur’an"] = { ...(DICT["Qur’an"] ?? {}), ar: "القرآن", fr: "Coran", ur: "قرآن", ha: "Alƙur’ani", id: "Al-Qur’an", tl: "Qur’an" };
+
+DICT["✨ A new version of IlmStation is ready."] = { ...(DICT["✨ A new version of IlmStation is ready."] ?? {}), ar: "✨ إصدار جديد من IlmStation جاهز.", fr: "✨ Une nouvelle version d’IlmStation est prête.", ur: "✨ IlmStation کا نیا ورژن تیار ہے۔", ha: "✨ Sabon sigar IlmStation ta shirya.", id: "✨ Versi baru IlmStation sudah siap.", tl: "✨ Handa na ang bagong bersyon ng IlmStation." };
+DICT["A new version of IlmStation is ready."] = { ...(DICT["A new version of IlmStation is ready."] ?? {}), ar: "إصدار جديد من IlmStation جاهز.", fr: "Une nouvelle version d’IlmStation est prête.", ur: "IlmStation کا نیا ورژن تیار ہے۔", ha: "Sabon sigar IlmStation ta shirya.", id: "Versi baru IlmStation sudah siap.", tl: "Handa na ang bagong bersyon ng IlmStation." };
+DICT["Growth"] = { ...(DICT["Growth"] ?? {}), ar: "النمو", fr: "Évolution", ur: "ترقی", ha: "Girma", id: "Pertumbuhan", tl: "Paglago" };
+DICT["Your learning record"] = { ...(DICT["Your learning record"] ?? {}), ar: "سجل تعلّمك", fr: "Votre parcours", ur: "آپ کا سیکھنے کا ریکارڈ", ha: "Rikodin koyonka", id: "Catatan belajarmu", tl: "Iyong talaan ng pag-aaral" };
