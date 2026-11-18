@@ -1,3 +1,5 @@
+import { auth as hAuth, db as hDb } from "@/lib/firebase";
+import { doc as hDoc, setDoc as hSet } from "firebase/firestore";
 import "@/lib/cloud-speech";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
@@ -1241,4 +1243,12 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
       </>}
     </div>}
   </div>;
+}
+/** Adds verses revised elsewhere to the Hifz "memorised" list, exactly like "Surahs I already know". */
+export async function addMemorised(items: { surah: number; ayah: number }[]): Promise<boolean> {
+  const u = hAuth.currentUser; if (!u || !items.length) return false;
+  const today = dayKey();
+  const progress: Record<string, Rec> = {};
+  for (const it of items) progress[keyFor(it.surah, it.ayah - 1)] = { mark: "good", level: intervals.length, due: today, last: today };
+  try { await hSet(hDoc(hDb, "hifz", u.uid), { progress }, { merge: true }); return true; } catch { return false; }
 }

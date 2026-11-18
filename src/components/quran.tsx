@@ -1,3 +1,4 @@
+import { addMemorised as addMemorisedQ } from "@/components/hifz";
 import { checkUpTo as rvCheckUpTo, isMark as rvIsMark } from "@/components/free-revision";
 import { usePremium as usePremiumQ } from "@/components/premium";
 import { toast as qToast } from "sonner";
@@ -550,9 +551,10 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
   const [focus, setFocus] = useState(0);
   const [marks, setMarks] = useState<("hit" | "miss" | "hide")[] | null>(null);
   const voiceRef = useRef(false);
+  const [pageDone, setPageDone] = useState(false);
   useEffect(() => {
     if (page === null) return;
-    let cancelled = false; setAyahs(null); setError(false); setShowAll(false); setFocus(0); setMarks(null); stopVoice();
+    let cancelled = false; setAyahs(null); setError(false); setShowAll(false); setFocus(0); setMarks(null); setPageDone(false); stopVoice();
     loadPage(page).then(l => { if (!cancelled) setAyahs(l); }).catch(() => { if (!cancelled) setError(true); });
     window.scrollTo?.(0, 0);
     return () => { cancelled = true; };
@@ -581,7 +583,7 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
         else setMarks(m.map(x => (x ? "hit" : "hide")));
         break;
       }
-      if (idx >= ayahs.length && voiceRef.current) { qToast.success("Page complete. Masha’Allah!"); stopVoice(); }
+      if (idx >= ayahs.length && voiceRef.current) { setPageDone(true); stopVoice(); }
     };
     rec.onend = () => { if (voiceRef.current) { try { rec.start(); used = 0; } catch { stopVoice(); } } };
     rec.start();
@@ -631,6 +633,14 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
           revealUpTo={showAll ? 9999 : voice || focus > 0 ? from + doneHere : 0} focus={focusHere} wordsShown={undefined} peek={!voice && !showAll}
           title={meta?.arabic ?? ""} juz={(g.items[0] as { juz?: number }).juz ?? 1} number={g.surah} marks={focusHere >= 0 ? (marks ?? undefined) as never : undefined} hintWord={undefined as never} onSelect={() => {}}/>;
       })}
+    {pageDone && ayahs && <section className="border-2 border-foreground bg-primary p-4 shadow-brutal">
+      <p className="font-serif text-2xl">Page complete. Masha’Allah!</p>
+      <p className="mt-1 text-sm">Add this page to your memorised verses? It joins My Hifz portion and gets revision reminders.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button onClick={async () => { const ok = await addMemorisedQ(ayahs.map(a => ({ surah: a.surah, ayah: a.n }))); qToast(ok ? "Added to your memorised verses" : "Couldn't save. Try again."); setPageDone(false); }}>✅ Add to my memorised</Button>
+        <Button variant="outline" onClick={() => { setPageDone(false); go(page + 1); }}>Next page</Button>
+      </div>
+    </section>}
     <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
       <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
       <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
