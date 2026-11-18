@@ -1,4 +1,3 @@
-import { playPhraseAudio, PIECE_RECITERS } from "@/lib/word-timing";
 import "@/lib/cloud-speech";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
@@ -101,22 +100,12 @@ const VERSE_BREAK_MS = 10 * 60 * 1000;
 /** Breaks a long ayah into shorter phrases so recitation can be checked piece by piece before the whole-verse pass. Short verses stay whole. */
 function splitIntoPhrases(arabic: string): string[] {
   const words = arabic.trim().split(/\s+/).filter(Boolean);
-  if (words.length <= 8) return [arabic.trim()];
-  // 1. natural stops: the waqf marks (ۖ ۗ ۘ ۙ ۚ ۛ)
-  const parts: string[][] = []; let cur: string[] = [];
-  for (const w of words) { cur.push(w); if (/[\u06D6-\u06DB]/.test(w)) { parts.push(cur); cur = []; } }
-  if (cur.length) parts.push(cur);
-  // 2. pieces still too long are cut about every 6 words
-  const cut: string[][] = [];
-  for (const p of parts) {
-    if (p.length <= 9) { cut.push(p); continue; }
-    const n = Math.ceil(p.length / 6), size = Math.ceil(p.length / n);
-    for (let i = 0; i < p.length; i += size) cut.push(p.slice(i, i + size));
-  }
-  // 3. tiny pieces join their neighbour
-  const merged: string[][] = [];
-  for (const p of cut) { const last = merged[merged.length - 1]; if (last && (last.length < 3 || p.length < 3) && last.length + p.length <= 10) last.push(...p); else merged.push([...p]); }
-  return merged.map((p) => p.join(" "));
+  if (words.length <= LONG_VERSE_WORDS) return [arabic];
+  const phraseCount = Math.ceil(words.length / PHRASE_SIZE);
+  const size = Math.ceil(words.length / phraseCount);
+  const phrases: string[] = [];
+  for (let i = 0; i < words.length; i += size) phrases.push(words.slice(i, i + size).join(" "));
+  return phrases;
 }
 
 const normWordBase = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "");
@@ -308,7 +297,6 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
   const [verses, setVerses] = useState<Verse[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [reciter, setReciter] = useState(reciters[0]!.id);
-  useEffect(() => { if (!PIECE_RECITERS.includes(reciter)) setReciter("ar.alafasy"); }, [reciter]); // eslint-disable-line react-hooks/exhaustive-deps
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -534,11 +522,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
       if (choice === "stop") { stopForToday(); return { words: [], ok: false }; }
       verseStartRef.current = Date.now();
     }
-    if (!silent) {
-      const piece = !!verse && !!meta && reference.trim() !== verse.arabic.trim();
-      const played = piece ? await playPhraseAudio(reciter, meta!.number, verseIndex + 1, verse!.arabic, reference) : false;
-      if (!played) await playRecital();
-    }
+    if (!silent) await playRecital();
     if (autoStopRef.current) return { words: [], ok: false };
     setListeningNow(true);
     const useLong = long || reference.trim().split(/\s+/).length >= 7;
@@ -1220,7 +1204,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
           <p className="text-xs font-bold uppercase text-secondary">Choose your reciter</p>
           <h3 className="mt-2 font-serif text-3xl">Who should lead this session?</h3>
           <p className="mt-2 text-sm text-muted-foreground">The reciter reads each verse, you repeat after them, and we check the match, word by word, in order, before moving on automatically. Once you're reciting from memory, and when linking verses together, the text stays hidden until you get it right. Long verses are broken into shorter phrases first.</p>
-          <select value={PIECE_RECITERS.includes(reciter) ? reciter : "ar.alafasy"} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="mt-4 h-11 w-full border-2 border-foreground bg-background px-3">{reciters.filter(r => PIECE_RECITERS.includes(r.id)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+          <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="mt-4 h-11 w-full border-2 border-foreground bg-background px-3">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button onClick={() => setSessionStarted(true)}>Start with {reciters.find(r => r.id === reciter)?.name} <ArrowRight /></Button>
           </div>
