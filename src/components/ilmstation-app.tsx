@@ -213,8 +213,8 @@ function Rank({ n, name, xp, active }: { n: string; name: string; xp: string; ac
   const [user, level] = name.split(" · ");
   return <div className={cn("mb-3 flex items-center gap-3 px-4 py-3", active && "border-2 border-foreground bg-primary shadow-brutal-sm")}>
     <span className="w-6 shrink-0 text-center font-serif text-xl">{n}</span>
-    <span className="min-w-0 flex-1"><bdi className="block truncate font-semibold">{user}</bdi>{level ? <span className="block text-xs text-muted-foreground">{level}</span> : null}</span>
-    <span className="shrink-0 font-serif text-lg"><bdi>{xp}</bdi></span>
+    <span className="min-w-0 flex-1 text-start"><span className="block truncate font-semibold" style={{ unicodeBidi: "isolate" }}>{user}</span>{level ? <span className="block text-xs text-muted-foreground" style={{ unicodeBidi: "isolate" }}>{level}</span> : null}</span>
+    <span className="shrink-0 font-serif text-lg" style={{ unicodeBidi: "isolate" }}>{xp}</span>
   </div>;
 }
 function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?: ShareCard) => void }) {
