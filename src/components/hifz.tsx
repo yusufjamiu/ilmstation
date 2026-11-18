@@ -107,7 +107,18 @@ function splitIntoPhrases(arabic: string): string[] {
   return phrases;
 }
 
-const normWord = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "");
+const normWordBase = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "");
+/** Elongation (madd) often comes back as repeated letters: merge them before comparing. */
+const normWord = (w: string) => normWordBase(w).replace(/([اوي])\1+/g, "$1").replace(/(.)\1{2,}/g, "$1");
+/** Same word, allowing a small slip from the recogniser on longer words. */
+function sameWord(a: string, b: string) {
+  if (a === b) return true;
+  const n = Math.max(a.length, b.length); if (n < 4) return false;
+  const allow = n >= 7 ? 2 : 1;
+  const d: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) { let prev = d[0]; d[0] = i; for (let j = 1; j <= b.length; j++) { const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; } }
+  return d[b.length] <= allow;
+}
 function lev(a: string, b: string): number {
   const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) d[0]![j] = j;
@@ -229,7 +240,7 @@ export function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, ti
       <div style={{ border: `2px solid ${gold}`, outline: `1px solid ${gold}`, outlineOffset: "3px", background: "#f3e8c6", padding: ".3rem 1rem", fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1.5rem", display: "inline-block", minWidth: "60%" }}>سُورَةُ {title}</div>
       {number !== 1 && number !== 9 && <div style={{ fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "1.7rem", marginTop: ".7rem" }}>بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</div>}
     </div>}
-    <p dir="rtl" lang="ar" style={{ margin: 0, fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "clamp(1.55rem, 4.4vw, 2.3rem)", lineHeight: 2.35, textAlign: "justify", textAlignLast: "center" }}>
+    <p dir="rtl" lang="ar" style={{ margin: 0, fontFamily: '"Amiri Quran","Amiri",serif', fontSize: "clamp(1.2rem, 5vw, 2.1rem)", lineHeight: 2.15, textAlign: "justify", textAlignLast: "center" }}>
       {verses.map((v, i) => {
         const n = from + i;
         const words = v.arabic.trim().split(/\s+/).filter(Boolean);
@@ -237,7 +248,7 @@ export function PageView({ verses, from, revealUpTo, focus, wordsShown, peek, ti
         const shown = peeking || n < revealUpTo ? words.length : n === focus && wordsShown !== undefined ? Math.min(wordsShown, words.length) : 0;
         const hidden = shown < words.length;
         const canPeek = peek && n >= revealUpTo;
-        return <span key={n} onMouseEnter={canPeek ? () => setOpen(n) : undefined} onMouseLeave={canPeek ? () => setOpen(null) : undefined} onClick={canPeek ? () => setOpen(o => (o === n ? null : n)) : onSelect ? () => onSelect(n) : undefined} title={canPeek ? "Hover or tap to peek" : undefined} style={{ cursor: canPeek || onSelect ? "pointer" : undefined, background: n === focus ? "rgba(214,170,60,.2)" : undefined, borderRadius: ".4rem", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
+        return <span key={n} ref={n === focus ? (el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" }) : undefined} onMouseEnter={canPeek ? () => setOpen(n) : undefined} onMouseLeave={canPeek ? () => setOpen(null) : undefined} onClick={canPeek ? () => setOpen(o => (o === n ? null : n)) : onSelect ? () => onSelect(n) : undefined} title={canPeek ? "Hover or tap to peek" : undefined} style={{ cursor: canPeek || onSelect ? "pointer" : undefined, background: n === focus ? "rgba(214,170,60,.2)" : undefined, borderRadius: ".4rem", WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
           {words.map((w, k) => {
             const mark = n === focus && marks ? marks[k] : undefined;
             const hint = n === focus && hintWord === k;
@@ -1204,6 +1215,12 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
           {retryNote && <span className="border-2 border-foreground bg-primary px-2 py-0.5 text-xs font-bold uppercase">{retryNote}</span>}
           {hintAsk && <span className="flex w-full flex-wrap items-center gap-2 border-2 border-foreground bg-primary px-3 py-2 font-bold">Stuck? Want a reminder of the next word? <Button size="sm" onClick={() => answerHint("yes")}>Yes, remind me</Button><Button size="sm" variant="outline" onClick={() => answerHint("no")}>No, let me try</Button><Button size="sm" variant="ghost" onClick={() => answerHint("skip")}>Show me and move on</Button></span>}
           {holdAfterMistake && <Button size="sm" onClick={() => holdResolve.current?.()}>Next verse <ArrowRight /></Button>}
+          {holdAfterMistake && <div className="fixed inset-x-0 bottom-[88px] z-40 mx-auto max-w-md px-3 lg:bottom-6">
+            <div className="flex items-center justify-between gap-3 border-2 border-foreground bg-primary p-3 shadow-brutal">
+              <span className="text-sm font-bold">Check the red words, then continue.</span>
+              <Button size="sm" onClick={() => holdResolve.current?.()}>Next verse <ArrowRight /></Button>
+            </div>
+          </div>}
           {phrases.length > 1 && autoPhase === "visible" && !linkChecking && <span className="w-full text-xs text-muted-foreground">Phrase {phraseIndex + 1} of {phrases.length}</span>}
         </div>}
 
