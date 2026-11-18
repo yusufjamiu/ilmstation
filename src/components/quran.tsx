@@ -1,3 +1,4 @@
+import { FreeRevision } from "@/components/free-revision";
 import { quranEdition } from "@/components/language";
 import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -458,6 +459,8 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
 export function QuranScreen() {
   const [section, setSection] = useState<Section | null>(null);
   const practice = section === "hifz" || section === "revision";
+  const [revMode, setRevMode] = useState<null | "hifz" | "free">(null);
+  useEffect(() => { if (section !== "revision") setRevMode(null); }, [section]);
   const info: Record<string, [string, string]> = { hifz: ["📖", "Memorise step by step"], tilawah: ["📜", "Read the mushaf page by page"], revision: ["🔁", "Review what you've memorised"], listen: ["🎧", "Listen to beautiful recitations"] };
   if (!section) return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Qur’an</p>
@@ -470,7 +473,12 @@ export function QuranScreen() {
   </div>;
   return <div>
     {practice && <button onClick={() => setSection(null)} className="mb-2 border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold shadow-brutal-sm">← Qur’an</button>}
-    {practice && <HifzScreen section={section === "revision" ? "revision" : "hifz"} onGoRevision={() => setSection("revision")}/>}
+    {section === "revision" && revMode === null && <div className="grid gap-3 sm:grid-cols-2">
+      <button onClick={() => setRevMode("hifz")} className="border-2 border-foreground bg-background p-5 text-left shadow-brutal transition hover:-translate-y-0.5"><b className="block font-serif text-2xl">My Hifz portion</b><span className="text-sm text-muted-foreground">Review what you’ve memorised in the app</span></button>
+      <button onClick={() => setRevMode("free")} className="border-2 border-foreground bg-primary p-5 text-left shadow-brutal transition hover:-translate-y-0.5"><b className="block font-serif text-2xl">Any part of the Qur’an</b><span className="text-sm">Choose a surah and verses to revise from memory</span></button>
+    </div>}
+    {section === "revision" && revMode === "free" && <FreeRevision surahs={surahList.map(x => ({ n: x.n, name: x.name, arabic: x.arabic }))} reciter="ar.alafasy"/>}
+    {practice && (section !== "revision" || revMode === "hifz") && <HifzScreen section={section === "revision" ? "revision" : "hifz"} onGoRevision={() => setSection("revision")}/>}
     {section === "tilawah" && <Tilawah onBack={() => setSection(null)}/>}
     {section === "listen" && <Listen onBack={() => setSection(null)}/>}
   </div>;

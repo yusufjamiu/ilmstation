@@ -44,3 +44,5 @@ export async function playPhraseAudio(reciter: string, surah: number, ayah: numb
     setTimeout(() => finish(true), 30000);
   });
 }
+
+export const PIECE_RECITERS = Object.keys(QURAN_COM_IDS);

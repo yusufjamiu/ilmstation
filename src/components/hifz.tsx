@@ -1,4 +1,4 @@
-import { playPhraseAudio } from "@/lib/word-timing";
+import { playPhraseAudio, PIECE_RECITERS } from "@/lib/word-timing";
 import "@/lib/cloud-speech";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
@@ -308,6 +308,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
   const [verses, setVerses] = useState<Verse[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [reciter, setReciter] = useState(reciters[0]!.id);
+  useEffect(() => { if (!PIECE_RECITERS.includes(reciter)) setReciter("ar.alafasy"); }, [reciter]); // eslint-disable-line react-hooks/exhaustive-deps
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -1219,7 +1220,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
           <p className="text-xs font-bold uppercase text-secondary">Choose your reciter</p>
           <h3 className="mt-2 font-serif text-3xl">Who should lead this session?</h3>
           <p className="mt-2 text-sm text-muted-foreground">The reciter reads each verse, you repeat after them, and we check the match, word by word, in order, before moving on automatically. Once you're reciting from memory, and when linking verses together, the text stays hidden until you get it right. Long verses are broken into shorter phrases first.</p>
-          <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="mt-4 h-11 w-full border-2 border-foreground bg-background px-3">{reciters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+          <select value={PIECE_RECITERS.includes(reciter) ? reciter : "ar.alafasy"} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="mt-4 h-11 w-full border-2 border-foreground bg-background px-3">{reciters.filter(r => PIECE_RECITERS.includes(r.id)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button onClick={() => setSessionStarted(true)}>Start with {reciters.find(r => r.id === reciter)?.name} <ArrowRight /></Button>
           </div>
