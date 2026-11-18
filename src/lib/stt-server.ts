@@ -8,15 +8,23 @@ export async function handleStt(request: Request): Promise<Response> {
   const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
   const key = process.env.OPENAI_API_KEY; if (!key) return json({ error: "Speech checking isn't set up yet." }, 503);
+
+  // works whether admin() returns the services directly or as functions, now or as a promise
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a: any = await Promise.resolve((admin as any)());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fbAuth: any = typeof a.auth === "function" ? a.auth() : a.auth;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db: any = typeof a.db === "function" ? a.db() : a.db;
+
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-  const a = await Promise.resolve(admin());
   let uid = "";
-  try { uid = (await a.auth.verifyIdToken(token)).uid; } catch (e) { console.error("stt auth", e); return json({ error: "Please log in again." }, 401); }
+  try { uid = (await fbAuth.verifyIdToken(token)).uid; } catch (e) { console.error("stt auth", e); return json({ error: "Please log in again." }, 401); }
 
   // daily cap per user
   const day = new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
-  const ref = a.db.collection("sttUsage").doc(`${uid}_${day}`);
-  const used = await a.db.runTransaction(async (t) => { const n = ((await t.get(ref)).data()?.n as number | undefined) ?? 0; if (n < DAILY_CAP) t.set(ref, { n: n + 1, uid, day }, { merge: true }); return n; });
+  const ref = db.collection("sttUsage").doc(`${uid}_${day}`);
+  const used: number = await db.runTransaction(async (t: any) => { const n = ((await t.get(ref)).data()?.n as number | undefined) ?? 0; if (n < DAILY_CAP) t.set(ref, { n: n + 1, uid, day }, { merge: true }); return n; }); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (used >= DAILY_CAP) return json({ error: "You've reached today's limit. Try again tomorrow." }, 429);
 
   const buf = await request.arrayBuffer();
