@@ -320,7 +320,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
     const ua = navigator.userAgent;
     const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const chromium = /Chrome|Edg\//.test(ua) && !/OPR|Firefox/.test(ua);
-    setSpeechSupported(!iOS && chromium && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
+    setSpeechSupported(!!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)); void iOS; void chromium;
   }, []);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [autoPhase, setAutoPhase] = useState<"visible" | "blind" | null>(null);
@@ -1082,7 +1082,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
       <p className="text-xs font-bold uppercase">IlmStation / Memorisation</p>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-3"><h1 className="font-serif text-4xl leading-none sm:text-5xl">{section === "revision" ? "Revision" : "Hifz workspace"}</h1>{(active !== null || setup !== null) && <Button variant="outline" size="sm" onClick={() => { autoStopRef.current = true; stopRecording(); setActive(null); setSetup(null); setDone(false); }}><ArrowLeft /> Workspace</Button>}</div>
     </header>
-    {!speechSupported && <div className="mt-4 border-2 border-foreground bg-destructive/10 p-4"><p className="text-xs font-bold uppercase text-destructive">Browser not supported</p><p className="mt-1 font-serif text-2xl">Please open IlmStation in Chrome or Edge</p><p className="mt-2 text-sm text-muted-foreground">Hifz listens to your recitation and checks it word by word, and that only works in Chrome or Edge on a laptop or an Android phone. iPhones and iPads are not supported yet.</p></div>}
+    {!speechSupported && <div className="mt-4 border-2 border-foreground bg-destructive/10 p-4"><p className="text-xs font-bold uppercase text-destructive">Browser not supported</p><p className="mt-1 font-serif text-2xl">Please open IlmStation in Chrome or Edge</p><p className="mt-2 text-sm text-muted-foreground">Hifz listens to your recitation and checks it word by word. Use Chrome or Edge on a computer or Android phone, or Safari on iPhone with Siri & Dictation turned on (Settings → Siri).</p></div>}
 
     {setupMeta ? <div className="mt-6 max-w-2xl border-2 border-foreground bg-background shadow-brutal">
       <div className="flex items-center justify-between gap-3 border-b-2 border-foreground bg-muted px-5 py-3"><div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Surah {setupMeta.number} · {setupMeta.ayahs} ayat</p><h2 className="font-serif text-3xl">{setupMeta.name}</h2></div><span className="font-arabic text-3xl" lang="ar" dir="rtl">{setupMeta.arabic}</span></div>
