@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 type SurahMeta = { n: number; name: string; arabic?: string };
 type Ayah = { text: string; n: number; global: number };
 const norm = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, "").replace(/[إأآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/[^\u0621-\u064A]/g, "").replace(/([اوي])\1+/g, "$1");
-const isMark = (t: string) => /^[\u06D6-\u06ED\u0670]+$/.test(t);
+export const isMark = (t: string) => /^[\u06D6-\u06ED\u0670]+$/.test(t);
 function near(a: string, b: string) {
   if (a === b) return true; const n = Math.max(a.length, b.length); if (n < 4) return false;
   const d = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -14,11 +14,11 @@ function near(a: string, b: string) {
   return d[b.length]! <= (n >= 7 ? 2 : 1);
 }
 /** Which expected words were said, in order (allows the odd extra or repeated word). */
-function check(expected: string[], heard: string): boolean[] {
+export function check(expected: string[], heard: string): boolean[] {
   const h = heard.split(/\s+/).map(norm).filter(Boolean); let p = 0;
   return expected.map((w) => { const e = norm(w); for (let k = p; k < Math.min(h.length, p + 4); k++) if (near(h[k]!, e)) { p = k + 1; return true; } return false; });
 }
-function listen(): Promise<string> {
+export function listen(): Promise<string> {
   return new Promise((resolve) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition; if (!SR) { resolve(""); return; }

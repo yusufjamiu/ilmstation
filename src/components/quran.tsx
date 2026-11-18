@@ -1,4 +1,6 @@
-import { FreeRevision } from "@/components/free-revision";
+import { check as rvCheck, listen as rvListen, isMark as rvIsMark } from "@/components/free-revision";
+import { usePremium as usePremiumQ } from "@/components/premium";
+import { toast as qToast } from "sonner";
 import { quranEdition } from "@/components/language";
 import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -477,7 +479,7 @@ export function QuranScreen() {
       <button onClick={() => setRevMode("hifz")} className="border-2 border-foreground bg-background p-5 text-left shadow-brutal transition hover:-translate-y-0.5"><b className="block font-serif text-2xl">My Hifz portion</b><span className="text-sm text-muted-foreground">Review what you’ve memorised in the app</span></button>
       <button onClick={() => setRevMode("free")} className="border-2 border-foreground bg-primary p-5 text-left shadow-brutal transition hover:-translate-y-0.5"><b className="block font-serif text-2xl">Any part of the Qur’an</b><span className="text-sm">Choose a surah and verses to revise from memory</span></button>
     </div>}
-    {section === "revision" && revMode === "free" && <FreeRevision surahs={surahList.map(x => ({ n: x.n, name: x.name, arabic: x.arabic }))} reciter="ar.alafasy"/>}
+    {section === "revision" && revMode === "free" && <RevisionPages onBack={() => setRevMode(null)}/>}
     {practice && (section !== "revision" || revMode === "hifz") && <HifzScreen section={section === "revision" ? "revision" : "hifz"} onGoRevision={() => setSection("revision")}/>}
     {section === "tilawah" && <Tilawah onBack={() => setSection(null)}/>}
     {section === "listen" && <Listen onBack={() => setSection(null)}/>}
@@ -533,4 +535,101 @@ if (typeof document !== "undefined" && !document.getElementById("mushaf-noselect
   const st = document.createElement("style"); st.id = "mushaf-noselect";
   st.textContent = '[style*="Amiri"],[style*="Amiri"] *,[style*="QCF"],[style*="QCF"] *,[style*="font-family: p"],[style*="font-family: p"] *,[style*="font-family:p"],[style*="font-family:p"] *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}';
   document.head.appendChild(st);
+}
+
+/** Revision of any part of the Qur'an: a blank mushaf page. Tap a verse to peek; Premium can recite and words appear as they're said. */
+function RevisionPages({ onBack }: { onBack: () => void }) {
+  type PageAyahs = Awaited<ReturnType<typeof loadPage>>;
+  const { premium } = usePremiumQ();
+  const [page, setPage] = useState<number | null>(null);
+  const [ayahs, setAyahs] = useState<PageAyahs | null>(null);
+  const [error, setError] = useState(false);
+  const [jump, setJump] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [voice, setVoice] = useState(false);
+  const [focus, setFocus] = useState(0);
+  const [marks, setMarks] = useState<("hit" | "miss" | "hide")[] | null>(null);
+  const voiceRef = useRef(false);
+  useEffect(() => {
+    if (page === null) return;
+    let cancelled = false; setAyahs(null); setError(false); setShowAll(false); setFocus(0); setMarks(null); stopVoice();
+    loadPage(page).then(l => { if (!cancelled) setAyahs(l); }).catch(() => { if (!cancelled) setError(true); });
+    window.scrollTo?.(0, 0);
+    return () => { cancelled = true; };
+  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { voiceRef.current = false; }, []);
+  const textOf = (a: PageAyahs[number]) => { const t = (a as { text?: string }).text ?? ""; return a.n === 1 && a.surah !== 1 && a.surah !== 9 && t.startsWith("بِسْمِ") ? t.split(" ").slice(4).join(" ") : t; };
+  const wordsOf = (a: PageAyahs[number]) => textOf(a).trim().split(/\s+/).filter(w => w && !rvIsMark(w));
+  function stopVoice() { voiceRef.current = false; setVoice(false); }
+  async function startVoice() {
+    if (!premium) { qToast("Voice correction is Premium. Go Premium to revise by reciting."); return; }
+    if (!ayahs) return;
+    voiceRef.current = true; setVoice(true);
+    let idx = focus; let heard = "";
+    while (voiceRef.current && ayahs && idx < ayahs.length) {
+      const words = wordsOf(ayahs[idx]!);
+      const text = await rvListen();
+      if (!voiceRef.current) return;
+      if (!text.trim()) continue;
+      heard = `${heard} ${text}`.trim();
+      const m = rvCheck(words, heard);
+      if (m.every(Boolean)) { setMarks(null); idx++; heard = ""; setFocus(idx); continue; }
+      const said = heard.split(/\s+/).filter(Boolean).length;
+      if (said >= words.length) { setMarks(m.map(x => (x ? "hit" : "miss"))); qToast("Check the red words, then recite the verse again."); heard = ""; }
+      else setMarks(m.map(x => (x ? "hit" : "hide")));
+    }
+    if (voiceRef.current && ayahs && idx >= ayahs.length) qToast.success("Page complete. Masha’Allah!");
+    stopVoice();
+  }
+  const go = (p: number) => { if (p >= 1 && p <= TOTAL_PAGES) setPage(p); };
+
+  if (page === null) return <div className="min-w-0">
+    <section className={cn(panel, "space-y-4")}>
+      <div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={onBack} aria-label="Back">←</Button><h2 className="font-serif text-2xl">Any part of the Qur’an</h2></div>
+      <form className="flex items-center gap-1.5" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}>
+        <input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="Page" aria-label="Go to page" className="h-10 w-full min-w-0 border-2 border-foreground bg-background px-2 text-sm"/>
+        <Button type="submit" size="sm" variant="outline">Go</Button>
+      </form>
+      <p className="text-sm text-muted-foreground">Or choose a surah:</p>
+      <SurahList onPick={n => { void pageOfSurah(n).then(p => setPage(p)).catch(() => setError(true)); }}/>
+    </section>
+  </div>;
+
+  const groups: { surah: number; items: PageAyahs }[] = [];
+  for (const a of ayahs ?? []) { const g = groups[groups.length - 1]; if (g && g.surah === a.surah) g.items.push(a); else groups.push({ surah: a.surah, items: [a] }); }
+  let offset = 0;
+  return <div className="min-w-0 space-y-3">
+    <section className="space-y-1.5 border-2 border-foreground bg-background p-1.5">
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" variant="outline" className="shrink-0" onClick={() => { stopVoice(); setPage(null); }} aria-label="Back">←</Button>
+        <Button size="sm" variant="outline" className="flex-1" onClick={() => { stopVoice(); setPage(null); }}>☰ Surahs</Button>
+        <form className="flex flex-1 items-center gap-1.5" onSubmit={e => { e.preventDefault(); const p = Number(jump); if (p >= 1 && p <= TOTAL_PAGES) { go(Math.floor(p)); setJump(""); } }}>
+          <input value={jump} onChange={e => setJump(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="Page" aria-label="Go to page" className="h-9 w-full min-w-0 border-2 border-foreground bg-background px-2 text-sm"/>
+          <Button type="submit" size="sm" variant="outline">Go</Button>
+        </form>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" variant="outline" className="flex-1" onClick={() => setShowAll(v => !v)}>{showAll ? "Hide page" : "Show page"}</Button>
+        {voice ? <Button size="sm" variant="destructive" className="flex-1" onClick={stopVoice}>■ Stop</Button>
+          : <Button size="sm" className="flex-1" onClick={() => void startVoice()}>{premium ? "🎙️ Recite" : "🔒 Recite"}</Button>}
+      </div>
+      {voice && ayahs?.[focus] && <p className="px-1 text-xs font-bold uppercase text-muted-foreground">Listening · verse {ayahs[focus]!.n}</p>}
+    </section>
+    {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p></section> : !ayahs ? <p className="text-sm text-muted-foreground">Loading the page…</p> :
+      groups.map(g => {
+        const start = offset; offset += g.items.length;
+        const from = g.items[0]!.n - 1;
+        const meta = surahList.find(x => x.n === g.surah);
+        const doneHere = Math.max(0, Math.min(g.items.length, focus - start));
+        const focusHere = focus >= start && focus < start + g.items.length ? from + (focus - start) : -1;
+        return <PageView key={`${page}-${g.surah}`} verses={g.items.map(a => ({ arabic: textOf(a), meaning: a.meaning })) as never} from={from}
+          revealUpTo={showAll ? 9999 : voice || focus > 0 ? from + doneHere : 0} focus={focusHere} wordsShown={undefined} peek={!voice && !showAll}
+          title={meta?.arabic ?? ""} juz={(g.items[0] as { juz?: number }).juz ?? 1} number={g.surah} marks={focusHere >= 0 ? (marks ?? undefined) as never : undefined} hintWord={undefined as never} onSelect={() => {}}/>;
+      })}
+    <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
+      <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
+      <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
+      <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page">Previous <ArrowRight /></Button>
+    </div>
+  </div>;
 }
