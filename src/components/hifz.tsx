@@ -920,7 +920,8 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
     return null;
   };
   /** True if there's an in-progress surah that still needs its mandatory daily revision pass before new memorisation can start. */
-  const mandatoryNeeded = () => {
+  const mandatoryNeeded = (): boolean => false; // revision is suggested, never required
+  const mandatoryNeededOld = () => {
     if (DEV_UNLOCK_ALL) return false;
     const cur = nextUpSurah();
     return lastLearnedIndex(cur) >= 0 && revisionMandatoryDoneDate !== today;
