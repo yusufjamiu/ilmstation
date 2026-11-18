@@ -696,7 +696,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
         rec.onerror = (ev: any) => { if (ev?.error === "no-speech" || ev?.error === "aborted") return; end(false); };
         rec.onend = () => {
           if (settled) return;
-          if (autoStopRef.current || restarts >= 6) { end(false); return; }
+          if (autoStopRef.current || restarts >= 25) { end(false); return; }
           restarts++; base = cur;
           setTimeout(() => { if (settled) return; try { begin(); } catch { end(false); } }, 200);
         };
@@ -746,7 +746,7 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
         rec.onerror = (ev: any) => { if (ev?.error === "no-speech" || ev?.error === "aborted") return; finish(true); };
         rec.onend = () => {
           if (settled) return;
-          if (autoStopRef.current || restarts >= 6) { finish(true); return; }
+          if (autoStopRef.current || restarts >= 25) { finish(true); return; }
           restarts++; base = all(); cur = "";
           setTimeout(() => { if (settled) return; try { begin(); } catch { finish(true); } }, 200);
         };

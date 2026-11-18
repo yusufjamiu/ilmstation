@@ -78,7 +78,7 @@ class CloudRecognition {
       an.getFloatTimeDomainData(data); let sum = 0; for (const v of data) sum += v * v;
       const rms = Math.sqrt(sum / data.length); const now = Date.now();
       if (rms > 0.02) { if (!spoke) { this.emit("soundstart"); this.emit("speechstart"); } spoke = true; lastVoice = now; }
-      if ((spoke && now - lastVoice > 900) || (!spoke && now - began > 8000) || now - began > 45000) { if (rec.state === "recording") rec.stop(); }
+      if ((spoke && now - lastVoice > 600) || (!spoke && now - began > 8000) || now - began > 45000) { if (rec.state === "recording") rec.stop(); }
     }, 100);
     if (this.stopped && rec.state === "recording") rec.stop();
   }
