@@ -1,3 +1,4 @@
+import { playPhraseAudio } from "@/lib/word-timing";
 import "@/lib/cloud-speech";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
@@ -532,7 +533,11 @@ export function HifzScreen({ section = "hifz", onGoRevision }: { section?: "hifz
       if (choice === "stop") { stopForToday(); return { words: [], ok: false }; }
       verseStartRef.current = Date.now();
     }
-    if (!silent) await playRecital();
+    if (!silent) {
+      const piece = !!verse && !!meta && reference.trim() !== verse.arabic.trim();
+      const played = piece ? await playPhraseAudio(reciter, meta!.number, verseIndex + 1, verse!.arabic, reference) : false;
+      if (!played) await playRecital();
+    }
     if (autoStopRef.current) return { words: [], ok: false };
     setListeningNow(true);
     const useLong = long || reference.trim().split(/\s+/).length >= 7;
