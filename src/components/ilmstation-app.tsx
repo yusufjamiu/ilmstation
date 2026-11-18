@@ -212,9 +212,9 @@ function YouRank() { const appT = useAppLang().t; const { rows } = useLeaderboar
 function Rank({ n, name, xp, active }: { n: string; name: string; xp: string; active?: boolean }) {
   const [user, level] = name.split(" · ");
   return <div className={cn("mb-3 flex items-center gap-3 px-4 py-3", active && "border-2 border-foreground bg-primary shadow-brutal-sm")}>
-    <span className="w-6 shrink-0 text-center font-serif text-2xl">{n}</span>
-    <span className="min-w-0 flex-1 truncate"><bdi>{user}</bdi>{level ? <> · <span>{level}</span></> : null}</span>
-    <span className="shrink-0 font-serif text-2xl"><bdi>{xp}</bdi></span>
+    <span className="w-6 shrink-0 text-center font-serif text-xl">{n}</span>
+    <span className="min-w-0 flex-1"><bdi className="block truncate font-semibold">{user}</bdi>{level ? <span className="block text-xs text-muted-foreground">{level}</span> : null}</span>
+    <span className="shrink-0 font-serif text-lg"><bdi>{xp}</bdi></span>
   </div>;
 }
 function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?: ShareCard) => void }) {

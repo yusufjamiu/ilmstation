@@ -1023,3 +1023,5 @@ DICT["✨ A new version of IlmStation is ready."] = { ...(DICT["✨ A new versio
 DICT["A new version of IlmStation is ready."] = { ...(DICT["A new version of IlmStation is ready."] ?? {}), ar: "إصدار جديد من IlmStation جاهز.", fr: "Une nouvelle version d’IlmStation est prête.", ur: "IlmStation کا نیا ورژن تیار ہے۔", ha: "Sabon sigar IlmStation ta shirya.", id: "Versi baru IlmStation sudah siap.", tl: "Handa na ang bagong bersyon ng IlmStation." };
 DICT["Growth"] = { ...(DICT["Growth"] ?? {}), ar: "النمو", fr: "Évolution", ur: "ترقی", ha: "Girma", id: "Pertumbuhan", tl: "Paglago" };
 DICT["Your learning record"] = { ...(DICT["Your learning record"] ?? {}), ar: "سجل تعلّمك", fr: "Votre parcours", ur: "آپ کا سیکھنے کا ریکارڈ", ha: "Rikodin koyonka", id: "Catatan belajarmu", tl: "Iyong talaan ng pag-aaral" };
+
+DICT["{n} XP"] = { ...(DICT["{n} XP"] ?? {}), ar: "{n} نقطة", ur: "{n} XP" };
