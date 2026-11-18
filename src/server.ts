@@ -105,6 +105,8 @@ export default {
       return import("./lib/premium-server").then((m) => m.handlePremium(request));
     if (url.pathname === "/api/family")
       return import("./lib/family-server").then((m) => m.handleFamily(request));
+    if (url.pathname === "/api/hifz-stt")
+      return import("./lib/stt-server").then((m) => m.handleStt(request));
     if (url.pathname === "/api/fx")
       return import("./lib/fx-server").then((m) => m.handleFx());
     if (url.pathname === "/api/version")

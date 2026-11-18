@@ -17,6 +17,7 @@ import { Route as CentresRouteImport } from './routes/centres'
 import { Route as ChatroomsRouteImport } from './routes/chatrooms'
 import { Route as CityRouteImport } from './routes/city'
 import { Route as EventsRouteImport } from './routes/events'
+import { Route as HifzTestRouteImport } from './routes/hifz-test'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlayRouteImport } from './routes/play'
 import { Route as PrivacyRouteImport } from './routes/privacy'
@@ -65,6 +66,11 @@ const CityRoute = CityRouteImport.update({
 const EventsRoute = EventsRouteImport.update({
   id: '/events',
   path: '/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HifzTestRoute = HifzTestRouteImport.update({
+  id: '/hifz-test',
+  path: '/hifz-test',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/chatrooms': typeof ChatroomsRoute
   '/city': typeof CityRoute
   '/events': typeof EventsRoute
+  '/hifz-test': typeof HifzTestRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
   '/privacy': typeof PrivacyRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/chatrooms': typeof ChatroomsRoute
   '/city': typeof CityRoute
   '/events': typeof EventsRoute
+  '/hifz-test': typeof HifzTestRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
   '/privacy': typeof PrivacyRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/chatrooms': typeof ChatroomsRoute
   '/city': typeof CityRoute
   '/events': typeof EventsRoute
+  '/hifz-test': typeof HifzTestRoute
   '/login': typeof LoginRoute
   '/play': typeof PlayRoute
   '/privacy': typeof PrivacyRoute
@@ -182,6 +191,7 @@ export interface FileRouteTypes {
     | '/chatrooms'
     | '/city'
     | '/events'
+    | '/hifz-test'
     | '/login'
     | '/play'
     | '/privacy'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/chatrooms'
     | '/city'
     | '/events'
+    | '/hifz-test'
     | '/login'
     | '/play'
     | '/privacy'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/chatrooms'
     | '/city'
     | '/events'
+    | '/hifz-test'
     | '/login'
     | '/play'
     | '/privacy'
@@ -240,6 +252,7 @@ export interface RootRouteChildren {
   ChatroomsRoute: typeof ChatroomsRoute
   CityRoute: typeof CityRoute
   EventsRoute: typeof EventsRoute
+  HifzTestRoute: typeof HifzTestRoute
   LoginRoute: typeof LoginRoute
   PlayRoute: typeof PlayRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -306,6 +319,13 @@ declare module '@tanstack/react-router' {
       path: '/events'
       fullPath: '/events'
       preLoaderRoute: typeof EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hifz-test': {
+      id: '/hifz-test'
+      path: '/hifz-test'
+      fullPath: '/hifz-test'
+      preLoaderRoute: typeof HifzTestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -393,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatroomsRoute: ChatroomsRoute,
   CityRoute: CityRoute,
   EventsRoute: EventsRoute,
+  HifzTestRoute: HifzTestRoute,
   LoginRoute: LoginRoute,
   PlayRoute: PlayRoute,
   PrivacyRoute: PrivacyRoute,
