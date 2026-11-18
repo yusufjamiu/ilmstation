@@ -112,7 +112,7 @@ export function LanguageBoot() {
   useEffect(() => {
     const dir = languages.find((l) => l.code === lang)?.dir ?? "ltr";
     document.documentElement.lang = lang; document.documentElement.dir = dir;
-    document.getElementById("i18n-bidi")?.remove(); { const st = document.createElement("style"); st.id = "i18n-bidi"; st.textContent = "[dir=rtl] p,[dir=rtl] li,[dir=rtl] h1,[dir=rtl] h2,[dir=rtl] h3,[dir=rtl] span,[dir=rtl] b,[dir=rtl] small,[dir=rtl] label{unicode-bidi:plaintext}" + RTL_FIX; document.head.appendChild(st); }
+    document.getElementById("i18n-bidi")?.remove(); { const st = document.createElement("style"); st.id = "i18n-bidi"; st.textContent = ["p", "li", "h1", "h2", "h3", "span", "b", "small", "label"].map((t) => `[dir=rtl] ${t}:not([dir]):not([lang='ar']):not([lang='ar'] *):not([dir] *)`).join(",") + "{unicode-bidi:plaintext}" + RTL_FIX; document.head.appendChild(st); }
     obs?.disconnect();
     sweep(document.body, lang);
     obs = new MutationObserver((list) => { for (const m of list) { if (m.type === "characterData") fixText(m.target as Text, lang); else m.addedNodes.forEach((n) => sweep(n, lang)); } });
