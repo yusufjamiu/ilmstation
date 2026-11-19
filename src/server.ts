@@ -113,7 +113,7 @@ export default {
     if (url.pathname === "/api/fx")
       return import("./lib/fx-server").then((m) => m.handleFx());
     if (url.pathname === "/api/version")
-      return new Response(JSON.stringify({ v: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "dev" }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+      return new Response(JSON.stringify({ v: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "dev", sha: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev" }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
     if (url.pathname === "/api/reset")
       return import("./lib/reset-server").then((m) => m.handleReset(request));
     if (url.pathname === "/api/img")

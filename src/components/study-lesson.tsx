@@ -91,6 +91,7 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
     </div>}
     {/* phones: the lesson fills the screen between the app bar and the bottom menu, so there's no box-in-a-page scrolling */}
     {url ? <iframe ref={frameRef} key={url} src={url} title={lesson.title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
+      onLoad={() => frameRef.current?.contentWindow?.postMessage({ type: "ilmstation:ping" }, "*")}
       className={cn("w-full scroll-mt-20 bg-background", smart
         ? "h-[calc(100dvh-9.5rem)] min-h-[440px] border-y-2 border-foreground sm:h-[calc(100dvh-8rem)] sm:border-2"
         : "mt-3 h-[calc(100dvh-11rem)] min-h-[440px] border-y-2 border-foreground sm:mt-4 sm:h-[75vh] sm:min-h-[480px] sm:border-2 sm:shadow-brutal")} />

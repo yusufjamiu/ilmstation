@@ -1,5 +1,6 @@
 /** Qira'ah lessons: read Arabic aloud with every harakah (kataba, not katab), using OpenAI text-to-speech.
- *  Called as GET /api/tts?text=كَتَبَ&say=ka-ta-ba  (add &slow=1 for slower).
+ *  Called as GET /api/tts?text=كَتَبَ&say=ka-ta-ba  (add &slow=1 for slower),
+ *  or for spoken English instructions: GET /api/tts?text=Tap%20the%20mic&lang=en
  *  GET so Vercel's CDN keeps each word: OpenAI is paid once per word, then it's free and instant. */
 
 const READ_RULE =
@@ -11,6 +12,11 @@ const READ_RULE =
   "Pronounce the short vowel on the LAST letter of every word too — do not drop it. " +
   "Only when the last letter carries a written sukun (ْ) do you stop on it without a vowel. " +
   "Example: كَتَبَ is 'ka-ta-ba' — three equal short beats. NOT 'kaa-ta-ba', NOT 'katab'.";
+
+// English instructions in the lessons (children who can't read yet hear every instruction)
+const KID_TEACHER =
+  "You are Nuri, a warm, cheerful teacher talking to a young child who is learning to read the Qur'an. " +
+  "Speak clearly, a little slowly, with a smile in your voice. Say Arabic letter names correctly: Alif, Baa, Taa, Thaa, Jiim, Haa, Khaa.";
 
 // Letters that dialects often change. A note is added only for letters that appear in the word.
 const LETTER_NOTES: Record<string, string> = {
@@ -39,8 +45,12 @@ export async function handleTts(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const text = (url.searchParams.get("text") ?? "").trim();
-  // Only short Arabic text, so nobody can use this to read other things on your bill
-  if (!text || text.length > 80 || !/^[؀-ۿ\s،.]+$/.test(text))
+  const english = url.searchParams.get("lang") === "en";
+  // Only short lesson text, so nobody can use this to read other things on your bill
+  if (english) {
+    if (!text || text.length > 220 || !/^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text))
+      return json({ error: "Short English text only (max 220 characters)." }, 400);
+  } else if (!text || text.length > 80 || !/^[\u0600-\u06FF\s،.]+$/.test(text))
     return json({ error: "Arabic text only (max 80 characters)." }, 400);
   const slow = url.searchParams.get("slow") === "1";
   // Exact pronunciation sent by the lesson, e.g. "ka-ta-ba" (a/i/u short, aa/ii/uu long)
@@ -56,10 +66,10 @@ export async function handleTts(request: Request): Promise<Response> {
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
-        voice: "onyx", // also try "ash" or "sage"; keep the clearest Arabic
+        voice: english ? "coral" : "onyx", // Arabic: also try "ash" or "sage"; keep the clearest
         input: text,
-        instructions: READ_RULE + guide + notes,
-        speed: slow ? 0.8 : 1.0, // slower speeds make the voice stretch vowels
+        instructions: english ? KID_TEACHER : READ_RULE + guide + notes,
+        speed: english ? 0.95 : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
         response_format: "mp3",
       }),
     });
