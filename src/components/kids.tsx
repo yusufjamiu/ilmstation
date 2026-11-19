@@ -152,7 +152,7 @@ function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () =>
       <span className="flex items-center gap-3">{left >= 0 && <span className="border-2 border-foreground px-2 py-1 text-sm font-bold">⏱ {Math.ceil(left / 60)} min</span>}<span className="font-serif text-2xl">{game.emoji} {game.title}</span></span>
     </div>
     {done && <p className="mt-3 border-2 border-foreground bg-primary p-3 font-bold">🎉 Masha’Allah! Well done.</p>}
-    <iframe ref={frameRef} title={game.title} src={game.htmlUrl} sandbox="allow-scripts" allow="autoplay" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
+    <iframe ref={frameRef} title={game.title} src={game.htmlUrl} sandbox="allow-scripts" allow="autoplay" className="mt-4 h-[calc(100dvh-11rem)] min-h-[440px] w-full border-2 border-foreground bg-background sm:h-[75vh]" />
     {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner", topic: `Kids: ${game.title}` }); markPlayed(game.id, 3, 5); }}>I’ve finished</Button>}
   </div>;
 }
