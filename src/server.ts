@@ -107,6 +107,9 @@ export default {
       return import("./lib/family-server").then((m) => m.handleFamily(request));
     if (url.pathname === "/api/hifz-stt")
       return import("./lib/stt-server").then((m) => m.handleStt(request));
+    // Qira'ah lessons: Arabic read aloud with every harakah (OpenAI voice)
+    if (url.pathname === "/api/tts")
+      return import("./lib/tts-server").then((m) => m.handleTts(request));
     if (url.pathname === "/api/fx")
       return import("./lib/fx-server").then((m) => m.handleFx());
     if (url.pathname === "/api/version")
