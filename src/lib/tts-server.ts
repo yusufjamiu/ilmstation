@@ -8,7 +8,8 @@ const READ_RULE =
   "Read the Arabic text exactly as written, clearly. " +
   "SHORT vowels (fatha, kasra, damma) are very short — one quick beat. NEVER stretch a short vowel. " +
   "Only stretch a vowel where there is a long-vowel letter (alif, waw, ya). " +
-  "Pronounce the short vowel on the LAST letter of every word too; never stop on a sukun. " +
+  "Pronounce the short vowel on the LAST letter of every word too — do not drop it. " +
+  "Only when the last letter carries a written sukun (ْ) do you stop on it without a vowel. " +
   "Example: كَتَبَ is 'ka-ta-ba' — three equal short beats. NOT 'kaa-ta-ba', NOT 'katab'.";
 
 // Letters that dialects often change. A note is added only for letters that appear in the word.

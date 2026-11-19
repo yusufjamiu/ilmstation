@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase";
 import { awardXp } from "@/lib/xp";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useLessonBridge } from "@/lib/lesson-bridge";
 import { isHtmlLesson, isRight, pick, voiceName, youtubeId, type Lesson, type Screen, type Voices } from "@/components/study-data";
 
 /* ---------------- voice ---------------- */
@@ -58,6 +59,8 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
   const [chosen, setChosen] = useState(lesson.html?.[lang as keyof typeof lesson.html] ? lang : langs.includes("en") ? "en" : langs[0] ?? "");
   const url = lesson.html?.[chosen as keyof typeof lesson.html];
   const [finished, setFinished] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useLessonBridge(frameRef, lesson.id); // the lesson asks the app for the mic, speech checking and saved progress
   const [myNote, setMyNote] = useState(note);
   const finish = async () => { await markDone(uid, lesson.id, done); setFinished(true); onFinished(); };
   useEffect(() => {
@@ -76,7 +79,7 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
       </div>
       {langs.length > 1 && <select value={chosen} onChange={(e) => setChosen(e.target.value)} aria-label="Lesson voice" className="border-2 border-foreground bg-background px-2 py-2 text-sm font-semibold">{langs.map((l) => <option key={l} value={l}>🔊 {voiceName(l)}</option>)}</select>}
     </div>
-    {url ? <iframe key={url} src={url} title={lesson.title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
+    {url ? <iframe ref={frameRef} key={url} src={url} title={lesson.title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
       className="mt-4 h-[75vh] min-h-[480px] w-full border-2 border-foreground bg-background shadow-brutal" />
       : <p className="mt-4 border-2 border-dashed border-foreground p-6 text-sm text-muted-foreground">This lesson isn't uploaded yet.</p>}
     <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">

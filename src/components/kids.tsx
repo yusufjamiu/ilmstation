@@ -3,7 +3,8 @@ import { auth as gpAuth, db as gpDb } from "@/lib/firebase";
 import { doc as fsDoc } from "firebase/firestore";
 import { callPremium, UnlockDialog, usePremium } from "@/components/premium";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useLessonBridge } from "@/lib/lesson-bridge";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GraduationCap, Library, Play, Star } from "lucide-react";
@@ -131,6 +132,8 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
 /** An uploaded HTML game, in a safe sandbox. It can report the score with postMessage. */
 function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () => void; left?: number }) {
   const [done, setDone] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useLessonBridge(frameRef, `kids-${game.id}`); // mic, speech checking and resume for Qira'ah kids lessons
   useEffect(() => {
     const on = (e: MessageEvent) => {
       const d = e.data as { type?: string; score?: number; total?: number } | null;
@@ -149,7 +152,7 @@ function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () =>
       <span className="flex items-center gap-3">{left >= 0 && <span className="border-2 border-foreground px-2 py-1 text-sm font-bold">⏱ {Math.ceil(left / 60)} min</span>}<span className="font-serif text-2xl">{game.emoji} {game.title}</span></span>
     </div>
     {done && <p className="mt-3 border-2 border-foreground bg-primary p-3 font-bold">🎉 Masha’Allah! Well done.</p>}
-    <iframe title={game.title} src={game.htmlUrl} sandbox="allow-scripts" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
+    <iframe ref={frameRef} title={game.title} src={game.htmlUrl} sandbox="allow-scripts" allow="autoplay" className="mt-4 h-[75vh] w-full border-2 border-foreground bg-background" />
     {!done && <Button variant="outline" className="mt-3" onClick={() => { setDone(true); void awardXp("quiz", { correct: 3, total: 5, difficulty: "Beginner", topic: `Kids: ${game.title}` }); markPlayed(game.id, 3, 5); }}>I’ve finished</Button>}
   </div>;
 }
