@@ -18,6 +18,12 @@ const KID_TEACHER =
   "You are Nuri, a warm, cheerful teacher talking to a young child who is learning to read the Qur'an. " +
   "Speak clearly, a little slowly, with a smile in your voice. Say Arabic letter names correctly: Alif, Baa, Taa, Thaa, Jiim, Haa, Khaa.";
 
+// Adults hear a calm, clear narrator (lesson intros and instructions)
+const ADULT_TEACHER =
+  "You are a calm, warm Qur'an teacher speaking to adult beginners. Speak very clearly and naturally, " +
+  "at a steady, moderate pace, with short pauses between sentences. Pronounce every word fully. " +
+  "Say Arabic terms correctly: Qira'ah, Nour al-Bayan, Alif, Yaa, fatha, kasra, damma, sukun, shadda, tanween, madd, tajweed.";
+
 // Letters that dialects often change. A note is added only for letters that appear in the word.
 const LETTER_NOTES: Record<string, string> = {
   "ث": "ث (tha) is 'th' as in English 'think' — tongue between the teeth. NEVER 's' or 'z'.",
@@ -46,10 +52,11 @@ export async function handleTts(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const text = (url.searchParams.get("text") ?? "").trim();
   const english = url.searchParams.get("lang") === "en";
+  const adult = url.searchParams.get("who") === "adult";   // adult narrator, otherwise Nuri for children
   // Only short lesson text, so nobody can use this to read other things on your bill
   if (english) {
-    if (!text || text.length > 220 || !/^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text))
-      return json({ error: "Short English text only (max 220 characters)." }, 400);
+    if (!text || text.length > 400 || !/^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text))
+      return json({ error: "Short English text only (max 400 characters)." }, 400);
   } else if (!text || text.length > 80 || !/^[\u0600-\u06FF\s،.]+$/.test(text))
     return json({ error: "Arabic text only (max 80 characters)." }, 400);
   const slow = url.searchParams.get("slow") === "1";
@@ -60,27 +67,41 @@ export async function handleTts(request: Request): Promise<Response> {
     : "";
   const notes = [...new Set([...text].filter((c) => LETTER_NOTES[c]))].map((c) => " " + LETTER_NOTES[c]).join("");
 
+  const audio = (buf: ArrayBuffer) => new Response(buf, {
+    headers: { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400, s-maxage=31536000, immutable", ...cors },
+  });
+
+  // English narration: ElevenLabs if you add ELEVENLABS_API_KEY in Vercel (more natural), otherwise OpenAI.
+  // Optional: ELEVENLABS_VOICE_ID (adults) and ELEVENLABS_KID_VOICE_ID (children) to pick the voices.
+  const eleven = process.env.ELEVENLABS_API_KEY;
+  if (english && eleven) {
+    try {
+      const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+        method: "POST",
+        headers: { "xi-api-key": eleven, "content-type": "application/json", accept: "audio/mpeg" },
+        body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.55, similarity_boost: 0.75 } }),
+      });
+      if (r.ok) return audio(await r.arrayBuffer());
+      // if ElevenLabs fails (e.g. out of credits), fall through to OpenAI
+    } catch { /* fall through to OpenAI */ }
+  }
+
   try {
     const r = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
-        voice: english ? "coral" : "onyx", // Arabic: also try "ash" or "sage"; keep the clearest
+        voice: english ? (adult ? "sage" : "coral") : "onyx", // Arabic: also try "ash" or "sage"; keep the clearest
         input: text,
-        instructions: english ? KID_TEACHER : READ_RULE + guide + notes,
-        speed: english ? 0.95 : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
+        instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) : READ_RULE + guide + notes,
+        speed: english ? (adult ? 0.92 : 0.95) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
         response_format: "mp3",
       }),
     });
     if (!r.ok) return json({ error: "Voice service error." }, 502);
-    return new Response(await r.arrayBuffer(), {
-      headers: {
-        "content-type": "audio/mpeg",
-        "cache-control": "public, max-age=86400, s-maxage=31536000, immutable",
-        ...cors,
-      },
-    });
+    return audio(await r.arrayBuffer());
   } catch {
     return json({ error: "Couldn't reach the voice service." }, 502);
   }
