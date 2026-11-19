@@ -61,28 +61,41 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
   const [finished, setFinished] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
   useLessonBridge(frameRef, lesson.id); // the lesson asks the app for the mic, speech checking and saved progress
+  // "smart" lessons (they say hello) finish themselves when the learner passes, so the manual button is hidden
+  const [smart, setSmart] = useState(false);
   const [myNote, setMyNote] = useState(note);
   const finish = async () => { await markDone(uid, lesson.id, done); setFinished(true); onFinished(); };
+  useEffect(() => { frameRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }); }, [url]);
   useEffect(() => {
-    const on = (e: MessageEvent) => { const d = e.data as { type?: string } | null; if (d?.type === "ilmstation:done") void finish(); };
+    const on = (e: MessageEvent) => {
+      if (e.source !== frameRef.current?.contentWindow) return;
+      const d = e.data as { type?: string } | null;
+      if (d?.type === "ilmstation:hello") setSmart(true);
+      if (d?.type === "ilmstation:done") void finish();
+      if (d?.type === "ilmstation:close") { saveNote(); onExit(); } // the lesson's own ✕ button
+    };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const saveNote = () => { if (uid) void setDoc(doc(db, "studyProgress", uid), { notes: { [lesson.id]: myNote } }, { merge: true }).catch(() => {}); };
 
+  // smart lessons have their own header, ✕ button and results, so the app shows only the lesson itself
   return <div className="iq-rise">
-    <div className="flex flex-wrap items-center gap-3">
+    {!smart && <div className="flex flex-wrap items-center gap-3">
       <button aria-label="Close lesson" onClick={() => { saveNote(); onExit(); }} className="grid size-10 place-items-center border-2 border-foreground bg-background"><X className="size-5" /></button>
       <div className="min-w-0 flex-1">
         <h1 className="font-serif text-2xl leading-tight sm:text-3xl">{lesson.title}</h1>
         {(lesson.book || lesson.part) && <p dir="auto" className="text-sm text-muted-foreground">{[lesson.book, lesson.part].filter(Boolean).join(" · ")}</p>}
       </div>
       {langs.length > 1 && <select value={chosen} onChange={(e) => setChosen(e.target.value)} aria-label="Lesson voice" className="border-2 border-foreground bg-background px-2 py-2 text-sm font-semibold">{langs.map((l) => <option key={l} value={l}>🔊 {voiceName(l)}</option>)}</select>}
-    </div>
+    </div>}
+    {/* phones: the lesson fills the screen between the app bar and the bottom menu, so there's no box-in-a-page scrolling */}
     {url ? <iframe ref={frameRef} key={url} src={url} title={lesson.title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
-      className="mt-4 h-[75vh] min-h-[480px] w-full border-2 border-foreground bg-background shadow-brutal" />
+      className={cn("w-full scroll-mt-20 bg-background", smart
+        ? "h-[calc(100dvh-9.5rem)] min-h-[440px] border-y-2 border-foreground sm:h-[calc(100dvh-8rem)] sm:border-2"
+        : "mt-3 h-[calc(100dvh-11rem)] min-h-[440px] border-y-2 border-foreground sm:mt-4 sm:h-[75vh] sm:min-h-[480px] sm:border-2 sm:shadow-brutal")} />
       : <p className="mt-4 border-2 border-dashed border-foreground p-6 text-sm text-muted-foreground">This lesson isn't uploaded yet.</p>}
-    <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+    {!smart && <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
       <div className="border-2 border-foreground bg-card p-4 shadow-brutal-sm">
         <h2 className="font-serif text-xl">My notes</h2>
         <textarea value={myNote} onChange={(e) => setMyNote(e.target.value)} onBlur={saveNote} rows={2} aria-label="My notes" placeholder="Write what you learnt…" className="mt-2 w-full border-2 border-foreground bg-background p-2 text-sm outline-none" />
@@ -90,7 +103,7 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
       </div>
       {finished || done ? <div className="flex flex-col items-center gap-2 border-2 border-foreground bg-secondary p-4 text-secondary-foreground shadow-brutal-sm"><Trophy className="size-8" /><b>Lesson complete</b><Button variant="outline" className="bg-background text-foreground" onClick={() => { saveNote(); onExit(); }}>Back to lessons <ChevronRight /></Button></div>
         : <Button size="lg" onClick={() => void finish()}><Check /> I've finished this lesson</Button>}
-    </div>
+    </div>}
   </div>;
 }
 

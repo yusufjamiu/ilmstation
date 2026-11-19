@@ -2,7 +2,12 @@ import { useEffect, type RefObject } from "react";
 import { auth } from "@/lib/firebase";
 
 /** Bridge between the app and an uploaded HTML lesson running in a sandbox.
- *  The sandbox blocks the mic, the login and storage, so the lesson asks the app instead.
+ *  The sandbox blocks the mic, the login and storage, so the lesson asks the app instead:
+ *   - {type:"ilmstation:hello"}                          → {type:"ilmstation:welcome", state}
+ *   - {type:"ilmstation:save", state}                    → app keeps the lesson's progress (resume after closing)
+ *   - {type:"ilmstation:record", id, ms, check, hint}    → app records the mic; with check it also runs /api/hifz-stt;
+ *                                                          replies {type:"ilmstation:recorded", id, audio, mime, text?, error?}
+ *   - {type:"ilmstation:stop", id}                       → stop recording early
  *  The login token never leaves the app: the lesson only gets back the audio and the words heard. */
 export function useLessonBridge(frame: RefObject<HTMLIFrameElement | null>, key: string) {
   useEffect(() => {
