@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
-import { db, auth as authS } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
+import { CertificateCard } from "@/components/study-certificate";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { usePremium } from "@/components/premium";
@@ -61,35 +62,14 @@ export function StudyScreen() {
   const subjects = useDocs<Subject>("studySubjects", view.cat ? [["category", view.cat]] : [], !!view.cat);
   const stageLessons = useDocs<Lesson>("studyLessons", view.stage ? [["stage", view.stage]] : [], !!view.stage);
   const examView = useExam(view.exam);
-  // Qira'ah-style courses: finishing every lesson of the current stage (the last one is its final exam) opens the next stage
-  useEffect(() => {
-    const c = (cats ?? []).find((x) => x.id === view.cat);
-    if (!c || !view.stage || !uid || !subjects || !stageLessons) return;
-    const st = stagesOf(c), idx = st.findIndex((s) => s.id === view.stage);
-    if (idx < 0 || !st[idx + 1] || idx !== reachedIndex(results, c.id, st)) return;
-    const subs = subjects.filter((s) => s.stages.includes(view.stage!)).map((s) => s.id);
-    const mine = stageLessons.filter((l) => subs.includes(l.subjectId));
-    if (!mine.length || mine.some((l) => !progress.done?.[l.id])) return;
-    const key = `ilm-stage-up:${c.id}:${view.stage}`;
-    if (sessionStorage.getItem(key)) return;
-    sessionStorage.setItem(key, "1");
-    void (async () => {
-      try {
-        const u = authS.currentUser; if (!u) return;
-        const r = await fetch("/api/study-exam", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await u.getIdToken()}` },
-          body: JSON.stringify({ action: "stage-complete", category: c.id, stage: view.stage }) });
-        const d = (await r.json()) as { promoted?: boolean };
-        if (d.promoted) toast.success(`Masha'Allah! ${st[idx + 1]!.name} is now open.`);
-      } catch { sessionStorage.removeItem(key); }
-    })();
-  }, [cats, view.cat, view.stage, uid, subjects, stageLessons, progress.done, results]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  const catLessons = useDocs<Lesson>("studyLessons", [], !!view.cat && studyAcct?.zone !== "kids");
   useEffect(() => { window.scrollTo?.(0, 0); }, [view]);
   if (studyAcct?.zone === "kids") return <KidStudy cats={cats ?? []} />;
   if (!cats) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const cat = cats.find((c) => c.id === view.cat);
   const stages = stagesOf(cat);
   const reached = cat ? reachedIndex(results, cat.id, stages) : 0;
+  const flow = makeFlow(cat, subjects ?? [], catLessons ?? [], progress.done ?? {}, reached);
 
   /* an exam */
   if (view.exam) return examView ? <ExamRunner exam={examView} onExit={() => setView({ ...view, exam: undefined })} />
@@ -115,7 +95,7 @@ export function StudyScreen() {
   </div>;
 
   /* 2 · levels and stages */
-  if (!view.stage) return <StagesView cat={cat} subjects={subjects} reached={reached} onBack={() => setView({})}
+  if (!view.stage) return <StagesView cat={cat} subjects={catLessons ? subjects : null} flow={flow} reached={reached} onBack={() => setView({})}
     onOpen={(stage) => setView({ cat: cat.id, stage })} onExam={(id) => setView({ cat: cat.id, exam: id })} />;
 
   const stageIdx = stages.findIndex((s) => s.id === view.stage);
@@ -129,29 +109,57 @@ export function StudyScreen() {
     onExit={() => setView({ ...view, lesson: undefined })} onFinished={() => {}} />;
 
   /* 4 · a subject */
-  if (subject) return <SubjectView cat={cat} stage={view.stage} subject={subject} lessons={lessons} done={progress.done ?? {}} results={results}
+  if (subject) return <SubjectView cat={cat} stage={view.stage} subject={subject} lessons={lessons} done={progress.done ?? {}} results={results} uid={uid} flow={flow}
     onBack={() => setView({ cat: cat.id, stage: view.stage })} onLesson={(id) => setView({ ...view, lesson: id })} onExam={(id) => setView({ ...view, exam: id })} />;
 
   /* 3 · subjects in a stage */
-  return <StageView cat={cat} stage={view.stage} stageIdx={stageIdx} reached={reached} subjects={inStage} lessons={stageLessons ?? []} done={progress.done ?? {}} results={results}
+  return <StageView cat={cat} stage={view.stage} stageIdx={stageIdx} reached={reached} subjects={inStage} flow={flow} lessons={stageLessons ?? []} done={progress.done ?? {}} results={results}
     onBack={() => setView({ cat: cat.id })} onSubject={(id) => setView({ cat: cat.id, stage: view.stage, subject: id })} onExam={(id) => setView({ cat: cat.id, stage: view.stage, exam: id })} />;
+}
+
+/* ---------------- progress per subject ----------------
+   Each subject moves through the levels on its own: Qira'ah in Beginner 2 opens when every lesson of
+   Qira'ah in Beginner 1 is done (its last lesson is the level's final exam). Arabiyyah keeps its own pace.
+   Stages opened the old way (promotion exam / test out) stay open. */
+type Flow = ReturnType<typeof makeFlow>;
+function makeFlow(cat: Category | undefined, subjects: Subject[], lessons: Lesson[], done: Record<string, number>, reached: number) {
+  const stages = stagesOf(cat);
+  const idxOf = (id: string) => stages.findIndex((s) => s.id === id);
+  const lessonsOf = (sid: string, stage: string) => lessons.filter((l) => l.subjectId === sid && l.stage === stage);
+  const complete = (sid: string, stage: string) => { const ls = lessonsOf(sid, stage); return ls.length > 0 && ls.every((l) => done[l.id]); };
+  const prevStage = (sid: string, stage: string) => {
+    const sub = subjects.find((s) => s.id === sid);
+    const mine = stages.filter((st) => sub?.stages.includes(st.id));
+    const j = mine.findIndex((st) => st.id === stage);
+    return j > 0 ? mine[j - 1] : undefined;
+  };
+  const open = (sid: string, stage: string) => { const p = prevStage(sid, stage); return !p || idxOf(stage) <= reached || complete(sid, p.id); };
+  const earnedAt = (sid: string, stage: string) => Math.max(0, ...lessonsOf(sid, stage).map((l) => done[l.id] ?? 0)) || Date.now();
+  const inStage = (stage: string) => subjects.filter((s) => s.stages.includes(stage));
+  const stageState = (stage: string): "done" | "open" | "locked" => {
+    const subs = inStage(stage);
+    if (subs.length && subs.every((s) => complete(s.id, stage))) return "done";
+    return subs.some((s) => open(s.id, stage)) || idxOf(stage) <= reached ? "open" : "locked";
+  };
+  return { lessonsOf, complete, prevStage, open, earnedAt, stageState };
 }
 
 /* ---------------- stages ---------------- */
 
-function StagesView({ cat, subjects, reached, onBack, onOpen, onExam }: { cat: Category; subjects: Subject[] | null; reached: number; onBack: () => void; onOpen: (s: string) => void; onExam: (id: string) => void }) {
+function StagesView({ cat, subjects, flow, reached, onBack, onOpen, onExam }: { cat: Category; subjects: Subject[] | null; flow: Flow; reached: number; onBack: () => void; onOpen: (s: string) => void; onExam: (id: string) => void }) {
   const stages = stagesOf(cat);
+  const firstOpen = stages.find((s) => flow.stageState(s.id) === "open" && (subjects ?? []).some((x) => x.stages.includes(s.id)))?.id;
   return <div className="iq-rise">
     <Button variant="ghost" onClick={onBack}><ArrowLeft /> Back</Button>
     <h1 className="mt-2 font-serif text-4xl sm:text-5xl">{cat.name} {cat.nameAr && <span dir="rtl" className="text-2xl text-muted-foreground">{cat.nameAr}</span>}</h1>
-    <p className="mt-1 text-muted-foreground">Finish every subject and pass the promotion exam to move up. Already know it? Test out to skip ahead.</p>
+    <p className="mt-1 text-muted-foreground">Each subject moves up on its own: finish a subject's level, and its next level opens. Every completed level earns a certificate.</p>
     {subjects === null ? <p className="mt-6 text-sm text-muted-foreground">Loading…</p>
       : <div className="mt-6 grid gap-6">{cat.levels.map((l) => <section key={l.id}>
         <h2 className="font-serif text-2xl">{l.name} {l.nameAr && <span dir="rtl" className="text-lg text-muted-foreground">{l.nameAr}</span>}</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">{stages.filter((s) => s.level.id === l.id).map((s) => {
           const idx = stages.indexOf(s);
           const n = subjects.filter((x) => x.stages.includes(s.id)).length;
-          const state = idx < reached ? "done" : idx === reached ? "open" : "locked";
+          const state = flow.stageState(s.id);
           const prev = stages[idx - 1];
           return <div key={s.id} className={cn("flex flex-col justify-between gap-3 border-2 border-foreground bg-card p-4 shadow-brutal-sm", state === "locked" && "bg-muted")}>
             <button disabled={state === "locked" || !n} onClick={() => onOpen(s.id)} className="flex items-center justify-between text-left disabled:cursor-default">
@@ -159,8 +167,8 @@ function StagesView({ cat, subjects, reached, onBack, onOpen, onExam }: { cat: C
                 <span className="text-xs text-muted-foreground">{state === "done" ? "Completed ✓" : !n ? "Coming soon" : `${n} subject${n > 1 ? "s" : ""}`}</span></span>
               {state === "locked" ? <Lock className="size-4" /> : state === "done" ? <CheckCircle2 className="size-5 text-secondary" /> : n ? <ChevronRight className="size-5" /> : null}
             </button>
-            {state !== "locked" && n > 0 && <button onClick={() => onOpen(s.id)} className="text-left"><CardAction label={state === "open" ? "Start →" : "Review →"} pulse={state === "open"} /></button>}
-            {state === "locked" && prev && n > 0 && <Button size="sm" variant="outline" onClick={() => onExam(promoExamId(cat.id, prev.id))}>Test out to here</Button>}
+            {state !== "locked" && n > 0 && <button onClick={() => onOpen(s.id)} className="text-left"><CardAction label={state === "open" ? "Start →" : "Review →"} pulse={s.id === firstOpen} /></button>}
+            {state === "locked" && prev && n > 0 && idx > reached && <Button size="sm" variant="outline" onClick={() => onExam(promoExamId(cat.id, prev.id))}>Test out to here</Button>}
           </div>;
         })}</div>
       </section>)}</div>}
@@ -169,8 +177,8 @@ function StagesView({ cat, subjects, reached, onBack, onOpen, onExam }: { cat: C
 
 /* ---------------- one stage ---------------- */
 
-function StageView({ cat, stage, stageIdx, reached, subjects, lessons, done, results, onBack, onSubject, onExam }: {
-  cat: Category; stage: string; stageIdx: number; reached: number; subjects: Subject[]; lessons: Lesson[]; done: Record<string, number>; results: Results;
+function StageView({ cat, stage, stageIdx, reached, subjects, flow, lessons, done, results, onBack, onSubject, onExam }: {
+  cat: Category; stage: string; stageIdx: number; reached: number; subjects: Subject[]; flow: Flow; lessons: Lesson[]; done: Record<string, number>; results: Results;
   onBack: () => void; onSubject: (id: string) => void; onExam: (id: string) => void;
 }) {
   const promo = useExam(promoExamId(cat.id, stage));
@@ -183,9 +191,16 @@ function StageView({ cat, stage, stageIdx, reached, subjects, lessons, done, res
     <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{subjects.map((s) => {
       const ls = lessons.filter((l) => l.subjectId === s.id);
       const d = ls.filter((l) => done[l.id]).length;
-      const passed = results.exams?.[subjectExamId(s.id, stage)]?.passed;
+      const passed = results.exams?.[subjectExamId(s.id, stage)]?.passed || (ls.length > 0 && d === ls.length);
+      const isOpen = flow.open(s.id, stage), prev = flow.prevStage(s.id, stage);
+      if (!isOpen) return <button key={s.id} onClick={() => toast(`Finish ${s.name} in ${prev?.name ?? "the level before"} first.`)} className="flex flex-col border-2 border-foreground bg-muted p-5 text-left opacity-80 shadow-brutal-sm">
+        <div className="flex items-start justify-between"><span className="grid size-10 place-items-center border-2 border-foreground bg-background"><Lock className="size-5" /></span></div>
+        <h2 className="mt-3 font-serif text-3xl leading-tight">{s.name}</h2>
+        {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
+        <p className="mt-3 text-sm font-semibold">Finish {s.name} in {prev?.name} to open it.</p>
+      </button>;
       return <button key={s.id} onClick={() => onSubject(s.id)} className="flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal hover:-translate-y-0.5">
-        <div className="flex items-start justify-between"><span className="grid size-10 place-items-center border-2 border-foreground bg-primary"><BookOpen className="size-5" /></span>{passed && <span className="flex items-center gap-1 border-2 border-foreground bg-secondary px-2 text-xs font-bold text-secondary-foreground"><Check className="size-3" /> Passed</span>}</div>
+        <div className="flex items-start justify-between"><span className="grid size-10 place-items-center border-2 border-foreground bg-primary"><BookOpen className="size-5" /></span>{passed && <span className="flex items-center gap-1 border-2 border-foreground bg-secondary px-2 text-xs font-bold text-secondary-foreground"><Check className="size-3" /> Completed</span>}</div>
         <h2 className="mt-3 font-serif text-3xl leading-tight">{s.name}</h2>
         {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
         <div className="mt-3 flex items-center gap-2"><div className="h-3 flex-1 border-2 border-foreground p-px"><div className="h-full bg-secondary" style={{ width: `${ls.length ? (d / ls.length) * 100 : 0}%` }} /></div><span className="text-xs font-bold tabular-nums">{d}/{ls.length}</span></div>
@@ -206,8 +221,8 @@ function StageView({ cat, stage, stageIdx, reached, subjects, lessons, done, res
 
 /* ---------------- one subject ---------------- */
 
-function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLesson, onExam }: {
-  cat: Category; stage: string; subject: Subject; lessons: Lesson[]; done: Record<string, number>; results: Results;
+function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, onBack, onLesson, onExam }: {
+  cat: Category; stage: string; subject: Subject; lessons: Lesson[]; done: Record<string, number>; results: Results; uid: string | null | undefined; flow: Flow;
   onBack: () => void; onLesson: (id: string) => void; onExam: (id: string) => void;
 }) {
   const { canAccess } = usePremium();
@@ -235,6 +250,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLe
       </div>}
     </div>
 
+    {uid && flow.complete(subject.id, stage) && <CertificateCard className="mt-4" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: stageName(cat, stage), category: cat.name, date: flow.earnedAt(subject.id, stage) }} />}
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <ol className="mt-3 grid gap-2">{lessons.map((l, i) => {
@@ -279,7 +295,7 @@ function kidEmoji(name: string) {
   if (/qur|surah|juz|hifz/.test(n)) return "📖";
   return "⭐";
 }
-function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }[] }) {
+function KidStudy({ cats }: { cats: Category[] }) {
   const live = cats.filter((c) => c.live !== false);
   const [catId, setCatId] = useState<string | undefined>(undefined);
   const [subjectId, setSubjectId] = useState<string | undefined>(undefined);
@@ -292,9 +308,14 @@ function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }
   const lessonsAll = useDocs<Lesson>("studyLessons", subjectId ? [["subjectId", subjectId]] : [], !!subjectId);
   useEffect(() => { window.scrollTo?.(0, 0); }, [cid, subjectId, lessonId]);
   const subject = (subjects ?? []).find((x) => x.id === subjectId);
-  const lessons = (lessonsAll ?? []).filter((l) => l.subjectId === subjectId).sort((a, b) => a.order - b.order);
+  // lessons in level order (Level 1, Level 2…), then lesson order
+  const kStages = stagesOf(live.find((c) => c.id === cid));
+  const sIdx = (id: string) => { const i = kStages.findIndex((x) => x.id === id); return i < 0 ? 999 : i; };
+  const lessons = (lessonsAll ?? []).filter((l) => l.subjectId === subjectId).sort((a, b) => sIdx(a.stage) - sIdx(b.stage) || a.order - b.order);
   const lesson = lessons.find((l) => l.id === lessonId);
   const done = (id: string) => !!progress.done?.[id];
+  const nextUp = lessons.findIndex((y) => !done(y.id));       // lessons open one by one, level by level
+  const levels = [...new Set(lessons.map((l) => l.stage))];
   const back = (label: string, onClick: () => void) => <button onClick={onClick} className="mb-4 border-2 border-foreground bg-background px-4 py-2 text-lg font-bold">← {label}</button>;
 
   if (lesson) return <LessonPlayer key={lesson.id} lesson={lesson} lang={voice.lang} uid={uid} done={done(lesson.id)} note={progress.notes?.[lesson.id] ?? ""} onExit={() => setLessonId(undefined)} onFinished={() => {}} />;
@@ -304,12 +325,17 @@ function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }
     <h1 className="font-serif text-5xl leading-none">{kidEmoji(subject.name)} {subject.name}</h1>
     <p className="mt-2 text-lg text-muted-foreground">{lessons.filter((l) => done(l.id)).length} of {lessons.length} done ⭐</p>
     {!lessons.length && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-lg">New lessons are coming soon! 🌟</p>}
-    <div className="mt-6 grid gap-4">{lessons.map((l, i) => { const locked = l.tier === "premium" && !premium; return <button key={l.id} onClick={() => (locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
-      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", locked && "opacity-70")}>
-      <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-3xl">{done(l.id) ? "⭐" : lessons.findIndex((y) => !done(y.id)) === i ? "👉" : i + 1}</span>
+    {levels.map((lv) => { const inLv = lessons.filter((l) => l.stage === lv); const lvDone = inLv.every((l) => done(l.id)); const lvName = kStages.find((x) => x.id === lv)?.name ?? lv;
+      return <section key={lv} className="mt-8">
+      {levels.length > 1 && <h2 className="font-serif text-3xl">{lvDone ? "🏆" : "📘"} {lvName}</h2>}
+      {lvDone && uid && <CertificateCard className="mt-3" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: lvName, category: live.find((c) => c.id === cid)?.name ?? "", kids: true, date: Math.max(...inLv.map((l) => progress.done?.[l.id] ?? 0)) || Date.now() }} />}
+      <div className="mt-4 grid gap-4">{inLv.map((l) => { const i = lessons.indexOf(l); const locked = l.tier === "premium" && !premium; const shut = !done(l.id) && i !== nextUp;
+      return <button key={l.id} onClick={() => (shut ? toast("🔒 Finish the lesson before this one first!") : locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
+      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", (locked || shut) && "opacity-60")}>
+      <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-3xl">{done(l.id) ? "⭐" : i === nextUp ? "👉" : shut ? "🔒" : inLv.indexOf(l) + 1}</span>
       <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">{l.title}</b><span className="text-sm text-muted-foreground">{l.mins ? `${l.mins} min` : ""}{locked ? " · 🔒 Premium" : ""}</span></span>
-      {!locked && lessons.findIndex((y) => !done(y.id)) === i && <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-4 py-2 text-lg font-bold text-background">Play ▶</span>}
-    </button>; })}</div>
+      {!locked && i === nextUp && <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-4 py-2 text-lg font-bold text-background">Play ▶</span>}
+    </button>; })}</div></section>; })}
   </div>;
 
   if (cid) return <div className="iq-rise">
