@@ -250,7 +250,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, o
       </div>}
     </div>
 
-    {uid && flow.complete(subject.id, stage) && <CertificateCard className="mt-4" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: stageName(cat, stage), category: cat.name, date: flow.earnedAt(subject.id, stage) }} />}
+    {uid && flow.complete(subject.id, stage) && <CertificateCard className="mt-4" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: stageName(cat, stage), category: cat.name, date: flow.earnedAt(subject.id, stage), stars: stagesOf(cat).filter((st) => subject.stages.includes(st.id)).findIndex((st) => st.id === stage) + 1 }} />}
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <ol className="mt-3 grid gap-2">{lessons.map((l, i) => {
@@ -328,7 +328,7 @@ function KidStudy({ cats }: { cats: Category[] }) {
     {levels.map((lv) => { const inLv = lessons.filter((l) => l.stage === lv); const lvDone = inLv.every((l) => done(l.id)); const lvName = kStages.find((x) => x.id === lv)?.name ?? lv;
       return <section key={lv} className="mt-8">
       {levels.length > 1 && <h2 className="font-serif text-3xl">{lvDone ? "🏆" : "📘"} {lvName}</h2>}
-      {lvDone && uid && <CertificateCard className="mt-3" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: lvName, category: live.find((c) => c.id === cid)?.name ?? "", kids: true, date: Math.max(...inLv.map((l) => progress.done?.[l.id] ?? 0)) || Date.now() }} />}
+      {lvDone && uid && <CertificateCard className="mt-3" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: lvName, category: live.find((c) => c.id === cid)?.name ?? "", kids: true, stars: levels.indexOf(lv) + 1, date: Math.max(...inLv.map((l) => progress.done?.[l.id] ?? 0)) || Date.now() }} />}
       <div className="mt-4 grid gap-4">{inLv.map((l) => { const i = lessons.indexOf(l); const locked = l.tier === "premium" && !premium; const shut = !done(l.id) && i !== nextUp;
       return <button key={l.id} onClick={() => (shut ? toast("🔒 Finish the lesson before this one first!") : locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
       className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", (locked || shut) && "opacity-60")}>
