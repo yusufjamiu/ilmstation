@@ -16,6 +16,7 @@ import { db } from "@/lib/firebase";
 import { CertificateCard } from "@/components/study-certificate";
 import { StudyPlanCard } from "@/components/study-plan";
 import { StudyTestBar, testOn } from "@/components/study-test";
+import { KidRoad, LessonPath, ProgressBar, StageRail } from "@/components/study-path";
 import type { Plan } from "@/components/study-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -149,7 +150,8 @@ function makeFlow(cat: Category | undefined, subjects: Subject[], lessons: Lesso
     if (subs.length && subs.every((s) => complete(s.id, stage))) return "done";
     return testOn() || subs.some((s) => open(s.id, stage)) || idxOf(stage) <= reached ? "open" : "locked";
   };
-  return { lessonsOf, complete, prevStage, open, earnedAt, stageState };
+  const stageProgress = (stage: string) => { const ls = inStage(stage).flatMap((s) => lessonsOf(s.id, stage)); return { done: ls.filter((l) => done[l.id]).length, total: ls.length }; };
+  return { lessonsOf, complete, prevStage, open, earnedAt, stageState, stageProgress };
 }
 
 /* ---------------- stages ---------------- */
@@ -164,21 +166,23 @@ function StagesView({ cat, subjects, flow, reached, onBack, onOpen, onExam }: { 
     {subjects === null ? <p className="mt-6 text-sm text-muted-foreground">Loading…</p>
       : <div className="mt-6 grid gap-6">{cat.levels.map((l) => <section key={l.id}>
         <h2 className="font-serif text-2xl">{l.name} {l.nameAr && <span dir="rtl" className="text-lg text-muted-foreground">{l.nameAr}</span>}</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">{stages.filter((s) => s.level.id === l.id).map((s) => {
+        <StageRail items={stages.filter((s) => s.level.id === l.id).map((s) => {
           const idx = stages.indexOf(s);
           const n = subjects.filter((x) => x.stages.includes(s.id)).length;
           const state = flow.stageState(s.id);
           const prev = stages[idx - 1];
-          return <div key={s.id} className={cn("flex flex-col justify-between gap-3 border-2 border-foreground bg-card p-4 shadow-brutal-sm", state === "locked" && "bg-muted")}>
+          const pg = flow.stageProgress(s.id);
+          return { key: s.id, state: !n ? "soon" as const : state, current: s.id === firstOpen, node: <div className={cn("flex flex-col justify-between gap-3 border-2 border-foreground bg-card p-4 shadow-brutal-sm", state === "locked" && "bg-muted", s.id === firstOpen && "shadow-brutal")}>
             <button disabled={state === "locked" || !n} onClick={() => onOpen(s.id)} className="flex items-center justify-between text-left disabled:cursor-default">
               <span><span className="block font-serif text-2xl">{s.name}</span>
-                <span className="text-xs text-muted-foreground">{state === "done" ? "Completed ✓" : !n ? "Coming soon" : `${n} subject${n > 1 ? "s" : ""}`}</span></span>
+                <span className="text-xs text-muted-foreground">{state === "done" ? "Completed ✓" : !n ? "Coming soon" : `${n} subject${n > 1 ? "s" : ""}`}</span>
+                {n > 0 && state !== "locked" && <ProgressBar done={pg.done} total={pg.total} />}</span>
               {state === "locked" ? <Lock className="size-4" /> : state === "done" ? <CheckCircle2 className="size-5 text-secondary" /> : n ? <ChevronRight className="size-5" /> : null}
             </button>
             {state !== "locked" && n > 0 && <button onClick={() => onOpen(s.id)} className="text-left"><CardAction label={state === "open" ? "Start →" : "Review →"} pulse={s.id === firstOpen} /></button>}
             {state === "locked" && prev && n > 0 && idx > reached && <Button size="sm" variant="outline" onClick={() => onExam(promoExamId(cat.id, prev.id))}>Test out to here</Button>}
-          </div>;
-        })}</div>
+          </div> };
+        })} />
       </section>)}</div>}
   </div>;
 }
@@ -262,20 +266,11 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
     {uid && lessons.length > 0 && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
-      : <ol className="mt-3 grid gap-2">{lessons.map((l, i) => {
-        const isDone = !!done[l.id];
-        const open = testOn() || isDone || i === firstOpen || firstOpen === -1;
-        const locked = !canAccess(l.id, l.tier);
-        return <li key={l.id}><button disabled={!open} onClick={() => locked ? toast("This lesson is for Premium members.") : onLesson(l.id)}
-          className={cn("flex w-full items-center gap-3 border-2 border-foreground bg-card p-4 text-left shadow-brutal-sm disabled:opacity-50", i === firstOpen && "bg-primary")}>
-          {isDone ? <CheckCircle2 className="size-5 shrink-0 text-secondary" /> : open ? <Circle className="size-5 shrink-0" /> : <Lock className="size-5 shrink-0" />}
-          <span className="min-w-0 flex-1"><span className="block font-semibold">{i + 1}. {l.title}</span><span dir="auto" className="text-xs text-muted-foreground">{[l.book && l.part ? `${l.book} · ${l.part}` : l.book || l.part, `${l.mins} min`, l.tier === "premium" ? "Premium" : ""].filter(Boolean).join(" · ")}</span></span>
-          {locked ? <span className="border-2 border-foreground px-2 text-xs font-bold">Premium</span>
-            : i === firstOpen ? <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-3 py-1.5 text-sm font-bold text-background">Start ▶</span>
-            : isDone ? <span className="shrink-0 border-2 border-foreground bg-background px-2 py-1 text-xs font-bold">Review</span>
-            : open && <ChevronRight className="size-5" />}
-        </button></li>;
-      })}</ol>}
+      : <LessonPath lessons={lessons} isDone={(id) => !!done[id]} firstOpen={firstOpen} levelName={stageName(cat, stage)}
+          canOpen={(i) => testOn() || !!done[lessons[i]!.id] || i === firstOpen || firstOpen === -1}
+          premiumLocked={(l) => !canAccess(l.id, l.tier as Lesson["tier"])}
+          onOpen={(l) => (!canAccess(l.id, l.tier as Lesson["tier"]) ? toast("This lesson is for Premium members.") : onLesson(l.id))}
+          certificate={flow.complete(subject.id, stage) ? "earned" : "locked"} />}
 
     {exam && <div className={cn("mt-6 flex flex-wrap items-center gap-4 border-2 border-foreground p-5 shadow-brutal", r?.passed ? "bg-secondary text-secondary-foreground" : "bg-card")}>
       <GraduationCap className="size-9 shrink-0" />
@@ -338,13 +333,12 @@ function KidStudy({ cats }: { cats: Category[] }) {
       return <section key={lv} className="mt-8">
       {levels.length > 1 && <h2 className="font-serif text-3xl">{lvDone ? "🏆" : "📘"} {lvName}</h2>}
       {lvDone && uid && <CertificateCard className="mt-3" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: lvName, category: live.find((c) => c.id === cid)?.name ?? "", kids: true, stars: levels.indexOf(lv) + 1, date: Math.max(...inLv.map((l) => progress.done?.[l.id] ?? 0)) || Date.now() }} />}
-      <div className="mt-4 grid gap-4">{inLv.map((l) => { const i = lessons.indexOf(l); const locked = l.tier === "premium" && !premium; const shut = !testOn() && !done(l.id) && i !== nextUp;
-      return <button key={l.id} onClick={() => (shut ? toast("🔒 Finish the lesson before this one first!") : locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
-      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", (locked || shut) && "opacity-60")}>
-      <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-3xl">{done(l.id) ? "⭐" : i === nextUp ? "👉" : shut ? "🔒" : inLv.indexOf(l) + 1}</span>
-      <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">{l.title}</b><span className="text-sm text-muted-foreground">{l.mins ? `${l.mins} min` : ""}{locked ? " · 🔒 Premium" : ""}</span></span>
-      {!locked && i === nextUp && <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-4 py-2 text-lg font-bold text-background">Play ▶</span>}
-    </button>; })}</div></section>; })}
+      <div className="mt-4"><KidRoad lessons={inLv} isDone={done} nextId={lessons[nextUp]?.id}
+        isShut={(id) => !testOn() && !done(id) && id !== lessons[nextUp]?.id} isPremiumLocked={(l) => l.tier === "premium" && !premium}
+        trophy={lvDone ? `${lvName} done!` : `Finish ${lvName}`} trophyDone={lvDone}
+        onOpen={(l) => { const shut = !testOn() && !done(l.id) && l.id !== lessons[nextUp]?.id;
+          if (shut) toast("🔒 Finish the lesson before this one first!"); else if (l.tier === "premium" && !premium) toast("🔒 This lesson is Premium. Ask your parent about Premium!"); else setLessonId(l.id); }} /></div>
+    </section>; })}
   </div>;
 
   if (cid) return <div className="iq-rise">
