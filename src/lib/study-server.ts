@@ -7,6 +7,8 @@ import {
 /* Study exams are marked here so answers never reach the browser.
    POST /api/study-exam { action: "start", examId }            → a random set of questions
    POST /api/study-exam { action: "submit", examId, answers }  → score, pass/fail, explanations
+   POST /api/study-exam { action: "stage-complete", category, stage } → opens the next stage when every lesson
+        of this stage is done (lesson courses such as Qira'ah end with their own final-exam lesson)
    Passing a promotion exam opens the next stage. Taking one early (to skip ahead) is allowed
    once every exam.waitDays days. */
 
@@ -63,7 +65,8 @@ export async function handleStudyExam(request: Request): Promise<Response> {
   if (!a) return json({ error: "Server not set up" }, 500);
   let uid: string;
   try { uid = (await a.auth.verifyIdToken((request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""))).uid; } catch { return json({ error: "Not signed in" }, 401); }
-  const body = (await request.json().catch(() => ({}))) as { action?: string; examId?: string; answers?: Record<string, unknown> };
+  const body = (await request.json().catch(() => ({}))) as { action?: string; examId?: string; answers?: Record<string, unknown>; category?: string; stage?: string };
+  if (body.action === "stage-complete") return stageComplete(a.db, uid, String(body.category ?? "").slice(0, 100), String(body.stage ?? "").slice(0, 100));
   const examId = String(body.examId ?? "").slice(0, 200);
   if (!examId) return json({ error: "Missing exam" }, 400);
 
@@ -122,4 +125,31 @@ export async function handleStudyExam(request: Request): Promise<Response> {
   }
 
   return json({ error: "Unknown action" }, 400);
+}
+
+/** Every published lesson of this stage is done → open the next stage.
+ *  Skipped when the admin has published a promotion exam for the stage (then that exam decides). */
+async function stageComplete(db: Db, uid: string, catId: string, stageId: string): Promise<Response> {
+  if (!catId || !stageId) return json({ error: "Missing stage" }, 400);
+  const stages = stagesOf(await category(db, catId));
+  const idx = stages.findIndex((s) => s.id === stageId);
+  const next = stages[idx + 1];
+  const resRef = db.doc(`studyResults/${uid}`);
+  const results = ((await resRef.get()).data() as Results | undefined) ?? {};
+  if (idx < 0 || !next) return json({ promoted: false, reason: "No next stage." });
+  if (idx !== reachedIndex(results, catId, stages)) return json({ promoted: false, reason: "Not the current stage." });
+  const promo = await db.doc(`studyExams/promo__${catId}__${stageId}`).get();
+  if (promo.exists && promo.get("status") === "published") return json({ promoted: false, reason: "Pass the promotion exam." });
+  const subjects = (await db.collection("studySubjects").where("category", "==", catId).where("status", "==", "published").get())
+    .docs.filter((d) => ((d.get("stages") as string[] | undefined) ?? []).includes(stageId)).map((d) => d.id);
+  if (!subjects.length) return json({ promoted: false, reason: "No subjects." });
+  const [lessons, prog] = await Promise.all([
+    db.collection("studyLessons").where("stage", "==", stageId).where("status", "==", "published").get(),
+    db.doc(`studyProgress/${uid}`).get(),
+  ]);
+  const mine = lessons.docs.filter((l) => subjects.includes(String(l.get("subjectId"))));
+  const done = (prog.get("done") as Record<string, number> | undefined) ?? {};
+  if (!mine.length || mine.some((l) => !done[l.id])) return json({ promoted: false, reason: "Finish all the lessons first." });
+  await resRef.set({ at: { [catId]: next.id }, reached: { [catId]: idx + 1 } }, { merge: true });
+  return json({ promoted: true, next: next.id });
 }

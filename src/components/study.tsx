@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, auth as authS } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { usePremium } from "@/components/premium";
@@ -61,6 +61,28 @@ export function StudyScreen() {
   const subjects = useDocs<Subject>("studySubjects", view.cat ? [["category", view.cat]] : [], !!view.cat);
   const stageLessons = useDocs<Lesson>("studyLessons", view.stage ? [["stage", view.stage]] : [], !!view.stage);
   const examView = useExam(view.exam);
+  // Qira'ah-style courses: finishing every lesson of the current stage (the last one is its final exam) opens the next stage
+  useEffect(() => {
+    const c = (cats ?? []).find((x) => x.id === view.cat);
+    if (!c || !view.stage || !uid || !subjects || !stageLessons) return;
+    const st = stagesOf(c), idx = st.findIndex((s) => s.id === view.stage);
+    if (idx < 0 || !st[idx + 1] || idx !== reachedIndex(results, c.id, st)) return;
+    const subs = subjects.filter((s) => s.stages.includes(view.stage!)).map((s) => s.id);
+    const mine = stageLessons.filter((l) => subs.includes(l.subjectId));
+    if (!mine.length || mine.some((l) => !progress.done?.[l.id])) return;
+    const key = `ilm-stage-up:${c.id}:${view.stage}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    void (async () => {
+      try {
+        const u = authS.currentUser; if (!u) return;
+        const r = await fetch("/api/study-exam", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await u.getIdToken()}` },
+          body: JSON.stringify({ action: "stage-complete", category: c.id, stage: view.stage }) });
+        const d = (await r.json()) as { promoted?: boolean };
+        if (d.promoted) toast.success(`Masha'Allah! ${st[idx + 1]!.name} is now open.`);
+      } catch { sessionStorage.removeItem(key); }
+    })();
+  }, [cats, view.cat, view.stage, uid, subjects, stageLessons, progress.done, results]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { window.scrollTo?.(0, 0); }, [view]);
   if (studyAcct?.zone === "kids") return <KidStudy cats={cats ?? []} />;

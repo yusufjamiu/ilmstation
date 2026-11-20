@@ -151,8 +151,26 @@ const F = "َ";
 const LET28 = "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي".split(" ");
 const FKEYS = LET28.map(l => (l==="ا" ? "أ" : l) + F);
 /** كَتَبَ → ["كَ","تَ","بَ"] (a letter with its marks) */
-const syl = w => { const out=[]; for (const ch of w){ if (ch===" "){ out.push(" "); continue; } if (/[ً-ْٰ]/.test(ch) && out.length) out[out.length-1]+=ch; else out.push(ch); } return out; };
-const tr = w => sayGuide(w);
+// marks that sit on a letter: harakat, sukun, shadda, tanween, dagger alif, maddah, hamza above/below, small waw/ya, round zero
+const MARK_RE = /[ً-ٰٕ۟ۥۦ]/;
+/** كَتَبَ → ["كَ","تَ","بَ"]; a madd letter joins the syllable before it: قَامَ → ["قَا","مَ"], تُوبُوا۟ → ["تُو","بُوا۟"] */
+const syl = w => { const out=[], ch=[...w];
+  for (let i=0;i<ch.length;i++){ const c=ch[i], nx=ch[i+1]||"", prev=out[out.length-1]||"";
+    if (c===" "){ out.push(" "); continue; }
+    if (MARK_RE.test(c) && out.length){ out[out.length-1]+=c; continue; }
+    const ownVowel = /[ً-ْ]/.test(nx);
+    const madd = prev && prev!==" " && !ownVowel && (
+      (c==="ا" && /[َُِٰ]$|و$/.test(prev)) ||
+      (c==="ى" && /[َِ]$/.test(prev)) ||
+      (c==="و" && /ُ$/.test(prev)) || (c==="ي" && /ِ$/.test(prev)));
+    if (madd) out[out.length-1]+=c; else out.push(c);
+  }
+  return out; };
+/** what the voice gets: Qur'anic-only marks turned into plain spelling (same sound) */
+const audioForm = t => t.replace(/ـَٔ/g,"ءَ").replace(/ـِٔ/g,"ئِ").replace(/ـ/g,"").replace(/ىٰ/g,"ى").replace(/ٰ/g,"ا")
+  .replace(/ۥ/g,"و").replace(/ۦ/g,"ي").replace(/۟/g,"").replace(/[ٓٔ]/g,"");
+const tr = w => sayGuide(audioForm(w));
+{ const _vu = voiceUrl; voiceUrl = (t, r, l="ar") => _vu(l==="ar" ? audioForm(t) : t, r, l); }
 // "صَعَ|دَ" in the content = read صَعَ as one chunk, then دَ (book p.10)
 const PARTS = {}; WORDS.forEach((w,i)=>{ const c=w.replace(/\|/g,""); if(w.includes("|")) PARTS[c]=w.split("|"); WORDS[i]=c; });
 const partsOf = w => PARTS[w] || (w.includes(" ") ? w.split(" ") : syl(w));
@@ -167,7 +185,12 @@ function variants(w, n=3){
   while (out.size<n && guard++<300){
     const c=s.slice(), i=Math.floor(Math.random()*c.length); if (c[i]===" ") continue;
     const mk=(c[i].match(/[\u064E\u0650\u064F]/)||[])[0];
-    if (MARKS.length>1 && mk && Math.random()<.5){ c[i]=c[i].replace(mk, rand(MARKS.filter(x=>x!==mk))); const v=c.join(""); if(v!==w) out.add(v); continue; }
+    const VM=[..."َُِ"].filter(m=>WORDS.some(x=>x.includes(m)));
+    const hasMadd = /[اوىيۥۦ]/.test(c[i].slice(1).replace(/[ً-ٕ]/g,""));
+    if (MADD_LESSON && mk && Math.random()<.45){                     // long ↔ short: قَامَ ↔ قَمَ
+      c[i] = hasMadd ? c[i].replace(/[اىويۥۦ](?=[۟]?$)/,"") : c[i]+({"َ":"ا","ِ":"ي","ُ":"و"})[mk];
+      const v=c.join(""); if(v!==w) out.add(v); continue; }
+    if (VM.length>1 && mk && !hasMadd && Math.random()<.5){ c[i]=c[i].replace(mk, rand(VM.filter(x=>x!==mk))); const v=c.join(""); if(v!==w) out.add(v); continue; }
     const base=c[i][0], groups=TWINS.filter(g=>g.includes(base)); if(!groups.length) continue;
     c[i]=rand(rand(groups).filter(x=>x!==base))+c[i].slice(1);
     const v=c.join(""); if (v!==w) out.add(v);
@@ -175,6 +198,7 @@ function variants(w, n=3){
   return [...out];
 }
 let stars=0, missed=new Set(), timer=null;
+const MADD_LESSON = WORDS.some(w=>syl(w).some(x=>/[اوىي\u06E5\u06E6\u0670]/.test(x.slice(1).replace(/[\u064B-\u0652]/g,""))));
 let ac; function tone(f,d=.1,vol=.12){ if(muted)return; try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); f.forEach((fr,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=fr;const t=ac.currentTime+i*d;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+d*1.8);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+d*2);});}catch(e){} }
 const good=()=>tone([587,880]), bad=()=>tone([196,165],.14,.07);
 function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),1300); }
@@ -244,11 +268,12 @@ function Intro2(st){
   const scenes=[{show:`<div class="${(SHOW[0]||"").includes(" ")?"phrase":"word"}" style="font-size:min(50px,12vw)">${SHOW.slice(0,3).join("<br>")}</div>`, say:GOAL},
     {show:`<div class="row mid">${ACTS.slice(1).map((a,i)=>`<span class="ghost" style="cursor:default">${i+1}. ${STEP_INFO[a].t}</span>`).join("")}</div>`,
      say:`You will practise step by step, and finish with ${KIDS?"a final check":"an exam"}. You need ${Math.round(PASS*100)} percent to pass, and you can try again as many times as you like.`}];
+  if (typeof RULE!=="undefined") scenes.splice(1,0,{show:`<div class="card" style="text-align:left;line-height:1.6">${RULE.text}</div>${RULE.pairs?`<div class="row mid" style="margin-top:12px;direction:rtl">${RULE.pairs.map(p=>`<span class="syl">${p[0]}</span><span style="font-size:22px">←</span><span class="syl hl">${p[1]}</span>`).join("")}</div>`:""}`, say:RULE.say||RULE.text.replace(/<[^>]+>/g,""), ar:(RULE.pairs||[]).flat()});
   let k=0, token=++introTok;
   st.innerHTML=`<div class="card" style="padding:0;overflow:hidden">${KIDS?`<div class="nuri" style="padding-top:14px">🌙</div>`:""}<div class="vstage" id="vs"></div><div class="vcap" id="cap"></div></div>${nextBtn(KIDS?"Let's go":"Start the lesson")}`;
   bindNext();
   (async()=>{ while(k<scenes.length && token===introTok && st.isConnected){ $("#vs").innerHTML=scenes[k].show; $("#cap").textContent=scenes[k].say;
-      await atLeast(speakEn(scenes[k].say),1500); await wait(400); k++; } })();
+      await atLeast(speakEn(scenes[k].say),1500); for(const a of (scenes[k].ar||[])){ if(token!==introTok||!st.isConnected) return; await atLeast(speak(a),700); await wait(250); } await wait(400); k++; } })();
 }
 let introTok=0;
 
@@ -409,20 +434,25 @@ function Listen(st){
   }
   q();
 }
-const MARKS = [..."َُِ"].filter(m=>WORDS.some(w=>w.includes(m)));
+const writable = w => !isPh(w) && /^[ء-يَُِ]+$/.test(w) && !/[آى]/.test(w) && syl(w).every(x=>/[َُِ]/.test(x));
+const MARKS = [..."َُِ"].filter(m=>WORDS.filter(writable).some(w=>w.includes(m)));
+const MADDS = [..."اوي"].filter(m=>WORDS.filter(writable).some(w=>syl(w).some(x=>x.length>2 && x.endsWith(m))));
 const ONE = MARKS.length<=1 ? (MARKS[0]||F) : null;           // one harakah in the lesson → keys carry it
-const BASES = (()=>{ const b=LET28.map(l=>l==="ا"?"أ":l); WORDS.join("").replace(/[ً-ْ\s|]/g,"").split("").forEach(c=>{ if(!b.includes(c)) b.push(c); }); return b; })();
+const BASES = (()=>{ const b=LET28.map(l=>l==="ا"?"أ":l); WORDS.filter(writable).join("").replace(/[ً-ْ]/g,"").split("").forEach(c=>{ if(!b.includes(c) && "ءأإؤئة".includes(c)) b.push(c); }); return b; })();
 const MNAME = {"َ":"fatha","ِ":"kasra","ُ":"damma"};
 const keyboard = () => `<div class="kb">${BASES.map(k=>`<button class="key" data-k="${ONE?k+ONE:k}">${ONE?k+ONE:k}</button>`).join("")}
+  ${MADDS.map(a=>`<button class="key mk" data-a="${a}" style="grid-column:span 2;font-size:14px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:24px">${a}</span> madd</button>`).join("")}
   ${ONE?"":MARKS.map(m=>`<button class="key mk" data-m="${m}" style="grid-column:span 2;font-size:15px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:26px">ـ${m}</span> ${MNAME[m]}</button>`).join("")}
   <button class="key wide" data-k="⌫">⌫ Delete</button></div>`;
 function bindKeys(root, max, onChange){ let t=[];
   root.querySelectorAll(".key").forEach(b=>b.onclick=()=>{ const k=b.dataset.k, m=b.dataset.m;
-    if(m){ if(t.length){ t[t.length-1]=t[t.length-1].replace(/[َُِ]/g,"")+m; } }
+    const a=b.dataset.a, tail=x=>(x.slice(1).match(/[اوي]$/)||[""])[0];
+    if(a){ if(t.length && !tail(t[t.length-1])) t[t.length-1]+=a; }
+    else if(m){ if(t.length){ const x=t[t.length-1], md=tail(x), base=md?x.slice(0,-1):x; t[t.length-1]=base.replace(/[َُِ]/g,"")+m+md; } }
     else if(k==="⌫") t.pop(); else if(t.length<max) t.push(k);
     tone([520],.04,.05); onChange(t); }); return ()=>t; }
 function Write(st){
-  const list=shuffle(WORDS.filter(w=>!isPh(w))).slice(0,5); let r=0, right=0;
+  const list=shuffle(WORDS.filter(writable)).slice(0,5); let r=0, right=0;
   function q(){ if(!st.isConnected) return;
     if(r>=list.length){ st.innerHTML=doneCard("✍️", `${right} / ${list.length} written correctly`); bindNext(); return; }
     const w=list[r], parts=syl(w);
@@ -448,7 +478,7 @@ function makeExam(){
     if(!KIDS) pick(READ_N).forEach(w=>qs.push({type:"Reading", text:"How is this read?", show:w, opts:shuffle([tr(w),...variants(w,3).map(tr)].filter((v,i,a)=>a.indexOf(v)===i)), ans:tr(w)}));
     else pick(2).forEach(w=>qs.push({type:"Reading", text:"Which one matches what you hear?", listen:w, opts:shuffle([w,...variants(w,2)]), ans:w, ar:true}));
     shuffle(WORDS.filter(multi)).slice(0,BUILD_N).forEach(w=>qs.push({type:"Build", text:"Build what you hear.", build:w}));
-    shuffle(WORDS.filter(w=>!isPh(w))).slice(0,WRITE_N).forEach(w=>qs.push({type:"Writing", text:"Listen, then write it.", write:w}));
+    shuffle(WORDS.filter(writable)).slice(0,WRITE_N).forEach(w=>qs.push({type:"Writing", text:"Listen, then write it.", write:w}));
   }
   if (typeof FORMS_LETTERS!=="undefined"){
     shuffle(FORMS_LETTERS.filter(l=>!NOJOIN.includes(l))).slice(0,6).forEach(l=>{ const sh=rand(shapes(l).slice(1)), tw=TWINS.find(g=>g.includes(l))||[];
