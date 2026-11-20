@@ -33,6 +33,18 @@ const ADULT_TEACHER =
   "You are a calm, kind male Qur'an teacher speaking to adult beginners. Speak slowly and very clearly, like a patient teacher in a class: " +
   "a relaxed pace, a short pause after every sentence and after every comma, and never rush. Pronounce every word fully and warmly. " + ARABIC_TERMS;
 
+// Intermediate level (tajweed lessons, ?tj=1): read as a qualified reciter, Hafs 'an 'Asim.
+const TAJWEED_RULE =
+  "You are a qualified Qur'an reciter teaching tajweed. Use correct Qur'anic (Classical) pronunciation, NO dialect accent. " +
+  "Read slowly and clearly (tartil), applying the rules of tajweed in the narration of Hafs 'an 'Asim: " +
+  "a natural long vowel (alif, waw, ya after its matching vowel) is two counts; where the maddah sign (ٓ) is written, stretch the long vowel 4 to 5 counts, " +
+  "and 6 counts when a shadda or sukun follows in the same word (like ٱلضَّآلِّينَ, ٱلْحَآقَّةُ). " +
+  "Ghunnah (nasal sound, two counts) on noon and meem with shadda; idgham with ghunnah when noon sakinah or tanween meets ي ن م و; " +
+  "idgham without ghunnah before ل and ر; iqlab before ب (the noon becomes a hidden meem with ghunnah); ikhfa (hidden noon with ghunnah) before the other ikhfa letters; " +
+  "clear noon (izhar) before ء ه ع ح غ خ; ikhfa shafawi when meem sakinah meets ب, idgham when it meets م, otherwise a clear meem. " +
+  "Qalqalah (a light echo) on ق ط ب ج د with sukun. Short vowels stay short. Pronounce the last vowel of every word unless a sukun is written. " +
+  "Disjoined letters at the start of a surah are read by their letter names. ";
+
 // Letters that dialects often change. A note is added only for letters that appear in the word.
 const LETTER_NOTES: Record<string, string> = {
   "ث": "ث (tha) is 'th' as in English 'think' — tongue between the teeth. NEVER 's' or 'z'.",
@@ -66,8 +78,9 @@ export async function handleTts(request: Request): Promise<Response> {
   if (english) {
     if (!text || text.length > 400 || !/^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text))
       return json({ error: "Short English text only (max 400 characters)." }, 400);
-  } else if (!text || text.length > 80 || !/^[\u0600-\u06FF\s،.]+$/.test(text))
-    return json({ error: "Arabic text only (max 80 characters)." }, 400);
+  } else if (!text || text.length > 120 || !/^[\u0600-\u06FF\s،.]+$/.test(text))
+    return json({ error: "Arabic text only (max 120 characters)." }, 400);
+  const tajweed = !english && url.searchParams.get("tj") === "1";   // Intermediate lessons: full tajweed
   const slow = url.searchParams.get("slow") === "1";
   // Exact pronunciation sent by the lesson, e.g. "ka-ta-ba" (a/i/u short, aa/ii/uu long)
   const say = (url.searchParams.get("say") ?? "").trim();
@@ -104,8 +117,8 @@ export async function handleTts(request: Request): Promise<Response> {
         model: "gpt-4o-mini-tts",
         voice: english ? (adult ? "onyx" : "coral") : "onyx", // adults: the same deep male voice as the Arabic reading
         input: text,
-        instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) : READ_RULE + guide + notes,
-        speed: english ? (adult ? 0.85 : 0.92) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
+        instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) : tajweed ? TAJWEED_RULE + notes : READ_RULE + guide + notes,
+        speed: english ? (adult ? 0.85 : 0.92) : tajweed ? (slow ? 0.8 : 0.92) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
         response_format: "mp3",
       }),
     });

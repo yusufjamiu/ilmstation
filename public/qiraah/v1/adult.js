@@ -49,7 +49,7 @@ const SAY_TR = {"ب":"b","ت":"t","ث":"th","ج":"j","ح":"ḥ","خ":"kh","د":"
   "ط":"ṭ","ظ":"ẓ","ع":"ʿ","غ":"gh","ف":"f","ق":"q","ك":"k","ل":"l","م":"m","ن":"n","ه":"h","و":"w","ي":"y",
   "ء":"ʾ","أ":"ʾ","إ":"ʾ","ؤ":"ʾ","ئ":"ʾ","ا":"ʾ","ة":"t"};
 function sayGuide(text){
-  return text.split(/\s+/).filter(Boolean).map(word=>{
+  const words = text.split(/\s+/).filter(Boolean).map((word, wi)=>{
     if(/^[\u064B-\u0652\u0670]*ا?لل[\u064B-\u0652\u0670]*ه[\u064B-\u0652]*$/.test(word.replace(/[\u064B-\u0652\u0670]/g,""))) return "al-laah";
     const ch=[...word.replace(/[،.]/g,"")], toks=[]; // {c, v}
     for(let i=0;i<ch.length;i++){
@@ -60,6 +60,10 @@ function sayGuide(text){
         else if(m==="ً")v="an"; else if(m==="ٍ")v="in"; else if(m==="ٌ")v="un";
         else if(m==="ْ")v=""; else if(m==="ّ")sh=true; else if(m==="ٰ")v="aa"; j++; }
       const prev=toks[toks.length-1];
+      if(c==="ا" && v===null && i===0){ if(wi===0) toks.push({c:"", v: ch[1]==="ل" ? "a" : "i"}); else toks.push({c:"~",v:""}); continue; }  // Hamzatul Wasl: said only at the start
+      if(c==="ا" && v===null && prev && !prev.v.startsWith("a") && prev.v!=="") continue;                 // wasl inside a word: بِٱلَّيْلِ
+      if(("اى").includes(c) && v===null && prev && prev.v==="an") continue;                               // the alif after tanween fath is silent
+      if(c==="ل" && v===null && !sh && /\u0651/.test(ch.slice(i+1, i+4).join(""))) continue;                // sun laam: written, not said
       // long vowels: plain ا/ى after a, و after u, ي after i
       if(v===null && prev && ((("اى").includes(c)&&prev.v==="a")||(c==="و"&&prev.v==="u")||(c==="ي"&&prev.v==="i"))){ prev.v+=prev.v; continue; }
       if(c==="ة" && v===null){ toks.push({c:"h",v:""}); continue; }          // ta marbuta at a stop
@@ -70,7 +74,13 @@ function sayGuide(text){
     // syllables: a new one starts at each consonant that carries a vowel
     let out=""; toks.forEach((t,k)=>{ if(k && t.v && out && !out.endsWith("-")) out+="-"; out+=t.c+t.v; });
     return out.replace(/^ʾ/,"").replace(/^-/,"");
-  }).join(" ");
+  });
+  // a word starting with Hamzatul Wasl joins the word before it: مَا ٱلْعَقَبَةُ → "mal-ʿa-qa-ba-tu"
+  const out=[]; for(const w of words){
+    if(w.startsWith("~") && out.length){ let p=out.pop(); p = /(an|in|un)$/.test(p) ? p+"i" : p.replace(/(aa|ii|uu)$/, m=>m[0]); out.push(p + w.slice(1).replace(/^-/,"")); }
+    else out.push(w.replace(/^~-?/,""));
+  }
+  return out.join(" ");
 }
 /* ===== VOICE: 1) teacher recording  2) OpenAI voice (/api/tts) with exact pronunciation  3) phone voice as last resort =====
    Phones and tablets block sound that starts before the first tap. So: ONE audio player, unlocked by the first tap
@@ -246,9 +256,9 @@ function bindNext(){ $("#nx").onclick=()=>{ addXP(XP[stepNow]); Lesson(stepNow+1
 const wait0 = ms => new Promise(r=>setTimeout(r,ms));
 function introScenes(){
   const pct = Math.round(PASS*100), sc = [];
-  if (LESSON.level==="beginner-1" && LESSON.lesson===1) sc.push(
+  if (LESSON.level==="preparatory" && LESSON.lesson===1) sc.push(
     {show:"logo", say:"Assalamu alaikum, and welcome to the Qira'ah class. In this course you will learn to read the Qur'an correctly, step by step, with the book Nour al-Bayan."},
-    {show:"parts", say:"The course has three parts. Beginner 1: the letters and the short vowels, called harakat. Beginner 2: madd, the long vowels. Beginner 3: sukun, tanween, shadda, the rules of tajweed, and reading words and phrases from the Qur'an."},
+    {show:"parts", say:"The course has five levels. Preparatory: the letters and the short vowels, called harakat. Beginner 1: madd, the long vowels. Beginner 2: sukun and tanween. Beginner 3: shadda. Beginner 4: the rules of tajweed, and Qur'anic spelling. Each level ends with a final exam and a certificate."},
     {show:"all", say:"We start at the very beginning: the twenty eight letters of the Arabic alphabet, from Alif to Yaa."});
   sc.push({show:"today", say:GOAL},
           {show:"steps", say:`In each lesson you learn, you say it out loud and the app checks you, you practise with short exercises, and you finish with an exam. You need ${pct} percent to pass, and you can retake it as many times as you like.`},
@@ -261,7 +271,7 @@ function Watch(st){
     <div class="vbar"><button id="pp" aria-label="Pause">⏸</button><div class="vdots" id="vd">${scenes.map(()=>"<i></i>").join("")}</div>
     <button id="rp" aria-label="Replay">↺</button><button id="sk" aria-label="Skip">⏭</button></div></div><div id="nxw"></div>`;
   const vs=$("#vs"), cap=$("#cap"), pp=$("#pp"), alive=my=>my===token && st.isConnected;
-  const parts=[["Beginner 1","الحروف والحركات","letters and harakat"],["Beginner 2","المدود","madd, the long vowels"],["Beginner 3","المفردات والتركيبات","sukun, tanween, shadda, tajweed, words"]];
+  const parts=[["Preparatory","الحروف والحركات","letters and harakat"],["Beginner 1","المدود","madd"],["Beginner 2","السكون والتنوين","sukun and tanween"],["Beginner 3","الشدة","shadda"],["Beginner 4","أحكام التجويد","tajweed rules"]];
   function visual(sh){
     if(sh==="logo") return `<div class="vlogo">ن</div><h2 style="margin:0">Qira'ah</h2><div class="lead" style="margin:0">Nour al-Bayan · <span class="ar">نور البيان</span></div>`;
     if(sh==="parts") return `<div class="vparts">${parts.map((x,i)=>`<div style="animation-delay:${i*.9}s"><b>${x[0]}</b> · ${x[2]} <span class="ar">${x[1]}</span></div>`).join("")}</div>`;

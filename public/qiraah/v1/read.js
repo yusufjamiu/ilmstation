@@ -6,7 +6,7 @@ const SAY_TR = {"ب":"b","ت":"t","ث":"th","ج":"j","ح":"ḥ","خ":"kh","د":"
   "ط":"ṭ","ظ":"ẓ","ع":"ʿ","غ":"gh","ف":"f","ق":"q","ك":"k","ل":"l","م":"m","ن":"n","ه":"h","و":"w","ي":"y",
   "ء":"ʾ","أ":"ʾ","إ":"ʾ","ؤ":"ʾ","ئ":"ʾ","ا":"ʾ","ة":"t"};
 function sayGuide(text){
-  return text.split(/\s+/).filter(Boolean).map(word=>{
+  const words = text.split(/\s+/).filter(Boolean).map((word, wi)=>{
     if(/^[\u064B-\u0652\u0670]*ا?لل[\u064B-\u0652\u0670]*ه[\u064B-\u0652]*$/.test(word.replace(/[\u064B-\u0652\u0670]/g,""))) return "al-laah";
     const ch=[...word.replace(/[،.]/g,"")], toks=[]; // {c, v}
     for(let i=0;i<ch.length;i++){
@@ -17,6 +17,10 @@ function sayGuide(text){
         else if(m==="ً")v="an"; else if(m==="ٍ")v="in"; else if(m==="ٌ")v="un";
         else if(m==="ْ")v=""; else if(m==="ّ")sh=true; else if(m==="ٰ")v="aa"; j++; }
       const prev=toks[toks.length-1];
+      if(c==="ا" && v===null && i===0){ if(wi===0) toks.push({c:"", v: ch[1]==="ل" ? "a" : "i"}); else toks.push({c:"~",v:""}); continue; }  // Hamzatul Wasl: said only at the start
+      if(c==="ا" && v===null && prev && !prev.v.startsWith("a") && prev.v!=="") continue;                 // wasl inside a word: بِٱلَّيْلِ
+      if(("اى").includes(c) && v===null && prev && prev.v==="an") continue;                               // the alif after tanween fath is silent
+      if(c==="ل" && v===null && !sh && /\u0651/.test(ch.slice(i+1, i+4).join(""))) continue;                // sun laam: written, not said
       // long vowels: plain ا/ى after a, و after u, ي after i
       if(v===null && prev && ((("اى").includes(c)&&prev.v==="a")||(c==="و"&&prev.v==="u")||(c==="ي"&&prev.v==="i"))){ prev.v+=prev.v; continue; }
       if(c==="ة" && v===null){ toks.push({c:"h",v:""}); continue; }          // ta marbuta at a stop
@@ -27,7 +31,13 @@ function sayGuide(text){
     // syllables: a new one starts at each consonant that carries a vowel
     let out=""; toks.forEach((t,k)=>{ if(k && t.v && out && !out.endsWith("-")) out+="-"; out+=t.c+t.v; });
     return out.replace(/^ʾ/,"").replace(/^-/,"");
-  }).join(" ");
+  });
+  // a word starting with Hamzatul Wasl joins the word before it: مَا ٱلْعَقَبَةُ → "mal-ʿa-qa-ba-tu"
+  const out=[]; for(const w of words){
+    if(w.startsWith("~") && out.length){ let p=out.pop(); p = /(an|in|un)$/.test(p) ? p+"i" : p.replace(/(aa|ii|uu)$/, m=>m[0]); out.push(p + w.slice(1).replace(/^-/,"")); }
+    else out.push(w.replace(/^~-?/,""));
+  }
+  return out.join(" ");
 }
 /* ===== VOICE: 1) teacher recording  2) OpenAI voice (/api/tts) with exact pronunciation  3) phone voice as last resort =====
    Phones and tablets block sound that starts before the first tap. So: ONE audio player, unlocked by the first tap
@@ -169,7 +179,7 @@ const LET28 = "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك
 const FKEYS = LET28.map(l => (l==="ا" ? "أ" : l) + F);
 /** كَتَبَ → ["كَ","تَ","بَ"] (a letter with its marks) */
 // marks that sit on a letter: harakat, sukun, shadda, tanween, dagger alif, maddah, hamza above/below, small waw/ya, round zero
-const MARK_RE = /[ً-ٰٕ۟ۥۦ]/;
+const MARK_RE = /[ً-ٰٕ۟۠ۢۥۦۭ]/;
 /** كَتَبَ → ["كَ","تَ","بَ"]; a madd letter joins the syllable before it: قَامَ → ["قَا","مَ"], تُوبُوا۟ → ["تُو","بُوا۟"] */
 const syl = w => { const out=[], ch=[...w];
   for (let i=0;i<ch.length;i++){ const c=ch[i], nx=ch[i+1]||"", prev=out[out.length-1]||"";
@@ -184,10 +194,17 @@ const syl = w => { const out=[], ch=[...w];
   }
   return out; };
 /** what the voice gets: Qur'anic-only marks turned into plain spelling (same sound) */
-const audioForm = t => t.replace(/ـَٔ/g,"ءَ").replace(/ـِٔ/g,"ئِ").replace(/ـ/g,"").replace(/ٱ/g,"ا").replace(/ىٰ/g,"ى").replace(/ٰ/g,"ا")
-  .replace(/ۥ/g,"و").replace(/ۦ/g,"ي").replace(/۟/g,"").replace(/[ٓٔ]/g,"");
+// disjoined letters at the start of a surah are read by their names (الٓمٓ → Alif Laam Meem)
+const MUQ = {"الٓمٓ":"أَلِفْ لَآمْ مِيٓمْ","الٓمٓصٓ":"أَلِفْ لَآمْ مِيٓمْ صَآدْ","الٓر":"أَلِفْ لَآمْ رَا","الٓمٓر":"أَلِفْ لَآمْ مِيٓمْ رَا","طسٓمٓ":"طَا سِيٓنْ مِيٓمْ","طسٓ":"طَا سِيٓنْ",
+  "يسٓ":"يَا سِيٓنْ","حمٓ":"حَا مِيٓمْ","عٓسٓقٓ":"عَيٓنْ سِيٓنْ قَآفْ","قٓ":"قَآفْ","صٓ":"صَآدْ","نٓ":"نُوٓنْ","طه":"طَا هَا","كٓهيعٓصٓ":"كَآفْ هَا يَا عَيٓنْ صَآدْ"};
+const spoken = t => t.split(" ").map(x=>MUQ[x]||x).join(" ");
+const audioForm = (t, keepMadd=false) => { t = spoken(t).replace(/ـَٰٔ/g,"ءَا").replace(/ـَٔ/g,"ءَ").replace(/ـِٔ/g,"ئِ").replace(/ـ/g,"").replace(/ٱ/g,"ا").replace(/ىٰ/g,"ى").replace(/ٰ/g,"ا")
+  .replace(/ۥ/g,"و").replace(/ۦ/g,"ي").replace(/[ۭ۟۠ۢ]/g,"").replace(/ٔ/g,""); return keepMadd ? t : t.replace(/ٓ/g,""); };
 const tr = w => sayGuide(audioForm(w));
-{ const _vu = voiceUrl; voiceUrl = (t, r, l="ar") => _vu(l==="ar" ? audioForm(t) : t, r, l); }
+{ const _vu = voiceUrl; voiceUrl = (t, r, l="ar") => { if (l!=="ar") return _vu(t, r, l);
+    let u = _vu(audioForm(t), r, l);
+    if (typeof TAJWEED!=="undefined" && TAJWEED) u = u.replace(/text=[^&]*/, "text="+encodeURIComponent(audioForm(t, true))) + "&tj=1";   // tajweed: keep ٓ (4–6 counts)
+    return u; }; }
 // "صَعَ|دَ" in the content = read صَعَ as one chunk, then دَ (book p.10)
 const PARTS = {}; WORDS.forEach((w,i)=>{ const c=w.replace(/\|/g,"").replace(/([\u064B-\u0650\u0652])\u0651/g,"\u0651$1"); w=w.replace(/([\u064B-\u0650\u0652])\u0651/g,"\u0651$1"); if(w.includes("|")) PARTS[c]=w.split("|"); WORDS[i]=c; });
 const partsOf = w => PARTS[w] || (w.includes(" ") ? w.split(" ") : syl(w));
