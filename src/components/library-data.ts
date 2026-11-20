@@ -42,22 +42,6 @@ export const CATEGORIES = [
 ];
 
 export const LIBRARY: LibraryItem[] = [
-  {
-    id: "tawakkul", title: "Understanding Tawakkul", cats: ["Aqeedah", "Heart & Growth"], kind: "article", mins: 8, tier: "free", cost: 0, age: "kids",
-    arabic: "وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ",
-    translation: "Whoever relies upon Allah — then He is sufficient for him. Qur’an 65:3",
-    body: [
-      "Reliance is active, not passive.",
-      "Tawakkul joins sincere effort with trust in Allah’s decree. The believer takes the available means, asks for guidance, and releases anxiety about the outcome.",
-      "The Prophetic model consistently paired preparation with reliance: journeys were planned, counsel was sought, and every action remained anchored in remembrance.",
-    ],
-  },
-  { id: "mercy", title: "Mercy in the Prophetic Tradition", cats: ["Hadith"], kind: "article", mins: 12, tier: "free", cost: 0, age: "kids" },
-  { id: "hudaybiyyah", title: "The Treaty of Hudaybiyyah", cats: ["Seerah"], kind: "article", mins: 10, tier: "premium", cost: 300, age: "teens" },
-  { id: "wudu", title: "A Practical Guide to Wudu", cats: ["Fiqh"], kind: "article", mins: 6, tier: "free", cost: 0, age: "kids" },
-  { id: "tafsir-mulk", title: "Tafsir of Surah Al-Mulk", cats: ["Tafsir"], kind: "article", mins: 22, tier: "premium", cost: 450, age: "teens" },
-  { id: "arabic-grammar", title: "Classical Arabic: Building Sentences", cats: ["Arabic"], kind: "article", mins: 18, tier: "premium", cost: 400, age: "teens" },
-
   // Listed books: cover details only. Full text needs each author's permission.
   { id: "b-beyond-my-trials", title: "Beyond My Trials: My Journey with Muscular Dystrophy", author: "Fatimah Aderohunmu", cats: ["Heart & Growth"], kind: "book", tier: "free", cost: 0, age: "teens" },
   { id: "b-heart-to-heart", title: "Heart-to-Heart With My Sister", author: "Majeedah Ashimi Idris", cats: ["Sisters' Corner", "Love & Marriage"], kind: "book", tier: "free", cost: 0, age: "adults", audience: "female" },
