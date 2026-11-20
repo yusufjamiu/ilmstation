@@ -149,6 +149,14 @@ export async function handlePremium(request: Request): Promise<Response> {
     return json(r.successCount ? { ok: true } : { ok: false, error: r.responses[0]?.error?.message ?? "Couldn't send." });
   }
 
+  if (action === "studyRemind") {                       // study plan: daily reminder at the learner's time ("" = off)
+    const pref = a.db.doc(`push/${uid}`);
+    const at = /^\d{2}:\d{2}$/.test(String(data.at ?? "")) ? String(data.at) : null;
+    if (at && !(((await pref.get()).get("tokens") as string[] | undefined) ?? []).length) return json({ ok: false, error: "Turn on notifications first." });
+    await pref.set({ studyAt: at, studyLabel: String(data.label ?? "").slice(0, 60) }, { merge: true });
+    return json({ ok: true });
+  }
+
   if (action === "pushRegister" || action === "pushGet" || action === "pushPrefs") {
     const pref = a.db.doc(`push/${uid}`);
     const cur = (await pref.get()).data() ?? {};

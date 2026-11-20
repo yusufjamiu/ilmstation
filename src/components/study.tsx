@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CertificateCard } from "@/components/study-certificate";
+import { StudyPlanCard } from "@/components/study-plan";
+import type { Plan } from "@/components/study-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { usePremium } from "@/components/premium";
@@ -109,7 +111,7 @@ export function StudyScreen() {
     onExit={() => setView({ ...view, lesson: undefined })} onFinished={() => {}} />;
 
   /* 4 · a subject */
-  if (subject) return <SubjectView cat={cat} stage={view.stage} subject={subject} lessons={lessons} done={progress.done ?? {}} results={results} uid={uid} flow={flow}
+  if (subject) return <SubjectView cat={cat} stage={view.stage} subject={subject} lessons={lessons} done={progress.done ?? {}} results={results} uid={uid} flow={flow} plans={progress.plans ?? {}}
     onBack={() => setView({ cat: cat.id, stage: view.stage })} onLesson={(id) => setView({ ...view, lesson: id })} onExam={(id) => setView({ ...view, exam: id })} />;
 
   /* 3 · subjects in a stage */
@@ -221,8 +223,8 @@ function StageView({ cat, stage, stageIdx, reached, subjects, flow, lessons, don
 
 /* ---------------- one subject ---------------- */
 
-function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, onBack, onLesson, onExam }: {
-  cat: Category; stage: string; subject: Subject; lessons: Lesson[]; done: Record<string, number>; results: Results; uid: string | null | undefined; flow: Flow;
+function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, plans, onBack, onLesson, onExam }: {
+  cat: Category; stage: string; subject: Subject; lessons: Lesson[]; done: Record<string, number>; results: Results; uid: string | null | undefined; flow: Flow; plans: Record<string, Plan>;
   onBack: () => void; onLesson: (id: string) => void; onExam: (id: string) => void;
 }) {
   const { canAccess } = usePremium();
@@ -251,6 +253,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, o
     </div>
 
     {uid && flow.complete(subject.id, stage) && <CertificateCard className="mt-4" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: stageName(cat, stage), category: cat.name, date: flow.earnedAt(subject.id, stage), stars: stagesOf(cat).filter((st) => subject.stages.includes(st.id)).findIndex((st) => st.id === stage) + 1 }} />}
+    {uid && lessons.length > 0 && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <ol className="mt-3 grid gap-2">{lessons.map((l, i) => {

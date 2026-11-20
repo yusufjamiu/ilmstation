@@ -142,7 +142,8 @@ export const promoExamId = (category: string, stage: string) => `promo__${catego
 /* ---------------- Progress ----------------
    "studyProgress/{uid}": lessons done, last lesson, notes (the learner writes it).
    "studyResults/{uid}": exam results and opened stages (only the server writes it). */
-export type Progress = { done?: Record<string, number>; notes?: Record<string, string> };
+export type Plan = { pace: "relaxed" | "steady" | "fast"; start: number; base: number; at?: string };
+export type Progress = { done?: Record<string, number>; notes?: Record<string, string>; /** study plans, keyed "<subjectId>__<stage>" */ plans?: Record<string, Plan> };
 export type Results = {
   exams?: Record<string, { best: number; passed: boolean; last: number; tries: number }>;
   /** Older records: highest stage index reached per category (0 = first stage). */

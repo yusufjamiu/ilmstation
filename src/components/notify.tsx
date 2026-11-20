@@ -38,6 +38,11 @@ async function register(silent = false): Promise<{ ok: boolean; error?: string; 
   return { ok: !!r.ok, error: r.error, prefs: r.prefs, hasLocation: r.hasLocation };
 }
 
+/** Turn on push for this device (asks permission). Used by the study plan reminder. */
+export async function ensurePush(): Promise<{ ok: boolean; error?: string }> {
+  try { const r = await register(false); return { ok: r.ok, error: r.error }; } catch { return { ok: false, error: "unsupported" }; }
+}
+
 export function NotifyCard() {
   const [state, setState] = useState<"loading" | "off" | "on" | "unsupported" | "denied">("loading");
   const [prefs, setPrefs] = useState<Prefs | null>(null);

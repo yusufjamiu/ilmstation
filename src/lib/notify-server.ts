@@ -88,6 +88,12 @@ export async function handleNotify(request: Request): Promise<Response> {
         out.push({ key: "tilawah", title: "📖 Time for your daily tilawah", body: pg > 1 ? `Continue from page ${pg}. A few pages bring light to your day.` : "Open the Qur’an and read a few pages today.", url: "/app?s=hifz" });
       }
     }
+    if (d.studyAt && !done.study && due(t.mins, hm(String(d.studyAt)))) {
+      const lessons = (((await a.db.doc(`studyProgress/${u.id}`).get()).get("done") as Record<string, number> | undefined) ?? {});
+      const today = Object.values(lessons).some((ms) => typeof ms === "number" && local(new Date(ms), tz).date === t.date);
+      if (!today) out.push({ key: "study", title: `📖 Your ${String(d.studyLabel || "study")} lesson is waiting`, body: "A few minutes today keeps you on track with your plan.", url: "/app?s=study" });
+      else done.study = true;
+    }
     if (prefs.streak && due(t.mins, STREAK_AT) && !done.streak) {
       const lastSeen = Number((await a.db.doc(`players/${u.id}`).get()).get("lastSeen") ?? 0);
       if (local(new Date(lastSeen || 0), tz).date !== t.date) {
