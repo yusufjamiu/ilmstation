@@ -24,7 +24,8 @@ export function useLessonBridge(frame: RefObject<HTMLIFrameElement | null>, key:
       if (d.type === "ilmstation:hello") {
         let state: unknown = null;
         try { state = JSON.parse(localStorage.getItem(store) ?? "null"); } catch { /* ignore */ }
-        reply({ type: "ilmstation:welcome", state });
+        let test = false; try { test = localStorage.getItem("ilm-test-mode") === "1"; } catch { /* */ }
+        reply({ type: "ilmstation:welcome", state, test });
       } else if (d.type === "ilmstation:save") {
         try { localStorage.setItem(store, JSON.stringify(d.state ?? null).slice(0, 50_000)); } catch { /* ignore */ }
       } else if (d.type === "ilmstation:stop") {

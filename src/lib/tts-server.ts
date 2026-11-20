@@ -17,13 +17,21 @@ const READ_RULE =
 // English instructions in the lessons (children who can't read yet hear every instruction)
 const KID_TEACHER =
   "You are Nuri, a warm, cheerful teacher talking to a young child who is learning to read the Qur'an. " +
-  "Speak clearly, a little slowly, with a smile in your voice. Say Arabic letter names correctly: Alif, Baa, Taa, Thaa, Jiim, Haa, Khaa.";
+  "Speak clearly, a little slowly, with a smile in your voice. Say Arabic and Islamic words the proper Arabic way: Assalamu alaykum, Bismillah, Masha'Allah, Barakallahu feekum, Mumtaz, Qur'an, Alif, Baa, Taa, Thaa, Jeem, fatha, kasra, damma, sukun, shadda, tanween, madd.";
 
-// Adults hear a calm, clear narrator (lesson intros and instructions)
+// Arabic and Islamic words inside English sentences: say them the Arabic way, never anglicised.
+const ARABIC_TERMS =
+  "When an Arabic or Islamic word appears inside the English text, pronounce it the proper Arabic way, as a Muslim teacher would: " +
+  "Assalamu alaykum (as-salaamu 'alaykum), Wa alaykumus salaam, Bismillah, Alhamdulillah, Masha'Allah (maa shaa' Allaah), In sha Allah, " +
+  "Barakallahu feekum, Jazakallahu khairan, Subhanallah, Allahu Akbar, Allah (with a full, deep 'l'), Qur'an (qur-'aan), Mushaf, " +
+  "Qira'ah (qi-raa-'ah), Nour al-Bayan, Alif, Baa, Taa, Thaa, Jeem, Haa, Khaa, Daal, Dhaal, Raa, Zaay, Seen, Sheen, Saad, Daad, Taa, Dhaa, 'Ayn, Ghayn, Faa, Qaaf, Kaaf, Laam, Meem, Noon, Waw, Yaa, " +
+  "fatha, kasra, damma, sukun, shadda, tanween, madd, harakah, harakat, hamza, Hamzatul Wasl, qalqalah, tajweed, Qamariyyah, Shamsiyyah. " +
+  "Short transliterations like 'raka'a', 'sa'ada' or 'mi-ah' are Arabic words: read them as Arabic, with the 'ayn and hamza where shown.";
+
+// Adults hear a calm, deep male teacher (lesson intros and instructions)
 const ADULT_TEACHER =
-  "You are a calm, warm Qur'an teacher speaking to adult beginners. Speak very clearly and naturally, " +
-  "at a steady, moderate pace, with short pauses between sentences. Pronounce every word fully. " +
-  "Say Arabic terms correctly: Qira'ah, Nour al-Bayan, Alif, Yaa, fatha, kasra, damma, sukun, shadda, tanween, madd, tajweed.";
+  "You are a calm, kind male Qur'an teacher speaking to adult beginners. Speak slowly and very clearly, like a patient teacher in a class: " +
+  "a relaxed pace, a short pause after every sentence and after every comma, and never rush. Pronounce every word fully and warmly. " + ARABIC_TERMS;
 
 // Letters that dialects often change. A note is added only for letters that appear in the word.
 const LETTER_NOTES: Record<string, string> = {
@@ -77,7 +85,7 @@ export async function handleTts(request: Request): Promise<Response> {
   const eleven = process.env.ELEVENLABS_API_KEY;
   if (english && eleven) {
     try {
-      const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
+      const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB" /* Adam: male */ : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
         method: "POST",
         headers: { "xi-api-key": eleven, "content-type": "application/json", accept: "audio/mpeg" },
@@ -94,10 +102,10 @@ export async function handleTts(request: Request): Promise<Response> {
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
-        voice: english ? (adult ? "sage" : "coral") : "onyx", // Arabic: also try "ash" or "sage"; keep the clearest
+        voice: english ? (adult ? "onyx" : "coral") : "onyx", // adults: the same deep male voice as the Arabic reading
         input: text,
         instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) : READ_RULE + guide + notes,
-        speed: english ? (adult ? 0.92 : 0.95) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
+        speed: english ? (adult ? 0.85 : 0.92) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
         response_format: "mp3",
       }),
     });

@@ -104,7 +104,7 @@ function voiceUrl(text, rate=.85, lang="ar"){
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
   const q = lang==="ar" ? `&say=${encodeURIComponent(sayGuide(spoken))}` : `&lang=${lang}&who=${WHO}`;
   // v = voice version: raise it when the voice rules change, so saved recordings are made again
-  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=2`;
+  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=${lang==="ar"?2:3}`;
 }
 /** Fetch a lesson's sounds in the background (3 at a time), so they play instantly when tapped. */
 async function prefetchVoices(items){
@@ -151,10 +151,27 @@ const bridgeReady = new Promise(res=>{
   addEventListener("message", e => {
     const d = e.data || {};
     if (d.type==="ilmstation:ping") hello();                                   // the app asks "are you there?"
-    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; savedState=d.state; clearInterval(again); res(true); }
+    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; savedState=d.state; clearInterval(again); res(true); if(d.test) setTimeout(testTools, 300); }
   });
   hello(); setTimeout(()=>res(false), 2000);
 });
+/** Admin test mode (turned on in the app): jump to any step, or mark the lesson passed. Learners never see this. */
+function testTools(){
+  if (document.getElementById("ilmTest")) return;
+  const names = typeof ACTS!=="undefined" ? ACTS.map(a=>(typeof STEP_INFO!=="undefined"&&STEP_INFO[a]?.t)||a)
+    : typeof L!=="undefined" && L.steps ? L.steps : typeof STEPS!=="undefined" ? STEPS : [];
+  const goTo = i => { try{ if (typeof Lesson==="function") Lesson(i); else if (typeof go==="function") go(i); }catch(e){ console.log(e); } box.style.display="none"; };
+  const btn = document.createElement("button"); btn.id="ilmTest"; btn.textContent="🧪";
+  btn.style.cssText="position:fixed;right:10px;bottom:10px;z-index:99;width:44px;height:44px;border-radius:50%;border:2px solid #111;background:#ffd23f;font-size:20px;cursor:pointer";
+  const box = document.createElement("div");
+  box.style.cssText="position:fixed;right:10px;bottom:62px;z-index:99;display:none;background:#fff;border:2px solid #111;border-radius:12px;padding:10px;max-width:260px;font:600 14px system-ui;box-shadow:0 4px 0 #111";
+  box.innerHTML = `<div style="margin-bottom:6px">Test mode · jump to step</div>${names.map((n,i)=>`<button data-i="${i}" style="display:block;width:100%;text-align:left;margin:3px 0;padding:6px 8px;border:1px solid #ccc;border-radius:8px;background:#f7f7f7;cursor:pointer">${i+1}. ${n}</button>`).join("")}
+    <button id="ilmPass" style="display:block;width:100%;margin-top:8px;padding:8px;border:2px solid #111;border-radius:8px;background:#3ddc97;cursor:pointer">✓ Mark lesson passed</button>`;
+  box.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>goTo(+b.dataset.i));
+  btn.onclick=()=>{ box.style.display = box.style.display==="none" ? "block" : "none"; };
+  document.body.append(btn, box);
+  box.querySelector("#ilmPass").onclick=()=>{ const info = typeof LESSON!=="undefined" ? LESSON : {}; finishLesson(1, 1, { ...info, percent:100, test:true }); box.style.display="none"; btn.textContent="✓"; };
+}
 function saveState(state){ try{ if(bridge) parent.postMessage({type:"ilmstation:save", state},"*"); }catch(e){} }
 function finishLesson(score, total, extra={}){ try{ parent.postMessage({type:"ilmstation:done", score, total, ...extra},"*"); }catch(e){} saveState(null); }
 let recSeq = 0, localRec = null;

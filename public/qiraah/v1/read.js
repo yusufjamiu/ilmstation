@@ -54,7 +54,7 @@ function voiceUrl(text, rate=.85, lang="ar"){
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
   const q = lang==="ar" ? `&say=${encodeURIComponent(sayGuide(spoken))}` : `&lang=${lang}&who=${WHO}`;
   // v = voice version: raise it when the voice rules change, so saved recordings are made again
-  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=2`;
+  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=${lang==="ar"?2:3}`;
 }
 /** Fetch a lesson's sounds in the background (3 at a time), so they play instantly when tapped. */
 async function prefetchVoices(items){
@@ -101,10 +101,27 @@ const bridgeReady = new Promise(res=>{
   addEventListener("message", e => {
     const d = e.data || {};
     if (d.type==="ilmstation:ping") hello();                                   // the app asks "are you there?"
-    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; savedState=d.state; clearInterval(again); res(true); }
+    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; savedState=d.state; clearInterval(again); res(true); if(d.test) setTimeout(testTools, 300); }
   });
   hello(); setTimeout(()=>res(false), 2000);
 });
+/** Admin test mode (turned on in the app): jump to any step, or mark the lesson passed. Learners never see this. */
+function testTools(){
+  if (document.getElementById("ilmTest")) return;
+  const names = typeof ACTS!=="undefined" ? ACTS.map(a=>(typeof STEP_INFO!=="undefined"&&STEP_INFO[a]?.t)||a)
+    : typeof L!=="undefined" && L.steps ? L.steps : typeof STEPS!=="undefined" ? STEPS : [];
+  const goTo = i => { try{ if (typeof Lesson==="function") Lesson(i); else if (typeof go==="function") go(i); }catch(e){ console.log(e); } box.style.display="none"; };
+  const btn = document.createElement("button"); btn.id="ilmTest"; btn.textContent="🧪";
+  btn.style.cssText="position:fixed;right:10px;bottom:10px;z-index:99;width:44px;height:44px;border-radius:50%;border:2px solid #111;background:#ffd23f;font-size:20px;cursor:pointer";
+  const box = document.createElement("div");
+  box.style.cssText="position:fixed;right:10px;bottom:62px;z-index:99;display:none;background:#fff;border:2px solid #111;border-radius:12px;padding:10px;max-width:260px;font:600 14px system-ui;box-shadow:0 4px 0 #111";
+  box.innerHTML = `<div style="margin-bottom:6px">Test mode · jump to step</div>${names.map((n,i)=>`<button data-i="${i}" style="display:block;width:100%;text-align:left;margin:3px 0;padding:6px 8px;border:1px solid #ccc;border-radius:8px;background:#f7f7f7;cursor:pointer">${i+1}. ${n}</button>`).join("")}
+    <button id="ilmPass" style="display:block;width:100%;margin-top:8px;padding:8px;border:2px solid #111;border-radius:8px;background:#3ddc97;cursor:pointer">✓ Mark lesson passed</button>`;
+  box.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>goTo(+b.dataset.i));
+  btn.onclick=()=>{ box.style.display = box.style.display==="none" ? "block" : "none"; };
+  document.body.append(btn, box);
+  box.querySelector("#ilmPass").onclick=()=>{ const info = typeof LESSON!=="undefined" ? LESSON : {}; finishLesson(1, 1, { ...info, percent:100, test:true }); box.style.display="none"; btn.textContent="✓"; };
+}
 function saveState(state){ try{ if(bridge) parent.postMessage({type:"ilmstation:save", state},"*"); }catch(e){} }
 function finishLesson(score, total, extra={}){ try{ parent.postMessage({type:"ilmstation:done", score, total, ...extra},"*"); }catch(e){} saveState(null); }
 let recSeq = 0, localRec = null;
@@ -172,7 +189,7 @@ const audioForm = t => t.replace(/ـَٔ/g,"ءَ").replace(/ـِٔ/g,"ئِ").rep
 const tr = w => sayGuide(audioForm(w));
 { const _vu = voiceUrl; voiceUrl = (t, r, l="ar") => _vu(l==="ar" ? audioForm(t) : t, r, l); }
 // "صَعَ|دَ" in the content = read صَعَ as one chunk, then دَ (book p.10)
-const PARTS = {}; WORDS.forEach((w,i)=>{ const c=w.replace(/\|/g,""); if(w.includes("|")) PARTS[c]=w.split("|"); WORDS[i]=c; });
+const PARTS = {}; WORDS.forEach((w,i)=>{ const c=w.replace(/\|/g,"").replace(/([\u064B-\u0650\u0652])\u0651/g,"\u0651$1"); w=w.replace(/([\u064B-\u0650\u0652])\u0651/g,"\u0651$1"); if(w.includes("|")) PARTS[c]=w.split("|"); WORDS[i]=c; });
 const partsOf = w => PARTS[w] || (w.includes(" ") ? w.split(" ") : syl(w));
 const isPh = w => (w||"").includes(" ");
 const multi = w => partsOf(w).length>1;
@@ -187,6 +204,9 @@ function variants(w, n=3){
     const mk=(c[i].match(/[ً-ِْ]/)||[])[0];
     const VM=[..."ًٌٍَُِْ"].filter(m=>WORDS.some(x=>x.includes(m)));
     const hasMadd = /[اوىيۥۦ]/.test(c[i].slice(1).replace(/[ً-ٕ]/g,""));
+    if (SHADDA_LESSON && Math.random()<.4 && !/[ٱا]/.test(c[i][0])){                   // قَطَعَ ↔ قَطَّعَ
+      c[i] = c[i].includes("\u0651") ? c[i].replace("\u0651","") : c[i][0]+"\u0651"+c[i].slice(1);
+      const v=c.join(""); if(v!==w) out.add(v); continue; }
     if (MADD_LESSON && mk && /[\u064E\u0650\u064F]/.test(mk) && Math.random()<.45){                     // long ↔ short: قَامَ ↔ قَمَ
       c[i] = hasMadd ? c[i].replace(/[اىويۥۦ](?=[۟]?$)/,"") : c[i]+({"َ":"ا","ِ":"ي","ُ":"و"})[mk];
       const v=c.join(""); if(v!==w) out.add(v); continue; }
@@ -198,6 +218,7 @@ function variants(w, n=3){
   return [...out];
 }
 let stars=0, missed=new Set(), timer=null;
+const SHADDA_LESSON = WORDS.some(w=>w.includes("\u0651"));
 const MADD_LESSON = WORDS.some(w=>syl(w).some(x=>/[اوىي\u06E5\u06E6\u0670]/.test(x.slice(1).replace(/[\u064B-\u0652]/g,""))));
 let ac; function tone(f,d=.1,vol=.12){ if(muted)return; try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); f.forEach((fr,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=fr;const t=ac.currentTime+i*d;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+d*1.8);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+d*2);});}catch(e){} }
 const good=()=>tone([587,880]), bad=()=>tone([196,165],.14,.07);
@@ -434,20 +455,23 @@ function Listen(st){
   }
   q();
 }
-const writable = w => !isPh(w) && /^[ء-يً-ِْ]+$/.test(w) && !/[آىٱ]/.test(w) && !/^ا/.test(w) && syl(w).every(x=>/[ً-ِْ]/.test(x));
+const writable = w => !isPh(w) && /^[ء-يً-ْ]+$/.test(w) && !/[آىٱ]/.test(w) && !/^ا/.test(w) && syl(w).every(x=>/[ً-ِْ]/.test(x));
 const MARKS = [..."ًٌٍَُِْ"].filter(m=>WORDS.filter(writable).some(w=>w.includes(m)));
 const MADDS = [..."اوي"].filter(m=>WORDS.filter(writable).some(w=>syl(w).some(x=>x.length>2 && x.endsWith(m))));
 const ONE = MARKS.length<=1 ? (MARKS[0]||F) : null;           // one harakah in the lesson → keys carry it
 const BASES = (()=>{ const b=LET28.map(l=>l==="ا"?"أ":l); WORDS.filter(writable).join("").replace(/[ً-ْ]/g,"").split("").forEach(c=>{ if(!b.includes(c) && "ءأإؤئة".includes(c)) b.push(c); }); return b; })();
+const SHADDA = WORDS.filter(writable).some(w=>w.includes("\u0651"));
 const MNAME = {"َ":"fatha","ِ":"kasra","ُ":"damma","ْ":"sukun","ً":"fathatan","ٍ":"kasratan","ٌ":"dammatan"};
 const keyboard = () => `<div class="kb">${BASES.map(k=>`<button class="key" data-k="${ONE?k+ONE:k}">${ONE?k+ONE:k}</button>`).join("")}
+  ${SHADDA?`<button class="key mk" data-s="1" style="grid-column:span 2;font-size:14px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:26px">ـّ</span> shadda</button>`:""}
   ${MADDS.map(a=>`<button class="key mk" data-a="${a}" style="grid-column:span 2;font-size:14px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:24px">${a}</span> madd</button>`).join("")}
   ${ONE?"":MARKS.map(m=>`<button class="key mk" data-m="${m}" style="grid-column:span 2;font-size:15px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:26px">ـ${m}</span> ${MNAME[m]}</button>`).join("")}
   <button class="key wide" data-k="⌫">⌫ Delete</button></div>`;
 function bindKeys(root, max, onChange){ let t=[];
   root.querySelectorAll(".key").forEach(b=>b.onclick=()=>{ const k=b.dataset.k, m=b.dataset.m;
     const a=b.dataset.a, tail=x=>(x.slice(1).match(/[اوي]$/)||[""])[0];
-    if(a){ if(t.length && !tail(t[t.length-1])) t[t.length-1]+=a; }
+    if(b.dataset.s){ if(t.length){ const x=t[t.length-1]; t[t.length-1] = x.includes("\u0651") ? x.replace("\u0651","") : x[0]+"\u0651"+x.slice(1); } }
+    else if(a){ if(t.length && !tail(t[t.length-1])) t[t.length-1]+=a; }
     else if(m){ if(t.length){ const x=t[t.length-1], md=tail(x), base=md?x.slice(0,-1):x; t[t.length-1]=base.replace(/[ً-ِْ]/g,"")+m+md; } }
     else if(k==="⌫") t.pop(); else if(t.length<max) t.push(k);
     tone([520],.04,.05); onChange(t); }); return ()=>t; }

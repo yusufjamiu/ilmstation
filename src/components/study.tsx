@@ -15,6 +15,7 @@ import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CertificateCard } from "@/components/study-certificate";
 import { StudyPlanCard } from "@/components/study-plan";
+import { StudyTestBar, testOn } from "@/components/study-test";
 import type { Plan } from "@/components/study-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,11 @@ function useExam(id: string | undefined) {
 }
 
 export function StudyScreen() {
+  const { uid } = useStudyMe();
+  return <><StudyScreenInner /><StudyTestBar uid={uid} /></>;
+}
+
+function StudyScreenInner() {
   const [view, setView] = useState<View>({});
   const { cats: allCats } = useStudyCategories();
   const { account: studyAcct } = useAuth();
@@ -135,13 +141,13 @@ function makeFlow(cat: Category | undefined, subjects: Subject[], lessons: Lesso
     const j = mine.findIndex((st) => st.id === stage);
     return j > 0 ? mine[j - 1] : undefined;
   };
-  const open = (sid: string, stage: string) => { const p = prevStage(sid, stage); return !p || idxOf(stage) <= reached || complete(sid, p.id); };
+  const open = (sid: string, stage: string) => { const p = prevStage(sid, stage); return testOn() || !p || idxOf(stage) <= reached || complete(sid, p.id); };
   const earnedAt = (sid: string, stage: string) => Math.max(0, ...lessonsOf(sid, stage).map((l) => done[l.id] ?? 0)) || Date.now();
   const inStage = (stage: string) => subjects.filter((s) => s.stages.includes(stage));
   const stageState = (stage: string): "done" | "open" | "locked" => {
     const subs = inStage(stage);
     if (subs.length && subs.every((s) => complete(s.id, stage))) return "done";
-    return subs.some((s) => open(s.id, stage)) || idxOf(stage) <= reached ? "open" : "locked";
+    return testOn() || subs.some((s) => open(s.id, stage)) || idxOf(stage) <= reached ? "open" : "locked";
   };
   return { lessonsOf, complete, prevStage, open, earnedAt, stageState };
 }
@@ -258,7 +264,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <ol className="mt-3 grid gap-2">{lessons.map((l, i) => {
         const isDone = !!done[l.id];
-        const open = isDone || i === firstOpen || firstOpen === -1;
+        const open = testOn() || isDone || i === firstOpen || firstOpen === -1;
         const locked = !canAccess(l.id, l.tier);
         return <li key={l.id}><button disabled={!open} onClick={() => locked ? toast("This lesson is for Premium members.") : onLesson(l.id)}
           className={cn("flex w-full items-center gap-3 border-2 border-foreground bg-card p-4 text-left shadow-brutal-sm disabled:opacity-50", i === firstOpen && "bg-primary")}>
@@ -332,7 +338,7 @@ function KidStudy({ cats }: { cats: Category[] }) {
       return <section key={lv} className="mt-8">
       {levels.length > 1 && <h2 className="font-serif text-3xl">{lvDone ? "🏆" : "📘"} {lvName}</h2>}
       {lvDone && uid && <CertificateCard className="mt-3" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: lvName, category: live.find((c) => c.id === cid)?.name ?? "", kids: true, stars: levels.indexOf(lv) + 1, date: Math.max(...inLv.map((l) => progress.done?.[l.id] ?? 0)) || Date.now() }} />}
-      <div className="mt-4 grid gap-4">{inLv.map((l) => { const i = lessons.indexOf(l); const locked = l.tier === "premium" && !premium; const shut = !done(l.id) && i !== nextUp;
+      <div className="mt-4 grid gap-4">{inLv.map((l) => { const i = lessons.indexOf(l); const locked = l.tier === "premium" && !premium; const shut = !testOn() && !done(l.id) && i !== nextUp;
       return <button key={l.id} onClick={() => (shut ? toast("🔒 Finish the lesson before this one first!") : locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
       className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", (locked || shut) && "opacity-60")}>
       <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-3xl">{done(l.id) ? "⭐" : i === nextUp ? "👉" : shut ? "🔒" : inLv.indexOf(l) + 1}</span>
