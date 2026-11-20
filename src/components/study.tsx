@@ -80,7 +80,6 @@ export function StudyScreen() {
         <h1 className="font-serif text-4xl leading-none sm:text-5xl">What will you learn today?</h1></div>
       
     </div>
-    <StudyGuide step={0} />
     <div className="mt-6 grid gap-5 sm:grid-cols-2">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}
       className={cn("flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal transition-transform", c.live ? "hover:-translate-y-0.5" : "opacity-70")}>
       <div className="flex items-start justify-between gap-3">
@@ -89,6 +88,7 @@ export function StudyScreen() {
       </div>
       <h2 className="mt-4 font-serif text-3xl">{c.name} {c.nameAr && <span dir="rtl" className="text-xl text-muted-foreground">{c.nameAr}</span>}</h2>
       <p className="text-sm text-muted-foreground">{c.blurb}</p>
+      {c.live && <CardAction label="Open →" pulse={cats.filter((x) => x.live).length === 1} />}
     </button>; })}</div>
   </div>;
 
@@ -123,7 +123,6 @@ function StagesView({ cat, subjects, reached, onBack, onOpen, onExam }: { cat: C
     <Button variant="ghost" onClick={onBack}><ArrowLeft /> Back</Button>
     <h1 className="mt-2 font-serif text-4xl sm:text-5xl">{cat.name} {cat.nameAr && <span dir="rtl" className="text-2xl text-muted-foreground">{cat.nameAr}</span>}</h1>
     <p className="mt-1 text-muted-foreground">Finish every subject and pass the promotion exam to move up. Already know it? Test out to skip ahead.</p>
-    <StudyGuide step={1} />
     {subjects === null ? <p className="mt-6 text-sm text-muted-foreground">Loading…</p>
       : <div className="mt-6 grid gap-6">{cat.levels.map((l) => <section key={l.id}>
         <h2 className="font-serif text-2xl">{l.name} {l.nameAr && <span dir="rtl" className="text-lg text-muted-foreground">{l.nameAr}</span>}</h2>
@@ -138,6 +137,7 @@ function StagesView({ cat, subjects, reached, onBack, onOpen, onExam }: { cat: C
                 <span className="text-xs text-muted-foreground">{state === "done" ? "Completed ✓" : !n ? "Coming soon" : `${n} subject${n > 1 ? "s" : ""}`}</span></span>
               {state === "locked" ? <Lock className="size-4" /> : state === "done" ? <CheckCircle2 className="size-5 text-secondary" /> : n ? <ChevronRight className="size-5" /> : null}
             </button>
+            {state !== "locked" && n > 0 && <button onClick={() => onOpen(s.id)} className="text-left"><CardAction label={state === "open" ? "Start →" : "Review →"} pulse={state === "open"} /></button>}
             {state === "locked" && prev && n > 0 && <Button size="sm" variant="outline" onClick={() => onExam(promoExamId(cat.id, prev.id))}>Test out to here</Button>}
           </div>;
         })}</div>
@@ -158,7 +158,6 @@ function StageView({ cat, stage, stageIdx, reached, subjects, lessons, done, res
     <Button variant="ghost" onClick={onBack}><ArrowLeft /> Back</Button>
     <small className="mt-2 block text-xs font-bold uppercase text-muted-foreground">{cat.name}</small>
     <h1 className="font-serif text-4xl sm:text-5xl">{stageName(cat, stage)}</h1>
-    <StudyGuide step={2} />
     <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{subjects.map((s) => {
       const ls = lessons.filter((l) => l.subjectId === s.id);
       const d = ls.filter((l) => done[l.id]).length;
@@ -168,6 +167,7 @@ function StageView({ cat, stage, stageIdx, reached, subjects, lessons, done, res
         <h2 className="mt-3 font-serif text-3xl leading-tight">{s.name}</h2>
         {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
         <div className="mt-3 flex items-center gap-2"><div className="h-3 flex-1 border-2 border-foreground p-px"><div className="h-full bg-secondary" style={{ width: `${ls.length ? (d / ls.length) * 100 : 0}%` }} /></div><span className="text-xs font-bold tabular-nums">{d}/{ls.length}</span></div>
+        <CardAction label={d === 0 ? "Start ▶" : d < ls.length ? "Continue ▶" : "Review →"} pulse={d < ls.length} />
       </button>;
     })}</div>
 
@@ -213,7 +213,6 @@ function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLe
       </div>}
     </div>
 
-    <StudyGuide step={done && lessons.length && lessons.every((l) => done[l.id]) ? 4 : 3} />
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <ol className="mt-3 grid gap-2">{lessons.map((l, i) => {
@@ -224,8 +223,10 @@ function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLe
           className={cn("flex w-full items-center gap-3 border-2 border-foreground bg-card p-4 text-left shadow-brutal-sm disabled:opacity-50", i === firstOpen && "bg-primary")}>
           {isDone ? <CheckCircle2 className="size-5 shrink-0 text-secondary" /> : open ? <Circle className="size-5 shrink-0" /> : <Lock className="size-5 shrink-0" />}
           <span className="min-w-0 flex-1"><span className="block font-semibold">{i + 1}. {l.title}</span><span dir="auto" className="text-xs text-muted-foreground">{[l.book && l.part ? `${l.book} · ${l.part}` : l.book || l.part, `${l.mins} min`, l.tier === "premium" ? "Premium" : ""].filter(Boolean).join(" · ")}</span></span>
-          {i === firstOpen && !locked && <span className="shrink-0 border-2 border-foreground bg-background px-2 text-xs font-bold">NEXT</span>}
-          {locked ? <span className="border-2 border-foreground px-2 text-xs font-bold">Premium</span> : open && <ChevronRight className="size-5" />}
+          {locked ? <span className="border-2 border-foreground px-2 text-xs font-bold">Premium</span>
+            : i === firstOpen ? <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-3 py-1.5 text-sm font-bold text-background">Start ▶</span>
+            : isDone ? <span className="shrink-0 border-2 border-foreground bg-background px-2 py-1 text-xs font-bold">Review</span>
+            : open && <ChevronRight className="size-5" />}
         </button></li>;
       })}</ol>}
 
@@ -239,27 +240,10 @@ function SubjectView({ cat, stage, subject, lessons, done, results, onBack, onLe
 }
 
 /* ---------------- Kids: big tiles, simple lists, stars ---------------- */
-/* ---------------- Study guide: "how Study works", shown on each screen until the learner taps "Got it" ---------------- */
-const GUIDE_STEPS = [
-  { t: "Choose", tip: "Pick what you want to learn. Start with Madrasah." },
-  { t: "Level", tip: "Open the level that isn't locked (Beginner 1 to start). Already know it? Use “Test out” to skip ahead." },
-  { t: "Subject", tip: "Pick a subject, for example Qira'ah (reading the Qur'an)." },
-  { t: "Lessons", tip: "Do the lessons in order. The yellow one marked NEXT is yours. Pass its test to unlock the next one." },
-  { t: "Exam", tip: "When every lesson is done, take the exam to finish the subject and move up a level." },
-];
-function StudyGuide({ step }: { step: number }) {
-  const key = `ilm-guide-${step}`;
-  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(key) === "1"; } catch { return false; } });
-  if (hidden) return null;
-  const hide = () => { try { localStorage.setItem(key, "1"); } catch { /* ignore */ } setHidden(true); };
-  return <div className="mt-4 border-2 border-foreground bg-card p-4 shadow-brutal-sm">
-    <div className="flex items-center justify-between gap-2"><b className="text-sm uppercase tracking-wide">How Study works</b>
-      <button onClick={hide} className="border-2 border-foreground px-3 py-1 text-xs font-bold">Got it</button></div>
-    <ol className="mt-3 flex flex-wrap gap-1.5">{GUIDE_STEPS.map((g, i) => <li key={g.t}
-      className={cn("border-2 border-foreground px-2 py-0.5 text-xs font-bold", i === step ? "bg-primary" : i < step ? "bg-secondary text-secondary-foreground" : "bg-background opacity-60")}>
-      {i < step ? "✓" : i + 1} {g.t}</li>)}</ol>
-    <p className="mt-3 text-sm">👉 {GUIDE_STEPS[step]!.tip}</p>
-  </div>;
+/* ---------------- the action button on every card ("Open →", "Start ▶"…): the main one gently pulses ---------------- */
+function CardAction({ label, pulse }: { label: string; pulse?: boolean }) {
+  return <span className={cn("mt-4 inline-flex w-fit items-center gap-1 border-2 border-foreground bg-foreground px-4 py-2 text-sm font-bold text-background shadow-brutal-sm",
+    pulse && "animate-pulse")}>{label}</span>;
 }
 
 const KID_TINTS = ["bg-primary", "bg-secondary text-secondary-foreground", "bg-[#d7ecd9] text-[#1c1a17]", "bg-[#f7d9c4] text-[#1c1a17]", "bg-[#d9e3f7] text-[#1c1a17]"];
@@ -296,12 +280,13 @@ function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }
   if (subject) return <div className="iq-rise">
     {back("Subjects", () => setSubjectId(undefined))}
     <h1 className="font-serif text-5xl leading-none">{kidEmoji(subject.name)} {subject.name}</h1>
-    <p className="mt-2 text-lg text-muted-foreground">{lessons.filter((l) => done(l.id)).length} of {lessons.length} done ⭐ · Tap the 👉 one to play next!</p>
+    <p className="mt-2 text-lg text-muted-foreground">{lessons.filter((l) => done(l.id)).length} of {lessons.length} done ⭐</p>
     {!lessons.length && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-lg">New lessons are coming soon! 🌟</p>}
     <div className="mt-6 grid gap-4">{lessons.map((l, i) => { const locked = l.tier === "premium" && !premium; return <button key={l.id} onClick={() => (locked ? toast("🔒 This lesson is Premium. Ask your parent about Premium!") : setLessonId(l.id))}
       className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", done(l.id) ? "bg-primary" : "bg-background", locked && "opacity-70")}>
       <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-3xl">{done(l.id) ? "⭐" : lessons.findIndex((y) => !done(y.id)) === i ? "👉" : i + 1}</span>
       <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">{l.title}</b><span className="text-sm text-muted-foreground">{l.mins ? `${l.mins} min` : ""}{locked ? " · 🔒 Premium" : ""}</span></span>
+      {!locked && lessons.findIndex((y) => !done(y.id)) === i && <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-4 py-2 text-lg font-bold text-background">Play ▶</span>}
     </button>; })}</div>
   </div>;
 
@@ -315,6 +300,7 @@ function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }
       <span className="text-5xl">{kidEmoji(x.name)}</span>
       <b className="text-xl leading-tight">{x.name}</b>
       {x.nameAr && <span dir="rtl" className="text-sm opacity-80">{x.nameAr}</span>}
+      <span className="mt-1 border-2 border-foreground bg-foreground px-3 py-1 text-sm font-bold text-background">Play ▶</span>
     </button>)}</div>
   </div>;
 
@@ -325,6 +311,7 @@ function KidStudy({ cats }: { cats: { id: string; name: string; live?: boolean }
     <div className="mt-6 grid gap-4 sm:grid-cols-2">{live.map((c, i) => <button key={c.id} onClick={() => setCatId(c.id)}
       className={cn("border-2 border-foreground p-6 text-left shadow-brutal transition-transform hover:-translate-y-1", KID_TINTS[i % KID_TINTS.length])}>
       <span className="text-5xl">📚</span><b className="mt-2 block font-serif text-3xl">{c.name}</b>
+      <span className="mt-3 inline-block animate-pulse border-2 border-foreground bg-foreground px-4 py-2 text-lg font-bold text-background">Open ▶</span>
     </button>)}</div>
   </div>;
 }
