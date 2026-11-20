@@ -8,7 +8,8 @@ const READ_RULE =
   "exactly as in Qur'an recitation — NO regional or dialect accent (not Egyptian, not Levantine, not Gulf). " +
   "Read the Arabic text exactly as written, clearly. " +
   "SHORT vowels (fatha, kasra, damma) are very short — one quick beat. NEVER stretch a short vowel. " +
-  "Only stretch a vowel where there is a long-vowel letter (alif, waw, ya). " +
+  "Only stretch a vowel where there is a long-vowel letter (alif, waw, ya), and then for EXACTLY two counts " +
+  "(natural madd, madd tabii): 'taa' is ta + one extra beat, never 'taaaaa'. Never stretch longer than two counts. " +
   "Pronounce the short vowel on the LAST letter of every word too — do not drop it. " +
   "Only when the last letter carries a written sukun (ْ) do you stop on it without a vowel. " +
   "Example: كَتَبَ is 'ka-ta-ba' — three equal short beats. NOT 'kaa-ta-ba', NOT 'katab'.";

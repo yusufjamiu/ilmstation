@@ -103,7 +103,8 @@ function voiceUrl(text, rate=.85, lang="ar"){
   // so it says them the way the alphabet is recited: "baa", "taa" (the screen still shows the full name)
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
   const q = lang==="ar" ? `&say=${encodeURIComponent(sayGuide(spoken))}` : `&lang=${lang}&who=${WHO}`;
-  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}`;
+  // v = voice version: raise it when the voice rules change, so saved recordings are made again
+  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=2`;
 }
 /** Fetch a lesson's sounds in the background (3 at a time), so they play instantly when tapped. */
 async function prefetchVoices(items){
