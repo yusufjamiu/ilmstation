@@ -122,7 +122,10 @@ async function speak(text, rate=.85, lang="ar"){
   try{
     voiceEl.src = url;
     await voiceEl.play(); pending = null;
-    return new Promise(res=>{ voiceEl.onended = res; voiceEl.onpause = res; voiceEl.onerror = res; setTimeout(res, 15000); });
+    // wait for the whole sentence (long intro sentences can run 20–30 seconds); the timer is only a safety net
+    return new Promise(res=>{ voiceEl.onended = res; voiceEl.onpause = res; voiceEl.onerror = res;
+      const cap = () => setTimeout(res, ((isFinite(voiceEl.duration) && voiceEl.duration > 0) ? voiceEl.duration : 60) * 1000 + 3000);
+      if (voiceEl.readyState >= 1) cap(); else voiceEl.onloadedmetadata = cap; });
   }catch(e){
     if (e && e.name === "NotAllowedError"){ pending = [text,lang]; return; }   // blocked until the first tap
   }
@@ -210,7 +213,10 @@ function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show")
 // Praise in Arabic (works for boys, girls and adults alike), spoken and shown
 // shown in English letters (everyone can read it), spoken in Arabic
 const PRAISE = [{ar:"مَا شَاءَ اللهُ", en:"Masha'Allah!"}, {ar:"بَارَكَ اللهُ فِيكُمْ", en:"Barakallahu feekum!"}, {ar:"مُمْتَازٌ", en:"Mumtaz! Excellent!"}];
-function praise(){ const p=rand(PRAISE); toast(p.en); speak(p.ar); return p.en; }
+let lastSay = Promise.resolve();
+function praise(){ const p=rand(PRAISE); toast(p.en); lastSay=Promise.resolve(speak(p.ar)); return p.en; }
+/** move on once the praise has been heard (and at least ms has passed) */
+const afterPraise = (fn, ms=1200) => Promise.all([lastSay, wait(ms)]).then(fn);
 function cheer(){ sfx.good(); praise(); }
 function confetti(n=60){ const cols=["#ff6fa8","#ffd23f","#3ddc97","#8a5cff","#4aa8ff","#ff9f43"];
   for(let i=0;i<n;i++){ const c=document.createElement("div"); c.className="confetti"; c.style.left=Math.random()*100+"vw"; c.style.background=rand(cols);
@@ -348,7 +354,7 @@ function Repeat(el){
       res.querySelector("#ag").onclick=()=>{ res.textContent=L.tap; };
     }
     function win(n){ res.className="result ok"; sfx.good(); res.textContent=praise(); addStars(n,mic); sfx.good(); confetti(20);
-      setTimeout(()=>{ i++; i<LETTERS.length? draw() : next(); },1700); }
+      afterPraise(()=>{ i++; i<LETTERS.length? draw() : next(); }); }
   }
   draw();
 }
@@ -471,7 +477,7 @@ function Write(el){
       if(typed.length>=seq.length) return;
       typed.push(l); sfx.tap(); draw();
       if(typed.length===seq.length){                              // checks by itself when full
-        if(typed.join("")===seq.join("")){ slot.classList.add("ok"); addStars(2,slot); sfx.good(); praise(); confetti(20); setTimeout(()=>{ r++; q(); },1500); }
+        if(typed.join("")===seq.join("")){ slot.classList.add("ok"); addStars(2,slot); sfx.good(); praise(); confetti(20); afterPraise(()=>{ r++; q(); }); }
         else { tries++; seq.forEach(x=>missed.add(x)); slot.classList.add("no"); sfx.bad(); shake(slot);
           if(tries>=2){ slot.innerHTML=seq.map(x=>`<span style="color:#14a86b">${x}</span>`).join(""); sayAll(seq); setTimeout(()=>{ r++; q(); },2600); }
           else { Promise.resolve(speakEn(SAY.tryAgain)).then(()=>sayAll(seq)); setTimeout(()=>{ typed=[]; draw(); },900); } }
@@ -496,7 +502,7 @@ function Order(el){
       <div class="qopts">${opts.map(o=>`<button class="qopt">${o}</button>`).join("")}</div>`;
     el.querySelector(".sub").onclick=()=>speakEn(SAY.order);
     el.querySelectorAll(".qopt").forEach(b=>b.onclick=()=>{
-      if(b.textContent===ans){ const gp=el.querySelector(".gap"); gp.textContent=ans; gp.className="fill"; b.classList.add("ok"); addStars(2,b); cheer(); speak(nameOf(ans)); setTimeout(()=>{ g++; missing(); },1500); }
+      if(b.textContent===ans){ const gp=el.querySelector(".gap"); gp.textContent=ans; gp.className="fill"; b.classList.add("ok"); addStars(2,b); cheer(); afterPraise(()=>{ g++; missing(); }); }
       else { sfx.bad(); missed.add(ans); b.classList.add("no"); shake(b); } });
   }
   function writeAll(){ if(!el.isConnected) return;

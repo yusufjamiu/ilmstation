@@ -115,7 +115,10 @@ async function speak(text, rate=.85, lang="ar"){
   try{
     voiceEl.src = url;
     await voiceEl.play(); pending = null;
-    return new Promise(res=>{ voiceEl.onended = res; voiceEl.onpause = res; voiceEl.onerror = res; setTimeout(res, 15000); });
+    // wait for the whole sentence (long intro sentences can run 20–30 seconds); the timer is only a safety net
+    return new Promise(res=>{ voiceEl.onended = res; voiceEl.onpause = res; voiceEl.onerror = res;
+      const cap = () => setTimeout(res, ((isFinite(voiceEl.duration) && voiceEl.duration > 0) ? voiceEl.duration : 60) * 1000 + 3000);
+      if (voiceEl.readyState >= 1) cap(); else voiceEl.onloadedmetadata = cap; });
   }catch(e){
     if (e && e.name === "NotAllowedError"){ pending = [text,lang]; return; }   // blocked until the first tap
   }
@@ -187,7 +190,9 @@ const good=()=>tone([587,880]), bad=()=>tone([196,165],.14,.07);
 // Praise in Arabic, spoken and shown (fits boys, girls and adults)
 // shown in English letters (everyone can read it), spoken in Arabic
 const PRAISE = [{ar:"مَا شَاءَ اللهُ", en:"Masha'Allah!"}, {ar:"بَارَكَ اللهُ فِيكُمْ", en:"Barakallahu feekum!"}, {ar:"مُمْتَازٌ", en:"Mumtaz! Excellent!"}];
-function praise(fb){ const p=rand(PRAISE); speak(p.ar); if(fb){ fb.className="fb ok"; fb.textContent=`${L.correct} · ${p.en}`; } return p.en; }
+let lastSay = Promise.resolve();
+const afterPraise = (fn, ms=1200) => Promise.all([lastSay, new Promise(r=>setTimeout(r,ms))]).then(fn);
+function praise(fb){ const p=rand(PRAISE); lastSay=Promise.resolve(speak(p.ar)); if(fb){ fb.className="fb ok"; fb.textContent=`${L.correct} · ${p.en}`; } return p.en; }
 function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),1600); }
 function addXP(){}   // XP is given by the app (Admin → XP rewards), once per lesson
 $("#sound").onclick=e=>{ muted=!muted; e.currentTarget.textContent=muted?"🔇":"🔊"; if(muted) stopVoice(); };
@@ -300,7 +305,7 @@ function Repeat(st){
       if(r.url){ myUrl=r.url; mine.style.display=""; }
       if(r.error){ fb.textContent = r.error==="mic" ? L.noMic : L.selfQ; return self(); }
       hd.textContent = r.text ? `${L.heardL} ${r.text}` : "";
-      if(heardRight(r.text,[x.n,...x.acc])){ ok++; good(); praise(fb); setTimeout(()=>{ i++; draw(); },1700); return; }
+      if(heardRight(r.text,[x.n,...x.acc])){ ok++; good(); praise(fb); afterPraise(()=>{ i++; draw(); }); return; }
       tries++; bad(); missed.add(x.l); fb.className="fb no"; fb.textContent=L.wrong; speak(x.n);
       if(tries>=3) self();
     };
@@ -389,7 +394,7 @@ function Write(st){
       if(ok){ right++; good(); slot.classList.add("ok"); praise($("#fb")); }
       else { bad(); seq.forEach(l=>missed.add(l)); $("#fb").className="fb no";
         $("#fb").innerHTML=`${L.ansIs} <span class="ar" style="font-size:28px">${seq.join(" ")}</span> (${seq.map(l=>byL(l).tn).join(", ")})`; }
-      setTimeout(()=>{ r++; q(); }, ok?1700:2800); };
+      if(ok) afterPraise(()=>{ r++; q(); }); else setTimeout(()=>{ r++; q(); }, 2800); };
   }
   q();
 }
@@ -410,7 +415,7 @@ function Order(st){
     const typed=bindKeyboard(st, ans.length, t=>{ $("#slot").textContent=t.join(" "); $("#ck").disabled=t.length<ans.length; });
     $("#ck").onclick=()=>{ const ok=typed().join("")===ans.join(""); st.querySelectorAll(".key").forEach(k=>k.disabled=true); $("#ck").disabled=true;
       if(ok){ right++; good(); praise($("#fb")); } else { bad(); ans.forEach(l=>missed.add(l)); $("#fb").className="fb no"; $("#fb").innerHTML=`${L.ansIs} <span class="ar" style="font-size:28px">${ans.join(" ")}</span>`; }
-      setTimeout(()=>{ g++; missing(); }, ok?1600:2600); };
+      if(ok) afterPraise(()=>{ g++; missing(); }); else setTimeout(()=>{ g++; missing(); }, 2600); };
   }
   function writeAll(){ if(!st.isConnected) return;
     st.innerHTML=`<h2>${L.ordT}</h2><div class="card" style="text-align:center"><div class="qtext">${L.allQ}</div>
