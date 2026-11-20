@@ -160,14 +160,14 @@ const syl = w => { const out=[], ch=[...w];
     if (MARK_RE.test(c) && out.length){ out[out.length-1]+=c; continue; }
     const ownVowel = /[ً-ْ]/.test(nx);
     const madd = prev && prev!==" " && !ownVowel && (
-      (c==="ا" && /[َُِٰ]$|و$/.test(prev)) ||
-      (c==="ى" && /[َِ]$/.test(prev)) ||
+      (c==="ا" && /[ًَُِٰ]$|و$/.test(prev)) ||
+      (c==="ى" && /[ًَِ]$/.test(prev)) ||
       (c==="و" && /ُ$/.test(prev)) || (c==="ي" && /ِ$/.test(prev)));
-    if (madd) out[out.length-1]+=c; else out.push(c);
+    if (madd || prev==="ٱ" || prev==="ا") out[out.length-1]+=c; else out.push(c);
   }
   return out; };
 /** what the voice gets: Qur'anic-only marks turned into plain spelling (same sound) */
-const audioForm = t => t.replace(/ـَٔ/g,"ءَ").replace(/ـِٔ/g,"ئِ").replace(/ـ/g,"").replace(/ىٰ/g,"ى").replace(/ٰ/g,"ا")
+const audioForm = t => t.replace(/ـَٔ/g,"ءَ").replace(/ـِٔ/g,"ئِ").replace(/ـ/g,"").replace(/ٱ/g,"ا").replace(/ىٰ/g,"ى").replace(/ٰ/g,"ا")
   .replace(/ۥ/g,"و").replace(/ۦ/g,"ي").replace(/۟/g,"").replace(/[ٓٔ]/g,"");
 const tr = w => sayGuide(audioForm(w));
 { const _vu = voiceUrl; voiceUrl = (t, r, l="ar") => _vu(l==="ar" ? audioForm(t) : t, r, l); }
@@ -184,10 +184,10 @@ function variants(w, n=3){
   const s=syl(w), out=new Set(); let guard=0;
   while (out.size<n && guard++<300){
     const c=s.slice(), i=Math.floor(Math.random()*c.length); if (c[i]===" ") continue;
-    const mk=(c[i].match(/[\u064E\u0650\u064F]/)||[])[0];
-    const VM=[..."َُِ"].filter(m=>WORDS.some(x=>x.includes(m)));
+    const mk=(c[i].match(/[ً-ِْ]/)||[])[0];
+    const VM=[..."ًٌٍَُِْ"].filter(m=>WORDS.some(x=>x.includes(m)));
     const hasMadd = /[اوىيۥۦ]/.test(c[i].slice(1).replace(/[ً-ٕ]/g,""));
-    if (MADD_LESSON && mk && Math.random()<.45){                     // long ↔ short: قَامَ ↔ قَمَ
+    if (MADD_LESSON && mk && /[\u064E\u0650\u064F]/.test(mk) && Math.random()<.45){                     // long ↔ short: قَامَ ↔ قَمَ
       c[i] = hasMadd ? c[i].replace(/[اىويۥۦ](?=[۟]?$)/,"") : c[i]+({"َ":"ا","ِ":"ي","ُ":"و"})[mk];
       const v=c.join(""); if(v!==w) out.add(v); continue; }
     if (VM.length>1 && mk && !hasMadd && Math.random()<.5){ c[i]=c[i].replace(mk, rand(VM.filter(x=>x!==mk))); const v=c.join(""); if(v!==w) out.add(v); continue; }
@@ -434,12 +434,12 @@ function Listen(st){
   }
   q();
 }
-const writable = w => !isPh(w) && /^[ء-يَُِ]+$/.test(w) && !/[آى]/.test(w) && syl(w).every(x=>/[َُِ]/.test(x));
-const MARKS = [..."َُِ"].filter(m=>WORDS.filter(writable).some(w=>w.includes(m)));
+const writable = w => !isPh(w) && /^[ء-يً-ِْ]+$/.test(w) && !/[آىٱ]/.test(w) && !/^ا/.test(w) && syl(w).every(x=>/[ً-ِْ]/.test(x));
+const MARKS = [..."ًٌٍَُِْ"].filter(m=>WORDS.filter(writable).some(w=>w.includes(m)));
 const MADDS = [..."اوي"].filter(m=>WORDS.filter(writable).some(w=>syl(w).some(x=>x.length>2 && x.endsWith(m))));
 const ONE = MARKS.length<=1 ? (MARKS[0]||F) : null;           // one harakah in the lesson → keys carry it
 const BASES = (()=>{ const b=LET28.map(l=>l==="ا"?"أ":l); WORDS.filter(writable).join("").replace(/[ً-ْ]/g,"").split("").forEach(c=>{ if(!b.includes(c) && "ءأإؤئة".includes(c)) b.push(c); }); return b; })();
-const MNAME = {"َ":"fatha","ِ":"kasra","ُ":"damma"};
+const MNAME = {"َ":"fatha","ِ":"kasra","ُ":"damma","ْ":"sukun","ً":"fathatan","ٍ":"kasratan","ٌ":"dammatan"};
 const keyboard = () => `<div class="kb">${BASES.map(k=>`<button class="key" data-k="${ONE?k+ONE:k}">${ONE?k+ONE:k}</button>`).join("")}
   ${MADDS.map(a=>`<button class="key mk" data-a="${a}" style="grid-column:span 2;font-size:14px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:24px">${a}</span> madd</button>`).join("")}
   ${ONE?"":MARKS.map(m=>`<button class="key mk" data-m="${m}" style="grid-column:span 2;font-size:15px;font-family:var(--ui);font-weight:700;padding:6px"><span class="ar" style="font-size:26px">ـ${m}</span> ${MNAME[m]}</button>`).join("")}
@@ -448,7 +448,7 @@ function bindKeys(root, max, onChange){ let t=[];
   root.querySelectorAll(".key").forEach(b=>b.onclick=()=>{ const k=b.dataset.k, m=b.dataset.m;
     const a=b.dataset.a, tail=x=>(x.slice(1).match(/[اوي]$/)||[""])[0];
     if(a){ if(t.length && !tail(t[t.length-1])) t[t.length-1]+=a; }
-    else if(m){ if(t.length){ const x=t[t.length-1], md=tail(x), base=md?x.slice(0,-1):x; t[t.length-1]=base.replace(/[َُِ]/g,"")+m+md; } }
+    else if(m){ if(t.length){ const x=t[t.length-1], md=tail(x), base=md?x.slice(0,-1):x; t[t.length-1]=base.replace(/[ً-ِْ]/g,"")+m+md; } }
     else if(k==="⌫") t.pop(); else if(t.length<max) t.push(k);
     tone([520],.04,.05); onChange(t); }); return ()=>t; }
 function Write(st){
@@ -460,7 +460,7 @@ function Write(st){
       <button class="btn gold" id="pl" style="margin:10px 0">🔊 Play</button> <button class="ghost" id="sl">🐢 Slower</button>
       <div class="slot" id="slot"></div>${keyboard()}${ONE?"":`<p class="lead" style="margin:6px 0 0;font-size:13px">Tap a letter, then its mark.</p>`}<div class="fb" id="fb"></div><div class="row end" style="margin-top:10px"><button class="btn" id="ck" disabled>Check</button></div></div>`;
     $("#pl").onclick=()=>speak(w); $("#sl").onclick=()=>speak(w,.45); introSay.then(()=>{ if(st.isConnected) speak(w); }); introSay=Promise.resolve();
-    const typed=bindKeys(st, parts.length, t=>{ $("#slot").textContent=t.join(""); $("#ck").disabled=t.length<parts.length || t.some(x=>!/[\u064E\u0650\u064F]/.test(x)); });
+    const typed=bindKeys(st, parts.length, t=>{ $("#slot").textContent=t.join(""); $("#ck").disabled=t.length<parts.length || t.some(x=>!/[\u064B-\u0650\u0652]/.test(x)); });
     $("#ck").onclick=()=>{ const ok=typed().join("")===w; st.querySelectorAll(".key").forEach(k=>k.disabled=true); $("#ck").disabled=true;
       if(ok){ right++; good(); addStars(2); $("#slot").classList.add("ok"); praise($("#fb")); afterPraise(()=>{ r++; q(); }); }
       else { bad(); missed.add(w); $("#slot").classList.add("no"); $("#fb").className="fb no"; $("#fb").innerHTML=`It was <span class="ar" style="font-size:28px">${w}</span> (${tr(w)})`; setTimeout(()=>{ r++; q(); },2800); } };
@@ -514,7 +514,7 @@ function run(st){
         if(built.length===parts.length){ ans.push($("#slot").textContent); setTimeout(()=>{ i++; q(); },400); } }); }
     else if(Q.write){ const parts=syl(Q.write);
       box.innerHTML=`<div class="slot" id="slot"></div>${keyboard()}<div class="row end" style="margin-top:10px"><button class="btn" id="wn" disabled>Next →</button></div>`;
-      const typed=bindKeys(box, parts.length, t=>{ $("#slot").textContent=t.join(""); $("#wn").disabled=t.length<parts.length || t.some(x=>!/[\u064E\u0650\u064F]/.test(x)); });
+      const typed=bindKeys(box, parts.length, t=>{ $("#slot").textContent=t.join(""); $("#wn").disabled=t.length<parts.length || t.some(x=>!/[\u064B-\u0650\u0652]/.test(x)); });
       $("#wn").onclick=()=>{ ans.push(typed().join("")); i++; q(); }; }
   }
   function results(){
