@@ -7637,3 +7637,18 @@ const MORE: Record<string, T> = {
 }
 };
 for (const [k, v] of Object.entries(MORE)) DICT[k] = { ...(DICT[k] ?? {}), ...v };
+
+// header language menu, notifications, profile
+const EXTRA2: Record<string, T> = {
+  "My profile": { ar: "ملفي الشخصي", fr: "Mon profil", ur: "میری پروفائل", ha: "Bayanina", id: "Profil saya", tl: "Aking profile", yo: "Profaili mi", ig: "Profaịlụ m", bn: "আমার প্রোফাইল", ms: "Profil saya" },
+  "Friend request": { ar: "طلب صداقة", fr: "Demande d'ami", ur: "دوستی کی درخواست", ha: "Buƙatar abota", id: "Permintaan pertemanan", tl: "Kahilingan sa pakikipagkaibigan", yo: "Ìbéèrè ọ̀rẹ́", ig: "Arịrịọ enyi", bn: "বন্ধুত্বের অনুরোধ", ms: "Permintaan rakan" },
+  "Challenge · {x}": {},
+  "Tap one to answer it.": { ar: "اضغط على أحدها للرد.", fr: "Touche-en une pour répondre.", ur: "جواب دینے کے لیے کسی ایک کو دبائیں۔", ha: "Danna ɗaya don ka amsa.", id: "Ketuk salah satu untuk menjawab.", tl: "I-tap ang isa para sagutin.", yo: "Tẹ ọ̀kan láti dáhùn.", ig: "Pịa otu ka ị zaa ya.", bn: "উত্তর দিতে একটিতে চাপুন।", ms: "Ketik salah satu untuk menjawab." },
+  "Nothing new right now.": { ar: "لا جديد الآن.", fr: "Rien de nouveau pour l'instant.", ur: "ابھی کچھ نیا نہیں۔", ha: "Babu sabon abu yanzu.", id: "Belum ada yang baru.", tl: "Wala pang bago ngayon.", yo: "Kò sí nǹkan tuntun báyìí.", ig: "Ọ dịghị ihe ọhụrụ ugbu a.", bn: "এখন নতুন কিছু নেই।", ms: "Tiada yang baharu sekarang." },
+  "Choose language": { ar: "اختر اللغة", fr: "Choisir la langue", ur: "زبان منتخب کریں", ha: "Zaɓi harshe", id: "Pilih bahasa", tl: "Pumili ng wika", yo: "Yan èdè", ig: "Họrọ asụsụ", bn: "ভাষা বেছে নিন", ms: "Pilih bahasa" },
+  "until {n}/{n}/{n}": { ar: "حتى {n}/{n}/{n}", fr: "jusqu'au {n}/{n}/{n}", ur: "{n}/{n}/{n} تک", ha: "har zuwa {n}/{n}/{n}", id: "hingga {n}/{n}/{n}", tl: "hanggang {n}/{n}/{n}", yo: "títí dé {n}/{n}/{n}", ig: "ruo {n}/{n}/{n}", bn: "{n}/{n}/{n} পর্যন্ত", ms: "hingga {n}/{n}/{n}" },
+  "until {n}.{n}.{n}": { ar: "حتى {n}.{n}.{n}", fr: "jusqu'au {n}.{n}.{n}", ur: "{n}.{n}.{n} تک", ha: "har zuwa {n}.{n}.{n}", id: "hingga {n}.{n}.{n}", tl: "hanggang {n}.{n}.{n}", yo: "títí dé {n}.{n}.{n}", ig: "ruo {n}.{n}.{n}", bn: "{n}.{n}.{n} পর্যন্ত", ms: "hingga {n}.{n}.{n}" },
+  "{n} points · swap for Premium": { ar: "{n} نقطة · استبدلها ببريميوم", fr: "{n} points · échange-les contre Premium", ur: "{n} پوائنٹس · پریمیم کے لیے بدلیں", ha: "maki {n} · musanya da Premium", id: "{n} poin · tukar dengan Premium", tl: "{n} puntos · ipalit sa Premium", yo: "àmì {n} · pààrọ̀ wọn fún Premium", ig: "akara {n} · gbanwere ha maka Premium", bn: "{n} পয়েন্ট · প্রিমিয়ামের সাথে বদলান", ms: "{n} mata · tukar untuk Premium" },
+};
+delete EXTRA2["Challenge · {x}"];
+for (const [k, v] of Object.entries(EXTRA2)) DICT[k] = { ...(DICT[k] ?? {}), ...v };

@@ -5,6 +5,8 @@ import { doc as yDoc, getDoc as yGet } from "firebase/firestore";
 import { auth as yAuth, db as yDb } from "@/lib/firebase";
 import { useLanguage as useAppLang, useLiveLanguages as useLiveAppLangs, type Lang as AppLang } from "@/components/language";
 import { NotifyCard, NotifyPrompt } from "@/components/notify";
+import { InboxBadge, InboxDialog, useInbox } from "@/components/inbox";
+import { LanguageSelect } from "@/components/language";
 import { InstallBanner, InstallCard } from "@/components/install-app";
 import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
@@ -115,6 +117,8 @@ export function IlmStationApp() {
   const { premium } = usePremium();
   const { account } = useAuth();
   const isKid = account?.zone === "kids";
+  const inbox = useInbox();
+  const profileScreen: Screen = isKid ? "settings" : "community";
   const selectScreen = (next: Screen) => { setScreen(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   // children only reach their own screens
   useEffect(() => { if (isKid && !KID_SCREENS.includes(screen)) setScreen("home"); }, [isKid, screen]);
@@ -136,9 +140,9 @@ export function IlmStationApp() {
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" className="hidden sm:inline-flex" onClick={() => setStreak(true)}><Flame /> {streakInfo && streakInfo.count > 0 ? `${streakInfo.count} day streak` : "Start your streak"}</Button>
             {!isKid && <Button variant={premium ? "secondary" : "outline"} className="hidden sm:inline-flex" onClick={() => selectScreen("rewards")}><Crown /> {premium ? "Premium" : "Go Premium"}</Button>}
-            <Button variant="outline" size="icon" onClick={() => setNotifications(true)} aria-label="Notifications"><Bell /></Button>
+            <LanguageSelect className="h-10 px-2.5" />
             <ThemeToggle />
-            <Button variant="secondary" onClick={() => selectScreen(isKid ? "settings" : "community")}><span className="grid size-6 place-items-center bg-primary text-primary-foreground">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
+            <Button variant="secondary" className="relative" aria-label={inbox.length ? `Profile, ${inbox.length} notifications` : "Profile"} onClick={() => inbox.length ? setNotifications(true) : selectScreen(profileScreen)}><InboxBadge count={inbox.length} /><span className="grid size-6 place-items-center bg-primary text-primary-foreground">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
           </div>
         </header>
         <PresenceBeat />
@@ -172,7 +176,9 @@ export function IlmStationApp() {
       </main>
     </div>
     <MobileNav kid={isKid} current={screen} onSelect={selectScreen} />
-    <NotificationDialog open={notifications} onOpenChange={setNotifications} />
+    <InboxDialog open={notifications} onOpenChange={setNotifications} items={inbox}
+      onOpen={(i) => { setNotifications(false); if (i.kind === "friend") { try { sessionStorage.setItem("iq_comm_tab", "Requests"); } catch { /* ignore */ } selectScreen("community"); } else selectScreen("challenge"); }}
+      onProfile={() => { setNotifications(false); selectScreen(profileScreen); }} />
     <StreakDialog open={streak} onOpenChange={setStreak} streak={streakInfo} />
     <ShareDialog card={share} onOpenChange={(o) => { if (!o) setShare(null); }} />
   </div>;
@@ -272,7 +278,7 @@ function WisdomScreen({onShare}:{onShare:(card?:ShareCard)=>void}){const[saved,s
 function BotScreen(){const[messages,setMessages]=useState<{from:string;text:string}[]>([]);const[input,setInput]=useState("");const send=(text=input)=>{if(!text.trim())return;setMessages(m=>[...m,{from:"you",text},{from:"bot",text:"Sabr is steadfast patience rooted in trust in Allah. The Qur’an pairs patience with prayer as sources of help. For personal religious rulings, please consult a qualified scholar. · Source: Qur’an 2:153"}]);setInput("")};return <Frame eyebrow="8 of 10 sessions remaining" title="Ask IlmBot"><Panel title="Sourced Islamic learning assistant" tag="Not a fatwa service"><div className="min-h-80 space-y-3">{messages.length===0?<div><p className="font-serif text-3xl">What would you like to understand?</p><div className="mt-5 flex flex-wrap gap-2">{["Explain sabr simply","What is the meaning of Ihsan?","Tell me about Surah Al-Mulk"].map(q=><Button key={q} variant="outline" onClick={()=>send(q)}>{q}</Button>)}</div></div>:messages.map((m,i)=><div key={i} className={cn("max-w-2xl border-2 border-foreground p-4",m.from==="you"?"ml-auto bg-primary":"bg-muted")}><b className="text-xs uppercase">{m.from==="you"?"You":"IlmBot"}</b><p className="mt-1">{m.text}</p></div>)}</div><form className="mt-5 flex gap-2 border-t-2 border-foreground pt-4" onSubmit={e=>{e.preventDefault();send()}}><input aria-label="Ask IlmBot" value={input} onChange={e=>setInput(e.target.value)} className="h-11 flex-1 border-2 border-foreground bg-background px-3" placeholder="Ask a learning question…"/><Button type="submit">Send</Button></form></Panel></Frame>}
 
 function CommunityScreen({go,onShare}:{go:(s:Screen)=>void;onShare:()=>void}){
-  const[tab,setTab]=useState("Profile");
+  const[tab,setTab]=useState(()=>{try{const t=sessionStorage.getItem("iq_comm_tab");sessionStorage.removeItem("iq_comm_tab");return t||"Profile";}catch{return "Profile";}});
   const{account}=useAuth();
   const displayName=account?.name??"Your name";
   const username=account?.name?(account.username ?? account.name.toLowerCase().replace(/\s+/g,"")):"username";
