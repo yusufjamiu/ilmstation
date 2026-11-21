@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { useLanguage } from "./language";
 import { DEFAULT_CATEGORIES, type Category, type Progress, type Results } from "./study-core";
 
 export * from "./study-core";
@@ -33,9 +34,8 @@ export function useStudyMe() {
   return { uid, progress, results };
 }
 
-const VKEY = "iq_voice";
+/** The study voice is the app language chosen in Settings: one place to change it. */
 export function useVoiceLang() {
-  const [lang, setLang] = useState<string>("en");
-  useEffect(() => { try { setLang(localStorage.getItem(VKEY) ?? localStorage.getItem("iq_lang") ?? "en"); } catch { /* storage off */ } }, []);
-  return { lang, set: (c: string) => { setLang(c); try { localStorage.setItem(VKEY, c); } catch { /* storage off */ } } };
+  const { lang, set } = useLanguage();
+  return { lang: lang as string, set: (c: string) => set(c as Parameters<typeof set>[0]) };
 }
