@@ -86,6 +86,20 @@ function forNaija(text: string): string {
   return t.replace(/\(\s*\)/g, "").replace(/\s*[–—-]\s*(?=[.,!?:]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([.,!?:])/g, "$1").trim();
 }
 
+
+/** Numbers and level names the Nigerian voices trip over: "Beginner 1" → "Beginner one", "95%" → "95 percent";
+    each sentence on its own line so the voice pauses at full stops. */
+const NUM_EN = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const NUM_HA = ["sifili", "ɗaya", "biyu", "uku", "huɗu", "biyar", "shida", "bakwai", "takwas", "tara", "goma"];
+function speakable(text: string, lang: string): string {
+  let t = text
+    .replace(/\b(Beginner|Mafari|Level|Ìpele|Ọkwa|Mataki)\s+(\d{1,2})\b/g, (_m, w: string, n: string) => `${w} ${lang === "ha" ? `na ${NUM_HA[+n] ?? n}` : NUM_EN[+n] ?? n}`)
+    .replace(/(\d+)\s*%/g, "$1 percent")
+    .replace(/\s*·\s*/g, ". ")
+    .replace(/([.!?])\s+/g, "$1\n");
+  return t.trim();
+}
+
 export async function handleTts(request: Request): Promise<Response> {
   const cors = { "access-control-allow-origin": "*" }; // lesson files may be served from storage
   const json = (o: unknown, status = 200) =>
@@ -132,20 +146,22 @@ export async function handleTts(request: Request): Promise<Response> {
     const vid = adult
       ? process.env[`ELEVENLABS_${L}_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB"
       : process.env[`ELEVENLABS_${L}_KID_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_KID_VOICE_ID ?? process.env.ELEVENLABS_KID_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
+    const said = speakable(text, ilang);
+    // "robust" stability: the expressive model then reads every word instead of skipping some
     for (const body of [
-      { text, model_id: "eleven_v4", language_code: ilang },
-      { text, model_id: "eleven_v4" },                       // if the language code is refused
+      { text: said, model_id: "eleven_v4", language_code: ilang, voice_settings: { stability: 1.0, similarity_boost: 0.8 } },
+      { text: said, model_id: "eleven_v4" },                 // if a setting is refused
     ]) {
       try {
         const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vid}?output_format=mp3_44100_128`, {
           method: "POST",
           headers: { "xi-api-key": elevenKey, "content-type": "application/json", accept: "audio/mpeg" },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(25000),
+          signal: AbortSignal.timeout(20000),
         });
         if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) return audio(buf); }
-        else console.error("eleven", r.status, (await r.text().catch(() => "")).slice(0, 300));
-      } catch (e) { console.error("eleven", String(e)); }
+        else { console.error("eleven", r.status, (await r.text().catch(() => "")).slice(0, 300)); if (r.status === 401 || r.status === 429) break; }
+      } catch (e) { console.error("eleven", String(e)); break; }
     }
   }
 
@@ -154,13 +170,13 @@ export async function handleTts(request: Request): Promise<Response> {
   const NAIJA: Record<string, [string, string]> = { yo: ["segun", "funmi"], ig: ["ebuka", "ngozi"], ha: ["aliyu", "zainab"] }; // [adult man, kids woman]
   if (english && spitch && NAIJA[ilang]) {
     // up to 3 tries: Spitch can refuse requests that arrive together ("too many requests") or be slow
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const r = await fetch("https://api.spitch.app/v1/speech", {
           method: "POST",
           headers: { authorization: `Bearer ${spitch}`, "content-type": "application/json" },
-          body: JSON.stringify({ text: forNaija(text) || text, language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
-          signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ text: speakable(forNaija(text) || text, ilang), language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
+          signal: AbortSignal.timeout(12000),
         });
         if (r.ok) {
           const buf = await r.arrayBuffer();

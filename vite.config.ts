@@ -19,5 +19,7 @@ export default defineConfig({
     preset: "vercel",
     // the server's Firebase Admin (wallets, payments) breaks when bundled: ship it as is
     traceDeps: ["firebase-admin*"],
+    // voice requests can take a while (long Yoruba/Igbo sentences): give server functions up to 60 s
+    vercel: { functions: { maxDuration: 60 } },
   },
 });
