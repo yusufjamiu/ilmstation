@@ -100,6 +100,45 @@ function speakable(text: string, lang: string): string {
   return t.trim();
 }
 
+
+/* ---- Permanent voice store: paid voices (ElevenLabs/Spitch) are made once, kept in Firebase Storage, reused forever ---- */
+type Bucket = { file: (p: string) => { exists: () => Promise<[boolean]>; download: () => Promise<[Buffer]>; save: (b: Buffer, o: object) => Promise<void> } };
+let bucketP: Promise<Bucket | null> | null = null;
+function voiceBucket(): Promise<Bucket | null> {
+  if (bucketP) return bucketP;
+  bucketP = (async () => {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+    const name = process.env.FIREBASE_STORAGE_BUCKET ?? process.env.VITE_FIREBASE_STORAGE_BUCKET;
+    if (!raw || !name) return null;
+    const json = raw.trim().startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
+    const cred = JSON.parse(json) as { project_id: string; client_email: string; private_key: string };
+    const { initializeApp, getApps, cert } = await import("firebase-admin/app");
+    const { getStorage } = await import("firebase-admin/storage");
+    const app = getApps().find((a) => a.name === "voices") ?? initializeApp({
+      credential: cert({ projectId: cred.project_id, clientEmail: cred.client_email, privateKey: cred.private_key.replace(/\\n/g, "\n") }),
+      storageBucket: name,
+    }, "voices");
+    return getStorage(app).bucket(name) as unknown as Bucket;
+  })().catch((e) => { console.error("voice store", e); bucketP = null; return null; });
+  return bucketP;
+}
+async function voiceKey(parts: string[]): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts.join("\u0001")));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function storedVoice(key: string): Promise<ArrayBuffer | null> {
+  try {
+    const b = await voiceBucket(); if (!b) return null;
+    const f = b.file(`tts-cache/${key}.mp3`);
+    const [ok] = await f.exists(); if (!ok) return null;
+    const [buf] = await f.download();
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  } catch { return null; }
+}
+async function keepVoice(key: string, buf: ArrayBuffer): Promise<void> {
+  try { const b = await voiceBucket(); if (b) await b.file(`tts-cache/${key}.mp3`).save(Buffer.from(buf), { contentType: "audio/mpeg", resumable: false }); } catch { /* not fatal */ }
+}
+
 export async function handleTts(request: Request): Promise<Response> {
   const cors = { "access-control-allow-origin": "*" }; // lesson files may be served from storage
   const json = (o: unknown, status = 200) =>
@@ -147,6 +186,9 @@ export async function handleTts(request: Request): Promise<Response> {
       ? process.env[`ELEVENLABS_${L}_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB"
       : process.env[`ELEVENLABS_${L}_KID_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_KID_VOICE_ID ?? process.env.ELEVENLABS_KID_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
     const said = speakable(text, ilang);
+    const storeKey = await voiceKey(["eleven_v4", vid, ilang, said]);
+    const kept = await storedVoice(storeKey);
+    if (kept) return audio(kept);   // made before: no credits used
     // "robust" stability: the expressive model then reads every word instead of skipping some
     for (const body of [
       { text: said, model_id: "eleven_v4", language_code: ilang, voice_settings: { stability: 1.0, similarity_boost: 0.8 } },
@@ -159,7 +201,7 @@ export async function handleTts(request: Request): Promise<Response> {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(20000),
         });
-        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) return audio(buf); }
+        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) { await keepVoice(storeKey, buf); return audio(buf); } }
         else { console.error("eleven", r.status, (await r.text().catch(() => "")).slice(0, 300)); if (r.status === 401 || r.status === 429) break; }
       } catch (e) { console.error("eleven", String(e)); break; }
     }
