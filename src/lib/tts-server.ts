@@ -46,7 +46,7 @@ const TAJWEED_RULE =
   "Disjoined letters at the start of a surah are read by their letter names. ";
 
 // Instructions in other languages: speak that language like a native teacher.
-const LANG_NAMES: Record<string, string> = { ar: "Modern Standard Arabic (fusha)", fr: "French", ur: "Urdu", ha: "Hausa", id: "Indonesian", tl: "Filipino (Tagalog)", yo: "Yoruba", bn: "Bengali", tr: "Turkish", sw: "Swahili" };
+const LANG_NAMES: Record<string, string> = { ar: "Modern Standard Arabic (fusha)", fr: "French", ur: "Urdu", ha: "Hausa", id: "Indonesian", tl: "Filipino (Tagalog)", yo: "Yoruba (with correct tones)", ig: "Igbo", bn: "Bengali", ms: "Malay (Bahasa Melayu)", tr: "Turkish", sw: "Swahili" };
 const speakIn = (code: string) => code && code !== "en" && LANG_NAMES[code]
   ? ` The text is in ${LANG_NAMES[code]}: read it in ${LANG_NAMES[code]} with a natural native accent, not an English accent. Keep Arabic and Islamic words in their proper Arabic pronunciation.`
   : "";
@@ -84,7 +84,7 @@ export async function handleTts(request: Request): Promise<Response> {
   const adult = url.searchParams.get("who") === "adult";   // adult narrator, otherwise Nuri for children
   // Only short lesson text, so nobody can use this to read other things on your bill
   if (english) {
-    const ok = ilang === "en" ? /^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text) : /^[\p{L}\p{M}\p{N}\s.,!?'’:;()\-–—«»"“”،؟·]+$/u.test(text);
+    const ok = ilang === "en" ? /^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text) : /^[\p{L}\p{M}\p{N}\s.,!?'’:;()\-–—«»"“”،؟·۔।]+$/u.test(text);
     if (!text || text.length > 500 || !ok)
       return json({ error: "Short lesson text only (max 500 characters)." }, 400);
   } else if (!text || text.length > 120 || !/^[\u0600-\u06FF\s،.]+$/.test(text))

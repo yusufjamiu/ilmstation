@@ -81,7 +81,7 @@ export const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g,
 export const VOICE_LANGS = [
   { code: "en", name: "English" }, { code: "ar", name: "Arabic (العربية)" }, { code: "yo", name: "Yoruba (Yorùbá)" }, { code: "ha", name: "Hausa" },
   { code: "fr", name: "French (Français)" }, { code: "ur", name: "Urdu (اردو)" }, { code: "bn", name: "Bengali (বাংলা)" }, { code: "id", name: "Indonesian (Bahasa Indonesia)" },
-  { code: "tr", name: "Turkish (Türkçe)" }, { code: "sw", name: "Swahili (Kiswahili)" },
+  { code: "tr", name: "Turkish (Türkçe)" }, { code: "sw", name: "Swahili (Kiswahili)" }, { code: "tl", name: "Filipino" }, { code: "ig", name: "Igbo" }, { code: "ms", name: "Malay (Bahasa Melayu)" },
 ] as const;
 export type VoiceLang = string;
 export type VoiceLangDef = { code: string; name: string; hidden?: boolean };

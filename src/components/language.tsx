@@ -16,6 +16,10 @@ export const languages = [
   { code: "ha", label: "Hausa", native: "Hausa", dir: "ltr" },
   { code: "id", label: "Indonesian", native: "Bahasa Indonesia", dir: "ltr" },
   { code: "tl", label: "Filipino", native: "Filipino", dir: "ltr" },
+  { code: "yo", label: "Yoruba", native: "Yorùbá", dir: "ltr" },
+  { code: "ig", label: "Igbo", native: "Asụsụ Igbo", dir: "ltr" },
+  { code: "bn", label: "Bengali", native: "বাংলা", dir: "ltr" },
+  { code: "ms", label: "Malay", native: "Bahasa Melayu", dir: "ltr" },
 ] as const;
 export type Lang = (typeof languages)[number]["code"];
 
@@ -89,7 +93,7 @@ function fixText(n: Text, lang: Lang) {
   const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
   const el = n.parentElement; if (!el || el.closest(SKIP)) return;
   const was = orig.get(n);
-  const known = !!was && (cur === was || (["ar", "fr", "ur", "ha", "id", "tl"] as Lang[]).some((l) => trAny(was, l) === cur));
+  const known = !!was && (cur === was || (languages.map((l) => l.code).filter((c) => c !== "en") as Lang[]).some((l) => trAny(was, l) === cur));
   const key = known ? was : (isKey(cur) ? cur : undefined);
   if (!key) return;
   orig.set(n, key);
@@ -132,13 +136,13 @@ export function LanguageBoot() {
 export function LanguageCard() {
   return <div className="mt-6 border-2 border-foreground p-5">
     <p className="font-serif text-2xl">🌍 Language</p>
-    <p className="mt-1 text-sm text-muted-foreground">English · العربية · Français · اردو · Hausa</p>
+    <p className="mt-1 text-sm text-muted-foreground">English · العربية · Français · اردو · Hausa · Yorùbá · Igbo · বাংলা · Melayu</p>
     <div className="mt-3"><LanguageSelect /></div>
   </div>;
 }
 
 /** Qur'an meaning in the user's language (trusted published translations). */
-const QURAN_EDITIONS: Record<string, string> = { en: "en.sahih", ar: "ar.muyassar", fr: "fr.hamidullah", ur: "ur.jalandhry", ha: "ha.gumi", id: "id.indonesian", tl: "en.sahih" };
+const QURAN_EDITIONS: Record<string, string> = { en: "en.sahih", ar: "ar.muyassar", fr: "fr.hamidullah", ur: "ur.jalandhry", ha: "ha.gumi", id: "id.indonesian", tl: "en.sahih", bn: "bn.bengali", ms: "ms.basmeih", yo: "en.sahih", ig: "en.sahih" };
 export function quranEdition(): string {
   try { return QURAN_EDITIONS[localStorage.getItem("iq_lang") ?? "en"] ?? "en.sahih"; } catch { return "en.sahih"; }
 }

@@ -1,5 +1,5 @@
 /** App phrases → translations. Keys are the exact English text shown on screen. Add more any time. */
-type T = Partial<Record<"ar" | "fr" | "ur" | "ha" | "id" | "tl", string>>;
+type T = Partial<Record<"ar" | "fr" | "ur" | "ha" | "id" | "tl" | "yo" | "ig" | "bn" | "ms", string>>;
 export const DICT: Record<string, T> = {
   // navigation
   "Today": { ar: "اليوم", fr: "Aujourd’hui", ur: "آج", ha: "Yau" },
@@ -2826,3 +2826,4814 @@ const STUDY: Record<string, T> = {
 }
 };
 for (const [k, v] of Object.entries(STUDY)) DICT[k] = { ...v, ...(DICT[k] ?? {}) };
+
+// Yoruba, Igbo, Bengali, Malay.
+const MORE: Record<string, T> = {
+"Today": {
+"yo": "Òní",
+"ig": "Taa",
+"bn": "আজ",
+"ms": "Hari ini"
+},
+"Play": {
+"yo": "Ṣeré",
+"ig": "Egwuregwu",
+"bn": "খেলা",
+"ms": "Main"
+},
+"Quests": {
+"yo": "Àwọn ìrìn-àjò",
+"ig": "Njem ọmụmụ",
+"bn": "কোয়েস্ট",
+"ms": "Misi"
+},
+"Progress": {
+"yo": "Ìlọsíwájú",
+"ig": "Ọganihu",
+"bn": "অগ্রগতি",
+"ms": "Kemajuan"
+},
+"You": {
+"yo": "Ìwọ",
+"ig": "Gị",
+"bn": "আপনি",
+"ms": "Anda"
+},
+"Home": {
+"yo": "Ilé",
+"ig": "Ụlọ",
+"bn": "হোম",
+"ms": "Laman utama"
+},
+"Study": {
+"yo": "Ẹ̀kọ́",
+"ig": "Ọmụmụ",
+"bn": "পড়াশোনা",
+"ms": "Belajar"
+},
+"Challenge": {
+"yo": "Ìpèníjà",
+"ig": "Ịma aka",
+"bn": "চ্যালেঞ্জ",
+"ms": "Cabaran"
+},
+"Quran": {
+"yo": "Kùránì",
+"ig": "Kur'an",
+"bn": "কুরআন",
+"ms": "Al-Quran"
+},
+"Qur’an": {
+"yo": "Kùránì",
+"ig": "Kur'an",
+"bn": "কুরআন",
+"ms": "Al-Quran"
+},
+"Halaqah": {
+"yo": "Halaqah",
+"ig": "Halaqah",
+"bn": "হালাকা",
+"ms": "Halaqah"
+},
+"Chatrooms": {
+"yo": "Àwọn yàrá ìjíròrò",
+"ig": "Ọnụ ụlọ mkparịta ụka",
+"bn": "চ্যাটরুম",
+"ms": "Bilik sembang"
+},
+"Library": {
+"yo": "Ilé-ìkàwé",
+"ig": "Ọbá akwụkwọ",
+"bn": "লাইব্রেরি",
+"ms": "Perpustakaan"
+},
+"Settings": {
+"yo": "Ètò",
+"ig": "Ntọala",
+"bn": "সেটিংস",
+"ms": "Tetapan"
+},
+"Family hub": {
+"yo": "Ibùdó ẹbí",
+"ig": "Ebe ezinụlọ",
+"bn": "পরিবার কেন্দ্র",
+"ms": "Hab keluarga"
+},
+"Wallet & store": {
+"yo": "Àpò owó & ọjà",
+"ig": "Akpa ego & ụlọ ahịa",
+"bn": "ওয়ালেট ও স্টোর",
+"ms": "Dompet & kedai"
+},
+"Practice": {
+"yo": "Ìdánrawò",
+"ig": "Mmega",
+"bn": "অনুশীলন",
+"ms": "Latihan"
+},
+"Log out": {
+"yo": "Jáde",
+"ig": "Pụọ",
+"bn": "লগ আউট",
+"ms": "Log keluar"
+},
+"Log in": {
+"yo": "Wọlé",
+"ig": "Banye",
+"bn": "লগ ইন",
+"ms": "Log masuk"
+},
+"Sign up": {
+"yo": "Forúkọsílẹ̀",
+"ig": "Debanye aha",
+"bn": "সাইন আপ",
+"ms": "Daftar"
+},
+"Create account": {
+"yo": "Ṣẹ̀dá àkáǹtì",
+"ig": "Mepụta akaụntụ",
+"bn": "অ্যাকাউন্ট তৈরি করুন",
+"ms": "Cipta akaun"
+},
+"Create an account": {
+"yo": "Ṣẹ̀dá àkáǹtì kan",
+"ig": "Mepụta akaụntụ",
+"bn": "একটি অ্যাকাউন্ট তৈরি করুন",
+"ms": "Cipta akaun"
+},
+"Get started": {
+"yo": "Bẹ̀rẹ̀",
+"ig": "Malite",
+"bn": "শুরু করুন",
+"ms": "Mula"
+},
+"Continue with Google": {
+"yo": "Tẹ̀síwájú pẹ̀lú Google",
+"ig": "Gaa n'ihu na Google",
+"bn": "Google দিয়ে চালিয়ে যান",
+"ms": "Teruskan dengan Google"
+},
+"Forgot password?": {
+"yo": "Ṣé o gbàgbé ọ̀rọ̀ aṣínà?",
+"ig": "Ichefuola paswọọdụ?",
+"bn": "পাসওয়ার্ড ভুলে গেছেন?",
+"ms": "Lupa kata laluan?"
+},
+"Email": {
+"yo": "Ímeèlì",
+"ig": "Email",
+"bn": "ইমেইল",
+"ms": "E-mel"
+},
+"Password": {
+"yo": "Ọ̀rọ̀ aṣínà",
+"ig": "Paswọọdụ",
+"bn": "পাসওয়ার্ড",
+"ms": "Kata laluan"
+},
+"Open dashboard": {
+"yo": "Ṣí dáṣíbọ́ọ̀dù",
+"ig": "Mepee dashboard",
+"bn": "ড্যাশবোর্ড খুলুন",
+"ms": "Buka papan pemuka"
+},
+"Events": {
+"yo": "Àwọn ìṣẹ̀lẹ̀",
+"ig": "Mmemme",
+"bn": "অনুষ্ঠান",
+"ms": "Acara"
+},
+"Centres": {
+"yo": "Àwọn ibùdó",
+"ig": "Ebe ọrụ",
+"bn": "কেন্দ্র",
+"ms": "Pusat"
+},
+"Sponsor": {
+"yo": "Ṣe onígbọ̀wọ́",
+"ig": "Kwado",
+"bn": "পৃষ্ঠপোষকতা",
+"ms": "Taja"
+},
+"Save": {
+"yo": "Fipamọ́",
+"ig": "Chekwaa",
+"bn": "সংরক্ষণ",
+"ms": "Simpan"
+},
+"Cancel": {
+"yo": "Fagilé",
+"ig": "Kagbuo",
+"bn": "বাতিল",
+"ms": "Batal"
+},
+"Close": {
+"yo": "Pa á dé",
+"ig": "Mechie",
+"bn": "বন্ধ করুন",
+"ms": "Tutup"
+},
+"Done": {
+"yo": "Ó ti parí",
+"ig": "Emechaala",
+"bn": "সম্পন্ন",
+"ms": "Selesai"
+},
+"Continue": {
+"yo": "Tẹ̀síwájú",
+"ig": "Gaa n'ihu",
+"bn": "চালিয়ে যান",
+"ms": "Teruskan"
+},
+"Back": {
+"yo": "Padà",
+"ig": "Laghachi",
+"bn": "ফিরে যান",
+"ms": "Kembali"
+},
+"Next": {
+"yo": "Èyí tó kàn",
+"ig": "Nke ọzọ",
+"bn": "পরবর্তী",
+"ms": "Seterusnya"
+},
+"Previous": {
+"yo": "Èyí tó ṣáájú",
+"ig": "Nke gara aga",
+"bn": "পূর্ববর্তী",
+"ms": "Sebelumnya"
+},
+"Go": {
+"yo": "Lọ",
+"ig": "Gaa",
+"bn": "যান",
+"ms": "Pergi"
+},
+"Page": {
+"yo": "Ojú-ìwé",
+"ig": "Peeji",
+"bn": "পৃষ্ঠা",
+"ms": "Halaman"
+},
+"Start": {
+"yo": "Bẹ̀rẹ̀",
+"ig": "Malite",
+"bn": "শুরু",
+"ms": "Mula"
+},
+"Loading…": {
+"yo": "Ó ń gbé e wá…",
+"ig": "Ọ na-ebu…",
+"bn": "লোড হচ্ছে…",
+"ms": "Memuatkan…"
+},
+"Try again": {
+"yo": "Gbìyànjú lẹ́ẹ̀kan sí i",
+"ig": "Nwaa ọzọ",
+"bn": "আবার চেষ্টা করুন",
+"ms": "Cuba lagi"
+},
+"Search": {
+"yo": "Wá",
+"ig": "Chọọ",
+"bn": "খুঁজুন",
+"ms": "Cari"
+},
+"Send": {
+"yo": "Fi ránṣẹ́",
+"ig": "Zipu",
+"bn": "পাঠান",
+"ms": "Hantar"
+},
+"Update": {
+"yo": "Ṣe àtúnṣe",
+"ig": "Melite",
+"bn": "হালনাগাদ",
+"ms": "Kemas kini"
+},
+"Install": {
+"yo": "Fi sórí ẹ̀rọ",
+"ig": "Wụnye",
+"bn": "ইনস্টল",
+"ms": "Pasang"
+},
+"Not now": {
+"yo": "Kì í ṣe báyìí",
+"ig": "Ọ bụghị ugbu a",
+"bn": "এখন নয়",
+"ms": "Bukan sekarang"
+},
+"Turn on": {
+"yo": "Tàn án",
+"ig": "Gbanye",
+"bn": "চালু করুন",
+"ms": "Hidupkan"
+},
+"Coming soon": {
+"yo": "Ó ń bọ̀ láìpẹ́",
+"ig": "Ọ na-abịa n'oge na-adịghị anya",
+"bn": "শীঘ্রই আসছে",
+"ms": "Akan datang"
+},
+"Tap to play": {
+"yo": "Tẹ̀ láti ṣeré",
+"ig": "Pịa ka ị kpọọ",
+"bn": "খেলতে ট্যাপ করুন",
+"ms": "Ketik untuk main"
+},
+"Hifz": {
+"yo": "Hifz",
+"ig": "Hifz",
+"bn": "হিফজ",
+"ms": "Hifz"
+},
+"Tilawah": {
+"yo": "Tilawah",
+"ig": "Tilawah",
+"bn": "তিলাওয়াত",
+"ms": "Tilawah"
+},
+"Revision": {
+"yo": "Àtúnyẹ̀wò",
+"ig": "Ntụgharị",
+"bn": "রিভিশন",
+"ms": "Ulang kaji"
+},
+"Listen": {
+"yo": "Gbọ́",
+"ig": "Gee ntị",
+"bn": "শুনুন",
+"ms": "Dengar"
+},
+"What would you like to do?": {
+"yo": "Kí lo fẹ́ ṣe?",
+"ig": "Gịnị ka ị chọrọ ime?",
+"bn": "আপনি কী করতে চান?",
+"ms": "Apa yang anda mahu lakukan?"
+},
+"Memorise step by step": {
+"yo": "Há a sórí ní ìgbésẹ̀-ìgbésẹ̀",
+"ig": "Buru n'isi nwayọọ nwayọọ",
+"bn": "ধাপে ধাপে মুখস্থ করুন",
+"ms": "Hafal langkah demi langkah"
+},
+"Read the mushaf page by page": {
+"yo": "Ka Mus'hafi ní ojú-ìwé-ojú-ìwé",
+"ig": "Gụọ Mushaf peeji site na peeji",
+"bn": "পৃষ্ঠা ধরে মুসহাফ পড়ুন",
+"ms": "Baca mushaf halaman demi halaman"
+},
+"Review what you’ve memorised": {
+"yo": "Ṣàtúnyẹ̀wò ohun tí o ti há sórí",
+"ig": "Tụgharịa ihe i buru n'isi",
+"bn": "যা মুখস্থ করেছেন তা রিভিশন দিন",
+"ms": "Ulang kaji apa yang telah dihafal"
+},
+"Listen to beautiful recitations": {
+"yo": "Gbọ́ àwọn kíkà tó rẹwà",
+"ig": "Gee ntị n'ọgụgụ mara mma",
+"bn": "সুন্দর তিলাওয়াত শুনুন",
+"ms": "Dengar bacaan yang indah"
+},
+"☰ Surahs": {
+"yo": "☰ Àwọn Sùúrà",
+"ig": "☰ Surah",
+"bn": "☰ সূরা",
+"ms": "☰ Surah"
+},
+"Search a surah…": {
+"yo": "Wá sùúrà kan…",
+"ig": "Chọọ surah…",
+"bn": "সূরা খুঁজুন…",
+"ms": "Cari surah…"
+},
+"Or choose a surah:": {
+"yo": "Tàbí yan sùúrà kan:",
+"ig": "Ma ọ bụ họrọ surah:",
+"bn": "অথবা একটি সূরা বেছে নিন:",
+"ms": "Atau pilih surah:"
+},
+"Choose a surah": {
+"yo": "Yan sùúrà kan",
+"ig": "Họrọ surah",
+"bn": "একটি সূরা বেছে নিন",
+"ms": "Pilih surah"
+},
+"Start from the beginning": {
+"yo": "Bẹ̀rẹ̀ láti ìbẹ̀rẹ̀",
+"ig": "Malite site na mbido",
+"bn": "শুরু থেকে শুরু করুন",
+"ms": "Mula dari awal"
+},
+"Continue reading?": {
+"yo": "Ṣé o fẹ́ máa kà á lọ?",
+"ig": "Ịga n'ihu na-agụ?",
+"bn": "পড়া চালিয়ে যাবেন?",
+"ms": "Teruskan membaca?"
+},
+"Continue listening?": {
+"yo": "Ṣé o fẹ́ máa gbọ́ ọ lọ?",
+"ig": "Ịga n'ihu na-ege ntị?",
+"bn": "শোনা চালিয়ে যাবেন?",
+"ms": "Teruskan mendengar?"
+},
+"▶ Play": {
+"yo": "▶ Ṣe é",
+"ig": "▶ Kpọọ",
+"bn": "▶ চালান",
+"ms": "▶ Main"
+},
+"⏸ Pause": {
+"yo": "⏸ Dánu dúró",
+"ig": "⏸ Kwụsịtụ",
+"bn": "⏸ বিরতি",
+"ms": "⏸ Jeda"
+},
+"▶ Play from this verse": {
+"yo": "▶ Ṣe é láti àyá yìí",
+"ig": "▶ Kpọọ site n'amaokwu a",
+"bn": "▶ এই আয়াত থেকে চালান",
+"ms": "▶ Main dari ayat ini"
+},
+"Loading the page…": {
+"yo": "Ó ń gbé ojú-ìwé wá…",
+"ig": "Ọ na-ebu peeji…",
+"bn": "পৃষ্ঠা লোড হচ্ছে…",
+"ms": "Memuatkan halaman…"
+},
+"Daily Wisdom": {
+"yo": "Ọgbọ́n Ojoojúmọ́",
+"ig": "Amamihe Kwa Ụbọchị",
+"bn": "দৈনিক হিকমাহ",
+"ms": "Hikmah Harian"
+},
+"Prayer times": {
+"yo": "Àkókò ìrun",
+"ig": "Oge ekpere",
+"bn": "নামাজের সময়",
+"ms": "Waktu solat"
+},
+"Fajr": {
+"yo": "Subhi",
+"ig": "Fajr",
+"bn": "ফজর",
+"ms": "Subuh"
+},
+"Sunrise": {
+"yo": "Ìlà oòrùn",
+"ig": "Ọwụwa anyanwụ",
+"bn": "সূর্যোদয়",
+"ms": "Syuruk"
+},
+"Dhuhr": {
+"yo": "Ọ̀sán",
+"ig": "Dhuhr",
+"bn": "যোহর",
+"ms": "Zohor"
+},
+"Asr": {
+"yo": "Asri",
+"ig": "Asr",
+"bn": "আসর",
+"ms": "Asar"
+},
+"Maghrib": {
+"yo": "Mọ́gàríbì",
+"ig": "Maghrib",
+"bn": "মাগরিব",
+"ms": "Maghrib"
+},
+"Isha": {
+"yo": "Ìṣà",
+"ig": "Isha",
+"bn": "এশা",
+"ms": "Isyak"
+},
+"Copy": {
+"yo": "Ṣe ẹ̀dà",
+"ig": "Detuo",
+"bn": "কপি",
+"ms": "Salin"
+},
+"Card": {
+"yo": "Káàdì",
+"ig": "Kaadị",
+"bn": "কার্ড",
+"ms": "Kad"
+},
+"Games 🎮": {
+"yo": "Eré 🎮",
+"ig": "Egwuregwu 🎮",
+"bn": "খেলা 🎮",
+"ms": "Permainan 🎮"
+},
+"Study 📚": {
+"yo": "Ẹ̀kọ́ 📚",
+"ig": "Ọmụmụ 📚",
+"bn": "পড়াশোনা 📚",
+"ms": "Belajar 📚"
+},
+"Games": {
+"yo": "Eré",
+"ig": "Egwuregwu",
+"bn": "খেলা",
+"ms": "Permainan"
+},
+"Quizzes": {
+"yo": "Àwọn ìdánwò kékeré",
+"ig": "Ajụjụ nlele",
+"bn": "কুইজ",
+"ms": "Kuiz"
+},
+"Puzzles": {
+"yo": "Àwọn àdìtú",
+"ig": "Ihe mgbagwoju anya",
+"bn": "ধাঁধা",
+"ms": "Teka-teki"
+},
+"Memory games": {
+"yo": "Eré ìrántí",
+"ig": "Egwuregwu ncheta",
+"bn": "স্মৃতির খেলা",
+"ms": "Permainan ingatan"
+},
+"Pick something to learn!": {
+"yo": "Yan nǹkan láti kọ́!",
+"ig": "Họrọ ihe ị ga-amụ!",
+"bn": "শেখার জন্য কিছু বেছে নাও!",
+"ms": "Pilih sesuatu untuk dipelajari!"
+},
+"Pick a subject!": {
+"yo": "Yan ẹ̀kọ́ kan!",
+"ig": "Họrọ isiokwu!",
+"bn": "একটি বিষয় বেছে নাও!",
+"ms": "Pilih satu subjek!"
+},
+"What do you want to play?": {
+"yo": "Kí lo fẹ́ ṣeré?",
+"ig": "Kedu egwuregwu ị chọrọ ịkpọ?",
+"bn": "তুমি কী খেলতে চাও?",
+"ms": "Apa yang kamu mahu main?"
+},
+"New lessons are coming soon! 🌟": {
+"yo": "Àwọn ẹ̀kọ́ tuntun ń bọ̀ láìpẹ́! 🌟",
+"ig": "Ihe ọmụmụ ọhụrụ na-abịa n'oge na-adịghị anya! 🌟",
+"bn": "নতুন পাঠ শীঘ্রই আসছে! 🌟",
+"ms": "Pelajaran baharu akan datang! 🌟"
+},
+"Subjects": {
+"yo": "Àwọn ẹ̀kọ́",
+"ig": "Isiokwu",
+"bn": "বিষয়সমূহ",
+"ms": "Subjek"
+},
+"Premium": {
+"yo": "Premium",
+"ig": "Premium",
+"bn": "প্রিমিয়াম",
+"ms": "Premium"
+},
+"Free": {
+"yo": "Ọ̀fẹ́",
+"ig": "N'efu",
+"bn": "বিনামূল্যে",
+"ms": "Percuma"
+},
+"Monthly": {
+"yo": "Lóṣooṣù",
+"ig": "Kwa ọnwa",
+"bn": "মাসিক",
+"ms": "Bulanan"
+},
+"Yearly": {
+"yo": "Lọ́dọọdún",
+"ig": "Kwa afọ",
+"bn": "বার্ষিক",
+"ms": "Tahunan"
+},
+"Choose plan": {
+"yo": "Yan ètò",
+"ig": "Họrọ atụmatụ",
+"bn": "প্ল্যান বেছে নিন",
+"ms": "Pilih pelan"
+},
+"Ask for a quote": {
+"yo": "Béèrè iye owó",
+"ig": "Jụọ ọnụahịa",
+"bn": "মূল্য জানতে চান",
+"ms": "Minta sebut harga"
+},
+"Pay now": {
+"yo": "San owó báyìí",
+"ig": "Kwụọ ugbu a",
+"bn": "এখনই পরিশোধ করুন",
+"ms": "Bayar sekarang"
+},
+"🔔 Notifications": {
+"yo": "🔔 Ìfitónilétí",
+"ig": "🔔 Ọkwa",
+"bn": "🔔 নোটিফিকেশন",
+"ms": "🔔 Pemberitahuan"
+},
+"Turn on notifications": {
+"yo": "Tan ìfitónilétí",
+"ig": "Gbanye ọkwa",
+"bn": "নোটিফিকেশন চালু করুন",
+"ms": "Hidupkan pemberitahuan"
+},
+"Send me a test": {
+"yo": "Fi ìdánwò kan ránṣẹ́ sí mi",
+"ig": "Zitere m nnwale",
+"bn": "আমাকে একটি পরীক্ষামূলক বার্তা পাঠান",
+"ms": "Hantar ujian kepada saya"
+},
+"📲 Install the app": {
+"yo": "📲 Fi áàpù sórí ẹ̀rọ",
+"ig": "📲 Wụnye ngwa",
+"bn": "📲 অ্যাপ ইনস্টল করুন",
+"ms": "📲 Pasang aplikasi"
+},
+"Install IlmStation": {
+"yo": "Fi IlmStation sórí ẹ̀rọ",
+"ig": "Wụnye IlmStation",
+"bn": "IlmStation ইনস্টল করুন",
+"ms": "Pasang IlmStation"
+},
+"Delete my account": {
+"yo": "Pa àkáǹtì mi rẹ́",
+"ig": "Hichapụ akaụntụ m",
+"bn": "আমার অ্যাকাউন্ট মুছুন",
+"ms": "Padam akaun saya"
+},
+"Privacy Policy": {
+"yo": "Ìlànà Àṣírí",
+"ig": "Iwu Nzuzo",
+"bn": "গোপনীয়তা নীতি",
+"ms": "Dasar Privasi"
+},
+"Terms of Use": {
+"yo": "Àwọn Òfin Ìlò",
+"ig": "Usoro Ojiji",
+"bn": "ব্যবহারের শর্তাবলি",
+"ms": "Terma Penggunaan"
+},
+"Prize Rules": {
+"yo": "Àwọn Òfin Ẹ̀bùn",
+"ig": "Iwu Onyinye",
+"bn": "পুরস্কারের নিয়ম",
+"ms": "Peraturan Hadiah"
+},
+"🌍 Language": {
+"yo": "🌍 Èdè",
+"ig": "🌍 Asụsụ",
+"bn": "🌍 ভাষা",
+"ms": "🌍 Bahasa"
+},
+"Preferences & account": {
+"yo": "Ààyò & àkáǹtì",
+"ig": "Mmasị & akaụntụ",
+"bn": "পছন্দ ও অ্যাকাউন্ট",
+"ms": "Pilihan & akaun"
+},
+"Experience": {
+"yo": "Ìrírí",
+"ig": "Ahụmịhe",
+"bn": "অভিজ্ঞতা",
+"ms": "Pengalaman"
+},
+"Saved automatically": {
+"yo": "Ó ń fipamọ́ fúnra rẹ̀",
+"ig": "A na-echekwa ya na-akpaghị aka",
+"bn": "স্বয়ংক্রিয়ভাবে সংরক্ষিত",
+"ms": "Disimpan secara automatik"
+},
+"Quest reminders": {
+"yo": "Ìrántí ìrìn-àjò",
+"ig": "Ncheta njem ọmụmụ",
+"bn": "কোয়েস্ট রিমাইন্ডার",
+"ms": "Peringatan misi"
+},
+"Sound effects": {
+"yo": "Ìró ipa",
+"ig": "Ụda mmetụta",
+"bn": "সাউন্ড ইফেক্ট",
+"ms": "Kesan bunyi"
+},
+"Reduced motion": {
+"yo": "Ìṣípòpadà díẹ̀",
+"ig": "Mbelata mmegharị",
+"bn": "কম অ্যানিমেশন",
+"ms": "Kurangkan animasi"
+},
+"Language": {
+"yo": "Èdè",
+"ig": "Asụsụ",
+"bn": "ভাষা",
+"ms": "Bahasa"
+},
+"Account": {
+"yo": "Àkáǹtì",
+"ig": "Akaụntụ",
+"bn": "অ্যাকাউন্ট",
+"ms": "Akaun"
+},
+"Frontend demo": {
+"yo": "Àpẹẹrẹ ojú",
+"ig": "Ngosipụta n'ihu",
+"bn": "ফ্রন্টএন্ড ডেমো",
+"ms": "Demo paparan"
+},
+"Replay onboarding": {
+"yo": "Tún ìfihàn ìbẹ̀rẹ̀ ṣe",
+"ig": "Megharịa nkọwa mmalite",
+"bn": "পরিচিতি আবার দেখুন",
+"ms": "Main semula pengenalan"
+},
+"Privacy & accessibility": {
+"yo": "Àṣírí & ìrọ̀rùn lílò",
+"ig": "Nzuzo & nnweta",
+"bn": "গোপনীয়তা ও সহজলভ্যতা",
+"ms": "Privasi & kebolehcapaian"
+},
+"Preview offline state": {
+"yo": "Wo ipò àìsí lórí ayélujára",
+"ig": "Lee ọnọdụ enweghị ịntanetị",
+"bn": "অফলাইন অবস্থা দেখুন",
+"ms": "Pratonton keadaan luar talian"
+},
+"Dark theme preview": {
+"yo": "Wo àwọ̀ dúdú",
+"ig": "Lee isiokwu ọchịchịrị",
+"bn": "ডার্ক থিম দেখুন",
+"ms": "Pratonton tema gelap"
+},
+"Language saved": {
+"yo": "A ti fi èdè pamọ́",
+"ig": "Echekwala asụsụ",
+"bn": "ভাষা সংরক্ষিত হয়েছে",
+"ms": "Bahasa disimpan"
+},
+"Your daily ledger": {
+"yo": "Àkọsílẹ̀ ojoojúmọ́ rẹ",
+"ig": "Ndekọ gị kwa ụbọchị",
+"bn": "আপনার দৈনিক খাতা",
+"ms": "Lejar harian anda"
+},
+"Quick quiz": {
+"yo": "Ìdánwò kíákíá",
+"ig": "Ajụjụ ngwa ngwa",
+"bn": "দ্রুত কুইজ",
+"ms": "Kuiz pantas"
+},
+"Quick Quiz": {
+"yo": "Ìdánwò Kíákíá",
+"ig": "Ajụjụ Ngwa Ngwa",
+"bn": "দ্রুত কুইজ",
+"ms": "Kuiz Pantas"
+},
+"Days to Ramadan": {
+"yo": "Ọjọ́ sí Ramadan",
+"ig": "Ụbọchị ruo Ramadan",
+"bn": "রমজান পর্যন্ত দিন",
+"ms": "Hari menuju Ramadan"
+},
+"Prepare": {
+"yo": "Múra sílẹ̀",
+"ig": "Kwado",
+"bn": "প্রস্তুতি নিন",
+"ms": "Bersedia"
+},
+"Pick up where you left off": {
+"yo": "Tẹ̀síwájú láti ibi tí o dúró sí",
+"ig": "Gaa n'ihu ebe ị kwụsịrị",
+"bn": "যেখানে থেমেছিলেন সেখান থেকে শুরু করুন",
+"ms": "Sambung dari tempat anda berhenti"
+},
+"Continue reading": {
+"yo": "Tẹ̀síwájú kíkà",
+"ig": "Gaa n'ihu na-agụ",
+"bn": "পড়া চালিয়ে যান",
+"ms": "Teruskan membaca"
+},
+"Continue in Library": {
+"yo": "Tẹ̀síwájú ní Ilé-ìkàwé",
+"ig": "Gaa n'ihu n'Ọbá akwụkwọ",
+"bn": "লাইব্রেরিতে চালিয়ে যান",
+"ms": "Teruskan di Perpustakaan"
+},
+"Next prayer": {
+"yo": "Ìrun tó kàn",
+"ig": "Ekpere na-esote",
+"bn": "পরবর্তী নামাজ",
+"ms": "Solat seterusnya"
+},
+"Download": {
+"yo": "Gbà á sílẹ̀",
+"ig": "Budata",
+"bn": "ডাউনলোড",
+"ms": "Muat turun"
+},
+"Share": {
+"yo": "Pín in",
+"ig": "Kesaa",
+"bn": "শেয়ার",
+"ms": "Kongsi"
+},
+"Ramadan": {
+"yo": "Ramadan",
+"ig": "Ramadan",
+"bn": "রমজান",
+"ms": "Ramadan"
+},
+"Cards": {
+"yo": "Àwọn káàdì",
+"ig": "Kaadị",
+"bn": "কার্ড",
+"ms": "Kad"
+},
+"Community": {
+"yo": "Àwùjọ",
+"ig": "Obodo",
+"bn": "কমিউনিটি",
+"ms": "Komuniti"
+},
+"IlmBot": {
+"yo": "IlmBot",
+"ig": "IlmBot",
+"bn": "IlmBot",
+"ms": "IlmBot"
+},
+"Assalamu-alaikum,": {
+"yo": "Assalamu alaikum,",
+"ig": "Assalamu alaikum,",
+"bn": "আসসালামু আলাইকুম,",
+"ms": "Assalamualaikum,"
+},
+"Assalamu alaikum": {
+"yo": "Assalamu alaikum",
+"ig": "Assalamu alaikum",
+"bn": "আসসালামু আলাইকুম",
+"ms": "Assalamualaikum"
+},
+"days to Ramadan": {
+"yo": "ọjọ́ sí Ramadan",
+"ig": "ụbọchị ruo Ramadan",
+"bn": "দিন রমজান পর্যন্ত",
+"ms": "hari menuju Ramadan"
+},
+"Prepare your intention, Tarawih plan, and 30-day quest chain.": {
+"yo": "Múra èròngbà rẹ sílẹ̀, ètò Tarawih, àti ìrìn-àjò ọgbọ̀n ọjọ́.",
+"ig": "Kwadebe ebumnuche gị, atụmatụ Tarawih, na njem ọmụmụ ụbọchị iri atọ.",
+"bn": "আপনার নিয়ত, তারাবিহ পরিকল্পনা এবং ৩০ দিনের কোয়েস্ট প্রস্তুত করুন।",
+"ms": "Sediakan niat anda, pelan Tarawih, dan rangkaian misi 30 hari."
+},
+"Prepare your intention, Tarawih plan, and 30-day quest chain": {
+"yo": "Múra èròngbà rẹ sílẹ̀, ètò Tarawih, àti ìrìn-àjò ọgbọ̀n ọjọ́",
+"ig": "Kwadebe ebumnuche gị, atụmatụ Tarawih, na njem ọmụmụ ụbọchị iri atọ",
+"bn": "আপনার নিয়ত, তারাবিহ পরিকল্পনা এবং ৩০ দিনের কোয়েস্ট প্রস্তুত করুন",
+"ms": "Sediakan niat anda, pelan Tarawih, dan rangkaian misi 30 hari"
+},
+"Play Modes": {
+"yo": "Ọ̀nà Eré",
+"ig": "Ụdị Egwuregwu",
+"bn": "খেলার ধরন",
+"ms": "Mod Permainan"
+},
+"Choose a practice": {
+"yo": "Yan ìdánrawò kan",
+"ig": "Họrọ mmega",
+"bn": "একটি অনুশীলন বেছে নিন",
+"ms": "Pilih latihan"
+},
+"Hifz Drills": {
+"yo": "Ìdánrawò Hifz",
+"ig": "Mmega Hifz",
+"bn": "হিফজ অনুশীলন",
+"ms": "Latihan Hifz"
+},
+"Recite and review": {
+"yo": "Ka kí o sì ṣàtúnyẹ̀wò",
+"ig": "Gụọ ma tụgharịa",
+"bn": "তিলাওয়াত ও রিভিশন",
+"ms": "Baca dan ulang kaji"
+},
+"Tafsir Quiz": {
+"yo": "Ìdánwò Tafsir",
+"ig": "Ajụjụ Tafsir",
+"bn": "তাফসির কুইজ",
+"ms": "Kuiz Tafsir"
+},
+"10 mixed questions": {
+"yo": "Ìbéèrè àdàlù mẹ́wàá",
+"ig": "Ajụjụ iri agwakọtara",
+"bn": "১০টি মিশ্র প্রশ্ন",
+"ms": "10 soalan campuran"
+},
+"Learn with family": {
+"yo": "Kọ́ pẹ̀lú ẹbí",
+"ig": "Mụta na ezinụlọ",
+"bn": "পরিবারের সাথে শিখুন",
+"ms": "Belajar bersama keluarga"
+},
+"Ask and explore": {
+"yo": "Béèrè kí o sì ṣàwárí",
+"ig": "Jụọ ma chọpụta",
+"bn": "জিজ্ঞাসা করুন ও খুঁজে দেখুন",
+"ms": "Tanya dan teroka"
+},
+"Leaderboard": {
+"yo": "Àtẹ àwọn aṣáájú",
+"ig": "Tebụl ndị ndu",
+"bn": "লিডারবোর্ড",
+"ms": "Papan pendahulu"
+},
+"Weekly": {
+"yo": "Lọ́sọ̀ọ̀sẹ̀",
+"ig": "Kwa izu",
+"bn": "সাপ্তাহিক",
+"ms": "Mingguan"
+},
+"Invite friends to see the leaderboard.": {
+"yo": "Pe àwọn ọ̀rẹ́ láti rí àtẹ àwọn aṣáájú.",
+"ig": "Kpọọ ndị enyi ka ha hụ tebụl ndị ndu.",
+"bn": "লিডারবোর্ড দেখতে বন্ধুদের আমন্ত্রণ জানান।",
+"ms": "Jemput rakan untuk melihat papan pendahulu."
+},
+"View all": {
+"yo": "Wo gbogbo rẹ̀",
+"ig": "Lee ha niile",
+"bn": "সব দেখুন",
+"ms": "Lihat semua"
+},
+"Daily streak": {
+"yo": "Ọjọ́ tí kò já",
+"ig": "Usoro ụbọchị",
+"bn": "দৈনিক ধারা",
+"ms": "Rentetan harian"
+},
+"Adhan": {
+"yo": "Àdhàn",
+"ig": "Adhan",
+"bn": "আজান",
+"ms": "Azan"
+},
+"▶ Play adhan": {
+"yo": "▶ Ṣe àdhàn",
+"ig": "▶ Kpọọ adhan",
+"bn": "▶ আজান চালান",
+"ms": "▶ Mainkan azan"
+},
+"Stop": {
+"yo": "Dúró",
+"ig": "Kwụsị",
+"bn": "থামুন",
+"ms": "Berhenti"
+},
+"Turn off adhan": {
+"yo": "Pa àdhàn",
+"ig": "Gbanyụọ adhan",
+"bn": "আজান বন্ধ করুন",
+"ms": "Matikan azan"
+},
+"Couldn't load prayer times.": {
+"yo": "A kò lè gbé àkókò ìrun wá.",
+"ig": "Enweghị ike ibu oge ekpere.",
+"bn": "নামাজের সময় লোড করা যায়নি।",
+"ms": "Tidak dapat memuatkan waktu solat."
+},
+"Continue listening": {
+"yo": "Tẹ̀síwájú gbígbọ́",
+"ig": "Gaa n'ihu na-ege ntị",
+"bn": "শোনা চালিয়ে যান",
+"ms": "Teruskan mendengar"
+},
+"Start reading": {
+"yo": "Bẹ̀rẹ̀ kíkà",
+"ig": "Malite ịgụ",
+"bn": "পড়া শুরু করুন",
+"ms": "Mula membaca"
+},
+"Start with a quick quiz": {
+"yo": "Bẹ̀rẹ̀ pẹ̀lú ìdánwò kíákíá",
+"ig": "Malite na ajụjụ ngwa ngwa",
+"bn": "একটি দ্রুত কুইজ দিয়ে শুরু করুন",
+"ms": "Mula dengan kuiz pantas"
+},
+"Open a book from the library, or test yourself with a quick quiz.": {
+"yo": "Ṣí ìwé kan láti ilé-ìkàwé, tàbí dán ara rẹ wò pẹ̀lú ìdánwò kíákíá.",
+"ig": "Mepee akwụkwọ n'ọbá akwụkwọ, ma ọ bụ nwaa onwe gị na ajụjụ ngwa ngwa.",
+"bn": "লাইব্রেরি থেকে একটি বই খুলুন, অথবা দ্রুত কুইজ দিয়ে নিজেকে যাচাই করুন।",
+"ms": "Buka buku dari perpustakaan, atau uji diri anda dengan kuiz pantas."
+},
+"Jumu’ah Mubarak": {
+"yo": "Jimọ̀ Mubarak",
+"ig": "Jumu'ah Mubarak",
+"bn": "জুমা মোবারক",
+"ms": "Jumaat Mubarak"
+},
+"Surah Al-Kahf": {
+"yo": "Sùúrà Al-Kahf",
+"ig": "Surah Al-Kahf",
+"bn": "সূরা আল-কাহফ",
+"ms": "Surah Al-Kahfi"
+},
+"Mushaf": {
+"yo": "Mus'hafi",
+"ig": "Mushaf",
+"bn": "মুসহাফ",
+"ms": "Mushaf"
+},
+"With translation": {
+"yo": "Pẹ̀lú ìtumọ̀",
+"ig": "Na nsụgharị",
+"bn": "অনুবাদসহ",
+"ms": "Dengan terjemahan"
+},
+"110 ayat · read or listen": {
+"yo": "Àyá 110 · kà tàbí gbọ́",
+"ig": "Amaokwu 110 · gụọ ma ọ bụ gee ntị",
+"bn": "১১০ আয়াত · পড়ুন বা শুনুন",
+"ms": "110 ayat · baca atau dengar"
+},
+"Couldn't load the surah. Check your connection and try again.": {
+"yo": "A kò lè gbé sùúrà náà wá. Ṣàyẹ̀wò ìsopọ̀ rẹ kí o sì gbìyànjú lẹ́ẹ̀kan sí i.",
+"ig": "Enweghị ike ibu surah ahụ. Lelee njikọ gị ma nwaa ọzọ.",
+"bn": "সূরাটি লোড করা যায়নি। আপনার সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।",
+"ms": "Tidak dapat memuatkan surah. Semak sambungan anda dan cuba lagi."
+},
+"Read Surah Al-Kahf": {
+"yo": "Ka Sùúrà Al-Kahf",
+"ig": "Gụọ Surah Al-Kahf",
+"bn": "সূরা আল-কাহফ পড়ুন",
+"ms": "Baca Surah Al-Kahfi"
+},
+"I’ve read Al-Kahf": {
+"yo": "Mo ti ka Al-Kahf",
+"ig": "Agụọla m Al-Kahf",
+"bn": "আমি আল-কাহফ পড়েছি",
+"ms": "Saya telah membaca Al-Kahfi"
+},
+"Level": {
+"yo": "Ìpele",
+"ig": "Ọkwa",
+"bn": "স্তর",
+"ms": "Tahap"
+},
+"▶ Next": {
+"yo": "▶ Èyí tó kàn",
+"ig": "▶ Nke ọzọ",
+"bn": "▶ পরবর্তী",
+"ms": "▶ Seterusnya"
+},
+"Seek · Learn · Grow": {
+"yo": "Wá · Kọ́ · Dàgbà",
+"ig": "Chọọ · Mụta · Too",
+"bn": "খুঁজুন · শিখুন · বেড়ে উঠুন",
+"ms": "Cari · Belajar · Berkembang"
+},
+"Knowledge pursued with purpose.": {
+"yo": "Ìmọ̀ tí a ń lépa pẹ̀lú èrò.",
+"ig": "Ihe ọmụma a na-achụ n'ebumnuche.",
+"bn": "উদ্দেশ্য নিয়ে জ্ঞান অর্জন।",
+"ms": "Ilmu yang dicari dengan tujuan."
+},
+"About": {
+"yo": "Nípa wa",
+"ig": "Banyere anyị",
+"bn": "সম্পর্কে",
+"ms": "Tentang"
+},
+"Sponsor a learner": {
+"yo": "Ṣe onígbọ̀wọ́ akẹ́kọ̀ọ́",
+"ig": "Kwado onye na-amụ ihe",
+"bn": "একজন শিক্ষার্থীর পৃষ্ঠপোষক হোন",
+"ms": "Taja seorang pelajar"
+},
+"Dashboard": {
+"yo": "Dáṣíbọ́ọ̀dù",
+"ig": "Dashboard",
+"bn": "ড্যাশবোর্ড",
+"ms": "Papan pemuka"
+},
+"Privacy": {
+"yo": "Àṣírí",
+"ig": "Nzuzo",
+"bn": "গোপনীয়তা",
+"ms": "Privasi"
+},
+"Terms": {
+"yo": "Òfin",
+"ig": "Usoro",
+"bn": "শর্তাবলি",
+"ms": "Terma"
+},
+"Prize rules": {
+"yo": "Òfin ẹ̀bùn",
+"ig": "Iwu onyinye",
+"bn": "পুরস্কারের নিয়ম",
+"ms": "Peraturan hadiah"
+},
+"A living school for everyday Muslims": {
+"yo": "Ilé-ìwé alààyè fún àwọn Mùsùlùmí ojoojúmọ́",
+"ig": "Ụlọ akwụkwọ dị ndụ maka ndị Alakụba kwa ụbọchị",
+"bn": "প্রতিদিনের মুসলিমদের জন্য একটি জীবন্ত বিদ্যালয়",
+"ms": "Sekolah yang hidup untuk Muslim setiap hari"
+},
+"Seek knowledge.": {
+"yo": "Wá ìmọ̀.",
+"ig": "Chọọ ihe ọmụma.",
+"bn": "জ্ঞান অন্বেষণ করুন।",
+"ms": "Cari ilmu."
+},
+"Grow together.": {
+"yo": "Dàgbà papọ̀.",
+"ig": "Too ọnụ.",
+"bn": "একসাথে বেড়ে উঠুন।",
+"ms": "Berkembang bersama."
+},
+"Daily lessons, quizzes, a library with audio, moderated chatrooms and a 3D Muslim world, in one purposeful journey.": {
+"yo": "Ẹ̀kọ́ ojoojúmọ́, ìdánwò, ilé-ìkàwé pẹ̀lú ohùn, yàrá ìjíròrò tí a ń bójútó àti ayé Mùsùlùmí 3D, nínú ìrìn-àjò kan tó ní ète.",
+"ig": "Ihe ọmụmụ kwa ụbọchị, ajụjụ, ọbá akwụkwọ nwere ụda, ọnụ ụlọ mkparịta ụka a na-elekọta na ụwa Alakụba 3D, n'otu njem nwere ebumnuche.",
+"bn": "দৈনিক পাঠ, কুইজ, অডিওসহ লাইব্রেরি, পরিচালিত চ্যাটরুম এবং একটি ৩ডি মুসলিম জগৎ, একটি উদ্দেশ্যপূর্ণ যাত্রায়।",
+"ms": "Pelajaran harian, kuiz, perpustakaan dengan audio, bilik sembang yang diselia dan dunia Muslim 3D, dalam satu perjalanan yang bermakna."
+},
+"Start today’s quest": {
+"yo": "Bẹ̀rẹ̀ ìrìn-àjò òní",
+"ig": "Malite njem ọmụmụ taa",
+"bn": "আজকের কোয়েস্ট শুরু করুন",
+"ms": "Mula misi hari ini"
+},
+"Explore IlmWorld": {
+"yo": "Ṣàwárí IlmWorld",
+"ig": "Chọpụta IlmWorld",
+"bn": "IlmWorld ঘুরে দেখুন",
+"ms": "Teroka IlmWorld"
+},
+"to start learning": {
+"yo": "láti bẹ̀rẹ̀ kíkọ́",
+"ig": "iji malite ịmụ ihe",
+"bn": "শেখা শুরু করতে",
+"ms": "untuk mula belajar"
+},
+"3 zones": {
+"yo": "Agbègbè 3",
+"ig": "Mpaghara 3",
+"bn": "৩টি জোন",
+"ms": "3 zon"
+},
+"Kids · Teens · Adults": {
+"yo": "Ọmọdé · Ọ̀dọ́ · Àgbà",
+"ig": "Ụmụaka · Ndị nọ n'afọ iri na ụma · Ndị okenye",
+"bn": "শিশু · কিশোর · প্রাপ্তবয়স্ক",
+"ms": "Kanak-kanak · Remaja · Dewasa"
+},
+"“My Lord, increase me in knowledge.”": {
+"yo": "“Olúwa mi, ṣe àlékún ìmọ̀ fún mi.”",
+"ig": "“Onyenwe m, mụbaara m ihe ọmụma.”",
+"bn": "“হে আমার রব, আমার জ্ঞান বৃদ্ধি করে দিন।”",
+"ms": "“Wahai Tuhanku, tambahkanlah ilmu kepadaku.”"
+},
+"Qur’an 20:114": {
+"yo": "Kùránì 20:114",
+"ig": "Kur'an 20:114",
+"bn": "কুরআন ২০:১১৪",
+"ms": "Al-Quran 20:114"
+},
+"Simple by design": {
+"yo": "Rírọrùn ní ìṣètò",
+"ig": "Dị mfe site na nhazi",
+"bn": "নকশায় সহজ",
+"ms": "Ringkas dari segi reka bentuk"
+},
+"How IlmStation works": {
+"yo": "Bí IlmStation ṣe ń ṣiṣẹ́",
+"ig": "Otu IlmStation si arụ ọrụ",
+"bn": "IlmStation কীভাবে কাজ করে",
+"ms": "Cara IlmStation berfungsi"
+},
+"New · 3D world": {
+"yo": "Tuntun · ayé 3D",
+"ig": "Ọhụrụ · ụwa 3D",
+"bn": "নতুন · ৩ডি জগৎ",
+"ms": "Baharu · dunia 3D"
+},
+"IlmWorld: live a Muslim life, learn as you go.": {
+"yo": "IlmWorld: gbé ìgbésí ayé Mùsùlùmí, kọ́ bí o ṣe ń lọ.",
+"ig": "IlmWorld: bie ndụ Alakụba, mụta ka ị na-aga.",
+"bn": "IlmWorld: মুসলিম জীবন যাপন করুন, চলতে চলতে শিখুন।",
+"ms": "IlmWorld: jalani kehidupan Muslim, belajar sambil berjalan."
+},
+"Enter IlmWorld": {
+"yo": "Wọ IlmWorld",
+"ig": "Banye IlmWorld",
+"bn": "IlmWorld-এ প্রবেশ করুন",
+"ms": "Masuk IlmWorld"
+},
+"One companion, the whole journey": {
+"yo": "Alábàákẹ́gbẹ́ kan, gbogbo ìrìn-àjò",
+"ig": "Otu enyi, njem niile",
+"bn": "একজন সঙ্গী, পুরো যাত্রা",
+"ms": "Seorang teman, sepanjang perjalanan"
+},
+"Everything you need to keep going": {
+"yo": "Gbogbo ohun tí o nílò láti máa tẹ̀síwájú",
+"ig": "Ihe niile ị chọrọ iji gaa n'ihu",
+"bn": "চালিয়ে যেতে যা কিছু দরকার",
+"ms": "Semua yang anda perlukan untuk terus maju"
+},
+"Open the app": {
+"yo": "Ṣí áàpù náà",
+"ig": "Mepee ngwa ahụ",
+"bn": "অ্যাপটি খুলুন",
+"ms": "Buka aplikasi"
+},
+"Ramadan with IlmStation": {
+"yo": "Ramadan pẹ̀lú IlmStation",
+"ig": "Ramadan na IlmStation",
+"bn": "IlmStation-এর সাথে রমজান",
+"ms": "Ramadan bersama IlmStation"
+},
+"Your best Ramadan, day by day.": {
+"yo": "Ramadan rẹ tó dára jùlọ, lójoojúmọ́.",
+"ig": "Ramadan gị kacha mma, ụbọchị site n'ụbọchị.",
+"bn": "আপনার সেরা রমজান, দিনে দিনে।",
+"ms": "Ramadan terbaik anda, hari demi hari."
+},
+"Prepare for Ramadan": {
+"yo": "Múra sílẹ̀ fún Ramadan",
+"ig": "Kwado maka Ramadan",
+"bn": "রমজানের প্রস্তুতি নিন",
+"ms": "Bersedia untuk Ramadan"
+},
+"Sponsor a day’s prizes": {
+"yo": "Ṣe onígbọ̀wọ́ ẹ̀bùn ọjọ́ kan",
+"ig": "Kwado onyinye otu ụbọchị",
+"bn": "এক দিনের পুরস্কারের পৃষ্ঠপোষক হোন",
+"ms": "Taja hadiah sehari"
+},
+"Conversations with adab": {
+"yo": "Ìjíròrò pẹ̀lú àdáàbù",
+"ig": "Mkparịta ụka nwere adab",
+"bn": "আদবের সাথে কথোপকথন",
+"ms": "Perbualan beradab"
+},
+"The circle stays open.": {
+"yo": "Àyíká ṣì wà ní ṣíṣí.",
+"ig": "Okirikiri ahụ ka meghere.",
+"bn": "বৃত্তটি খোলা থাকে।",
+"ms": "Bulatan sentiasa terbuka."
+},
+"Topic rooms for each age group, sisters’ and brothers’ circles, text-only and moderated by our team.": {
+"yo": "Yàrá kókó-ọ̀rọ̀ fún ẹgbẹ́ ọjọ́-orí kọ̀ọ̀kan, àyíká àwọn arábìnrin àti arákùnrin, ọ̀rọ̀ nìkan, tí ẹgbẹ́ wa ń bójútó.",
+"ig": "Ọnụ ụlọ isiokwu maka otu afọ ọ bụla, okirikiri ụmụnne nwanyị na ụmụnne nwoke, naanị ederede, nke otu anyị na-elekọta.",
+"bn": "প্রতিটি বয়সের জন্য বিষয়ভিত্তিক রুম, বোনদের ও ভাইদের বৃত্ত, শুধু লেখা, আমাদের দল দ্বারা পরিচালিত।",
+"ms": "Bilik topik untuk setiap kumpulan umur, bulatan muslimah dan muslimin, teks sahaja dan diselia oleh pasukan kami."
+},
+"Enter chatrooms": {
+"yo": "Wọ yàrá ìjíròrò",
+"ig": "Banye ọnụ ụlọ mkparịta ụka",
+"bn": "চ্যাটরুমে প্রবেশ করুন",
+"ms": "Masuk bilik sembang"
+},
+"Rooms are opening soon.": {
+"yo": "Àwọn yàrá ń ṣí láìpẹ́.",
+"ig": "Ọnụ ụlọ na-emeghe n'oge na-adịghị anya.",
+"bn": "রুমগুলো শীঘ্রই খুলছে।",
+"ms": "Bilik akan dibuka tidak lama lagi."
+},
+"Kids & family": {
+"yo": "Ọmọdé & ẹbí",
+"ig": "Ụmụaka & ezinụlọ",
+"bn": "শিশু ও পরিবার",
+"ms": "Kanak-kanak & keluarga"
+},
+"A safe, joyful journey for children.": {
+"yo": "Ìrìn-àjò aláàbò, tó kún fún ayọ̀ fún àwọn ọmọdé.",
+"ig": "Njem dị nchebe, jupụta n'ọṅụ maka ụmụaka.",
+"bn": "শিশুদের জন্য একটি নিরাপদ, আনন্দময় যাত্রা।",
+"ms": "Perjalanan yang selamat dan gembira untuk kanak-kanak."
+},
+"Sponsor a child": {
+"yo": "Ṣe onígbọ̀wọ́ ọmọdé kan",
+"ig": "Kwado otu nwatakịrị",
+"bn": "একটি শিশুর পৃষ্ঠপোষক হোন",
+"ms": "Taja seorang kanak-kanak"
+},
+"Before you begin": {
+"yo": "Kí o tó bẹ̀rẹ̀",
+"ig": "Tupu ị malite",
+"bn": "শুরু করার আগে",
+"ms": "Sebelum anda mula"
+},
+"Questions, answered.": {
+"yo": "Àwọn ìbéèrè, a ti dáhùn.",
+"ig": "Ajụjụ, azaala.",
+"bn": "প্রশ্ন, উত্তরসহ।",
+"ms": "Soalan, berjawab."
+},
+"Anything else? Write to us at": {
+"yo": "Ṣé ohun mìíràn wà? Kọ̀wé sí wa ní",
+"ig": "Ihe ọzọ ọ dị? Dee anyị na",
+"bn": "আর কিছু? আমাদের লিখুন",
+"ms": "Ada lagi? Tulis kepada kami di"
+},
+"Your first lesson is one click away.": {
+"yo": "Ẹ̀kọ́ àkọ́kọ́ rẹ kù ìtẹ̀ kan péré.",
+"ig": "Ihe ọmụmụ mbụ gị dị naanị otu ịpị.",
+"bn": "আপনার প্রথম পাঠ মাত্র এক ক্লিক দূরে।",
+"ms": "Pelajaran pertama anda hanya satu klik lagi."
+},
+"No long setup, no pressure. Open the app, read today’s wisdom, take a quick quiz, and let the streak begin.": {
+"yo": "Kò sí ètò gígùn, kò sí ìfúnpá. Ṣí áàpù náà, ka ọgbọ́n òní, ṣe ìdánwò kíákíá, kí ọjọ́ tí kò já bẹ̀rẹ̀.",
+"ig": "Enweghị nhazi ogologo, enweghị nrụgide. Mepee ngwa ahụ, gụọ amamihe taa, mee ajụjụ ngwa ngwa, ka usoro ụbọchị gị malite.",
+"bn": "কোনো দীর্ঘ সেটআপ নেই, কোনো চাপ নেই। অ্যাপটি খুলুন, আজকের হিকমাহ পড়ুন, একটি দ্রুত কুইজ দিন, আর ধারা শুরু হোক।",
+"ms": "Tiada persediaan panjang, tiada tekanan. Buka aplikasi, baca hikmah hari ini, ambil kuiz pantas, dan biarkan rentetan bermula."
+},
+"Is IlmStation free to use?": {
+"yo": "Ṣé IlmStation jẹ́ ọ̀fẹ́?",
+"ig": "IlmStation ọ bụ n'efu?",
+"bn": "IlmStation কি বিনামূল্যে ব্যবহার করা যায়?",
+"ms": "Adakah IlmStation percuma?"
+},
+"Do I need to know Arabic to start?": {
+"yo": "Ṣé mo nílò láti mọ Lárúbáwá kí n tó bẹ̀rẹ̀?",
+"ig": "Ọ dị m mkpa ịma Arabik tupu m malite?",
+"bn": "শুরু করতে কি আরবি জানতে হবে?",
+"ms": "Perlukah saya tahu bahasa Arab untuk bermula?"
+},
+"No. Everything has English, and the Arabic is there for when you’re ready.": {
+"yo": "Rárá. Gbogbo nǹkan ní Gẹ̀ẹ́sì, Lárúbáwá sì wà fún ìgbà tí o bá ṣetán.",
+"ig": "Mba. Ihe niile nwere Bekee, Arabik dịkwa maka mgbe ị dị njikere.",
+"bn": "না। সবকিছুতে ইংরেজি আছে, আর আরবি আছে যখন আপনি প্রস্তুত হবেন।",
+"ms": "Tidak. Semuanya ada dalam bahasa Inggeris, dan bahasa Arab ada bila anda bersedia."
+},
+"What is IlmWorld?": {
+"yo": "Kí ni IlmWorld?",
+"ig": "Gịnị bụ IlmWorld?",
+"bn": "IlmWorld কী?",
+"ms": "Apakah IlmWorld?"
+},
+"How does the Ramadan prize quiz work?": {
+"yo": "Báwo ni ìdánwò ẹ̀bùn Ramadan ṣe ń ṣiṣẹ́?",
+"ig": "Kedu ka ajụjụ onyinye Ramadan si arụ ọrụ?",
+"bn": "রমজান পুরস্কার কুইজ কীভাবে কাজ করে?",
+"ms": "Bagaimana kuiz hadiah Ramadan berfungsi?"
+},
+"Is it suitable for children?": {
+"yo": "Ṣé ó yẹ fún àwọn ọmọdé?",
+"ig": "Ọ dabara maka ụmụaka?",
+"bn": "এটি কি শিশুদের জন্য উপযুক্ত?",
+"ms": "Adakah ia sesuai untuk kanak-kanak?"
+},
+"Yes. IlmStation works fully online on your phone or computer.": {
+"yo": "Bẹ́ẹ̀ni. IlmStation ń ṣiṣẹ́ pátápátá lórí ayélujára lórí fóònù tàbí kọ̀ǹpútà rẹ.",
+"ig": "Ee. IlmStation na-arụ ọrụ zuru oke n'ịntanetị na ekwentị ma ọ bụ kọmputa gị.",
+"bn": "হ্যাঁ। IlmStation আপনার ফোন বা কম্পিউটারে সম্পূর্ণ অনলাইনে কাজ করে।",
+"ms": "Ya. IlmStation berfungsi sepenuhnya dalam talian di telefon atau komputer anda."
+},
+"How do children join IlmStation?": {
+"yo": "Báwo ni àwọn ọmọdé ṣe ń darapọ̀ mọ́ IlmStation?",
+"ig": "Kedu ka ụmụaka si esonye IlmStation?",
+"bn": "শিশুরা কীভাবে IlmStation-এ যোগ দেয়?",
+"ms": "Bagaimana kanak-kanak menyertai IlmStation?"
+},
+"Is kids mode safe?": {
+"yo": "Ṣé ipò ọmọdé ní ààbò?",
+"ig": "Ọnọdụ ụmụaka ọ dị nchebe?",
+"bn": "কিডস মোড কি নিরাপদ?",
+"ms": "Adakah mod kanak-kanak selamat?"
+},
+"Can my child play on another device?": {
+"yo": "Ṣé ọmọ mi lè ṣeré lórí ẹ̀rọ mìíràn?",
+"ig": "Nwa m nwere ike igwu egwu na ngwaọrụ ọzọ?",
+"bn": "আমার শিশু কি অন্য ডিভাইসে খেলতে পারবে?",
+"ms": "Bolehkah anak saya bermain di peranti lain?"
+},
+"Quizzes & daily streaks": {
+"yo": "Ìdánwò & ọjọ́ tí kò já",
+"ig": "Ajụjụ & usoro ụbọchị",
+"bn": "কুইজ ও দৈনিক ধারা",
+"ms": "Kuiz & rentetan harian"
+},
+"Short quizzes on Aqeedah, Hadith, Seerah, Fiqh, Arabic and more, with a streak that rewards showing up every day.": {
+"yo": "Ìdánwò kúkúrú lórí Aqeedah, Hadith, Seerah, Fiqh, Lárúbáwá àti bẹ́ẹ̀ bẹ́ẹ̀ lọ, pẹ̀lú ọjọ́ tí kò já tó ń san èrè fún wíwá lójoojúmọ́.",
+"ig": "Ajụjụ dị mkpụmkpụ gbasara Aqeedah, Hadith, Seerah, Fiqh, Arabik na ndị ọzọ, nwere usoro ụbọchị na-akwụ ụgwọ ọrụ maka ịbịa kwa ụbọchị.",
+"bn": "আকিদা, হাদিস, সিরাত, ফিকহ, আরবি এবং আরও বিষয়ে ছোট কুইজ, প্রতিদিন আসার জন্য পুরস্কৃত ধারাসহ।",
+"ms": "Kuiz ringkas tentang Akidah, Hadis, Sirah, Fiqh, bahasa Arab dan banyak lagi, dengan rentetan yang memberi ganjaran kerana hadir setiap hari."
+},
+"Library with audio": {
+"yo": "Ilé-ìkàwé pẹ̀lú ohùn",
+"ig": "Ọbá akwụkwọ nwere ụda",
+"bn": "অডিওসহ লাইব্রেরি",
+"ms": "Perpustakaan dengan audio"
+},
+"Books and articles that remember your page, plus audiobooks and lecture series chapter by chapter.": {
+"yo": "Àwọn ìwé àti àpilẹ̀kọ tó ń rántí ojú-ìwé rẹ, àti ìwé ohùn àti ọ̀rọ̀ ìwàásù ní orí-orí.",
+"ig": "Akwụkwọ na edemede na-echeta peeji gị, gbakwunyere akwụkwọ ụda na usoro okwu ihu ọha isi site n'isi.",
+"bn": "বই ও প্রবন্ধ যা আপনার পৃষ্ঠা মনে রাখে, সাথে অধ্যায় ধরে অডিওবুক ও বক্তৃতা সিরিজ।",
+"ms": "Buku dan artikel yang mengingati halaman anda, serta buku audio dan siri kuliah bab demi bab."
+},
+"Memorise at your own pace with revision and gentle daily targets.": {
+"yo": "Há sórí bí o ṣe lè ṣe é, pẹ̀lú àtúnyẹ̀wò àti àfojúsùn ojoojúmọ́ tó rọrùn.",
+"ig": "Buru n'isi n'ọsọ nke gị, na ntụgharị na ebumnuche kwa ụbọchị dị nro.",
+"bn": "নিজের গতিতে মুখস্থ করুন, রিভিশন ও সহজ দৈনিক লক্ষ্যসহ।",
+"ms": "Hafal mengikut rentak anda sendiri dengan ulang kaji dan sasaran harian yang ringan."
+},
+"An ayah, hadith or word of the scholars each day, ready to save, copy or share as a beautiful card.": {
+"yo": "Àyá kan, hadith kan tàbí ọ̀rọ̀ àwọn onímọ̀ lójoojúmọ́, tó ṣetán láti fipamọ́, ṣe ẹ̀dà tàbí pín bí káàdì tó rẹwà.",
+"ig": "Amaokwu, hadith ma ọ bụ okwu ndị ọkà mmụta kwa ụbọchị, dị njikere ichekwa, idetuo ma ọ bụ ikesa dị ka kaadị mara mma.",
+"bn": "প্রতিদিন একটি আয়াত, হাদিস বা আলেমদের বাণী, সংরক্ষণ, কপি বা সুন্দর কার্ড হিসেবে শেয়ার করার জন্য প্রস্তুত।",
+"ms": "Satu ayat, hadis atau kata-kata ulama setiap hari, sedia untuk disimpan, disalin atau dikongsi sebagai kad yang cantik."
+},
+"Moderated chatrooms": {
+"yo": "Yàrá ìjíròrò tí a ń bójútó",
+"ig": "Ọnụ ụlọ mkparịta ụka a na-elekọta",
+"bn": "পরিচালিত চ্যাটরুম",
+"ms": "Bilik sembang yang diselia"
+},
+"Topic rooms by age group, with sisters’ and brothers’ circles, kept text-only and respectful.": {
+"yo": "Yàrá kókó-ọ̀rọ̀ nípa ẹgbẹ́ ọjọ́-orí, pẹ̀lú àyíká àwọn arábìnrin àti arákùnrin, ọ̀rọ̀ nìkan àti pẹ̀lú ọ̀wọ̀.",
+"ig": "Ọnụ ụlọ isiokwu site n'otu afọ, nwere okirikiri ụmụnne nwanyị na ụmụnne nwoke, naanị ederede na nkwanye ùgwù.",
+"bn": "বয়সভিত্তিক বিষয়ের রুম, বোনদের ও ভাইদের বৃত্তসহ, শুধু লেখা এবং সম্মানজনক।",
+"ms": "Bilik topik mengikut kumpulan umur, dengan bulatan muslimah dan muslimin, teks sahaja dan penuh hormat."
+},
+"Cards for every occasion": {
+"yo": "Káàdì fún gbogbo ayẹyẹ",
+"ig": "Kaadị maka mmemme ọ bụla",
+"bn": "প্রতিটি উপলক্ষের জন্য কার্ড",
+"ms": "Kad untuk setiap majlis"
+},
+"Make Eid, Ramadan, Jumu’ah, nikah, new baby and condolence cards and share them on WhatsApp.": {
+"yo": "Ṣe káàdì Ọdún, Ramadan, Jimọ̀, ìgbéyàwó, ọmọ tuntun àti ìbánikẹ́dùn kí o sì pín wọn lórí WhatsApp.",
+"ig": "Mee kaadị Eid, Ramadan, Jumu'ah, alụmdi na nwunye, nwa ọhụrụ na nkasi obi ma kesaa ha na WhatsApp.",
+"bn": "ঈদ, রমজান, জুমা, বিবাহ, নবজাতক ও শোকবার্তার কার্ড তৈরি করুন এবং WhatsApp-এ শেয়ার করুন।",
+"ms": "Buat kad Hari Raya, Ramadan, Jumaat, nikah, bayi baharu dan takziah serta kongsi di WhatsApp."
+},
+"Join your zone": {
+"yo": "Darapọ̀ mọ́ agbègbè rẹ",
+"ig": "Sonye na mpaghara gị",
+"bn": "আপনার জোনে যোগ দিন",
+"ms": "Sertai zon anda"
+},
+"Sign up free and choose your zone: Kids, Teens & Young Adults, or Adult. You only see what’s right for you.": {
+"yo": "Forúkọsílẹ̀ lọ́fẹ̀ẹ́ kí o sì yan agbègbè rẹ: Ọmọdé, Ọ̀dọ́ & Ọ̀dọ́mọdé Àgbà, tàbí Àgbà. Ohun tó yẹ fún ọ nìkan ni o máa rí.",
+"ig": "Debanye aha n'efu ma họrọ mpaghara gị: Ụmụaka, Ndị nọ n'afọ iri na ụma & Ndị ntorobịa, ma ọ bụ Ndị okenye. Ị ga-ahụ naanị ihe dabara gị.",
+"bn": "বিনামূল্যে সাইন আপ করুন এবং আপনার জোন বেছে নিন: শিশু, কিশোর ও তরুণ, অথবা প্রাপ্তবয়স্ক। আপনি শুধু আপনার উপযুক্ত জিনিসই দেখবেন।",
+"ms": "Daftar percuma dan pilih zon anda: Kanak-kanak, Remaja & Belia, atau Dewasa. Anda hanya melihat apa yang sesuai untuk anda."
+},
+"Learn a little, daily": {
+"yo": "Kọ́ díẹ̀, lójoojúmọ́",
+"ig": "Mụta ntakịrị, kwa ụbọchị",
+"bn": "প্রতিদিন একটু শিখুন",
+"ms": "Belajar sedikit, setiap hari"
+},
+"A daily wisdom, a quick quiz, a few pages or an audio chapter. Ten focused minutes keeps your streak alive.": {
+"yo": "Ọgbọ́n ojoojúmọ́, ìdánwò kíákíá, ojú-ìwé díẹ̀ tàbí orí ohùn kan. Ìṣẹ́jú mẹ́wàá tí o fi ọkàn sí ń pa ọjọ́ tí kò já rẹ mọ́.",
+"ig": "Amamihe kwa ụbọchị, ajụjụ ngwa ngwa, peeji ole na ole ma ọ bụ otu isi ụda. Nkeji iri ị tinyere uche na-edobe usoro ụbọchị gị ndụ.",
+"bn": "একটি দৈনিক হিকমাহ, একটি দ্রুত কুইজ, কয়েকটি পৃষ্ঠা বা একটি অডিও অধ্যায়। দশ মিনিটের মনোযোগ আপনার ধারা সচল রাখে।",
+"ms": "Hikmah harian, kuiz pantas, beberapa halaman atau satu bab audio. Sepuluh minit yang fokus mengekalkan rentetan anda."
+},
+"Grow with company": {
+"yo": "Dàgbà pẹ̀lú àwọn ẹlẹgbẹ́",
+"ig": "Too na ndị otu",
+"bn": "সঙ্গীদের সাথে বেড়ে উঠুন",
+"ms": "Berkembang bersama teman"
+},
+"Reflect in moderated chatrooms, discuss books with other readers, and live it out in IlmWorld.": {
+"yo": "Ronú jinlẹ̀ nínú yàrá ìjíròrò, jíròrò ìwé pẹ̀lú àwọn òǹkàwé mìíràn, kí o sì gbé e jáde nínú IlmWorld.",
+"ig": "Tụgharịa uche n'ọnụ ụlọ mkparịta ụka a na-elekọta, kparịta akwụkwọ na ndị ọgụgụ ndị ọzọ, ma bie ya na IlmWorld.",
+"bn": "পরিচালিত চ্যাটরুমে ভাবুন, অন্য পাঠকদের সাথে বই নিয়ে আলোচনা করুন, এবং IlmWorld-এ তা বাস্তবায়ন করুন।",
+"ms": "Renungkan di bilik sembang yang diselia, bincangkan buku dengan pembaca lain, dan amalkannya di IlmWorld."
+},
+"Pray at the masjid": {
+"yo": "Kírun ní mọ́ṣáláṣí",
+"ig": "Kpee ekpere na ụlọ alakụba",
+"bn": "মসজিদে নামাজ পড়ুন",
+"ms": "Solat di masjid"
+},
+"Rent & furnish a home": {
+"yo": "Yá ilé kí o sì ṣe é lọ́ṣọ̀ọ́",
+"ig": "Gbazite ma chọọ ụlọ mma",
+"bn": "বাড়ি ভাড়া নিন ও সাজান",
+"ms": "Sewa & hias rumah"
+},
+"Run a market stall": {
+"yo": "Ṣe ìsọ̀ ní ọjà",
+"ig": "Rụọ ụlọ ahịa n'ahịa",
+"bn": "বাজারে দোকান চালান",
+"ms": "Jalankan gerai pasar"
+},
+"Race at the arena": {
+"yo": "Sáré ní pápá eré",
+"ig": "Gbaa ọsọ n'ọgbọ egwuregwu",
+"bn": "অ্যারেনায় দৌড় দিন",
+"ms": "Berlumba di arena"
+},
+"Hajj & Umrah": {
+"yo": "Hajj & Umrah",
+"ig": "Hajj & Umrah",
+"bn": "হজ ও উমরাহ",
+"ms": "Haji & Umrah"
+},
+"Lectures & quizzes": {
+"yo": "Ìwàásù & ìdánwò",
+"ig": "Okwu ihu ọha & ajụjụ",
+"bn": "বক্তৃতা ও কুইজ",
+"ms": "Kuliah & kuiz"
+},
+"Open": {
+"yo": "Ṣí i",
+"ig": "Mepee",
+"bn": "খুলুন",
+"ms": "Buka"
+},
+"Try it now": {
+"yo": "Gbìyànjú rẹ̀ báyìí",
+"ig": "Nwaa ya ugbu a",
+"bn": "এখনই চেষ্টা করুন",
+"ms": "Cuba sekarang"
+},
+"Daily checklist": {
+"yo": "Àkọsílẹ̀ ojoojúmọ́",
+"ig": "Ndepụta kwa ụbọchị",
+"bn": "দৈনিক চেকলিস্ট",
+"ms": "Senarai semak harian"
+},
+"Fasting, the five prayers, Tarawih, Qur’an, dua and sadaqah, with a streak.": {
+"yo": "Ààwẹ̀, ìrun márààrún, Tarawih, Kùránì, àdúà àti sàráà, pẹ̀lú ọjọ́ tí kò já.",
+"ig": "Ibu ọnụ, ekpere ise, Tarawih, Kur'an, dua na sadaqah, nwere usoro ụbọchị.",
+"bn": "রোজা, পাঁচ ওয়াক্ত নামাজ, তারাবিহ, কুরআন, দোয়া ও সদকা, ধারাসহ।",
+"ms": "Puasa, solat lima waktu, Tarawih, Al-Quran, doa dan sedekah, dengan rentetan."
+},
+"A lesson, a dua and a reminder each day, then the quiz.": {
+"yo": "Ẹ̀kọ́ kan, àdúà kan àti ìrántí kan lójoojúmọ́, lẹ́yìn náà ìdánwò.",
+"ig": "Otu ihe ọmụmụ, otu dua na otu ncheta kwa ụbọchị, mgbe ahụ ajụjụ.",
+"bn": "প্রতিদিন একটি পাঠ, একটি দোয়া ও একটি স্মরণিকা, তারপর কুইজ।",
+"ms": "Satu pelajaran, satu doa dan satu peringatan setiap hari, kemudian kuiz."
+},
+"Daily prize quiz": {
+"yo": "Ìdánwò ẹ̀bùn ojoojúmọ́",
+"ig": "Ajụjụ onyinye kwa ụbọchị",
+"bn": "দৈনিক পুরস্কার কুইজ",
+"ms": "Kuiz hadiah harian"
+},
+"First correct entries win. Results after Tarawih, with a live leaderboard.": {
+"yo": "Àwọn ìdáhùn tó tọ̀nà àkọ́kọ́ ló máa jàre. Àbájáde lẹ́yìn Tarawih, pẹ̀lú àtẹ aṣáájú tààrà.",
+"ig": "Ndị mbụ zara nke ọma ga-emeri. Nsonaazụ mgbe Tarawih gasịrị, nwere tebụl ndị ndu dị ndụ.",
+"bn": "প্রথম সঠিক উত্তরদাতারা জেতেন। তারাবিহর পরে ফলাফল, লাইভ লিডারবোর্ডসহ।",
+"ms": "Jawapan betul terawal menang. Keputusan selepas Tarawih, dengan papan pendahulu secara langsung."
+},
+"Eid cards": {
+"yo": "Káàdì Ọdún",
+"ig": "Kaadị Eid",
+"bn": "ঈদ কার্ড",
+"ms": "Kad Hari Raya"
+},
+"Make and share beautiful Eid cards with your family.": {
+"yo": "Ṣe káàdì Ọdún tó rẹwà kí o sì pín in pẹ̀lú ẹbí rẹ.",
+"ig": "Mee ma kesaa kaadị Eid mara mma na ezinụlọ gị.",
+"bn": "সুন্দর ঈদ কার্ড তৈরি করে পরিবারের সাথে শেয়ার করুন।",
+"ms": "Buat dan kongsi kad Hari Raya yang cantik bersama keluarga anda."
+},
+"Age-appropriate": {
+"yo": "Tó yẹ fún ọjọ́-orí",
+"ig": "Dabara n'afọ",
+"bn": "বয়স উপযোগী",
+"ms": "Sesuai umur"
+},
+"Kids only see books, lessons and rooms meant for their age.": {
+"yo": "Àwọn ọmọdé ń rí ìwé, ẹ̀kọ́ àti yàrá tó yẹ fún ọjọ́-orí wọn nìkan.",
+"ig": "Ụmụaka na-ahụ naanị akwụkwọ, ihe ọmụmụ na ọnụ ụlọ e mere maka afọ ha.",
+"bn": "শিশুরা শুধু তাদের বয়সের জন্য তৈরি বই, পাঠ ও রুম দেখে।",
+"ms": "Kanak-kanak hanya melihat buku, pelajaran dan bilik untuk umur mereka."
+},
+"Moderated rooms": {
+"yo": "Yàrá tí a ń bójútó",
+"ig": "Ọnụ ụlọ a na-elekọta",
+"bn": "পরিচালিত রুম",
+"ms": "Bilik yang diselia"
+},
+"Kids rooms are run by our team, and anything can be reported.": {
+"yo": "Ẹgbẹ́ wa ló ń darí yàrá àwọn ọmọdé, a sì lè fi ẹjọ́ ohunkóhun sùn.",
+"ig": "Otu anyị na-achịkwa ọnụ ụlọ ụmụaka, a pụkwara ịkọ banyere ihe ọ bụla.",
+"bn": "শিশুদের রুম আমাদের দল পরিচালনা করে, এবং যেকোনো কিছু রিপোর্ট করা যায়।",
+"ms": "Bilik kanak-kanak dikendalikan oleh pasukan kami, dan apa sahaja boleh dilaporkan."
+},
+"Learning that’s fun": {
+"yo": "Ẹ̀kọ́ tó dùn",
+"ig": "Ọmụmụ na-atọ ụtọ",
+"bn": "আনন্দময় শেখা",
+"ms": "Belajar yang menyeronokkan"
+},
+"Quizzes, streaks and points built for short attention spans.": {
+"yo": "Ìdánwò, ọjọ́ tí kò já àti àmì tí a ṣe fún àwọn tí kì í pẹ́ lórí nǹkan kan.",
+"ig": "Ajụjụ, usoro ụbọchị na akara e mere maka ndị na-adịghị anọdụ ogologo oge n'otu ihe.",
+"bn": "অল্প মনোযোগের জন্য তৈরি কুইজ, ধারা ও পয়েন্ট।",
+"ms": "Kuiz, rentetan dan mata yang dibina untuk tumpuan yang singkat."
+},
+"Progress you can see": {
+"yo": "Ìlọsíwájú tí o lè rí",
+"ig": "Ọganihu ị nwere ike ịhụ",
+"bn": "দেখা যায় এমন অগ্রগতি",
+"ms": "Kemajuan yang boleh dilihat"
+},
+"Points, streaks and finished books show how they’re growing.": {
+"yo": "Àmì, ọjọ́ tí kò já àti ìwé tí wọ́n ti parí ń fi bí wọ́n ṣe ń dàgbà hàn.",
+"ig": "Akara, usoro ụbọchị na akwụkwọ ha gụchara na-egosi ka ha si eto.",
+"bn": "পয়েন্ট, ধারা ও শেষ করা বই দেখায় তারা কীভাবে বেড়ে উঠছে।",
+"ms": "Mata, rentetan dan buku yang selesai menunjukkan cara mereka berkembang."
+},
+"Welcome back": {
+"yo": "Káàbọ̀ padà",
+"ig": "Nnọọ ọzọ",
+"bn": "আবার স্বাগতম",
+"ms": "Selamat kembali"
+},
+"Your streak, badges and Hifz plan are waiting where you left them.": {
+"yo": "Ọjọ́ tí kò já, àmì ẹ̀yẹ àti ètò Hifz rẹ ń dúró de ọ níbi tí o fi wọ́n sí.",
+"ig": "Usoro ụbọchị gị, baajị na atụmatụ Hifz gị na-echere gị ebe ị hapụrụ ha.",
+"bn": "আপনার ধারা, ব্যাজ ও হিফজ পরিকল্পনা যেখানে রেখেছিলেন সেখানেই অপেক্ষা করছে।",
+"ms": "Rentetan, lencana dan pelan Hifz anda menanti di tempat anda tinggalkan."
+},
+"New to IlmStation?": {
+"yo": "Ṣé o jẹ́ tuntun sí IlmStation?",
+"ig": "Ị bụ onye ọhụrụ na IlmStation?",
+"bn": "IlmStation-এ নতুন?",
+"ms": "Baharu di IlmStation?"
+},
+"A few small steps, then your first quest.": {
+"yo": "Ìgbésẹ̀ kékeré díẹ̀, lẹ́yìn náà ìrìn-àjò àkọ́kọ́ rẹ.",
+"ig": "Nzọụkwụ ole na ole, mgbe ahụ njem ọmụmụ mbụ gị.",
+"bn": "কয়েকটি ছোট ধাপ, তারপর আপনার প্রথম কোয়েস্ট।",
+"ms": "Beberapa langkah kecil, kemudian misi pertama anda."
+},
+"Enter your email, or your username if a parent made your account.": {
+"yo": "Tẹ ímeèlì rẹ, tàbí orúkọ oníṣe rẹ tí òbí rẹ bá ṣe àkáǹtì rẹ.",
+"ig": "Tinye email gị, ma ọ bụ aha njirimara gị ma ọ bụrụ na nne ma ọ bụ nna gị mere akaụntụ gị.",
+"bn": "আপনার ইমেইল লিখুন, অথবা অভিভাবক অ্যাকাউন্ট তৈরি করে থাকলে আপনার ইউজারনেম।",
+"ms": "Masukkan e-mel anda, atau nama pengguna jika ibu bapa yang membuat akaun anda."
+},
+"Enter your password.": {
+"yo": "Tẹ ọ̀rọ̀ aṣínà rẹ.",
+"ig": "Tinye paswọọdụ gị.",
+"bn": "আপনার পাসওয়ার্ড লিখুন।",
+"ms": "Masukkan kata laluan anda."
+},
+"Your password": {
+"yo": "Ọ̀rọ̀ aṣínà rẹ",
+"ig": "Paswọọdụ gị",
+"bn": "আপনার পাসওয়ার্ড",
+"ms": "Kata laluan anda"
+},
+"Logging in…": {
+"yo": "Ó ń wọlé…",
+"ig": "Ọ na-abanye…",
+"bn": "লগ ইন হচ্ছে…",
+"ms": "Sedang log masuk…"
+},
+"Show password": {
+"yo": "Fi ọ̀rọ̀ aṣínà hàn",
+"ig": "Gosi paswọọdụ",
+"bn": "পাসওয়ার্ড দেখান",
+"ms": "Tunjuk kata laluan"
+},
+"Hide password": {
+"yo": "Fi ọ̀rọ̀ aṣínà pamọ́",
+"ig": "Zoo paswọọdụ",
+"bn": "পাসওয়ার্ড লুকান",
+"ms": "Sembunyi kata laluan"
+},
+"Choose a language": {
+"yo": "Yan èdè kan",
+"ig": "Họrọ asụsụ",
+"bn": "একটি ভাষা বেছে নিন",
+"ms": "Pilih bahasa"
+},
+"You can change this any time from the site header.": {
+"yo": "O lè yí èyí padà nígbàkúùgbà láti orí ojú-òpó.",
+"ig": "Ị nwere ike ịgbanwe nke a mgbe ọ bụla site n'elu saịtị.",
+"bn": "সাইটের উপরের অংশ থেকে যেকোনো সময় এটি বদলাতে পারবেন।",
+"ms": "Anda boleh menukar ini bila-bila masa dari pengepala laman."
+},
+"Tell us who you are and where to reach you.": {
+"yo": "Sọ fún wa ẹni tí o jẹ́ àti bí a ṣe lè kàn sí ọ.",
+"ig": "Gwa anyị onye ị bụ na ebe anyị ga-esi kpọtụrụ gị.",
+"bn": "আপনি কে এবং কোথায় যোগাযোগ করা যাবে তা জানান।",
+"ms": "Beritahu kami siapa anda dan cara menghubungi anda."
+},
+"Set a password": {
+"yo": "Ṣètò ọ̀rọ̀ aṣínà",
+"ig": "Tọọ paswọọdụ",
+"bn": "একটি পাসওয়ার্ড দিন",
+"ms": "Tetapkan kata laluan"
+},
+"One strong password and you’re in.": {
+"yo": "Ọ̀rọ̀ aṣínà kan tó lágbára, o sì ti wọlé.",
+"ig": "Otu paswọọdụ siri ike, ị banyela.",
+"bn": "একটি শক্তিশালী পাসওয়ার্ড, আর আপনি প্রবেশ করেছেন।",
+"ms": "Satu kata laluan yang kukuh dan anda sudah masuk."
+},
+"A little about you": {
+"yo": "Díẹ̀ nípa rẹ",
+"ig": "Ntakịrị banyere gị",
+"bn": "আপনার সম্পর্কে একটু",
+"ms": "Sedikit tentang anda"
+},
+"This places you in the right learning zone.": {
+"yo": "Èyí ń fi ọ́ sí agbègbè ẹ̀kọ́ tó tọ́.",
+"ig": "Nke a na-etinye gị na mpaghara ọmụmụ kwesịrị ekwesị.",
+"bn": "এটি আপনাকে সঠিক শেখার জোনে রাখে।",
+"ms": "Ini meletakkan anda dalam zon pembelajaran yang betul."
+},
+"Your interests": {
+"yo": "Ohun tí o nífẹ̀ẹ́ sí",
+"ig": "Ihe masịrị gị",
+"bn": "আপনার আগ্রহ",
+"ms": "Minat anda"
+},
+"Pick your favourite topics — choose at least 3.": {
+"yo": "Yan àwọn kókó-ọ̀rọ̀ tí o fẹ́ràn jùlọ — yan mẹ́ta ó kéré tán.",
+"ig": "Họrọ isiokwu kachasị masị gị — họrọ opekata mpe atọ.",
+"bn": "আপনার প্রিয় বিষয়গুলো বেছে নিন — অন্তত ৩টি।",
+"ms": "Pilih topik kegemaran anda — sekurang-kurangnya 3."
+},
+"Quick knowledge check": {
+"yo": "Àyẹ̀wò ìmọ̀ kíákíá",
+"ig": "Nlele ihe ọmụma ngwa ngwa",
+"bn": "দ্রুত জ্ঞান যাচাই",
+"ms": "Semakan ilmu pantas"
+},
+"Optional: 5 questions to set your starting level. No pressure.": {
+"yo": "Àṣàyàn: ìbéèrè 5 láti mọ ìpele ìbẹ̀rẹ̀ rẹ. Kò sí ìfúnpá.",
+"ig": "Nhọrọ: ajụjụ 5 iji tọọ ọkwa mmalite gị. Enweghị nrụgide.",
+"bn": "ঐচ্ছিক: আপনার শুরুর স্তর ঠিক করতে ৫টি প্রশ্ন। কোনো চাপ নেই।",
+"ms": "Pilihan: 5 soalan untuk menetapkan tahap permulaan anda. Tiada tekanan."
+},
+"Enter your full name.": {
+"yo": "Tẹ orúkọ rẹ ní kíkún.",
+"ig": "Tinye aha gị zuru ezu.",
+"bn": "আপনার পুরো নাম লিখুন।",
+"ms": "Masukkan nama penuh anda."
+},
+"Enter a valid email, like name@example.com.": {
+"yo": "Tẹ ímeèlì tó tọ́, bí name@example.com.",
+"ig": "Tinye email ziri ezi, dị ka name@example.com.",
+"bn": "একটি সঠিক ইমেইল লিখুন, যেমন name@example.com।",
+"ms": "Masukkan e-mel yang sah, seperti name@example.com."
+},
+"Username": {
+"yo": "Orúkọ oníṣe",
+"ig": "Aha njirimara",
+"bn": "ইউজারনেম",
+"ms": "Nama pengguna"
+},
+"Create a password": {
+"yo": "Ṣẹ̀dá ọ̀rọ̀ aṣínà",
+"ig": "Mepụta paswọọdụ",
+"bn": "একটি পাসওয়ার্ড তৈরি করুন",
+"ms": "Cipta kata laluan"
+},
+"Confirm password": {
+"yo": "Jẹ́rìí ọ̀rọ̀ aṣínà",
+"ig": "Kwado paswọọdụ",
+"bn": "পাসওয়ার্ড নিশ্চিত করুন",
+"ms": "Sahkan kata laluan"
+},
+"The passwords don’t match yet.": {
+"yo": "Àwọn ọ̀rọ̀ aṣínà kò tíì bá ara wọn mu.",
+"ig": "Paswọọdụ ndị ahụ adabaghị ọnụ ma.",
+"bn": "পাসওয়ার্ড দুটি এখনো মিলছে না।",
+"ms": "Kata laluan belum sepadan."
+},
+"Age group": {
+"yo": "Ẹgbẹ́ ọjọ́-orí",
+"ig": "Otu afọ",
+"bn": "বয়সের গ্রুপ",
+"ms": "Kumpulan umur"
+},
+"Your age group": {
+"yo": "Ẹgbẹ́ ọjọ́-orí rẹ",
+"ig": "Otu afọ gị",
+"bn": "আপনার বয়সের গ্রুপ",
+"ms": "Kumpulan umur anda"
+},
+"Gender": {
+"yo": "Akọ tàbí abo",
+"ig": "Nwoke ma ọ bụ nwanyị",
+"bn": "লিঙ্গ",
+"ms": "Jantina"
+},
+"Choose one to continue.": {
+"yo": "Yan ọ̀kan láti tẹ̀síwájú.",
+"ig": "Họrọ otu iji gaa n'ihu.",
+"bn": "চালিয়ে যেতে একটি বেছে নিন।",
+"ms": "Pilih satu untuk teruskan."
+},
+"Choose your age group to continue.": {
+"yo": "Yan ẹgbẹ́ ọjọ́-orí rẹ láti tẹ̀síwájú.",
+"ig": "Họrọ otu afọ gị iji gaa n'ihu.",
+"bn": "চালিয়ে যেতে আপনার বয়সের গ্রুপ বেছে নিন।",
+"ms": "Pilih kumpulan umur anda untuk teruskan."
+},
+"Under 13?": {
+"yo": "Ṣé o kéré sí ọdún 13?",
+"ig": "Ị gbaghị afọ 13?",
+"bn": "১৩ বছরের কম?",
+"ms": "Bawah 13 tahun?"
+},
+"Creating account…": {
+"yo": "Ó ń ṣẹ̀dá àkáǹtì…",
+"ig": "Ọ na-emepụta akaụntụ…",
+"bn": "অ্যাকাউন্ট তৈরি হচ্ছে…",
+"ms": "Mencipta akaun…"
+},
+"Kids Zone": {
+"yo": "Agbègbè Ọmọdé",
+"ig": "Mpaghara Ụmụaka",
+"bn": "শিশু জোন",
+"ms": "Zon Kanak-kanak"
+},
+"Teens & Young Adults Zone": {
+"yo": "Agbègbè Ọ̀dọ́ & Ọ̀dọ́mọdé Àgbà",
+"ig": "Mpaghara Ndị nọ n'afọ iri na ụma & Ndị ntorobịa",
+"bn": "কিশোর ও তরুণ জোন",
+"ms": "Zon Remaja & Belia"
+},
+"Adult Zone": {
+"yo": "Agbègbè Àgbà",
+"ig": "Mpaghara Ndị okenye",
+"bn": "প্রাপ্তবয়স্ক জোন",
+"ms": "Zon Dewasa"
+},
+"Guided quests for teens and young adults — Qur’an, Seerah and everyday fiqh at a steady pace.": {
+"yo": "Ìrìn-àjò tí a ń tọ́ sọ́nà fún ọ̀dọ́ àti ọ̀dọ́mọdé àgbà — Kùránì, Seerah àti fiqh ojoojúmọ́ ní ìwọ̀n tó dúró.",
+"ig": "Njem ọmụmụ a na-eduzi maka ndị nọ n'afọ iri na ụma na ndị ntorobịa — Kur'an, Seerah na fiqh kwa ụbọchị n'ọsọ kwụsiri ike.",
+"bn": "কিশোর ও তরুণদের জন্য নির্দেশিত কোয়েস্ট — কুরআন, সিরাত ও দৈনন্দিন ফিকহ স্থির গতিতে।",
+"ms": "Misi berpandu untuk remaja dan belia — Al-Quran, Sirah dan fiqh harian pada rentak yang tetap."
+},
+"Deep dives into Islamic knowledge — Fiqh, Aqeedah, Seerah and more.": {
+"yo": "Ìwádìí jinlẹ̀ sínú ìmọ̀ Ìsìláàmù — Fiqh, Aqeedah, Seerah àti bẹ́ẹ̀ bẹ́ẹ̀ lọ.",
+"ig": "Nyocha miri emi n'ihe ọmụma Alakụba — Fiqh, Aqeedah, Seerah na ndị ọzọ.",
+"bn": "ইসলামী জ্ঞানের গভীরে — ফিকহ, আকিদা, সিরাত এবং আরও।",
+"ms": "Penerokaan mendalam ilmu Islam — Fiqh, Akidah, Sirah dan banyak lagi."
+},
+"By creating an account, you agree to our": {
+"yo": "Nípa ṣíṣẹ̀dá àkáǹtì, o gbà sí",
+"ig": "Site n'imepụta akaụntụ, ị kwenyere na",
+"bn": "অ্যাকাউন্ট তৈরি করে আপনি সম্মত হচ্ছেন আমাদের",
+"ms": "Dengan mencipta akaun, anda bersetuju dengan"
+},
+"Log in instead": {
+"yo": "Wọlé dípò rẹ̀",
+"ig": "Banye kama",
+"bn": "বরং লগ ইন করুন",
+"ms": "Log masuk sebaliknya"
+},
+"An account with this email already exists.": {
+"yo": "Àkáǹtì pẹ̀lú ímeèlì yìí ti wà tẹ́lẹ̀.",
+"ig": "Akaụntụ nwere email a adịlarị.",
+"bn": "এই ইমেইল দিয়ে একটি অ্যাকাউন্ট আগে থেকেই আছে।",
+"ms": "Akaun dengan e-mel ini sudah wujud."
+},
+"Go Premium": {
+"yo": "Lọ sí Premium",
+"ig": "Gaa Premium",
+"bn": "প্রিমিয়াম নিন",
+"ms": "Langgan Premium"
+},
+"Profile": {
+"yo": "Profaili",
+"ig": "Profaịlụ",
+"bn": "প্রোফাইল",
+"ms": "Profil"
+},
+"Friends": {
+"yo": "Àwọn ọ̀rẹ́",
+"ig": "Ndị enyi",
+"bn": "বন্ধুরা",
+"ms": "Rakan"
+},
+"Achievements": {
+"yo": "Àwọn àṣeyọrí",
+"ig": "Ihe ndị e mezuru",
+"bn": "অর্জন",
+"ms": "Pencapaian"
+},
+"Wallet": {
+"yo": "Àpò owó",
+"ig": "Akpa ego",
+"bn": "ওয়ালেট",
+"ms": "Dompet"
+},
+"Use points": {
+"yo": "Lo àmì",
+"ig": "Jiri akara",
+"bn": "পয়েন্ট ব্যবহার করুন",
+"ms": "Guna mata"
+},
+"Notifications": {
+"yo": "Ìfitónilétí",
+"ig": "Ọkwa",
+"bn": "নোটিফিকেশন",
+"ms": "Pemberitahuan"
+},
+"Rewards": {
+"yo": "Èrè",
+"ig": "Ụgwọ ọrụ",
+"bn": "পুরস্কার",
+"ms": "Ganjaran"
+},
+"Streak": {
+"yo": "Ọjọ́ tí kò já",
+"ig": "Usoro ụbọchị",
+"bn": "ধারা",
+"ms": "Rentetan"
+},
+"Badges": {
+"yo": "Àmì ẹ̀yẹ",
+"ig": "Baajị",
+"bn": "ব্যাজ",
+"ms": "Lencana"
+},
+"Points": {
+"yo": "Àmì",
+"ig": "Akara",
+"bn": "পয়েন্ট",
+"ms": "Mata"
+},
+"Balance": {
+"yo": "Ìyókù",
+"ig": "Ego fọdụrụ",
+"bn": "ব্যালেন্স",
+"ms": "Baki"
+},
+"Test yourself": {
+"yo": "Dán ara rẹ wò",
+"ig": "Nwaa onwe gị",
+"bn": "নিজেকে যাচাই করুন",
+"ms": "Uji diri anda"
+},
+"Choose a topic": {
+"yo": "Yan kókó-ọ̀rọ̀ kan",
+"ig": "Họrọ isiokwu",
+"bn": "একটি বিষয় বেছে নিন",
+"ms": "Pilih topik"
+},
+"Play now": {
+"yo": "Ṣeré báyìí",
+"ig": "Kpọọ ugbu a",
+"bn": "এখনই খেলুন",
+"ms": "Main sekarang"
+},
+"New": {
+"yo": "Tuntun",
+"ig": "Ọhụrụ",
+"bn": "নতুন",
+"ms": "Baharu"
+},
+"Start quiz": {
+"yo": "Bẹ̀rẹ̀ ìdánwò",
+"ig": "Malite ajụjụ",
+"bn": "কুইজ শুরু করুন",
+"ms": "Mula kuiz"
+},
+"Next question": {
+"yo": "Ìbéèrè tó kàn",
+"ig": "Ajụjụ na-esote",
+"bn": "পরবর্তী প্রশ্ন",
+"ms": "Soalan seterusnya"
+},
+"See results": {
+"yo": "Wo àbájáde",
+"ig": "Lee nsonaazụ",
+"bn": "ফলাফল দেখুন",
+"ms": "Lihat keputusan"
+},
+"Score": {
+"yo": "Máàkì",
+"ig": "Akara",
+"bn": "স্কোর",
+"ms": "Markah"
+},
+"XP earned": {
+"yo": "XP tí o jèrè",
+"ig": "XP enwetara",
+"bn": "অর্জিত XP",
+"ms": "XP diperoleh"
+},
+"Accuracy": {
+"yo": "Ìpéye",
+"ig": "Izi ezi",
+"bn": "নির্ভুলতা",
+"ms": "Ketepatan"
+},
+"Play again": {
+"yo": "Tún ṣeré",
+"ig": "Kpọọ ọzọ",
+"bn": "আবার খেলুন",
+"ms": "Main lagi"
+},
+"Challenge a friend": {
+"yo": "Pe ọ̀rẹ́ níjà",
+"ig": "Maa enyi aka",
+"bn": "বন্ধুকে চ্যালেঞ্জ করুন",
+"ms": "Cabar rakan"
+},
+"Fresh quizzes and interactive games from the IlmStation team.": {
+"yo": "Ìdánwò tuntun àti eré ìbáṣepọ̀ láti ọ̀dọ̀ ẹgbẹ́ IlmStation.",
+"ig": "Ajụjụ ọhụrụ na egwuregwu mmekọrịta site n'aka otu IlmStation.",
+"bn": "IlmStation দলের নতুন কুইজ ও ইন্টারঅ্যাক্টিভ খেলা।",
+"ms": "Kuiz baharu dan permainan interaktif daripada pasukan IlmStation."
+},
+"Aqeedah, Hadith, Seerah, Fiqh, Arabic, Qur’an and more. Short quizzes, XP for every right answer, and challenges with friends.": {
+"yo": "Aqeedah, Hadith, Seerah, Fiqh, Lárúbáwá, Kùránì àti bẹ́ẹ̀ bẹ́ẹ̀ lọ. Ìdánwò kúkúrú, XP fún gbogbo ìdáhùn tó tọ̀nà, àti ìpèníjà pẹ̀lú àwọn ọ̀rẹ́.",
+"ig": "Aqeedah, Hadith, Seerah, Fiqh, Arabik, Kur'an na ndị ọzọ. Ajụjụ dị mkpụmkpụ, XP maka azịza ziri ezi ọ bụla, na ịma aka na ndị enyi.",
+"bn": "আকিদা, হাদিস, সিরাত, ফিকহ, আরবি, কুরআন এবং আরও। ছোট কুইজ, প্রতিটি সঠিক উত্তরে XP, আর বন্ধুদের সাথে চ্যালেঞ্জ।",
+"ms": "Akidah, Hadis, Sirah, Fiqh, bahasa Arab, Al-Quran dan banyak lagi. Kuiz ringkas, XP untuk setiap jawapan betul, dan cabaran bersama rakan."
+},
+"What would you like to do today?": {
+"yo": "Kí lo fẹ́ ṣe lónìí?",
+"ig": "Gịnị ka ị chọrọ ime taa?",
+"bn": "আজ আপনি কী করতে চান?",
+"ms": "Apa yang anda mahu lakukan hari ini?"
+},
+"Fun quizzes · earn stars": {
+"yo": "Ìdánwò alárinrin · jèrè ìràwọ̀",
+"ig": "Ajụjụ na-atọ ụtọ · nweta kpakpando",
+"bn": "মজার কুইজ · তারা অর্জন করো",
+"ms": "Kuiz seronok · kumpul bintang"
+},
+"Your lessons": {
+"yo": "Àwọn ẹ̀kọ́ rẹ",
+"ig": "Ihe ọmụmụ gị",
+"bn": "তোমার পাঠ",
+"ms": "Pelajaran kamu"
+},
+"Games & quizzes": {
+"yo": "Eré & ìdánwò",
+"ig": "Egwuregwu & ajụjụ",
+"bn": "খেলা ও কুইজ",
+"ms": "Permainan & kuiz"
+},
+"Masha’Allah!": {
+"yo": "Masha'Allah!",
+"ig": "Masha'Allah!",
+"bn": "মাশাআল্লাহ!",
+"ms": "Masya-Allah!"
+},
+"Time’s up for today": {
+"yo": "Àkókò ti tán fún òní",
+"ig": "Oge agwụla maka taa",
+"bn": "আজকের সময় শেষ",
+"ms": "Masa sudah tamat untuk hari ini"
+},
+"Get Premium for more time": {
+"yo": "Gba Premium fún àkókò síi",
+"ig": "Nweta Premium maka oge ọzọ",
+"bn": "আরও সময়ের জন্য প্রিমিয়াম নিন",
+"ms": "Dapatkan Premium untuk masa lebih"
+},
+"Download card": {
+"yo": "Gba káàdì sílẹ̀",
+"ig": "Budata kaadị",
+"bn": "কার্ড ডাউনলোড করুন",
+"ms": "Muat turun kad"
+},
+"Read Surah Al-Kahf today": {
+"yo": "Ka Sùúrà Al-Kahf lónìí",
+"ig": "Gụọ Surah Al-Kahf taa",
+"bn": "আজ সূরা আল-কাহফ পড়ুন",
+"ms": "Baca Surah Al-Kahfi hari ini"
+},
+"Read Al-Kahf": {
+"yo": "Ka Al-Kahf",
+"ig": "Gụọ Al-Kahf",
+"bn": "আল-কাহফ পড়ুন",
+"ms": "Baca Al-Kahfi"
+},
+"Browse the library": {
+"yo": "Wo ilé-ìkàwé",
+"ig": "Lelee ọbá akwụkwọ",
+"bn": "লাইব্রেরি ঘুরে দেখুন",
+"ms": "Layari perpustakaan"
+},
+"Saved": {
+"yo": "A ti fipamọ́",
+"ig": "Echekwala",
+"bn": "সংরক্ষিত",
+"ms": "Disimpan"
+},
+"Copied": {
+"yo": "A ti ṣe ẹ̀dà",
+"ig": "Edetuola",
+"bn": "কপি হয়েছে",
+"ms": "Disalin"
+},
+"Log in to save wisdom.": {
+"yo": "Wọlé láti fi ọgbọ́n pamọ́.",
+"ig": "Banye iji chekwaa amamihe.",
+"bn": "হিকমাহ সংরক্ষণ করতে লগ ইন করুন।",
+"ms": "Log masuk untuk menyimpan hikmah."
+},
+"Reciter": {
+"yo": "Olùkà",
+"ig": "Onye ọgụgụ",
+"bn": "কারী",
+"ms": "Qari"
+},
+"Calculation": {
+"yo": "Ìṣirò",
+"ig": "Ngụkọ",
+"bn": "হিসাব পদ্ধতি",
+"ms": "Kiraan"
+},
+"You’re on the free plan": {
+"yo": "O wà lórí ètò ọ̀fẹ́",
+"ig": "Ị nọ na atụmatụ n'efu",
+"bn": "আপনি বিনামূল্যের প্ল্যানে আছেন",
+"ms": "Anda menggunakan pelan percuma"
+},
+"Premium is active": {
+"yo": "Premium ń ṣiṣẹ́",
+"ig": "Premium na-arụ ọrụ",
+"bn": "প্রিমিয়াম চালু আছে",
+"ms": "Premium aktif"
+},
+"Custom pricing": {
+"yo": "Iye owó àkànṣe",
+"ig": "Ọnụahịa pụrụ iche",
+"bn": "বিশেষ মূল্য",
+"ms": "Harga tersuai"
+},
+"Get it": {
+"yo": "Gbà á",
+"ig": "Nweta ya",
+"bn": "নিন",
+"ms": "Dapatkan"
+},
+"All time": {
+"yo": "Gbogbo àkókò",
+"ig": "Oge niile",
+"bn": "সর্বকাল",
+"ms": "Sepanjang masa"
+},
+"Among friends": {
+"yo": "Láàrin àwọn ọ̀rẹ́",
+"ig": "N'etiti ndị enyi",
+"bn": "বন্ধুদের মধ্যে",
+"ms": "Antara rakan"
+},
+"Global": {
+"yo": "Káàkiri ayé",
+"ig": "Ụwa niile",
+"bn": "বিশ্বব্যাপী",
+"ms": "Global"
+},
+"Find friends": {
+"yo": "Wá àwọn ọ̀rẹ́",
+"ig": "Chọta ndị enyi",
+"bn": "বন্ধু খুঁজুন",
+"ms": "Cari rakan"
+},
+"Requests": {
+"yo": "Àwọn ìbéèrè",
+"ig": "Arịrịọ",
+"bn": "অনুরোধ",
+"ms": "Permintaan"
+},
+"Learning record": {
+"yo": "Àkọsílẹ̀ ẹ̀kọ́",
+"ig": "Ndekọ ọmụmụ",
+"bn": "শেখার রেকর্ড",
+"ms": "Rekod pembelajaran"
+},
+"Your progress": {
+"yo": "Ìlọsíwájú rẹ",
+"ig": "Ọganihu gị",
+"bn": "আপনার অগ্রগতি",
+"ms": "Kemajuan anda"
+},
+"Topic performance": {
+"yo": "Ìṣe nínú kókó-ọ̀rọ̀",
+"ig": "Arụmọrụ n'isiokwu",
+"bn": "বিষয়ভিত্তিক ফলাফল",
+"ms": "Prestasi topik"
+},
+"How to earn": {
+"yo": "Bí o ṣe lè jèrè",
+"ig": "Otu esi enweta",
+"bn": "কীভাবে অর্জন করবেন",
+"ms": "Cara memperoleh"
+},
+"From new levels": {
+"yo": "Láti àwọn ìpele tuntun",
+"ig": "Site n'ọkwa ọhụrụ",
+"bn": "নতুন স্তর থেকে",
+"ms": "Dari tahap baharu"
+},
+"Ask IlmBot": {
+"yo": "Béèrè lọ́wọ́ IlmBot",
+"ig": "Jụọ IlmBot",
+"bn": "IlmBot-কে জিজ্ঞাসা করুন",
+"ms": "Tanya IlmBot"
+},
+"Not a fatwa service": {
+"yo": "Kì í ṣe iṣẹ́ fátúwà",
+"ig": "Ọ bụghị ọrụ fatwa",
+"bn": "এটি ফতোয়া সেবা নয়",
+"ms": "Bukan perkhidmatan fatwa"
+},
+"Ask a learning question…": {
+"yo": "Béèrè ìbéèrè ẹ̀kọ́ kan…",
+"ig": "Jụọ ajụjụ ọmụmụ…",
+"bn": "শেখার একটি প্রশ্ন করুন…",
+"ms": "Tanya soalan pembelajaran…"
+},
+"Open navigation": {
+"yo": "Ṣí àtòjọ",
+"ig": "Mepee nduzi",
+"bn": "নেভিগেশন খুলুন",
+"ms": "Buka navigasi"
+},
+"Toggle navigation": {
+"yo": "Yí àtòjọ padà",
+"ig": "Gbanwee nduzi",
+"bn": "নেভিগেশন টগল করুন",
+"ms": "Togol navigasi"
+},
+"Arabic": {
+"yo": "Lárúbáwá",
+"ig": "Arabik",
+"bn": "আরবি",
+"ms": "Bahasa Arab"
+},
+"Aqeedah": {
+"yo": "Aqeedah",
+"ig": "Aqeedah",
+"bn": "আকিদা",
+"ms": "Akidah"
+},
+"Hadith": {
+"yo": "Hadith",
+"ig": "Hadith",
+"bn": "হাদিস",
+"ms": "Hadis"
+},
+"Seerah": {
+"yo": "Seerah",
+"ig": "Seerah",
+"bn": "সিরাত",
+"ms": "Sirah"
+},
+"Fiqh": {
+"yo": "Fiqh",
+"ig": "Fiqh",
+"bn": "ফিকহ",
+"ms": "Fiqh"
+},
+"Tafsir": {
+"yo": "Tafsir",
+"ig": "Tafsir",
+"bn": "তাফসির",
+"ms": "Tafsir"
+},
+"Dua": {
+"yo": "Àdúà",
+"ig": "Dua",
+"bn": "দোয়া",
+"ms": "Doa"
+},
+"{n}% read": {
+"yo": "{n}% ti kà",
+"ig": "{n}% agụrụ",
+"bn": "{n}% পড়া হয়েছে",
+"ms": "{n}% dibaca"
+},
+"DAYS TO RAMADAN": {
+"yo": "ỌJỌ́ SÍ RAMADAN",
+"ig": "ỤBỌCHỊ RUO RAMADAN",
+"bn": "রমজান পর্যন্ত দিন",
+"ms": "HARI MENUJU RAMADAN"
+},
+"days to ramadan": {
+"yo": "ọjọ́ sí ramadan",
+"ig": "ụbọchị ruo ramadan",
+"bn": "রমজান পর্যন্ত দিন",
+"ms": "hari menuju ramadan"
+},
+"Days to Ramadan!": {
+"yo": "Ọjọ́ sí Ramadan!",
+"ig": "Ụbọchị ruo Ramadan!",
+"bn": "রমজান পর্যন্ত দিন!",
+"ms": "Hari menuju Ramadan!"
+},
+"{n} days to Ramadan": {
+"yo": "Ọjọ́ {n} sí Ramadan",
+"ig": "Ụbọchị {n} ruo Ramadan",
+"bn": "রমজান পর্যন্ত {n} দিন",
+"ms": "{n} hari menuju Ramadan"
+},
+"{n} days": {
+"yo": "Ọjọ́ {n}",
+"ig": "Ụbọchị {n}",
+"bn": "{n} দিন",
+"ms": "{n} hari"
+},
+"{n} XP": {
+"yo": "{n} XP",
+"ig": "{n} XP",
+"bn": "{n} XP",
+"ms": "{n} XP"
+},
+"{n}-day streak": {
+"yo": "Ọjọ́ {n} tí kò já",
+"ig": "Usoro ụbọchị {n}",
+"bn": "{n} দিনের ধারা",
+"ms": "Rentetan {n} hari"
+},
+"Change city": {
+"yo": "Yí ìlú padà",
+"ig": "Gbanwee obodo",
+"bn": "শহর পরিবর্তন করুন",
+"ms": "Tukar bandar"
+},
+"Your country’s usual method (default)": {
+"yo": "Ọ̀nà tí orílẹ̀-èdè rẹ máa ń lò (àìyípadà)",
+"ig": "Ụzọ obodo gị na-ejikarị (ndabara)",
+"bn": "আপনার দেশের প্রচলিত পদ্ধতি (ডিফল্ট)",
+"ms": "Kaedah biasa negara anda (lalai)"
+},
+"Muslim World League": {
+"yo": "Muslim World League",
+"ig": "Muslim World League",
+"bn": "Muslim World League",
+"ms": "Muslim World League"
+},
+"Egyptian General Authority": {
+"yo": "Egyptian General Authority",
+"ig": "Egyptian General Authority",
+"bn": "Egyptian General Authority",
+"ms": "Egyptian General Authority"
+},
+"Moonsighting Committee": {
+"yo": "Moonsighting Committee",
+"ig": "Moonsighting Committee",
+"bn": "Moonsighting Committee",
+"ms": "Moonsighting Committee"
+},
+"Umm al-Qura, Makkah": {
+"yo": "Umm al-Qura, Mákà",
+"ig": "Umm al-Qura, Makkah",
+"bn": "উম্মুল কুরা, মক্কা",
+"ms": "Umm al-Qura, Makkah"
+},
+"Auto": {
+"yo": "Fúnra rẹ̀",
+"ig": "Akpaghị aka",
+"bn": "স্বয়ংক্রিয়",
+"ms": "Auto"
+},
+"Adhan 🔔": {
+"yo": "Àdhàn 🔔",
+"ig": "Adhan 🔔",
+"bn": "আজান 🔔",
+"ms": "Azan 🔔"
+},
+"🔔 Adhan": {
+"yo": "🔔 Àdhàn",
+"ig": "🔔 Adhan",
+"bn": "🔔 আজান",
+"ms": "🔔 Azan"
+},
+"12h": {
+"yo": "12h",
+"ig": "12h",
+"bn": "১২ ঘণ্টা",
+"ms": "12j"
+},
+"24h": {
+"yo": "24h",
+"ig": "24h",
+"bn": "২৪ ঘণ্টা",
+"ms": "24j"
+},
+"in": {
+"yo": "ní",
+"ig": "n'ime",
+"bn": "বাকি",
+"ms": "dalam"
+},
+"{n}h {n}m": {
+"yo": "{n}h {n}m",
+"ig": "{n}h {n}m",
+"bn": "{n}ঘ {n}মি",
+"ms": "{n}j {n}m"
+},
+"in {n}h {n}m": {
+"yo": "ní {n}h {n}m",
+"ig": "n'ime {n}h {n}m",
+"bn": "{n}ঘ {n}মি বাকি",
+"ms": "dalam {n}j {n}m"
+},
+"{n}m": {
+"yo": "{n}m",
+"ig": "{n}m",
+"bn": "{n}মি",
+"ms": "{n}m"
+},
+"in {n}m": {
+"yo": "ní {n}m",
+"ig": "n'ime {n}m",
+"bn": "{n}মি বাকি",
+"ms": "dalam {n}m"
+},
+"{n}:{n} AM": {
+"yo": "{n}:{n} òwúrọ̀",
+"ig": "{n}:{n} ụtụtụ",
+"bn": "সকাল {n}:{n}",
+"ms": "{n}:{n} PG"
+},
+"{n}:{n} PM": {
+"yo": "{n}:{n} ọ̀sán",
+"ig": "{n}:{n} ehihie",
+"bn": "বিকাল {n}:{n}",
+"ms": "{n}:{n} PTG"
+},
+"Today’s prayer times": {
+"yo": "Àkókò ìrun òní",
+"ig": "Oge ekpere taa",
+"bn": "আজকের নামাজের সময়",
+"ms": "Waktu solat hari ini"
+},
+"Use my location": {
+"yo": "Lo ibi tí mo wà",
+"ig": "Jiri ebe m nọ",
+"bn": "আমার অবস্থান ব্যবহার করুন",
+"ms": "Guna lokasi saya"
+},
+"Search a city…": {
+"yo": "Wá ìlú kan…",
+"ig": "Chọọ obodo…",
+"bn": "শহর খুঁজুন…",
+"ms": "Cari bandar…"
+},
+"TODAY": {
+"yo": "ÒNÍ",
+"ig": "TAA",
+"bn": "আজ",
+"ms": "HARI INI"
+},
+"Newcomer": {
+"yo": "Ẹni tuntun",
+"ig": "Onye ọhụrụ",
+"bn": "নবাগত",
+"ms": "Pendatang baharu"
+},
+"Seeker": {
+"yo": "Olùwá",
+"ig": "Onye na-achọ",
+"bn": "অন্বেষী",
+"ms": "Pencari"
+},
+"Learner": {
+"yo": "Akẹ́kọ̀ọ́",
+"ig": "Onye na-amụ ihe",
+"bn": "শিক্ষার্থী",
+"ms": "Pelajar"
+},
+"Student": {
+"yo": "Akẹ́kọ̀ọ́",
+"ig": "Nwa akwụkwọ",
+"bn": "ছাত্র",
+"ms": "Murid"
+},
+"Scholar": {
+"yo": "Onímọ̀",
+"ig": "Ọkà mmụta",
+"bn": "আলেম",
+"ms": "Ulama"
+},
+"Guardian": {
+"yo": "Alábòójútó",
+"ig": "Onye nche",
+"bn": "অভিভাবক",
+"ms": "Penjaga"
+},
+"Explorer": {
+"yo": "Aṣàwárí",
+"ig": "Onye nchọpụta",
+"bn": "অভিযাত্রী",
+"ms": "Penjelajah"
+},
+"Hafiz": {
+"yo": "Hafiz",
+"ig": "Hafiz",
+"bn": "হাফেজ",
+"ms": "Hafiz"
+},
+"Teacher": {
+"yo": "Olùkọ́",
+"ig": "Onye nkuzi",
+"bn": "শিক্ষক",
+"ms": "Guru"
+},
+"🌅 Daily Wisdom": {
+"yo": "🌅 Ọgbọ́n Ojoojúmọ́",
+"ig": "🌅 Amamihe Kwa Ụbọchị",
+"bn": "🌅 দৈনিক হিকমাহ",
+"ms": "🌅 Hikmah Harian"
+},
+"🕌 Prayer times": {
+"yo": "🕌 Àkókò ìrun",
+"ig": "🕌 Oge ekpere",
+"bn": "🕌 নামাজের সময়",
+"ms": "🕌 Waktu solat"
+},
+"Daily tilawah": {
+"yo": "Tilawah ojoojúmọ́",
+"ig": "Tilawah kwa ụbọchị",
+"bn": "দৈনিক তিলাওয়াত",
+"ms": "Tilawah harian"
+},
+"📖 Daily tilawah": {
+"yo": "📖 Tilawah ojoojúmọ́",
+"ig": "📖 Tilawah kwa ụbọchị",
+"bn": "📖 দৈনিক তিলাওয়াত",
+"ms": "📖 Tilawah harian"
+},
+"Streak reminder": {
+"yo": "Ìrántí ọjọ́ tí kò já",
+"ig": "Ncheta usoro ụbọchị",
+"bn": "ধারার রিমাইন্ডার",
+"ms": "Peringatan rentetan"
+},
+"🔥 Streak reminder": {
+"yo": "🔥 Ìrántí ọjọ́ tí kò já",
+"ig": "🔥 Ncheta usoro ụbọchị",
+"bn": "🔥 ধারার রিমাইন্ডার",
+"ms": "🔥 Peringatan rentetan"
+},
+"Friday Al-Kahf": {
+"yo": "Al-Kahf ọjọ́ Jimọ̀",
+"ig": "Al-Kahf Fraịdee",
+"bn": "জুমার দিনে আল-কাহফ",
+"ms": "Al-Kahfi hari Jumaat"
+},
+"📖 Friday Al-Kahf": {
+"yo": "📖 Al-Kahf ọjọ́ Jimọ̀",
+"ig": "📖 Al-Kahf Fraịdee",
+"bn": "📖 জুমার দিনে আল-কাহফ",
+"ms": "📖 Al-Kahfi hari Jumaat"
+},
+"Ramadan prize quiz": {
+"yo": "Ìdánwò ẹ̀bùn Ramadan",
+"ig": "Ajụjụ onyinye Ramadan",
+"bn": "রমজান পুরস্কার কুইজ",
+"ms": "Kuiz hadiah Ramadan"
+},
+"🏆 Ramadan prize quiz": {
+"yo": "🏆 Ìdánwò ẹ̀bùn Ramadan",
+"ig": "🏆 Ajụjụ onyinye Ramadan",
+"bn": "🏆 রমজান পুরস্কার কুইজ",
+"ms": "🏆 Kuiz hadiah Ramadan"
+},
+"Every morning at {n}:{n}": {
+"yo": "Ní àràárọ̀ ní {n}:{n}",
+"ig": "Kwa ụtụtụ n'elekere {n}:{n}",
+"bn": "প্রতিদিন সকাল {n}:{n}-এ",
+"ms": "Setiap pagi pada {n}:{n}"
+},
+"At each of the five prayers": {
+"yo": "Ní ìrun márààrún",
+"ig": "N'ekpere ise ọ bụla",
+"bn": "পাঁচ ওয়াক্ত নামাজের প্রতিটিতে",
+"ms": "Pada setiap solat lima waktu"
+},
+"At the time you choose below": {
+"yo": "Ní àkókò tí o yàn nísàlẹ̀",
+"ig": "N'oge ị họọrọ n'okpuru",
+"bn": "নিচে আপনার বেছে নেওয়া সময়ে",
+"ms": "Pada masa yang anda pilih di bawah"
+},
+"In the evening, if you haven't learned yet": {
+"yo": "Ní ìrọ̀lẹ́, tí o kò bá tíì kọ́ ẹ̀kọ́",
+"ig": "Na mgbede, ma ọ bụrụ na ị mụbeghị ihe",
+"bn": "সন্ধ্যায়, যদি এখনো না শিখে থাকেন",
+"ms": "Pada waktu petang, jika anda belum belajar"
+},
+"Friday morning": {
+"yo": "Àárọ̀ ọjọ́ Jimọ̀",
+"ig": "Ụtụtụ Fraịdee",
+"bn": "শুক্রবার সকাল",
+"ms": "Pagi Jumaat"
+},
+"When each day's quiz opens": {
+"yo": "Nígbà tí ìdánwò ọjọ́ kọ̀ọ̀kan bá ṣí",
+"ig": "Mgbe ajụjụ ụbọchị ọ bụla mepere",
+"bn": "যখন প্রতিদিনের কুইজ খোলে",
+"ms": "Apabila kuiz setiap hari dibuka"
+},
+"Tilawah time": {
+"yo": "Àkókò Tilawah",
+"ig": "Oge Tilawah",
+"bn": "তিলাওয়াতের সময়",
+"ms": "Masa tilawah"
+},
+"Update device and location": {
+"yo": "Ṣe àtúnṣe ẹ̀rọ àti ibi tí o wà",
+"ig": "Melite ngwaọrụ na ebe ị nọ",
+"bn": "ডিভাইস ও অবস্থান হালনাগাদ করুন",
+"ms": "Kemas kini peranti dan lokasi"
+},
+"Notifications are on": {
+"yo": "Ìfitónilétí wà ní títàn",
+"ig": "Ọkwa gbanyere",
+"bn": "নোটিফিকেশন চালু আছে",
+"ms": "Pemberitahuan dihidupkan"
+},
+"Notifications are off": {
+"yo": "Ìfitónilétí wà ní pípa",
+"ig": "Ọkwa gbanyụrụ",
+"bn": "নোটিফিকেশন বন্ধ আছে",
+"ms": "Pemberitahuan dimatikan"
+},
+"Sun": {
+"yo": "Àìkú",
+"ig": "Ụka",
+"bn": "রবি",
+"ms": "Ahd"
+},
+"Mon": {
+"yo": "Ajé",
+"ig": "Mọn",
+"bn": "সোম",
+"ms": "Isn"
+},
+"Tue": {
+"yo": "Ìṣẹ́gun",
+"ig": "Tiu",
+"bn": "মঙ্গল",
+"ms": "Sel"
+},
+"Wed": {
+"yo": "Ọjọ́rú",
+"ig": "Wen",
+"bn": "বুধ",
+"ms": "Rab"
+},
+"Thu": {
+"yo": "Ọjọ́bọ̀",
+"ig": "Tọọ",
+"bn": "বৃহস্পতি",
+"ms": "Kha"
+},
+"Fri": {
+"yo": "Ẹtì",
+"ig": "Fraị",
+"bn": "শুক্র",
+"ms": "Jum"
+},
+"Sat": {
+"yo": "Àbámẹ́ta",
+"ig": "Sat",
+"bn": "শনি",
+"ms": "Sab"
+},
+"🧑 Teen & Adult": {
+"yo": "🧑 Ọ̀dọ́ & Àgbà",
+"ig": "🧑 Ndị ntorobịa & Ndị okenye",
+"bn": "🧑 কিশোর ও প্রাপ্তবয়স্ক",
+"ms": "🧑 Remaja & Dewasa"
+},
+"🧒 Child": {
+"yo": "🧒 Ọmọdé",
+"ig": "🧒 Nwatakịrị",
+"bn": "🧒 শিশু",
+"ms": "🧒 Kanak-kanak"
+},
+"👋 Ask your parent for your username and password.": {
+"yo": "👋 Béèrè orúkọ oníṣe àti ọ̀rọ̀ aṣínà rẹ lọ́wọ́ òbí rẹ.",
+"ig": "👋 Jụọ nne ma ọ bụ nna gị aha njirimara na paswọọdụ gị.",
+"bn": "👋 তোমার অভিভাবকের কাছে ইউজারনেম ও পাসওয়ার্ড চাও।",
+"ms": "👋 Minta nama pengguna dan kata laluan daripada ibu bapa kamu."
+},
+"Forgot it? Ask your parent.": {
+"yo": "Ṣé o gbàgbé? Béèrè lọ́wọ́ òbí rẹ.",
+"ig": "Chefuru ya? Jụọ nne ma ọ bụ nna gị.",
+"bn": "ভুলে গেছ? অভিভাবককে জিজ্ঞাসা করো।",
+"ms": "Terlupa? Tanya ibu bapa kamu."
+},
+"e.g. amina_10": {
+"yo": "àpẹẹrẹ: amina_10",
+"ig": "dịka: amina_10",
+"bn": "যেমন: amina_10",
+"ms": "cth. amina_10"
+},
+"Email address": {
+"yo": "Àdírẹ́sì ímeèlì",
+"ig": "Adreesị email",
+"bn": "ইমেইল ঠিকানা",
+"ms": "Alamat e-mel"
+},
+"Log in to IlmStation": {
+"yo": "Wọlé sí IlmStation",
+"ig": "Banye na IlmStation",
+"bn": "IlmStation-এ লগ ইন করুন",
+"ms": "Log masuk ke IlmStation"
+},
+"Pick up today’s quest where you left it.": {
+"yo": "Tẹ̀síwájú ìrìn-àjò òní níbi tí o fi í sí.",
+"ig": "Gaa n'ihu njem ọmụmụ taa ebe ị hapụrụ ya.",
+"bn": "আজকের কোয়েস্ট যেখানে রেখেছিলেন সেখান থেকে শুরু করুন।",
+"ms": "Sambung misi hari ini dari tempat anda tinggalkan."
+},
+"OR": {
+"yo": "TÀBÍ",
+"ig": "MA Ọ BỤ",
+"bn": "অথবা",
+"ms": "ATAU"
+},
+"Ta-Ha 20:114": {
+"yo": "Ta-Ha 20:114",
+"ig": "Ta-Ha 20:114",
+"bn": "ত্বা-হা ২০:১১৪",
+"ms": "Ta-Ha 20:114"
+},
+"Teen & Adult": {
+"yo": "Ọ̀dọ́ & Àgbà",
+"ig": "Ndị ntorobịa & Ndị okenye",
+"bn": "কিশোর ও প্রাপ্তবয়স্ক",
+"ms": "Remaja & Dewasa"
+},
+"Child": {
+"yo": "Ọmọdé",
+"ig": "Nwatakịrị",
+"bn": "শিশু",
+"ms": "Kanak-kanak"
+},
+"Log in with Google or your email": {
+"yo": "Wọlé pẹ̀lú Google tàbí ímeèlì rẹ",
+"ig": "Banye na Google ma ọ bụ email gị",
+"bn": "Google বা আপনার ইমেইল দিয়ে লগ ইন করুন",
+"ms": "Log masuk dengan Google atau e-mel anda"
+},
+"Log in with the username your parent gave you": {
+"yo": "Wọlé pẹ̀lú orúkọ oníṣe tí òbí rẹ fún ọ",
+"ig": "Banye na aha njirimara nne ma ọ bụ nna gị nyere gị",
+"bn": "অভিভাবকের দেওয়া ইউজারনেম দিয়ে লগ ইন করো",
+"ms": "Log masuk dengan nama pengguna yang diberi oleh ibu bapa kamu"
+},
+"Change": {
+"yo": "Yí padà",
+"ig": "Gbanwee",
+"bn": "পরিবর্তন",
+"ms": "Tukar"
+},
+"Your account": {
+"yo": "Àkáǹtì rẹ",
+"ig": "Akaụntụ gị",
+"bn": "আপনার অ্যাকাউন্ট",
+"ms": "Akaun anda"
+},
+"Me": {
+"yo": "Èmi",
+"ig": "Mụ",
+"bn": "আমি",
+"ms": "Saya"
+},
+"Your profile": {
+"yo": "Profaili rẹ",
+"ig": "Profaịlụ gị",
+"bn": "আপনার প্রোফাইল",
+"ms": "Profil anda"
+},
+"Free plan": {
+"yo": "Ètò ọ̀fẹ́",
+"ig": "Atụmatụ n'efu",
+"bn": "বিনামূল্যের প্ল্যান",
+"ms": "Pelan percuma"
+},
+"My progress": {
+"yo": "Ìlọsíwájú mi",
+"ig": "Ọganihu m",
+"bn": "আমার অগ্রগতি",
+"ms": "Kemajuan saya"
+},
+"Stars, levels and streak": {
+"yo": "Ìràwọ̀, ìpele àti ọjọ́ tí kò já",
+"ig": "Kpakpando, ọkwa na usoro ụbọchị",
+"bn": "তারা, স্তর ও ধারা",
+"ms": "Bintang, tahap dan rentetan"
+},
+"My badges": {
+"yo": "Àwọn àmì ẹ̀yẹ mi",
+"ig": "Baajị m",
+"bn": "আমার ব্যাজ",
+"ms": "Lencana saya"
+},
+"Everything you’ve earned": {
+"yo": "Gbogbo ohun tí o ti jèrè",
+"ig": "Ihe niile i nwetara",
+"bn": "আপনার অর্জিত সবকিছু",
+"ms": "Semua yang telah anda peroleh"
+},
+"My lessons": {
+"yo": "Àwọn ẹ̀kọ́ mi",
+"ig": "Ihe ọmụmụ m",
+"bn": "আমার পাঠ",
+"ms": "Pelajaran saya"
+},
+"Keep learning": {
+"yo": "Máa kọ́ ẹ̀kọ́ lọ",
+"ig": "Gaa n'ihu na-amụ ihe",
+"bn": "শেখা চালিয়ে যান",
+"ms": "Terus belajar"
+},
+"Language and more": {
+"yo": "Èdè àti àwọn mìíràn",
+"ig": "Asụsụ na ndị ọzọ",
+"bn": "ভাষা ও আরও",
+"ms": "Bahasa dan lain-lain"
+},
+"Your learning record": {
+"yo": "Àkọsílẹ̀ ẹ̀kọ́ rẹ",
+"ig": "Ndekọ ọmụmụ gị",
+"bn": "আপনার শেখার রেকর্ড",
+"ms": "Rekod pembelajaran anda"
+},
+"Daily and weekly goals": {
+"yo": "Àfojúsùn ojoojúmọ́ àti ọ̀sọ̀ọ̀sẹ̀",
+"ig": "Ebumnuche kwa ụbọchị na kwa izu",
+"bn": "দৈনিক ও সাপ্তাহিক লক্ষ্য",
+"ms": "Sasaran harian dan mingguan"
+},
+"Wallet & points": {
+"yo": "Àpò owó & àmì",
+"ig": "Akpa ego & akara",
+"bn": "ওয়ালেট ও পয়েন্ট",
+"ms": "Dompet & mata"
+},
+"Friends & challenges": {
+"yo": "Ọ̀rẹ́ & ìpèníjà",
+"ig": "Ndị enyi & ịma aka",
+"bn": "বন্ধু ও চ্যালেঞ্জ",
+"ms": "Rakan & cabaran"
+},
+"Your circle": {
+"yo": "Àyíká rẹ",
+"ig": "Okirikiri gị",
+"bn": "আপনার বৃত্ত",
+"ms": "Bulatan anda"
+},
+"Children’s accounts and family plan": {
+"yo": "Àkáǹtì àwọn ọmọdé àti ètò ẹbí",
+"ig": "Akaụntụ ụmụaka na atụmatụ ezinụlọ",
+"bn": "শিশুদের অ্যাকাউন্ট ও পারিবারিক প্ল্যান",
+"ms": "Akaun kanak-kanak dan pelan keluarga"
+},
+"Your plan": {
+"yo": "Ètò rẹ",
+"ig": "Atụmatụ gị",
+"bn": "আপনার প্ল্যান",
+"ms": "Pelan anda"
+},
+"See plans": {
+"yo": "Wo àwọn ètò",
+"ig": "Lee atụmatụ",
+"bn": "প্ল্যান দেখুন",
+"ms": "Lihat pelan"
+},
+"Invite friends": {
+"yo": "Pe àwọn ọ̀rẹ́",
+"ig": "Kpọọ ndị enyi",
+"bn": "বন্ধুদের আমন্ত্রণ জানান",
+"ms": "Jemput rakan"
+},
+"Share IlmStation": {
+"yo": "Pín IlmStation",
+"ig": "Kesaa IlmStation",
+"bn": "IlmStation শেয়ার করুন",
+"ms": "Kongsi IlmStation"
+},
+"⚙️ Settings": {
+"yo": "⚙️ Ètò",
+"ig": "⚙️ Ntọala",
+"bn": "⚙️ সেটিংস",
+"ms": "⚙️ Tetapan"
+},
+"❓ Help & contact": {
+"yo": "❓ Ìrànlọ́wọ́ & ìkànsí",
+"ig": "❓ Enyemaka & kpọtụrụ",
+"bn": "❓ সাহায্য ও যোগাযোগ",
+"ms": "❓ Bantuan & hubungi"
+},
+"📄 Privacy Policy": {
+"yo": "📄 Ìlànà Àṣírí",
+"ig": "📄 Iwu Nzuzo",
+"bn": "📄 গোপনীয়তা নীতি",
+"ms": "📄 Dasar Privasi"
+},
+"📄 Terms of Use": {
+"yo": "📄 Àwọn Òfin Ìlò",
+"ig": "📄 Usoro Ojiji",
+"bn": "📄 ব্যবহারের শর্তাবলি",
+"ms": "📄 Terma Penggunaan"
+},
+"🚪 Log out": {
+"yo": "🚪 Jáde",
+"ig": "🚪 Pụọ",
+"bn": "🚪 লগ আউট",
+"ms": "🚪 Log keluar"
+},
+"Link copied": {
+"yo": "A ti ṣe ẹ̀dà ìjápọ̀",
+"ig": "Edetuola njikọ",
+"bn": "লিংক কপি হয়েছে",
+"ms": "Pautan disalin"
+},
+"Logged out": {
+"yo": "O ti jáde",
+"ig": "Ịpụọla",
+"bn": "লগ আউট হয়েছে",
+"ms": "Telah log keluar"
+},
+"Level {n}": {
+"yo": "Ìpele {n}",
+"ig": "Ọkwa {n}",
+"bn": "স্তর {n}",
+"ms": "Tahap {n}"
+},
+"Help & contact": {
+"yo": "Ìrànlọ́wọ́ & ìkànsí",
+"ig": "Enyemaka & kpọtụrụ",
+"bn": "সাহায্য ও যোগাযোগ",
+"ms": "Bantuan & hubungi"
+},
+"Free trial": {
+"yo": "Ìgbìyànjú ọ̀fẹ́",
+"ig": "Nnwale n'efu",
+"bn": "বিনামূল্যে ট্রায়াল",
+"ms": "Percubaan percuma"
+},
+"Curriculum journey": {
+"yo": "Ìrìn-àjò ẹ̀kọ́",
+"ig": "Njem ọmụmụ",
+"bn": "পাঠ্যক্রমের যাত্রা",
+"ms": "Perjalanan kurikulum"
+},
+"Quest Map": {
+"yo": "Máàpù Ìrìn-àjò",
+"ig": "Maapụ Njem",
+"bn": "কোয়েস্ট ম্যাপ",
+"ms": "Peta Misi"
+},
+"← Map": {
+"yo": "← Máàpù",
+"ig": "← Maapụ",
+"bn": "← ম্যাপ",
+"ms": "← Peta"
+},
+"{n} lessons · {n}%": {
+"yo": "Ẹ̀kọ́ {n} · {n}%",
+"ig": "Ihe ọmụmụ {n} · {n}%",
+"bn": "{n}টি পাঠ · {n}%",
+"ms": "{n} pelajaran · {n}%"
+},
+"This lesson is Premium.": {
+"yo": "Ẹ̀kọ́ yìí jẹ́ Premium.",
+"ig": "Ihe ọmụmụ a bụ Premium.",
+"bn": "এই পাঠটি প্রিমিয়াম।",
+"ms": "Pelajaran ini Premium."
+},
+"Family learning": {
+"yo": "Ẹ̀kọ́ ẹbí",
+"ig": "Ọmụmụ ezinụlọ",
+"bn": "পারিবারিক শিক্ষা",
+"ms": "Pembelajaran keluarga"
+},
+"Family Halaqah": {
+"yo": "Halaqah Ẹbí",
+"ig": "Halaqah Ezinụlọ",
+"bn": "পারিবারিক হালাকা",
+"ms": "Halaqah Keluarga"
+},
+"Host": {
+"yo": "Agbàlejò",
+"ig": "Onye nnabata",
+"bn": "হোস্ট",
+"ms": "Hos"
+},
+"Guest": {
+"yo": "Àlejò",
+"ig": "Ọbịa",
+"bn": "অতিথি",
+"ms": "Tetamu"
+},
+"Create a room": {
+"yo": "Ṣẹ̀dá yàrá kan",
+"ig": "Mepụta ọnụ ụlọ",
+"bn": "একটি রুম তৈরি করুন",
+"ms": "Cipta bilik"
+},
+"Join a room": {
+"yo": "Darapọ̀ mọ́ yàrá kan",
+"ig": "Sonye n'ọnụ ụlọ",
+"bn": "একটি রুমে যোগ দিন",
+"ms": "Sertai bilik"
+},
+"Topic": {
+"yo": "Kókó-ọ̀rọ̀",
+"ig": "Isiokwu",
+"bn": "বিষয়",
+"ms": "Topik"
+},
+"Questions": {
+"yo": "Àwọn ìbéèrè",
+"ig": "Ajụjụ",
+"bn": "প্রশ্ন",
+"ms": "Soalan"
+},
+"Time per question": {
+"yo": "Àkókò fún ìbéèrè kọ̀ọ̀kan",
+"ig": "Oge maka ajụjụ ọ bụla",
+"bn": "প্রতি প্রশ্নের সময়",
+"ms": "Masa setiap soalan"
+},
+"Ask the host for the room code.": {
+"yo": "Béèrè kóòdù yàrá lọ́wọ́ agbàlejò.",
+"ig": "Jụọ onye nnabata koodu ọnụ ụlọ.",
+"bn": "হোস্টের কাছে রুম কোড চান।",
+"ms": "Minta kod bilik daripada hos."
+},
+"Join": {
+"yo": "Darapọ̀",
+"ig": "Sonye",
+"bn": "যোগ দিন",
+"ms": "Sertai"
+},
+"Room code": {
+"yo": "Kóòdù yàrá",
+"ig": "Koodu ọnụ ụlọ",
+"bn": "রুম কোড",
+"ms": "Kod bilik"
+},
+"Copy code": {
+"yo": "Ṣe ẹ̀dà kóòdù",
+"ig": "Detuo koodu",
+"bn": "কোড কপি করুন",
+"ms": "Salin kod"
+},
+"In the room (": {
+"yo": "Nínú yàrá (",
+"ig": "N'ime ọnụ ụlọ (",
+"bn": "রুমে আছেন (",
+"ms": "Dalam bilik ("
+},
+"Waiting for the host to start…": {
+"yo": "Ó ń dúró de agbàlejò láti bẹ̀rẹ̀…",
+"ig": "Ọ na-eche onye nnabata ka ọ malite…",
+"bn": "হোস্টের শুরু করার অপেক্ষা…",
+"ms": "Menunggu hos untuk bermula…"
+},
+"Leave": {
+"yo": "Kúrò",
+"ig": "Pụọ",
+"bn": "বেরিয়ে যান",
+"ms": "Keluar"
+},
+"Family results": {
+"yo": "Àbájáde ẹbí",
+"ig": "Nsonaazụ ezinụlọ",
+"bn": "পরিবারের ফলাফল",
+"ms": "Keputusan keluarga"
+},
+"Question {n} / {n}": {
+"yo": "Ìbéèrè {n} / {n}",
+"ig": "Ajụjụ {n} / {n}",
+"bn": "প্রশ্ন {n} / {n}",
+"ms": "Soalan {n} / {n}"
+},
+"{n}s": {
+"yo": "{n}ìṣ",
+"ig": "{n}s",
+"bn": "{n}সে",
+"ms": "{n}s"
+},
+"Locked in. Waiting for the others… ({n}/{n})": {
+"yo": "A ti tì í. Ó ń dúró de àwọn yòókù… ({n}/{n})",
+"ig": "Ekpochiri. Ọ na-eche ndị ọzọ… ({n}/{n})",
+"bn": "নিশ্চিত হয়েছে। অন্যদের অপেক্ষা… ({n}/{n})",
+"ms": "Dikunci. Menunggu yang lain… ({n}/{n})"
+},
+"Reveal now": {
+"yo": "Ṣí i payá báyìí",
+"ig": "Gosi ugbu a",
+"bn": "এখনই দেখান",
+"ms": "Dedahkan sekarang"
+},
+"Got it right:": {
+"yo": "Àwọn tó gbà á tọ̀nà:",
+"ig": "Ndị zara nke ọma:",
+"bn": "সঠিক উত্তর দিয়েছে:",
+"ms": "Jawab dengan betul:"
+},
+"nobody this time": {
+"yo": "kò sí ẹnìkan lọ́tẹ̀ yìí",
+"ig": "ọ dịghị onye oge a",
+"bn": "এবার কেউ না",
+"ms": "tiada sesiapa kali ini"
+},
+"The host will start the next question.": {
+"yo": "Agbàlejò yóò bẹ̀rẹ̀ ìbéèrè tó kàn.",
+"ig": "Onye nnabata ga-amalite ajụjụ na-esote.",
+"bn": "হোস্ট পরবর্তী প্রশ্ন শুরু করবেন।",
+"ms": "Hos akan memulakan soalan seterusnya."
+},
+"Log in first.": {
+"yo": "Wọlé ná.",
+"ig": "Banye mbụ.",
+"bn": "আগে লগ ইন করুন।",
+"ms": "Log masuk dahulu."
+},
+"Enter the room code.": {
+"yo": "Tẹ kóòdù yàrá.",
+"ig": "Tinye koodu ọnụ ụlọ.",
+"bn": "রুম কোড লিখুন।",
+"ms": "Masukkan kod bilik."
+},
+"No room with that code.": {
+"yo": "Kò sí yàrá pẹ̀lú kóòdù yẹn.",
+"ig": "Enweghị ọnụ ụlọ nwere koodu ahụ.",
+"bn": "এই কোডের কোনো রুম নেই।",
+"ms": "Tiada bilik dengan kod itu."
+},
+"This game has already started.": {
+"yo": "Eré yìí ti bẹ̀rẹ̀.",
+"ig": "Egwuregwu a amalitelarị.",
+"bn": "এই খেলা ইতিমধ্যে শুরু হয়েছে।",
+"ms": "Permainan ini sudah bermula."
+},
+"Couldn't join. Check the code.": {
+"yo": "A kò lè darapọ̀. Ṣàyẹ̀wò kóòdù náà.",
+"ig": "Enweghị ike isonye. Lelee koodu ahụ.",
+"bn": "যোগ দেওয়া যায়নি। কোডটি পরীক্ষা করুন।",
+"ms": "Tidak dapat menyertai. Semak kod."
+},
+"Couldn't create the room. Try again.": {
+"yo": "A kò lè ṣẹ̀dá yàrá náà. Gbìyànjú lẹ́ẹ̀kan sí i.",
+"ig": "Enweghị ike imepụta ọnụ ụlọ ahụ. Nwaa ọzọ.",
+"bn": "রুম তৈরি করা যায়নি। আবার চেষ্টা করুন।",
+"ms": "Tidak dapat mencipta bilik. Cuba lagi."
+},
+"The room has closed.": {
+"yo": "Yàrá náà ti tì.",
+"ig": "Ọnụ ụlọ ahụ emechiela.",
+"bn": "রুমটি বন্ধ হয়ে গেছে।",
+"ms": "Bilik telah ditutup."
+},
+"You’ve hosted today’s free games. Go Premium to host without limits, or join someone else’s room.": {
+"yo": "O ti gba eré ọ̀fẹ́ òní lálejò. Lọ sí Premium láti gbàlejò láìsí ààlà, tàbí darapọ̀ mọ́ yàrá ẹlòmíràn.",
+"ig": "Ị nabatala egwuregwu n'efu nke taa. Gaa Premium iji nabata n'enweghị oke, ma ọ bụ sonye n'ọnụ ụlọ onye ọzọ.",
+"bn": "আপনি আজকের বিনামূল্যের খেলাগুলো হোস্ট করেছেন। সীমাহীন হোস্ট করতে প্রিমিয়াম নিন, অথবা অন্য কারো রুমে যোগ দিন।",
+"ms": "Anda telah menjadi hos permainan percuma hari ini. Langgan Premium untuk menjadi hos tanpa had, atau sertai bilik orang lain."
+},
+"This topic is Premium. Premium hosts can play it with the whole family.": {
+"yo": "Kókó-ọ̀rọ̀ yìí jẹ́ Premium. Àwọn agbàlejò Premium lè ṣe é pẹ̀lú gbogbo ẹbí.",
+"ig": "Isiokwu a bụ Premium. Ndị nnabata Premium nwere ike ịkpọ ya na ezinụlọ niile.",
+"bn": "এই বিষয়টি প্রিমিয়াম। প্রিমিয়াম হোস্টরা পুরো পরিবারের সাথে এটি খেলতে পারেন।",
+"ms": "Topik ini Premium. Hos Premium boleh memainkannya bersama seluruh keluarga."
+},
+"Choose a free topic, or go Premium.": {
+"yo": "Yan kókó-ọ̀rọ̀ ọ̀fẹ́, tàbí lọ sí Premium.",
+"ig": "Họrọ isiokwu n'efu, ma ọ bụ gaa Premium.",
+"bn": "একটি বিনামূল্যের বিষয় বেছে নিন, অথবা প্রিমিয়াম নিন।",
+"ms": "Pilih topik percuma, atau langgan Premium."
+},
+"✨ A new version of IlmStation is ready.": {
+"yo": "✨ Ẹ̀yà tuntun IlmStation ti ṣetán.",
+"ig": "✨ Ụdị ọhụrụ nke IlmStation adịla njikere.",
+"bn": "✨ IlmStation-এর নতুন সংস্করণ প্রস্তুত।",
+"ms": "✨ Versi baharu IlmStation sudah sedia."
+},
+"A new version of IlmStation is ready.": {
+"yo": "Ẹ̀yà tuntun IlmStation ti ṣetán.",
+"ig": "Ụdị ọhụrụ nke IlmStation adịla njikere.",
+"bn": "IlmStation-এর নতুন সংস্করণ প্রস্তুত।",
+"ms": "Versi baharu IlmStation sudah sedia."
+},
+"Growth": {
+"yo": "Ìdàgbàsókè",
+"ig": "Uto",
+"bn": "উন্নতি",
+"ms": "Pertumbuhan"
+},
+"IlmStation / Memorisation": {
+"yo": "IlmStation / Híhásórí",
+"ig": "IlmStation / Iburu n'isi",
+"bn": "IlmStation / হিফজ",
+"ms": "IlmStation / Hafazan"
+},
+"Hifz workspace": {
+"yo": "Ibi iṣẹ́ Hifz",
+"ig": "Ebe ọrụ Hifz",
+"bn": "হিফজ কর্মক্ষেত্র",
+"ms": "Ruang kerja Hifz"
+},
+"Browser not supported": {
+"yo": "Ẹ̀rọ aṣàwákiri kò ṣe é lò",
+"ig": "Anaghị akwado ihe nchọgharị a",
+"bn": "ব্রাউজার সমর্থিত নয়",
+"ms": "Pelayar tidak disokong"
+},
+"Please open IlmStation in Chrome or Edge": {
+"yo": "Jọ̀wọ́ ṣí IlmStation ní Chrome tàbí Edge",
+"ig": "Biko mepee IlmStation na Chrome ma ọ bụ Edge",
+"bn": "অনুগ্রহ করে Chrome বা Edge-এ IlmStation খুলুন",
+"ms": "Sila buka IlmStation dalam Chrome atau Edge"
+},
+"Hifz listens to your recitation and checks it word by word, and that only works in Chrome or Edge on a laptop or an Android phone. iPhones and iPads are not supported yet.": {
+"yo": "Hifz ń gbọ́ kíkà rẹ ó sì ń ṣàyẹ̀wò rẹ̀ ní ọ̀rọ̀-ọ̀rọ̀, èyí sì ń ṣiṣẹ́ ní Chrome tàbí Edge lórí kọ̀ǹpútà alágbèérìn tàbí fóònù Android nìkan. iPhone àti iPad kò tíì ṣe é lò.",
+"ig": "Hifz na-ege ntị n'ọgụgụ gị ma na-elele ya okwu site n'okwu, nke a na-arụkwa ọrụ naanị na Chrome ma ọ bụ Edge na laptọọpụ ma ọ bụ ekwentị Android. A naghị akwado iPhone na iPad ma.",
+"bn": "হিফজ আপনার তিলাওয়াত শুনে শব্দে শব্দে যাচাই করে, এবং এটি শুধু ল্যাপটপ বা Android ফোনে Chrome বা Edge-এ কাজ করে। iPhone ও iPad এখনো সমর্থিত নয়।",
+"ms": "Hifz mendengar bacaan anda dan menyemaknya perkataan demi perkataan, dan ini hanya berfungsi dalam Chrome atau Edge pada komputer riba atau telefon Android. iPhone dan iPad belum disokong."
+},
+"Memorised": {
+"yo": "Tí a ti há sórí",
+"ig": "E buru n'isi",
+"bn": "মুখস্থ হয়েছে",
+"ms": "Dihafal"
+},
+"Today's goal": {
+"yo": "Àfojúsùn òní",
+"ig": "Ebumnuche taa",
+"bn": "আজকের লক্ষ্য",
+"ms": "Sasaran hari ini"
+},
+"Next session": {
+"yo": "Ìpàdé tó kàn",
+"ig": "Nnọkọ na-esote",
+"bn": "পরবর্তী সেশন",
+"ms": "Sesi seterusnya"
+},
+"Tomorrow at": {
+"yo": "Ọ̀la ní",
+"ig": "Echi n'elekere",
+"bn": "আগামীকাল",
+"ms": "Esok pada"
+},
+"Set your plan": {
+"yo": "Ṣètò ètò rẹ",
+"ig": "Tọọ atụmatụ gị",
+"bn": "আপনার পরিকল্পনা ঠিক করুন",
+"ms": "Tetapkan pelan anda"
+},
+"Start a streak today": {
+"yo": "Bẹ̀rẹ̀ ọjọ́ tí kò já lónìí",
+"ig": "Malite usoro ụbọchị taa",
+"bn": "আজই একটি ধারা শুরু করুন",
+"ms": "Mulakan rentetan hari ini"
+},
+"{n}.{n}% of the Qur'an": {
+"yo": "{n}.{n}% ti Kùránì",
+"ig": "{n}.{n}% nke Kur'an",
+"bn": "কুরআনের {n}.{n}%",
+"ms": "{n}.{n}% Al-Quran"
+},
+"Listening…": {
+"yo": "Ó ń gbọ́…",
+"ig": "Ọ na-ege ntị…",
+"bn": "শুনছে…",
+"ms": "Mendengar…"
+},
+"Listening...": {
+"yo": "Ó ń gbọ́...",
+"ig": "Ọ na-ege ntị...",
+"bn": "শুনছে...",
+"ms": "Mendengar..."
+},
+"Recite aloud": {
+"yo": "Kà á sókè",
+"ig": "Gụọ ya n'olu dara ụda",
+"bn": "জোরে তিলাওয়াত করুন",
+"ms": "Baca dengan kuat"
+},
+"Recite from memory": {
+"yo": "Kà á láti orí",
+"ig": "Gụọ ya site n'isi",
+"bn": "মুখস্থ থেকে তিলাওয়াত করুন",
+"ms": "Baca dari hafalan"
+},
+"{n} words to fix, in red": {
+"yo": "Ọ̀rọ̀ {n} láti ṣàtúnṣe, ní pupa",
+"ig": "Okwu {n} ị ga-edozi, na-acha uhie uhie",
+"bn": "ঠিক করতে হবে {n}টি শব্দ, লাল রঙে",
+"ms": "{n} perkataan perlu dibetulkan, berwarna merah"
+},
+"Next verse": {
+"yo": "Àyá tó kàn",
+"ig": "Amaokwu na-esote",
+"bn": "পরবর্তী আয়াত",
+"ms": "Ayat seterusnya"
+},
+"Hifz listens to your recitation and checks it word by word. Use Chrome or Edge on a computer or Android phone, or Safari on iPhone with Siri & Dictation turned on (Settings → Siri).": {
+"yo": "Hifz ń gbọ́ kíkà rẹ ó sì ń ṣàyẹ̀wò rẹ̀ ní ọ̀rọ̀-ọ̀rọ̀. Lo Chrome tàbí Edge lórí kọ̀ǹpútà tàbí fóònù Android, tàbí Safari lórí iPhone pẹ̀lú Siri & Dictation ní títàn (Settings → Siri).",
+"ig": "Hifz na-ege ntị n'ọgụgụ gị ma na-elele ya okwu site n'okwu. Jiri Chrome ma ọ bụ Edge na kọmputa ma ọ bụ ekwentị Android, ma ọ bụ Safari na iPhone ebe Siri & Dictation gbanyere (Settings → Siri).",
+"bn": "হিফজ আপনার তিলাওয়াত শুনে শব্দে শব্দে যাচাই করে। কম্পিউটার বা Android ফোনে Chrome বা Edge ব্যবহার করুন, অথবা iPhone-এ Siri ও Dictation চালু রেখে Safari (Settings → Siri)।",
+"ms": "Hifz mendengar bacaan anda dan menyemaknya perkataan demi perkataan. Gunakan Chrome atau Edge pada komputer atau telefon Android, atau Safari pada iPhone dengan Siri & Dictation dihidupkan (Settings → Siri)."
+},
+"Check the red words, then continue.": {
+"yo": "Ṣàyẹ̀wò àwọn ọ̀rọ̀ pupa, lẹ́yìn náà tẹ̀síwájú.",
+"ig": "Lelee okwu ndị na-acha uhie uhie, mgbe ahụ gaa n'ihu.",
+"bn": "লাল শব্দগুলো দেখুন, তারপর চালিয়ে যান।",
+"ms": "Semak perkataan merah, kemudian teruskan."
+},
+"My Hifz portion": {
+"yo": "Ìpín Hifz mi",
+"ig": "Akụkụ Hifz m",
+"bn": "আমার হিফজ অংশ",
+"ms": "Bahagian Hifz saya"
+},
+"Review what you’ve memorised in the app": {
+"yo": "Ṣàtúnyẹ̀wò ohun tí o ti há sórí nínú áàpù",
+"ig": "Tụgharịa ihe i buru n'isi n'ime ngwa",
+"bn": "অ্যাপে যা মুখস্থ করেছেন তা রিভিশন দিন",
+"ms": "Ulang kaji apa yang telah dihafal dalam aplikasi"
+},
+"Any part of the Qur’an": {
+"yo": "Apá èyíkéyìí nínú Kùránì",
+"ig": "Akụkụ ọ bụla nke Kur'an",
+"bn": "কুরআনের যেকোনো অংশ",
+"ms": "Mana-mana bahagian Al-Quran"
+},
+"Choose a surah and verses to revise from memory": {
+"yo": "Yan sùúrà àti àyá láti ṣàtúnyẹ̀wò láti orí",
+"ig": "Họrọ surah na amaokwu ị ga-atụgharị site n'isi",
+"bn": "মুখস্থ থেকে রিভিশনের জন্য একটি সূরা ও আয়াত বেছে নিন",
+"ms": "Pilih surah dan ayat untuk diulang kaji dari hafalan"
+},
+"Free revision": {
+"yo": "Àtúnyẹ̀wò ọ̀fẹ́",
+"ig": "Ntụgharị n'efu",
+"bn": "মুক্ত রিভিশন",
+"ms": "Ulang kaji bebas"
+},
+"Surah": {
+"yo": "Sùúrà",
+"ig": "Surah",
+"bn": "সূরা",
+"ms": "Surah"
+},
+"From verse": {
+"yo": "Láti àyá",
+"ig": "Site n'amaokwu",
+"bn": "আয়াত থেকে",
+"ms": "Dari ayat"
+},
+"To verse": {
+"yo": "Sí àyá",
+"ig": "Ruo n'amaokwu",
+"bn": "আয়াত পর্যন্ত",
+"ms": "Hingga ayat"
+},
+"Recite this verse from memory…": {
+"yo": "Ka àyá yìí láti orí…",
+"ig": "Gụọ amaokwu a site n'isi…",
+"bn": "এই আয়াতটি মুখস্থ থেকে তিলাওয়াত করুন…",
+"ms": "Baca ayat ini dari hafalan…"
+},
+"Not quite. Say it again.": {
+"yo": "Kò tíì pé. Tún un sọ.",
+"ig": "Ọ ziebeghị ezi. Kwuo ya ọzọ.",
+"bn": "পুরোপুরি হয়নি। আবার বলুন।",
+"ms": "Belum tepat. Sebut lagi."
+},
+"Listen again": {
+"yo": "Tún gbọ́",
+"ig": "Gee ntị ọzọ",
+"bn": "আবার শুনুন",
+"ms": "Dengar lagi"
+},
+"Again": {
+"yo": "Lẹ́ẹ̀kan sí i",
+"ig": "Ọzọ",
+"bn": "আবার",
+"ms": "Lagi"
+},
+"Choose another part": {
+"yo": "Yan apá mìíràn",
+"ig": "Họrọ akụkụ ọzọ",
+"bn": "অন্য অংশ বেছে নিন",
+"ms": "Pilih bahagian lain"
+},
+"Show page": {
+"yo": "Fi ojú-ìwé hàn",
+"ig": "Gosi peeji",
+"bn": "পৃষ্ঠা দেখান",
+"ms": "Tunjuk halaman"
+},
+"Hide page": {
+"yo": "Fi ojú-ìwé pamọ́",
+"ig": "Zoo peeji",
+"bn": "পৃষ্ঠা লুকান",
+"ms": "Sembunyi halaman"
+},
+"🎙️ Recite": {
+"yo": "🎙️ Kà á",
+"ig": "🎙️ Gụọ",
+"bn": "🎙️ তিলাওয়াত",
+"ms": "🎙️ Baca"
+},
+"🔒 Recite": {
+"yo": "🔒 Kà á",
+"ig": "🔒 Gụọ",
+"bn": "🔒 তিলাওয়াত",
+"ms": "🔒 Baca"
+},
+"■ Stop": {
+"yo": "■ Dúró",
+"ig": "■ Kwụsị",
+"bn": "■ থামুন",
+"ms": "■ Berhenti"
+},
+"Voice correction is Premium. Go Premium to revise by reciting.": {
+"yo": "Àtúnṣe ohùn jẹ́ Premium. Lọ sí Premium láti ṣàtúnyẹ̀wò nípa kíkà.",
+"ig": "Ndozi olu bụ Premium. Gaa Premium iji tụgharịa site n'ịgụ.",
+"bn": "কণ্ঠ সংশোধন প্রিমিয়াম। তিলাওয়াত করে রিভিশন দিতে প্রিমিয়াম নিন।",
+"ms": "Pembetulan suara ialah Premium. Langgan Premium untuk mengulang kaji dengan membaca."
+},
+"Check the red words, then recite the verse again.": {
+"yo": "Ṣàyẹ̀wò àwọn ọ̀rọ̀ pupa, lẹ́yìn náà tún àyá náà kà.",
+"ig": "Lelee okwu ndị na-acha uhie uhie, mgbe ahụ gụọ amaokwu ahụ ọzọ.",
+"bn": "লাল শব্দগুলো দেখুন, তারপর আয়াতটি আবার তিলাওয়াত করুন।",
+"ms": "Semak perkataan merah, kemudian baca ayat itu sekali lagi."
+},
+"Page complete. Masha’Allah!": {
+"yo": "Ojú-ìwé ti parí. Masha'Allah!",
+"ig": "Peeji agwụla. Masha'Allah!",
+"bn": "পৃষ্ঠা সম্পূর্ণ। মাশাআল্লাহ!",
+"ms": "Halaman selesai. Masya-Allah!"
+},
+"Listening · verse {n}": {
+"yo": "Ó ń gbọ́ · àyá {n}",
+"ig": "Ọ na-ege ntị · amaokwu {n}",
+"bn": "শুনছে · আয়াত {n}",
+"ms": "Mendengar · ayat {n}"
+},
+"Add this page to your memorised verses? It joins My Hifz portion and gets revision reminders.": {
+"yo": "Ṣé o fẹ́ fi ojú-ìwé yìí kún àwọn àyá tí o ti há sórí? Yóò darapọ̀ mọ́ Ìpín Hifz mi, yóò sì máa gba ìrántí àtúnyẹ̀wò.",
+"ig": "Tinye peeji a n'amaokwu i buru n'isi? Ọ ga-esonye n'Akụkụ Hifz m ma na-enweta ncheta ntụgharị.",
+"bn": "এই পৃষ্ঠাটি আপনার মুখস্থ আয়াতে যোগ করবেন? এটি আমার হিফজ অংশে যুক্ত হবে এবং রিভিশনের রিমাইন্ডার পাবে।",
+"ms": "Tambah halaman ini ke ayat hafalan anda? Ia akan masuk ke Bahagian Hifz saya dan mendapat peringatan ulang kaji."
+},
+"✅ Add to my memorised": {
+"yo": "✅ Fi kún àwọn tí mo ti há sórí",
+"ig": "✅ Tinye n'ihe m buru n'isi",
+"bn": "✅ আমার মুখস্থে যোগ করুন",
+"ms": "✅ Tambah ke hafalan saya"
+},
+"Added to your memorised verses": {
+"yo": "A ti fi kún àwọn àyá tí o ti há sórí",
+"ig": "Etinyela n'amaokwu i buru n'isi",
+"bn": "আপনার মুখস্থ আয়াতে যোগ হয়েছে",
+"ms": "Ditambah ke ayat hafalan anda"
+},
+"Next page": {
+"yo": "Ojú-ìwé tó kàn",
+"ig": "Peeji na-esote",
+"bn": "পরবর্তী পৃষ্ঠা",
+"ms": "Halaman seterusnya"
+},
+"🔊 Hear this verse": {
+"yo": "🔊 Gbọ́ àyá yìí",
+"ig": "🔊 Nụ amaokwu a",
+"bn": "🔊 এই আয়াতটি শুনুন",
+"ms": "🔊 Dengar ayat ini"
+},
+"Couldn't play the recitation.": {
+"yo": "A kò lè ṣe kíkà náà.",
+"ig": "Enweghị ike ịkpọ ọgụgụ ahụ.",
+"bn": "তিলাওয়াত চালানো যায়নি।",
+"ms": "Tidak dapat memainkan bacaan."
+},
+"Preparatory": {
+"yo": "Ìpalẹ̀mọ́",
+"ig": "Nkwadebe",
+"bn": "প্রস্তুতিমূলক",
+"ms": "Persediaan"
+},
+"Beginner {n}": {
+"yo": "Beginner {n}",
+"ig": "Beginner {n}",
+"bn": "বিগিনার {n}",
+"ms": "Permulaan {n}"
+},
+"Qira'ah": {
+"yo": "Qira'ah",
+"ig": "Qira'ah",
+"bn": "কিরাআত",
+"ms": "Qira'ah"
+},
+"Start ▶": {
+"yo": "Bẹ̀rẹ̀ ▶",
+"ig": "Malite ▶",
+"bn": "শুরু ▶",
+"ms": "Mula ▶"
+},
+"Continue ▶": {
+"yo": "Tẹ̀síwájú ▶",
+"ig": "Gaa n'ihu ▶",
+"bn": "চালিয়ে যান ▶",
+"ms": "Seterusnya ▶"
+},
+"Review": {
+"yo": "Àtúnyẹ̀wò",
+"ig": "Ntụgharị",
+"bn": "পুনরালোচনা",
+"ms": "Ulang Kaji"
+},
+"Aisha & Khadija": {
+"yo": "Aisha àti Khadija",
+"ig": "Aisha na Khadija",
+"bn": "আয়েশা ও খাদিজা",
+"ms": "Aisyah dan Khadijah"
+},
+"All {n} letters": {
+"yo": "Gbogbo lẹ́tà {n}",
+"ig": "Mkpụrụedemede {n} niile",
+"bn": "সব {n}টি হরফ",
+"ms": "Semua {n} huruf"
+},
+"Allah's Blessings": {
+"yo": "Àwọn Ìbùkún Allah",
+"ig": "Ngọzi Allah",
+"bn": "আল্লাহর নেয়ামত",
+"ms": "Nikmat-nikmat Allah"
+},
+"Allah's Greatness": {
+"yo": "Títóbi Allah",
+"ig": "Ịdị Ukwuu Allah",
+"bn": "আল্লাহর মহত্ত্ব",
+"ms": "Keagungan Allah"
+},
+"Alphabet Review": {
+"yo": "Àtúnyẹ̀wò Álífábẹ́ẹ̀tì",
+"ig": "Ntụgharị Mkpụrụedemede",
+"bn": "বর্ণমালার পুনরালোচনা",
+"ms": "Ulang Kaji Huruf Hijaiyah"
+},
+"Alphabet review": {
+"yo": "Àtúnyẹ̀wò álífábẹ́ẹ̀tì",
+"ig": "Ntụgharị mkpụrụedemede",
+"bn": "বর্ণমালার পুনরালোচনা",
+"ms": "Ulang Kaji huruf hijaiyah"
+},
+"Big Final Check": {
+"yo": "Ìdánwò Ìkẹyìn Ńlá",
+"ig": "Ule Ikpeazụ Dị Ukwuu",
+"bn": "বড় চূড়ান্ত পরীক্ষা",
+"ms": "Ujian Akhir Besar"
+},
+"Big Review {n}": {
+"yo": "Àtúnyẹ̀wò Ńlá {n}",
+"ig": "Ntụgharị Dị Ukwuu {n}",
+"bn": "বড় পুনরালোচনা {n}",
+"ms": "Ulang Kaji Besar {n}"
+},
+"Damma": {
+"yo": "Damma",
+"ig": "Damma",
+"bn": "পেশ",
+"ms": "Dhammah"
+},
+"Damma Words": {
+"yo": "Ọ̀rọ̀ Damma",
+"ig": "Okwu Damma",
+"bn": "পেশের শব্দ",
+"ms": "Kata-kata Dhammah"
+},
+"Damma Words in Two Steps": {
+"yo": "Ọ̀rọ̀ Damma ní Ìgbésẹ̀ Méjì",
+"ig": "Okwu Damma na Nzọụkwụ Abụọ",
+"bn": "দুই ধাপে পেশের শব্দ",
+"ms": "Kata-kata Dhammah dalam Dua Langkah"
+},
+"Fatha": {
+"yo": "Fatha",
+"ig": "Fatha",
+"bn": "যবর",
+"ms": "Fathah"
+},
+"First Words": {
+"yo": "Ọ̀rọ̀ Àkọ́kọ́",
+"ig": "Okwu Mbụ",
+"bn": "প্রথম শব্দ",
+"ms": "Kata-kata Pertama"
+},
+"Hamza in the Middle & at the End": {
+"yo": "Hamza ní Àárín àti ní Òpin",
+"ig": "Hamza n'Etiti na na Njedebe",
+"bn": "মাঝে ও শেষে হামযা",
+"ms": "Hamzah di Tengah dan di Akhir"
+},
+"Hamza in the Middle {n}": {
+"yo": "Hamza ní Àárín {n}",
+"ig": "Hamza n'Etiti {n}",
+"bn": "মাঝে হামযা {n}",
+"ms": "Hamzah di Tengah {n}"
+},
+"Hamzatul Wasl & the Moon Laam": {
+"yo": "Hamzatul Wasl àti Laam Òṣùpá",
+"ig": "Hamzatul Wasl na Laam Ọnwa",
+"bn": "হামযাতুল ওয়াসল ও কামারি লাম",
+"ms": "Hamzah Wasal dan Lam Qamariyah"
+},
+"Harakat Review": {
+"yo": "Àtúnyẹ̀wò Harakat",
+"ig": "Ntụgharị Harakat",
+"bn": "হরকতের পুনরালোচনা",
+"ms": "Ulang Kaji Harakat"
+},
+"Kasra": {
+"yo": "Kasra",
+"ig": "Kasra",
+"bn": "যের",
+"ms": "Kasrah"
+},
+"Kasra Phrases": {
+"yo": "Gbólóhùn Kasra",
+"ig": "Ahịrịokwu Kasra",
+"bn": "যেরের বাক্যাংশ",
+"ms": "Ayat Kasrah"
+},
+"Kasra Words": {
+"yo": "Ọ̀rọ̀ Kasra",
+"ig": "Okwu Kasra",
+"bn": "যেরের শব্দ",
+"ms": "Kata-kata Kasrah"
+},
+"Kasra Words in Two Steps": {
+"yo": "Ọ̀rọ̀ Kasra ní Ìgbésẹ̀ Méjì",
+"ig": "Okwu Kasra na Nzọụkwụ Abụọ",
+"bn": "দুই ধাপে যেরের শব্দ",
+"ms": "Kata-kata Kasrah dalam Dua Langkah"
+},
+"Letter Shapes": {
+"yo": "Ìrísí Lẹ́tà",
+"ig": "Ọdịdị Mkpụrụedemede",
+"bn": "হরফের আকৃতি",
+"ms": "Bentuk Huruf"
+},
+"Letters Read but Not Written": {
+"yo": "Lẹ́tà tí a ń kà ṣùgbọ́n a kò kọ",
+"ig": "Mkpụrụedemede A Na-agụ mana A Naghị Ede",
+"bn": "যে হরফ পড়া হয় কিন্তু লেখা হয় না",
+"ms": "Huruf yang Dibaca tapi Tidak Ditulis"
+},
+"Look-alike Letters": {
+"yo": "Lẹ́tà Tó Jọra",
+"ig": "Mkpụrụedemede Yiri Onwe Ha",
+"bn": "একই রকম হরফ",
+"ms": "Huruf yang Serupa"
+},
+"Madd Practice": {
+"yo": "Ìdánrawò Madd",
+"ig": "Mmega Madd",
+"bn": "মাদ অনুশীলন",
+"ms": "Latihan Mad"
+},
+"Madd Review {n}": {
+"yo": "Àtúnyẹ̀wò Madd {n}",
+"ig": "Ntụgharị Madd {n}",
+"bn": "মাদের পুনরালোচনা {n}",
+"ms": "Ulang Kaji Mad {n}"
+},
+"Madd with Alif": {
+"yo": "Madd pẹ̀lú Alif",
+"ig": "Madd na Alif",
+"bn": "আলিফের মাদ",
+"ms": "Mad dengan Alif"
+},
+"Madd with Waw": {
+"yo": "Madd pẹ̀lú Waw",
+"ig": "Madd na Waw",
+"bn": "ওয়াও-এর মাদ",
+"ms": "Mad dengan Wau"
+},
+"Madd with Yaa": {
+"yo": "Madd pẹ̀lú Yaa",
+"ig": "Madd na Yaa",
+"bn": "ইয়া-এর মাদ",
+"ms": "Mad dengan Ya"
+},
+"Meem Sakinah & Ghunnah": {
+"yo": "Meem Sakinah àti Ghunnah",
+"ig": "Meem Sakinah na Ghunnah",
+"bn": "মীম সাকিন ও গুন্নাহ",
+"ms": "Mim Sukun dan Ghunnah"
+},
+"Meet the letters": {
+"yo": "Pàdé àwọn lẹ́tà",
+"ig": "Zute mkpụrụedemede",
+"bn": "হরফগুলোর সাথে পরিচিত হও",
+"ms": "Kenali huruf-hurufnya"
+},
+"More Tajweed Rules": {
+"yo": "Àwọn Òfin Tajweed Mìíràn",
+"ig": "Iwu Tajweed Ndị Ọzọ",
+"bn": "তাজবীদের আরও নিয়ম",
+"ms": "Hukum Tajwid Lainnya"
+},
+"More Words": {
+"yo": "Ọ̀rọ̀ Mìíràn",
+"ig": "Okwu Ndị Ọzọ",
+"bn": "আরও শব্দ",
+"ms": "Kata-kata Lagi"
+},
+"More letters": {
+"yo": "Lẹ́tà mìíràn",
+"ig": "Mkpụrụedemede ndị ọzọ",
+"bn": "আরও হরফ",
+"ms": "Huruf lainnya"
+},
+"Noon Sakinah & Tanween {n}": {
+"yo": "Noon Sakinah àti Tanween {n}",
+"ig": "Noon Sakinah na Tanween {n}",
+"bn": "নূন সাকিন ও তানবীন {n}",
+"ms": "Nun Sukun dan Tanwin {n}"
+},
+"Noon Sakinah Practice": {
+"yo": "Ìdánrawò Noon Sakinah",
+"ig": "Mmega Noon Sakinah",
+"bn": "নূন সাকিনের অনুশীলন",
+"ms": "Latihan Nun Sukun"
+},
+"Preparatory Final Exam": {
+"yo": "Ìdánwò Ìkẹyìn Ìpalẹ̀mọ́",
+"ig": "Ule Ikpeazụ Nkwadebe",
+"bn": "প্রস্তুতিমূলক স্তরের চূড়ান্ত পরীক্ষা",
+"ms": "Ujian Akhir Tahap Persediaan"
+},
+"Qur'anic and everyday spelling": {
+"yo": "Akọ̀tọ́ Kùránì àti ti ojoojúmọ́",
+"ig": "Ederede Kur'an na nke kwa ụbọchị",
+"bn": "কুরআনি ও সাধারণ বানান",
+"ms": "Tulisan Al-Quran dan imla'i"
+},
+"Qur'anic phrases": {
+"yo": "Gbólóhùn Kùránì",
+"ig": "Ahịrịokwu Kur'an",
+"bn": "কুরআনের বাক্যাংশ",
+"ms": "Ayat Al-Quran"
+},
+"Qur'anic verses": {
+"yo": "Àyá Kùránì",
+"ig": "Amaokwu Kur'an",
+"bn": "কুরআনের আয়াত",
+"ms": "Ayat-ayat Al-Quran"
+},
+"Qur'anic vs Everyday Spelling": {
+"yo": "Akọ̀tọ́ Kùránì àti Akọ̀tọ́ Ojoojúmọ́",
+"ig": "Ederede Kur'an na Ederede Kwa Ụbọchị",
+"bn": "কুরআনি বানান ও সাধারণ বানান",
+"ms": "Tulisan Al-Quran dan Tulisan Biasa"
+},
+"Qur'anic words": {
+"yo": "Ọ̀rọ̀ Kùránì",
+"ig": "Okwu Kur'an",
+"bn": "কুরআনের শব্দ",
+"ms": "Kata-kata Al-Quran"
+},
+"Review Practice {n}": {
+"yo": "Ìdánrawò Àtúnyẹ̀wò {n}",
+"ig": "Mmega Ntụgharị {n}",
+"bn": "পুনরালোচনা অনুশীলন {n}",
+"ms": "Latihan Ulang Kaji {n}"
+},
+"Sami & Yusuf": {
+"yo": "Sami àti Yusuf",
+"ig": "Sami na Yusuf",
+"bn": "সামি ও ইউসুফ",
+"ms": "Sami dan Yusuf"
+},
+"Shadda Phrases {n}": {
+"yo": "Gbólóhùn Shadda {n}",
+"ig": "Ahịrịokwu Shadda {n}",
+"bn": "তাশদীদের বাক্যাংশ {n}",
+"ms": "Ayat Syaddah {n}"
+},
+"Shadda Review": {
+"yo": "Àtúnyẹ̀wò Shadda",
+"ig": "Ntụgharị Shadda",
+"bn": "তাশদীদের পুনরালোচনা",
+"ms": "Ulang Kaji Syaddah"
+},
+"Shadda with Damma": {
+"yo": "Shadda pẹ̀lú Damma",
+"ig": "Shadda na Damma",
+"bn": "পেশসহ তাশদীদ",
+"ms": "Syaddah dengan Dhammah"
+},
+"Shadda with Fatha": {
+"yo": "Shadda pẹ̀lú Fatha",
+"ig": "Shadda na Fatha",
+"bn": "যবরসহ তাশদীদ",
+"ms": "Syaddah dengan Fathah"
+},
+"Shadda with Kasra": {
+"yo": "Shadda pẹ̀lú Kasra",
+"ig": "Shadda na Kasra",
+"bn": "যেরসহ তাশদীদ",
+"ms": "Syaddah dengan Kasrah"
+},
+"Shadda with Tanween": {
+"yo": "Shadda pẹ̀lú Tanween",
+"ig": "Shadda na Tanween",
+"bn": "তানবীনসহ তাশদীদ",
+"ms": "Syaddah dengan Tanwin"
+},
+"Short Phrases": {
+"yo": "Gbólóhùn Kúkúrú",
+"ig": "Ahịrịokwu Dị Mkpụmkpụ",
+"bn": "ছোট বাক্যাংশ",
+"ms": "Ayat Pendek"
+},
+"Similar Letters Meeting": {
+"yo": "Ìpàdé Lẹ́tà Tó Jọra",
+"ig": "Nzukọ Mkpụrụedemede Yiri Onwe Ha",
+"bn": "একই রকম হরফের মিলন",
+"ms": "Pertemuan Huruf yang Serupa"
+},
+"Sukun": {
+"yo": "Sukun",
+"ig": "Sukun",
+"bn": "সুকুন",
+"ms": "Sukun"
+},
+"Sukun Phrases {n}": {
+"yo": "Gbólóhùn Sukun {n}",
+"ig": "Ahịrịokwu Sukun {n}",
+"bn": "সুকুনের বাক্যাংশ {n}",
+"ms": "Ayat Sukun {n}"
+},
+"Tajweed Review": {
+"yo": "Àtúnyẹ̀wò Tajweed",
+"ig": "Ntụgharị Tajweed",
+"bn": "তাজবীদের পুনরালোচনা",
+"ms": "Ulang Kaji Tajwid"
+},
+"Tanween Damm": {
+"yo": "Tanween Damm",
+"ig": "Tanween Damm",
+"bn": "দুই পেশের তানবীন",
+"ms": "Tanwin Dhammah"
+},
+"Tanween Fath": {
+"yo": "Tanween Fath",
+"ig": "Tanween Fath",
+"bn": "দুই যবরের তানবীন",
+"ms": "Tanwin Fathah"
+},
+"Tanween Kasr": {
+"yo": "Tanween Kasr",
+"ig": "Tanween Kasr",
+"bn": "দুই যেরের তানবীন",
+"ms": "Tanwin Kasrah"
+},
+"The Adhan": {
+"yo": "Àdhàn",
+"ig": "Adhan",
+"bn": "আজান",
+"ms": "Azan"
+},
+"The Alphabet": {
+"yo": "Álífábẹ́ẹ̀tì",
+"ig": "Mkpụrụedemede",
+"bn": "বর্ণমালা",
+"ms": "Huruf Hijaiyah"
+},
+"The Creation of Man": {
+"yo": "Ìṣẹ̀dá Ènìyàn",
+"ig": "Okike Mmadụ",
+"bn": "মানুষের সৃষ্টি",
+"ms": "Penciptaan Manusia"
+},
+"The Day of Eid": {
+"yo": "Ọjọ́ Ọdún",
+"ig": "Ụbọchị Eid",
+"bn": "ঈদের দিন",
+"ms": "Hari Raya"
+},
+"The Farmer": {
+"yo": "Àgbẹ̀",
+"ig": "Onye Ọrụ Ugbo",
+"bn": "কৃষক",
+"ms": "Petani"
+},
+"The Muslim": {
+"yo": "Mùsùlùmí",
+"ig": "Onye Alakụba",
+"bn": "মুসলিম",
+"ms": "Muslim"
+},
+"The Qur'an": {
+"yo": "Kùránì",
+"ig": "Kur'an",
+"bn": "কুরআন",
+"ms": "Al-Quran"
+},
+"The Small Alif": {
+"yo": "Alif Kékeré",
+"ig": "Obere Alif",
+"bn": "ছোট আলিফ",
+"ms": "Alif Kecil"
+},
+"The Small Waw": {
+"yo": "Waw Kékeré",
+"ig": "Obere Waw",
+"bn": "ছোট ওয়াও",
+"ms": "Wau Kecil"
+},
+"The Small Yaa": {
+"yo": "Yaa Kékeré",
+"ig": "Obere Yaa",
+"bn": "ছোট ইয়া",
+"ms": "Ya Kecil"
+},
+"The Sparrow": {
+"yo": "Ẹyẹ Ológoṣẹ́",
+"ig": "Nnụnụ Nta",
+"bn": "চড়ুই পাখি",
+"ms": "Burung Pipit"
+},
+"The Stars": {
+"yo": "Àwọn Ìràwọ̀",
+"ig": "Kpakpando",
+"bn": "তারকারাজি",
+"ms": "Bintang-bintang"
+},
+"The Sun Laam": {
+"yo": "Laam Oòrùn",
+"ig": "Laam Anyanwụ",
+"bn": "শামসি লাম",
+"ms": "Lam Syamsiyah"
+},
+"The last letters": {
+"yo": "Àwọn lẹ́tà ìkẹyìn",
+"ig": "Mkpụrụedemede ikpeazụ",
+"bn": "শেষ হরফগুলো",
+"ms": "Huruf-huruf terakhir"
+},
+"Two Passages": {
+"yo": "Àyọkà Méjì",
+"ig": "Ederede Abụọ",
+"bn": "দুটি অনুচ্ছেদ",
+"ms": "Dua Bacaan"
+},
+"Two Short Stories": {
+"yo": "Ìtàn Kúkúrú Méjì",
+"ig": "Akụkọ Mkpụmkpụ Abụọ",
+"bn": "দুটি ছোট গল্প",
+"ms": "Dua Cerita Pendek"
+},
+"Types of Madd {n}": {
+"yo": "Oríṣi Madd {n}",
+"ig": "Ụdị Madd {n}",
+"bn": "মাদের প্রকার {n}",
+"ms": "Jenis-jenis Mad {n}"
+},
+"Umar and Karam": {
+"yo": "Umar àti Karam",
+"ig": "Umar na Karam",
+"bn": "উমর ও কারাম",
+"ms": "Umar dan Karam"
+},
+"Whole Words": {
+"yo": "Ọ̀rọ̀ Pípé",
+"ig": "Okwu Zuru Ezu",
+"bn": "পূর্ণ শব্দ",
+"ms": "Kata Utuh"
+},
+"Words in Two Steps": {
+"yo": "Ọ̀rọ̀ ní Ìgbésẹ̀ Méjì",
+"ig": "Okwu na Nzọụkwụ Abụọ",
+"bn": "দুই ধাপে শব্দ",
+"ms": "Kata dalam Dua Langkah"
+},
+"and Qur'anic words": {
+"yo": "àti ọ̀rọ̀ Kùránì",
+"ig": "na okwu Kur'an",
+"bn": "এবং কুরআনের শব্দ",
+"ms": "dan kata-kata Al-Quran"
+},
+"damma": {
+"yo": "damma",
+"ig": "damma",
+"bn": "পেশ",
+"ms": "dhammah"
+},
+"end": {
+"yo": "òpin",
+"ig": "njedebe",
+"bn": "শেষ",
+"ms": "akhir"
+},
+"fatha": {
+"yo": "fatha",
+"ig": "fatha",
+"bn": "যবর",
+"ms": "fathah"
+},
+"from the Mushaf": {
+"yo": "láti inú Mus'hafi",
+"ig": "si na Mushaf",
+"bn": "মুসহাফ থেকে",
+"ms": "dari mushaf"
+},
+"kasra": {
+"yo": "kasra",
+"ig": "kasra",
+"bn": "যের",
+"ms": "kasrah"
+},
+"letter by letter, then joined": {
+"yo": "lẹ́tà-lẹ́tà, lẹ́yìn náà papọ̀",
+"ig": "mkpụrụedemede site na mkpụrụedemede, mgbe ahụ jikọtara",
+"bn": "হরফে হরফে, তারপর মিলিয়ে",
+"ms": "huruf demi huruf, kemudian digabung"
+},
+"madd": {
+"yo": "madd",
+"ig": "madd",
+"bn": "মাদ",
+"ms": "mad"
+},
+"middle": {
+"yo": "àárín",
+"ig": "etiti",
+"bn": "মাঝ",
+"ms": "tengah"
+},
+"more Qur'anic phrases": {
+"yo": "gbólóhùn Kùránì sí i",
+"ig": "ahịrịokwu Kur'an ndị ọzọ",
+"bn": "আরও কুরআনের বাক্যাংশ",
+"ms": "ayat Al-Quran lainnya"
+},
+"review & shadda": {
+"yo": "àtúnyẹ̀wò àti shadda",
+"ig": "ntụgharị na shadda",
+"bn": "পুনরালোচনা ও তাশদীদ",
+"ms": "ulang kaji dan syaddah"
+},
+"shadda": {
+"yo": "shadda",
+"ig": "shadda",
+"bn": "তাশদীদ",
+"ms": "syaddah"
+},
+"start": {
+"yo": "ìbẹ̀rẹ̀",
+"ig": "mmalite",
+"bn": "শুরু",
+"ms": "awal"
+},
+"sukun": {
+"yo": "sukun",
+"ig": "sukun",
+"bn": "সুকুন",
+"ms": "sukun"
+},
+"sukun & tanween": {
+"yo": "sukun àti tanween",
+"ig": "sukun na tanween",
+"bn": "সুকুন ও তানবীন",
+"ms": "sukun dan tanwin"
+},
+"tajweed & spelling": {
+"yo": "tajweed àti akọ̀tọ́",
+"ig": "tajweed na ederede",
+"bn": "তাজবীদ ও বানান",
+"ms": "tajwid dan tulisan"
+},
+"the whole book!": {
+"yo": "gbogbo ìwé náà!",
+"ig": "akwụkwọ niile!",
+"bn": "পুরো বই!",
+"ms": "seluruh buku!"
+},
+"two letters, then the third": {
+"yo": "lẹ́tà méjì, lẹ́yìn náà ẹ̀kẹta",
+"ig": "mkpụrụedemede abụọ, mgbe ahụ nke atọ",
+"bn": "দুটি হরফ, তারপর তৃতীয়টি",
+"ms": "dua huruf, kemudian yang ketiga"
+},
+"ـًا  = an": {
+"yo": "ـًا  = an",
+"ig": "ـًا  = an",
+"bn": "ـًا  = আন",
+"ms": "ـًا  = an"
+},
+"ـٌ  = un": {
+"yo": "ـٌ  = un",
+"ig": "ـٌ  = un",
+"bn": "ـٌ  = উন",
+"ms": "ـٌ  = un"
+},
+"ـٍ  = in": {
+"yo": "ـٍ  = in",
+"ig": "ـٍ  = in",
+"bn": "ـٍ  = ইন",
+"ms": "ـٍ  = in"
+},
+"ـُۥ in the Mushaf": {
+"yo": "ـُۥ nínú Mus'hafi",
+"ig": "ـُۥ na Mushaf",
+"bn": "মুসহাফে ـُۥ",
+"ms": "ـُۥ dalam mushaf"
+},
+"ـِۦ in the Mushaf": {
+"yo": "ـِۦ nínú Mus'hafi",
+"ig": "ـِۦ na Mushaf",
+"bn": "মুসহাফে ـِۦ",
+"ms": "ـِۦ dalam mushaf"
+},
+"ـٰ in the Mushaf": {
+"yo": "ـٰ nínú Mus'hafi",
+"ig": "ـٰ na Mushaf",
+"bn": "মুসহাফে ـٰ",
+"ms": "ـٰ dalam mushaf"
+},
+"Preparatory {n}": {
+"yo": "Ìpalẹ̀mọ́ {n}",
+"ig": "Nkwadebe {n}",
+"bn": "প্রস্তুতিমূলক {n}",
+"ms": "Persediaan {n}"
+},
+"Beginner": {
+"yo": "Beginner",
+"ig": "Beginner",
+"bn": "বিগিনার",
+"ms": "Permulaan"
+},
+"Intermediate": {
+"yo": "Àárín",
+"ig": "Etiti",
+"bn": "মধ্যবর্তী",
+"ms": "Pertengahan"
+},
+"Intermediate {n}": {
+"yo": "Àárín {n}",
+"ig": "Etiti {n}",
+"bn": "মধ্যবর্তী {n}",
+"ms": "Pertengahan {n}"
+},
+"Advanced": {
+"yo": "Ìlọsíwájú",
+"ig": "Elu",
+"bn": "উচ্চতর",
+"ms": "Lanjutan"
+},
+"Advanced {n}": {
+"yo": "Ìlọsíwájú {n}",
+"ig": "Elu {n}",
+"bn": "উচ্চতর {n}",
+"ms": "Lanjutan {n}"
+},
+"Alif Madd": {
+"yo": "Madd Alif",
+"ig": "Madd Alif",
+"bn": "আলিফের মাদ",
+"ms": "Mad Alif"
+},
+"Beginner {n} Final Exam": {
+"yo": "Ìdánwò Ìkẹyìn Beginner {n}",
+"ig": "Ule Ikpeazụ Beginner {n}",
+"bn": "বিগিনার {n}-এর চূড়ান্ত পরীক্ষা",
+"ms": "Ujian Akhir Permulaan {n}"
+},
+"Certificate earned": {
+"yo": "O ti gba ìwé-ẹ̀rí",
+"ig": "I nwetala asambodo",
+"bn": "সনদ অর্জিত",
+"ms": "Sijil diperoleh"
+},
+"Completed": {
+"yo": "Ó ti parí",
+"ig": "Emechaala",
+"bn": "সম্পন্ন",
+"ms": "Selesai"
+},
+"Completed ✓": {
+"yo": "Ó ti parí ✓",
+"ig": "Emechaala ✓",
+"bn": "সম্পন্ন ✓",
+"ms": "Selesai ✓"
+},
+"Creativity": {
+"yo": "Àtinúdá",
+"ig": "Ihe okike",
+"bn": "সৃজনশীলতা",
+"ms": "Kreativiti"
+},
+"Development": {
+"yo": "Ìdàgbàsókè",
+"ig": "Mmepe",
+"bn": "উন্নয়ন",
+"ms": "Pembangunan"
+},
+"Each subject moves up on its own: finish a subject's level, and its next level opens. Every completed level earns a certificate.": {
+"yo": "Ẹ̀kọ́ kọ̀ọ̀kan ń gòkè fúnra rẹ̀: parí ìpele ẹ̀kọ́ kan, ìpele rẹ̀ tó kàn yóò sì ṣí. Ìpele kọ̀ọ̀kan tí o bá parí ń fún ọ ní ìwé-ẹ̀rí.",
+"ig": "Isiokwu ọ bụla na-arịgo n'onwe ya: mechaa ọkwa isiokwu, ọkwa ya na-esote ga-emeghe. Ọkwa ọ bụla emechara na-enye asambodo.",
+"bn": "প্রতিটি বিষয় নিজে নিজে এগোয়: একটি বিষয়ের স্তর শেষ করলে তার পরের স্তর খুলে যায়। প্রতিটি সম্পন্ন স্তরে একটি সনদ মেলে।",
+"ms": "Setiap subjek naik sendiri: selesaikan tahap subjek itu, dan tahap seterusnya dibuka. Setiap tahap yang selesai mendapat sijil."
+},
+"Everyday Spelling": {
+"yo": "Akọ̀tọ́ Ojoojúmọ́",
+"ig": "Ederede Kwa Ụbọchị",
+"bn": "সাধারণ বানান",
+"ms": "Tulisan Biasa"
+},
+"everyday spelling": {
+"yo": "akọ̀tọ́ ojoojúmọ́",
+"ig": "ederede kwa ụbọchị",
+"bn": "সাধারণ বানান",
+"ms": "tulisan biasa"
+},
+"Fast": {
+"yo": "Kíákíá",
+"ig": "Ngwa ngwa",
+"bn": "দ্রুত",
+"ms": "Pantas"
+},
+"Final exam · opens the next level": {
+"yo": "Ìdánwò ìkẹyìn · ó ń ṣí ìpele tó kàn",
+"ig": "Ule ikpeazụ · ọ na-emeghe ọkwa na-esote",
+"bn": "চূড়ান্ত পরীক্ষা · পরের স্তর খোলে",
+"ms": "Ujian akhir · membuka tahap seterusnya"
+},
+"Finish all the lessons to unlock the exam.": {
+"yo": "Parí gbogbo ẹ̀kọ́ láti ṣí ìdánwò náà.",
+"ig": "Mechaa ihe ọmụmụ niile iji meghee ule ahụ.",
+"bn": "পরীক্ষা খুলতে সব পাঠ শেষ করুন।",
+"ms": "Selesaikan semua pelajaran untuk membuka ujian."
+},
+"Islamic education, step by step.": {
+"yo": "Ẹ̀kọ́ Ìsìláàmù, ní ìgbésẹ̀-ìgbésẹ̀.",
+"ig": "Agụmakwụkwọ Alakụba, nzọụkwụ site na nzọụkwụ.",
+"bn": "ইসলামী শিক্ষা, ধাপে ধাপে।",
+"ms": "Pendidikan Islam, langkah demi langkah."
+},
+"Languages": {
+"yo": "Àwọn èdè",
+"ig": "Asụsụ",
+"bn": "ভাষা",
+"ms": "Bahasa"
+},
+"Learn new languages.": {
+"yo": "Kọ́ èdè tuntun.",
+"ig": "Mụta asụsụ ọhụrụ.",
+"bn": "নতুন ভাষা শিখুন।",
+"ms": "Belajar bahasa baharu."
+},
+"Personal, professional and technical growth.": {
+"yo": "Ìdàgbàsókè ara ẹni, iṣẹ́ àti ìmọ̀ ẹ̀rọ.",
+"ig": "Uto onwe, ọrụ na teknụzụ.",
+"bn": "ব্যক্তিগত, পেশাগত ও প্রযুক্তিগত উন্নতি।",
+"ms": "Pertumbuhan peribadi, profesional dan teknikal."
+},
+"Creative skills and practical talents.": {
+"yo": "Ọgbọ́n àtinúdá àti ẹ̀bùn iṣẹ́-ọwọ́.",
+"ig": "Nka okike na onyinye bara uru.",
+"bn": "সৃজনশীল দক্ষতা ও ব্যবহারিক প্রতিভা।",
+"ms": "Kemahiran kreatif dan bakat praktikal."
+},
+"Lesson {n} · {n} min": {
+"yo": "Ẹ̀kọ́ {n} · ìṣẹ́jú {n}",
+"ig": "Ihe ọmụmụ {n} · nkeji {n}",
+"bn": "পাঠ {n} · {n} মিনিট",
+"ms": "Pelajaran {n} · {n} minit"
+},
+"Lessons": {
+"yo": "Àwọn ẹ̀kọ́",
+"ig": "Ihe ọmụmụ",
+"bn": "পাঠসমূহ",
+"ms": "Pelajaran"
+},
+"Lessons are being prepared. Check back soon.": {
+"yo": "A ń palẹ̀ àwọn ẹ̀kọ́ mọ́. Padà wá láìpẹ́.",
+"ig": "A na-akwado ihe ọmụmụ. Lọghachi n'oge na-adịghị anya.",
+"bn": "পাঠ প্রস্তুত হচ্ছে। শীঘ্রই আবার দেখুন।",
+"ms": "Pelajaran sedang disediakan. Kembali tidak lama lagi."
+},
+"Madrasah": {
+"yo": "Ilé-kéú",
+"ig": "Madrasah",
+"bn": "মাদ্রাসা",
+"ms": "Madrasah"
+},
+"Open →": {
+"yo": "Ṣí i →",
+"ig": "Mepee →",
+"bn": "খুলুন →",
+"ms": "Buka →"
+},
+"Open ▶": {
+"yo": "Ṣí i ▶",
+"ig": "Mepee ▶",
+"bn": "খুলুন ▶",
+"ms": "Buka ▶"
+},
+"Opening…": {
+"yo": "Ó ń ṣí…",
+"ig": "Ọ na-emeghe…",
+"bn": "খুলছে…",
+"ms": "Membuka…"
+},
+"Pass the final exam to earn it.": {
+"yo": "Yege ìdánwò ìkẹyìn láti gbà á.",
+"ig": "Gafee ule ikpeazụ iji nweta ya.",
+"bn": "এটি পেতে চূড়ান্ত পরীক্ষায় পাস করুন।",
+"ms": "Lulus ujian akhir untuk memperolehnya."
+},
+"Passed. The next stage is open.": {
+"yo": "O yege. Ìpele tó kàn ti ṣí.",
+"ig": "Ị gafere. Ọkwa na-esote emeghela.",
+"bn": "পাস করেছেন। পরের ধাপ খোলা।",
+"ms": "Lulus. Tahap seterusnya dibuka."
+},
+"Phrases": {
+"yo": "Gbólóhùn",
+"ig": "Ahịrịokwu",
+"bn": "বাক্যাংশ",
+"ms": "Frasa"
+},
+"Plan your pace": {
+"yo": "Ṣètò ìyára rẹ",
+"ig": "Hazie ọsọ gị",
+"bn": "আপনার গতি পরিকল্পনা করুন",
+"ms": "Rancang rentak anda"
+},
+"Promotion exam": {
+"yo": "Ìdánwò ìgbéga",
+"ig": "Ule nkwalite",
+"bn": "উত্তরণ পরীক্ষা",
+"ms": "Ujian kenaikan"
+},
+"Qur'anic Words": {
+"yo": "Ọ̀rọ̀ Kùránì",
+"ig": "Okwu Kur'an",
+"bn": "কুরআনের শব্দ",
+"ms": "Kata-kata Al-Quran"
+},
+"Qur'anic Words {n}": {
+"yo": "Ọ̀rọ̀ Kùránì {n}",
+"ig": "Okwu Kur'an {n}",
+"bn": "কুরআনের শব্দ {n}",
+"ms": "Kata-kata Al-Quran {n}"
+},
+"Relaxed": {
+"yo": "Ìdẹ̀rọ̀",
+"ig": "Nwayọọ",
+"bn": "ধীরস্থির",
+"ms": "Santai"
+},
+"Review →": {
+"yo": "Àtúnyẹ̀wò →",
+"ig": "Tụgharịa →",
+"bn": "পুনরালোচনা →",
+"ms": "Ulang kaji →"
+},
+"Save my plan": {
+"yo": "Fi ètò mi pamọ́",
+"ig": "Chekwaa atụmatụ m",
+"bn": "আমার পরিকল্পনা সংরক্ষণ করুন",
+"ms": "Simpan rancangan saya"
+},
+"Shadda": {
+"yo": "Shadda",
+"ig": "Shadda",
+"bn": "তাশদীদ",
+"ms": "Syaddah"
+},
+"Short and Long": {
+"yo": "Kúkúrú àti Gígùn",
+"ig": "Mkpụmkpụ na Ogologo",
+"bn": "ছোট ও দীর্ঘ",
+"ms": "Pendek dan Panjang"
+},
+"Skip ahead": {
+"yo": "Fò síwájú",
+"ig": "Wụfee n'ihu",
+"bn": "এগিয়ে যান",
+"ms": "Langkau ke hadapan"
+},
+"Start here": {
+"yo": "Bẹ̀rẹ̀ níbí",
+"ig": "Malite ebe a",
+"bn": "এখান থেকে শুরু করুন",
+"ms": "Mula di sini"
+},
+"Start →": {
+"yo": "Bẹ̀rẹ̀ →",
+"ig": "Malite →",
+"bn": "শুরু →",
+"ms": "Mula →"
+},
+"Steady": {
+"yo": "Déédéé",
+"ig": "Kwụsiri ike",
+"bn": "নিয়মিত",
+"ms": "Tetap"
+},
+"Syllabus": {
+"yo": "Ètò ẹ̀kọ́",
+"ig": "Usoro ọmụmụ",
+"bn": "পাঠ্যসূচি",
+"ms": "Sukatan pelajaran"
+},
+"Take the exam": {
+"yo": "Ṣe ìdánwò náà",
+"ig": "Mee ule ahụ",
+"bn": "পরীক্ষা দিন",
+"ms": "Ambil ujian"
+},
+"Test": {
+"yo": "Ìdánwò",
+"ig": "Nnwale",
+"bn": "টেস্ট",
+"ms": "Uji"
+},
+"Test mode ON": {
+"yo": "Ipò ìdánwò WÀ NÍ TÍTÀN",
+"ig": "Ọnọdụ nnwale GBANYERE",
+"bn": "টেস্ট মোড চালু",
+"ms": "Mod uji HIDUP"
+},
+"This lesson is for Premium members.": {
+"yo": "Ẹ̀kọ́ yìí wà fún àwọn ọmọ ẹgbẹ́ Premium.",
+"ig": "Ihe ọmụmụ a bụ maka ndị otu Premium.",
+"bn": "এই পাঠটি প্রিমিয়াম সদস্যদের জন্য।",
+"ms": "Pelajaran ini untuk ahli Premium."
+},
+"Verses & Hadith {n}": {
+"yo": "Àyá àti Hadith {n}",
+"ig": "Amaokwu na Hadith {n}",
+"bn": "আয়াত ও হাদিস {n}",
+"ms": "Ayat dan Hadis {n}"
+},
+"Waw Madd": {
+"yo": "Madd Waw",
+"ig": "Madd Waw",
+"bn": "ওয়াও-এর মাদ",
+"ms": "Mad Wau"
+},
+"What will you learn today?": {
+"yo": "Kí ni wàá kọ́ lónìí?",
+"ig": "Gịnị ka ị ga-amụta taa?",
+"bn": "আজ আপনি কী শিখবেন?",
+"ms": "Apa yang akan anda pelajari hari ini?"
+},
+"Words": {
+"yo": "Ọ̀rọ̀",
+"ig": "Okwu",
+"bn": "শব্দ",
+"ms": "Perkataan"
+},
+"words": {
+"yo": "ọ̀rọ̀",
+"ig": "okwu",
+"bn": "শব্দ",
+"ms": "perkataan"
+},
+"Words & Phrases": {
+"yo": "Ọ̀rọ̀ àti Gbólóhùn",
+"ig": "Okwu na Ahịrịokwu",
+"bn": "শব্দ ও বাক্যাংশ",
+"ms": "Perkataan dan Frasa"
+},
+"Yaa Madd": {
+"yo": "Madd Yaa",
+"ig": "Madd Yaa",
+"bn": "ইয়া-এর মাদ",
+"ms": "Mad Ya"
+},
+"all harakat": {
+"yo": "gbogbo harakat",
+"ig": "harakat niile",
+"bn": "সব হরকত",
+"ms": "semua harakat"
+},
+"all letters with damma": {
+"yo": "gbogbo lẹ́tà pẹ̀lú damma",
+"ig": "mkpụrụedemede niile na damma",
+"bn": "পেশসহ সব হরফ",
+"ms": "semua huruf dengan dhammah"
+},
+"all letters with kasra": {
+"yo": "gbogbo lẹ́tà pẹ̀lú kasra",
+"ig": "mkpụrụedemede niile na kasra",
+"bn": "যেরসহ সব হরফ",
+"ms": "semua huruf dengan kasrah"
+},
+"all madd": {
+"yo": "gbogbo madd",
+"ig": "madd niile",
+"bn": "সব মাদ",
+"ms": "semua mad"
+},
+"all the madd letters": {
+"yo": "gbogbo lẹ́tà madd",
+"ig": "mkpụrụedemede madd niile",
+"bn": "সব মাদের হরফ",
+"ms": "semua huruf mad"
+},
+"all three madd letters": {
+"yo": "gbogbo lẹ́tà madd mẹ́ta",
+"ig": "mkpụrụedemede madd atọ niile",
+"bn": "তিনটি মাদের হরফ",
+"ms": "ketiga-tiga huruf mad"
+},
+"and phrases": {
+"yo": "àti gbólóhùn",
+"ig": "na ahịrịokwu",
+"bn": "এবং বাক্যাংশ",
+"ms": "dan frasa"
+},
+"in shape and in sound": {
+"yo": "ní ìrísí àti ní ìró",
+"ig": "n'ọdịdị na n'ụda",
+"bn": "আকৃতিতে ও ধ্বনিতে",
+"ms": "dari segi bentuk dan bunyi"
+},
+"longer phrases": {
+"yo": "gbólóhùn gígùn",
+"ig": "ahịrịokwu toro ogologo",
+"bn": "দীর্ঘ বাক্যাংশ",
+"ms": "frasa lebih panjang"
+},
+"longer words": {
+"yo": "ọ̀rọ̀ gígùn",
+"ig": "okwu toro ogologo",
+"bn": "দীর্ঘ শব্দ",
+"ms": "perkataan lebih panjang"
+},
+"meem": {
+"yo": "meem",
+"ig": "meem",
+"bn": "মীম",
+"ms": "mim"
+},
+"noon": {
+"yo": "noon",
+"ig": "noon",
+"bn": "নূন",
+"ms": "nun"
+},
+"raa": {
+"yo": "raa",
+"ig": "raa",
+"bn": "রা",
+"ms": "ra"
+},
+"tanween": {
+"yo": "tanween",
+"ig": "tanween",
+"bn": "তানবীন",
+"ms": "tanwin"
+},
+"on waw": {
+"yo": "lórí waw",
+"ig": "n'elu waw",
+"bn": "ওয়াও-এর উপর",
+"ms": "di atas wau"
+},
+"on yaa": {
+"yo": "lórí yaa",
+"ig": "n'elu yaa",
+"bn": "ইয়া-এর উপর",
+"ms": "di atas ya"
+},
+"phrases with all harakat": {
+"yo": "gbólóhùn pẹ̀lú gbogbo harakat",
+"ig": "ahịrịokwu nwere harakat niile",
+"bn": "সব হরকতসহ বাক্যাংশ",
+"ms": "frasa dengan semua harakat"
+},
+"read a whole phrase": {
+"yo": "ka gbogbo gbólóhùn kan",
+"ig": "gụọ ahịrịokwu zuru ezu",
+"bn": "পুরো বাক্যাংশ পড়ুন",
+"ms": "baca satu frasa penuh"
+},
+"read in one go": {
+"yo": "kà á ní ẹ̀ẹ̀kan",
+"ig": "gụọ ya otu mgbe",
+"bn": "একবারে পড়ুন",
+"ms": "baca sekali gus"
+},
+"read letter by letter": {
+"yo": "kà á lẹ́tà-lẹ́tà",
+"ig": "gụọ mkpụrụedemede site na mkpụrụedemede",
+"bn": "হরফে হরফে পড়ুন",
+"ms": "baca huruf demi huruf"
+},
+"sentences": {
+"yo": "gbólóhùn",
+"ig": "ahịrịokwu",
+"bn": "বাক্য",
+"ms": "ayat"
+},
+"silent letters": {
+"yo": "lẹ́tà tí kì í dún",
+"ig": "mkpụrụedemede anaghị ada ụda",
+"bn": "উচ্চারিত না হওয়া হরফ",
+"ms": "huruf senyap"
+},
+"the closed letter": {
+"yo": "lẹ́tà tó ti pa",
+"ig": "mkpụrụedemede mechiri emechi",
+"bn": "বন্ধ হরফ",
+"ms": "huruf tertutup"
+},
+"the disjoined letters": {
+"yo": "àwọn lẹ́tà tí a yà sọ́tọ̀",
+"ig": "mkpụrụedemede ekewapụrụ",
+"bn": "হুরুফে মুকাত্তাআত",
+"ms": "huruf muqatta'ah"
+},
+"the marks": {
+"yo": "àwọn àmì",
+"ig": "akara ndị ahụ",
+"bn": "চিহ্নগুলো",
+"ms": "tanda-tandanya"
+},
+"two and three words": {
+"yo": "ọ̀rọ̀ méjì àti mẹ́ta",
+"ig": "okwu abụọ na atọ",
+"bn": "দুই ও তিন শব্দ",
+"ms": "dua dan tiga perkataan"
+},
+"with fatha": {
+"yo": "pẹ̀lú fatha",
+"ig": "na fatha",
+"bn": "যবরসহ",
+"ms": "dengan fathah"
+},
+"with the qalqalah letters": {
+"yo": "pẹ̀lú àwọn lẹ́tà qalqalah",
+"ig": "na mkpụrụedemede qalqalah",
+"bn": "কলকলার হরফসহ",
+"ms": "dengan huruf qalqalah"
+},
+"words and phrases": {
+"yo": "ọ̀rọ̀ àti gbólóhùn",
+"ig": "okwu na ahịrịokwu",
+"bn": "শব্দ ও বাক্যাংশ",
+"ms": "perkataan dan frasa"
+},
+"{n} min": {
+"yo": "ìṣẹ́jú {n}",
+"ig": "nkeji {n}",
+"bn": "{n} মিনিট",
+"ms": "{n} minit"
+},
+"{n} of {n} done": {
+"yo": "{n} nínú {n} ti parí",
+"ig": "{n} n'ime {n} emechaala",
+"bn": "{n} / {n} সম্পন্ন",
+"ms": "{n} daripada {n} selesai"
+},
+"{n} of {n} done ⭐": {
+"yo": "{n} nínú {n} ti parí ⭐",
+"ig": "{n} n'ime {n} emechaala ⭐",
+"bn": "{n} / {n} সম্পন্ন ⭐",
+"ms": "{n} daripada {n} selesai ⭐"
+},
+"{n} of {n} lessons": {
+"yo": "{n} nínú ẹ̀kọ́ {n}",
+"ig": "{n} n'ime ihe ọmụmụ {n}",
+"bn": "{n} / {n}টি পাঠ",
+"ms": "{n} daripada {n} pelajaran"
+},
+"{n} subject": {
+"yo": "ẹ̀kọ́ {n}",
+"ig": "isiokwu {n}",
+"bn": "{n}টি বিষয়",
+"ms": "{n} subjek"
+},
+"{n} subjects": {
+"yo": "ẹ̀kọ́ {n}",
+"ig": "isiokwu {n}",
+"bn": "{n}টি বিষয়",
+"ms": "{n} subjek"
+},
+"Qiraha": {
+"yo": "Qira'ah",
+"ig": "Qira'ah",
+"bn": "কিরাআত",
+"ms": "Qira'ah"
+},
+"'arid": {
+"yo": "'arid",
+"ig": "'arid",
+"bn": "আরিদ",
+"ms": "'aridh"
+},
+"badal": {
+"yo": "badal",
+"ig": "badal",
+"bn": "বাদাল",
+"ms": "badal"
+},
+"idgham": {
+"yo": "idgham",
+"ig": "idgham",
+"bn": "ইদগাম",
+"ms": "idgham"
+},
+"ikhfa": {
+"yo": "ikhfa",
+"ig": "ikhfa",
+"bn": "ইখফা",
+"ms": "ikhfa'"
+},
+"iqlab": {
+"yo": "iqlab",
+"ig": "iqlab",
+"bn": "ইকলাব",
+"ms": "iqlab"
+},
+"izhar": {
+"yo": "izhar",
+"ig": "izhar",
+"bn": "ইযহার",
+"ms": "izhar"
+},
+"izhar shafawi": {
+"yo": "izhar shafawi",
+"ig": "izhar shafawi",
+"bn": "ইযহারে শাফাভি",
+"ms": "izhar syafawi"
+},
+"lazim": {
+"yo": "lazim",
+"ig": "lazim",
+"bn": "লাযিম",
+"ms": "lazim"
+},
+"mithlain": {
+"yo": "mithlain",
+"ig": "mithlain",
+"bn": "মিসলাইন",
+"ms": "mithlain"
+},
+"munfasil": {
+"yo": "munfasil",
+"ig": "munfasil",
+"bn": "মুনফাসিল",
+"ms": "munfasil"
+},
+"mutajanisain": {
+"yo": "mutajanisain",
+"ig": "mutajanisain",
+"bn": "মুতাজানিসাইন",
+"ms": "mutajanisain"
+},
+"mutaqaribain": {
+"yo": "mutaqaribain",
+"ig": "mutaqaribain",
+"bn": "মুতাকারিবাইন",
+"ms": "mutaqaribain"
+},
+"muttasil": {
+"yo": "muttasil",
+"ig": "muttasil",
+"bn": "মুত্তাসিল",
+"ms": "muttasil"
+},
+"silah": {
+"yo": "silah",
+"ig": "silah",
+"bn": "সিলাহ",
+"ms": "silah"
+},
+"wasl": {
+"yo": "wasl",
+"ig": "wasl",
+"bn": "ওয়াসল",
+"ms": "wasal"
+},
+"qalqalah": {
+"yo": "qalqalah",
+"ig": "qalqalah",
+"bn": "কলকলা",
+"ms": "qalqalah"
+},
+"pp.{n}–{n}": {
+"yo": "ojú-ìwé {n}–{n}",
+"ig": "p. {n}–{n}",
+"bn": "পৃ. {n}–{n}",
+"ms": "ms. {n}–{n}"
+}
+};
+for (const [k, v] of Object.entries(MORE)) DICT[k] = { ...(DICT[k] ?? {}), ...v };
