@@ -14,7 +14,6 @@ import { useAuth } from "@/components/auth";
 import { cn } from "@/lib/utils";
 import { quizQuestionsFor } from "@/components/quiz-visual";
 import { awardXp } from "@/lib/xp";
-import { ContinueCard } from "@/components/today";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Go = (s: any) => void;
@@ -34,7 +33,6 @@ export function KidHome({ go }: { go: Go }) {
       <Icon className="size-12" />
       <span><b className="block font-serif text-4xl leading-none">{t}</b><span className="text-sm font-semibold">{b}</span></span>
     </button>)}</div>
-    <section className="mt-6 border-2 border-foreground bg-background p-5 shadow-brutal"><ContinueCard onLibrary={() => go("library")} onPlay={() => go("kidgames")} /></section>
   </div>;
 }
 
