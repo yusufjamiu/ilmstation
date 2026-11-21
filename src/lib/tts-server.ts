@@ -123,6 +123,32 @@ export async function handleTts(request: Request): Promise<Response> {
     headers: { "content-type": "audio/mpeg", "cache-control": backup ? "public, max-age=600" : "public, max-age=86400, s-maxage=31536000, immutable", ...cors },
   });
 
+  // Yoruba, Igbo and Hausa: ElevenLabs Eleven v4 first (it reads the Arabic words well too), then Spitch, then OpenAI.
+  // Vercel: ELEVENLABS_API_KEY, and optionally ELEVENLABS_NAIJA_VOICE_ID (adults) / ELEVENLABS_NAIJA_KID_VOICE_ID (kids).
+  const elevenKey = process.env.ELEVENLABS_API_KEY;
+  if (english && elevenKey && ["yo", "ig", "ha"].includes(ilang)) {
+    // each language can have its own readers: ELEVENLABS_YO_VOICE_ID / ELEVENLABS_YO_KID_VOICE_ID (also IG, HA)
+    const L = ilang.toUpperCase();
+    const vid = adult
+      ? process.env[`ELEVENLABS_${L}_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB"
+      : process.env[`ELEVENLABS_${L}_KID_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_KID_VOICE_ID ?? process.env.ELEVENLABS_KID_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
+    for (const body of [
+      { text, model_id: "eleven_v4", language_code: ilang },
+      { text, model_id: "eleven_v4" },                       // if the language code is refused
+    ]) {
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vid}?output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: { "xi-api-key": elevenKey, "content-type": "application/json", accept: "audio/mpeg" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(25000),
+        });
+        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) return audio(buf); }
+        else console.error("eleven", r.status, (await r.text().catch(() => "")).slice(0, 300));
+      } catch (e) { console.error("eleven", String(e)); }
+    }
+  }
+
   // Yoruba, Igbo and Hausa: native Nigerian voices from Spitch (add SPITCH_API_KEY in Vercel). Falls back to the voices below.
   const spitch = process.env.SPITCH_API_KEY;
   const NAIJA: Record<string, [string, string]> = { yo: ["segun", "funmi"], ig: ["ebuka", "ngozi"], ha: ["aliyu", "zainab"] }; // [adult man, kids woman]
@@ -152,7 +178,7 @@ export async function handleTts(request: Request): Promise<Response> {
   // English narration: ElevenLabs if you add ELEVENLABS_API_KEY in Vercel (more natural), otherwise OpenAI.
   // Optional: ELEVENLABS_VOICE_ID (adults) and ELEVENLABS_KID_VOICE_ID (children) to pick the voices.
   const eleven = process.env.ELEVENLABS_API_KEY;
-  if (english && eleven) {
+  if (english && eleven && !["yo", "ig", "ha"].includes(ilang)) {
     try {
       const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB" /* Adam: male */ : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
       const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
