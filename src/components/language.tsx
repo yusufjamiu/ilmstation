@@ -70,14 +70,21 @@ const SKIP = "script,style,textarea,code,pre,[data-no-translate],[lang='ar']:not
 function trWord(key: string, lang: Lang): string | undefined { return lang === "en" ? undefined : (DICT[key] as Record<string, string> | undefined)?.[lang]; }
 const RTL_FIX = "[dir=rtl] .ml-auto{margin-left:0!important;margin-right:auto!important}[dir=rtl] .mr-auto{margin-right:0!important;margin-left:auto!important}[dir=rtl] [class*='space-x-']>:not([hidden])~:not([hidden]){--tw-space-x-reverse:1}" +
   [["1", ".25rem"], ["1.5", ".375rem"], ["2", ".5rem"], ["3", ".75rem"], ["4", "1rem"]].map(([k, v]) => { const c = k.replace(".", "\\."); return `[dir=rtl] .ml-${c}{margin-left:0!important;margin-right:${v}!important}[dir=rtl] .mr-${c}{margin-right:0!important;margin-left:${v}!important}`; }).join("");
-function trAny(s: string, lang: Lang): string | undefined {
+function trAny(s: string, lang: Lang, deep = 0): string | undefined {
   if (lang === "en") return undefined;
   const d = (DICT[s] as Record<string, string> | undefined)?.[lang]; if (d) return d;
+  const nn = s.match(/\d+/g);
+  if (nn) { const t = (DICT[s.replace(/\d+/g, "{n}")] as Record<string, string> | undefined)?.[lang]; if (t) { let k = 0; return t.replace(/\{n\}/g, () => nn[k++] ?? ""); } }
+  if (deep < 3 && /: | · /.test(s)) { // titles like "The Alphabet: أ – خ" or "Continue · 1 of 27 done": translate piece by piece
+    const bits = s.split(/(: | · )/); let hit = false;
+    const out = bits.map((b, i) => { if (i % 2 || !/[A-Za-z]/.test(b)) return b; const t = trAny(b.trim(), lang, deep + 1); if (t) { hit = true; return t; } return b; });
+    if (hit) return out.join("");
+  }
   const nums = s.match(/\d+/g); if (!nums) return undefined;
   const t = (DICT[s.replace(/\d+/g, "{n}")] as Record<string, string> | undefined)?.[lang]; if (!t) return undefined;
   let k = 0; return t.replace(/\{n\}/g, () => nums[k++] ?? "");
 }
-const isKey = (s: string) => !!DICT[s] || (/\d/.test(s) && !!DICT[s.replace(/\d+/g, "{n}")]);
+const isKey = (s: string): boolean => !!DICT[s] || (/\d/.test(s) && !!DICT[s.replace(/\d+/g, "{n}")]) || (/: | · /.test(s) && s.split(/: | · /).some((b) => isKey(b.trim())));
 function fixText(n: Text, lang: Lang) {
   const raw = n.nodeValue ?? ""; const cur = raw.trim(); if (!cur) return;
   const el = n.parentElement; if (!el || el.closest(SKIP)) return;

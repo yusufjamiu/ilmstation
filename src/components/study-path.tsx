@@ -63,7 +63,7 @@ export function LessonPath({ lessons, isDone, firstOpen, canOpen, premiumLocked,
   return <div>
     {cur && <button onClick={() => onOpen(cur)} className="mt-3 flex w-full items-center gap-4 border-2 border-foreground bg-primary p-4 text-left shadow-brutal">
       <span className="grid size-12 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background font-serif text-xl">{firstOpen + 1}</span>
-      <span className="min-w-0 flex-1"><span className="block text-xs font-bold uppercase">{doneN ? "Continue" : "Start here"} · {doneN} of {lessons.length} done</span>
+      <span className="min-w-0 flex-1"><span className="block text-xs font-bold uppercase">{`${doneN ? "Continue" : "Start here"} · ${doneN} of ${lessons.length} done`}</span>
         <span className="block truncate font-serif text-xl leading-tight">{cur.title}</span></span>
       <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-3 py-1.5 text-sm font-bold text-background">{doneN ? "Continue ▶" : "Start ▶"}</span>
     </button>}
@@ -118,6 +118,6 @@ export function ProgressBar({ done, total }: { done: number; total: number }) {
   if (!total) return null;
   return <span className="mt-2 block">
     <span className="block h-2 w-full border-2 border-foreground bg-background"><span className="block h-full bg-secondary" style={{ width: `${(done / total) * 100}%` }} /></span>
-    <span className="mt-0.5 block text-xs text-muted-foreground">{done} of {total} lessons</span>
+    <span className="mt-0.5 block text-xs text-muted-foreground">{`${done} of ${total} lessons`}</span>
   </span>;
 }

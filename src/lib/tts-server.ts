@@ -30,8 +30,8 @@ const ARABIC_TERMS =
 
 // Adults hear a calm, deep male teacher (lesson intros and instructions)
 const ADULT_TEACHER =
-  "You are a calm, kind male Qur'an teacher speaking to adult beginners. Speak slowly and very clearly, like a patient teacher in a class: " +
-  "a relaxed pace, a short pause after every sentence and after every comma, and never rush. Pronounce every word fully and warmly. " + ARABIC_TERMS;
+  "You are a confident, warm male Qur'an teacher speaking to adult beginners. Speak crisply and clearly at a natural, lively pace, " +
+  "like an energetic teacher in a good class: sharp, bright and engaged, never sleepy or dragging. Keep pauses short and natural. Pronounce every word fully. " + ARABIC_TERMS;
 
 // Intermediate level (tajweed lessons, ?tj=1): read as a qualified reciter, Hafs 'an 'Asim.
 const TAJWEED_RULE =
@@ -127,7 +127,7 @@ export async function handleTts(request: Request): Promise<Response> {
         voice: english ? (adult ? "onyx" : "coral") : "onyx", // adults: the same deep male voice as the Arabic reading
         input: text,
         instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) + speakIn(ilang) : tajweed ? TAJWEED_RULE + notes : READ_RULE + guide + notes,
-        speed: english ? (adult ? 0.85 : 0.92) : tajweed ? (slow ? 0.8 : 0.92) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
+        speed: english ? (adult ? 1.05 : 0.97) : tajweed ? (slow ? 0.8 : 0.92) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
         response_format: "mp3",
       }),
     });

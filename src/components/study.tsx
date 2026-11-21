@@ -327,7 +327,7 @@ function KidStudy({ cats }: { cats: Category[] }) {
   if (subject) return <div className="iq-rise">
     {back("Subjects", () => setSubjectId(undefined))}
     <h1 className="font-serif text-5xl leading-none">{kidEmoji(subject.name)} {subject.name}</h1>
-    <p className="mt-2 text-lg text-muted-foreground">{lessons.filter((l) => done(l.id)).length} of {lessons.length} done ⭐</p>
+    <p className="mt-2 text-lg text-muted-foreground">{`${lessons.filter((l) => done(l.id)).length} of ${lessons.length} done ⭐`}</p>
     {!lessons.length && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-lg">New lessons are coming soon! 🌟</p>}
     {levels.map((lv) => { const inLv = lessons.filter((l) => l.stage === lv); const lvDone = inLv.every((l) => done(l.id)); const lvName = kStages.find((x) => x.id === lv)?.name ?? lv;
       return <section key={lv} className="mt-8">
@@ -429,7 +429,7 @@ export function QuestMap() {
             </span>
             <span className="min-w-0 flex-1">
               <b className="block truncate leading-tight">{x.name}</b>
-              <span className="text-xs text-muted-foreground">{lessonsOf(x.id).length} lessons · {pct}%</span>
+              <span className="text-xs text-muted-foreground">{`${lessonsOf(x.id).length} lessons · ${pct}%`}</span>
               {st === "current" && <span className="mt-1 block h-2 border border-foreground bg-background"><span className="block h-full bg-secondary" style={{ width: `${pct}%` }} /></span>}
             </span>
             {st === "current" && <QPin className="size-5 shrink-0" />}

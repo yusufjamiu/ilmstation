@@ -1113,3 +1113,1716 @@ DICT["Next page"] = { ...(DICT["Next page"] ?? {}), ar: "الصفحة التال
 
 DICT["🔊 Hear this verse"] = { ...(DICT["🔊 Hear this verse"] ?? {}), ar: "🔊 استمع إلى هذه الآية", fr: "🔊 Écouter ce verset", ur: "🔊 یہ آیت سنیں", ha: "🔊 Saurari wannan aya", id: "🔊 Dengarkan ayat ini", tl: "🔊 Pakinggan ang talatang ito" };
 DICT["Couldn't play the recitation."] = { ...(DICT["Couldn't play the recitation."] ?? {}), ar: "تعذّر تشغيل التلاوة.", fr: "Impossible de lire la récitation.", ur: "تلاوت نہیں چل سکی۔", ha: "An kasa kunna karatun.", id: "Gagal memutar bacaan.", tl: "Hindi ma-play ang pagbigkas." };
+// study level names (stage names show as "<Level> <n>")
+const LEVELS: Record<string, T> = {
+  "Preparatory": { ar: "التمهيدي", fr: "Préparatoire", ur: "ابتدائی", ha: "Share Fage", id: "Persiapan", tl: "Paghahanda" },
+  "Beginner": { ar: "المبتدئ", fr: "Débutant", ur: "بیگنر", ha: "Mafari", id: "Pemula", tl: "Beginner" },
+  "Intermediate": { ar: "المتوسط", fr: "Intermédiaire", ur: "متوسط", ha: "Matsakaici", id: "Menengah", tl: "Intermediate" },
+  "Advanced": { ar: "المتقدم", fr: "Avancé", ur: "اعلیٰ", ha: "Babba", id: "Lanjutan", tl: "Advanced" },
+};
+for (const [k, v] of Object.entries(LEVELS)) {
+  DICT[k] = { ...v, ...(DICT[k] ?? {}) };
+  DICT[`${k} {n}`] = { ...Object.fromEntries(Object.entries(v).map(([l, w]) => [l, `${w} {n}`])), ...(DICT[`${k} {n}`] ?? {}) };
+}
+DICT["Qira'ah"] = { ar: "القراءة", fr: "Qira'ah", ur: "قراءت", ha: "Qira'ah", id: "Qira'ah", tl: "Qira'ah", ...(DICT["Qira'ah"] ?? {}) };
+
+// Study pages + lesson titles (Qira'ah). Fills gaps only; existing entries win.
+const STUDY: Record<string, T> = {
+"Start ▶": {
+"ar": "ابدأ ◀",
+"fr": "Commencer ▶",
+"ur": "شروع ◀",
+"ha": "Fara ▶",
+"id": "Mulai ▶",
+"tl": "Simula ▶"
+},
+"Continue ▶": {
+"ar": "تابع ◀",
+"fr": "Continuer ▶",
+"ur": "جاری رکھیں ◀",
+"ha": "Ci gaba ▶",
+"id": "Lanjut ▶",
+"tl": "Magpatuloy ▶"
+},
+"Review": {
+"ar": "مراجعة",
+"fr": "Révision",
+"ur": "جائزہ",
+"ha": "Bita",
+"id": "Ulasan",
+"tl": "Pagbabalik-aral"
+},
+"Aisha & Khadija": {
+"ar": "عائشة وخديجة",
+"fr": "Aïcha et Khadija",
+"ur": "عائشہ اور خدیجہ",
+"ha": "Aisha da Khadija",
+"id": "Aisyah dan Khadijah",
+"tl": "Aisha at Khadija"
+},
+"All {n} letters": {
+"ar": "الحروف الـ{n} كلها",
+"fr": "Les {n} lettres",
+"ur": "تمام {n} حروف",
+"ha": "Dukan baƙaƙe {n}",
+"id": "Semua {n} huruf",
+"tl": "Lahat ng {n} titik"
+},
+"Allah's Blessings": {
+"ar": "نِعَم الله",
+"fr": "Les bienfaits d'Allah",
+"ur": "اللہ کی نعمتیں",
+"ha": "Ni'imomin Allah",
+"id": "Nikmat-nikmat Allah",
+"tl": "Mga Biyaya ni Allah"
+},
+"Allah's Greatness": {
+"ar": "عظمة الله",
+"fr": "La grandeur d'Allah",
+"ur": "اللہ کی عظمت",
+"ha": "Girman Allah",
+"id": "Keagungan Allah",
+"tl": "Ang Kadakilaan ni Allah"
+},
+"Alphabet Review": {
+"ar": "مراجعة الحروف الهجائية",
+"fr": "Révision de l'alphabet",
+"ur": "حروفِ تہجی کا جائزہ",
+"ha": "Bitar Baƙaƙe",
+"id": "Ulasan Huruf Hijaiyah",
+"tl": "Pagbabalik-aral sa Alpabeto"
+},
+"Alphabet review": {
+"ar": "مراجعة الحروف الهجائية",
+"fr": "Révision de l'alphabet",
+"ur": "حروفِ تہجی کا جائزہ",
+"ha": "Bitar baƙaƙe",
+"id": "Ulasan huruf hijaiyah",
+"tl": "Pagbabalik-aral sa alpabeto"
+},
+"Big Final Check": {
+"ar": "الاختبار الكبير الأخير",
+"fr": "Le grand contrôle final",
+"ur": "بڑا آخری امتحان",
+"ha": "Babban Jarrabawar Ƙarshe",
+"id": "Ujian Akhir Besar",
+"tl": "Malaking Huling Pagsusulit"
+},
+"Big Review {n}": {
+"ar": "مراجعة كبيرة {n}",
+"fr": "Grande révision {n}",
+"ur": "بڑا جائزہ {n}",
+"ha": "Babbar Bita {n}",
+"id": "Ulasan Besar {n}",
+"tl": "Malaking Pagbabalik-aral {n}"
+},
+"Damma": {
+"ar": "الضمة",
+"fr": "Damma",
+"ur": "پیش",
+"ha": "Damma",
+"id": "Dhammah",
+"tl": "Damma"
+},
+"Damma Words": {
+"ar": "كلمات بالضمة",
+"fr": "Mots avec damma",
+"ur": "پیش والے الفاظ",
+"ha": "Kalmomin Damma",
+"id": "Kata-kata Dhammah",
+"tl": "Mga Salitang may Damma"
+},
+"Damma Words in Two Steps": {
+"ar": "كلمات بالضمة على خطوتين",
+"fr": "Mots avec damma en deux étapes",
+"ur": "پیش والے الفاظ دو مرحلوں میں",
+"ha": "Kalmomin Damma a Matakai Biyu",
+"id": "Kata-kata Dhammah dalam Dua Langkah",
+"tl": "Mga Salitang may Damma sa Dalawang Hakbang"
+},
+"Fatha": {
+"ar": "الفتحة",
+"fr": "Fatha",
+"ur": "زبر",
+"ha": "Fatha",
+"id": "Fathah",
+"tl": "Fatha"
+},
+"First Words": {
+"ar": "الكلمات الأولى",
+"fr": "Premiers mots",
+"ur": "پہلے الفاظ",
+"ha": "Kalmomin Farko",
+"id": "Kata-kata Pertama",
+"tl": "Mga Unang Salita"
+},
+"Hamza in the Middle & at the End": {
+"ar": "الهمزة في الوسط وفي الآخر",
+"fr": "La hamza au milieu et à la fin",
+"ur": "درمیان اور آخر میں ہمزہ",
+"ha": "Hamza a Tsakiya da a Ƙarshe",
+"id": "Hamzah di Tengah dan di Akhir",
+"tl": "Hamza sa Gitna at sa Dulo"
+},
+"Hamza in the Middle {n}": {
+"ar": "الهمزة في الوسط {n}",
+"fr": "La hamza au milieu {n}",
+"ur": "درمیان میں ہمزہ {n}",
+"ha": "Hamza a Tsakiya {n}",
+"id": "Hamzah di Tengah {n}",
+"tl": "Hamza sa Gitna {n}"
+},
+"Hamzatul Wasl & the Moon Laam": {
+"ar": "همزة الوصل واللام القمرية",
+"fr": "La hamzat al-wasl et le lam lunaire",
+"ur": "ہمزۃ الوصل اور لامِ قمری",
+"ha": "Hamzatul Wasl da Laamul Qamariyya",
+"id": "Hamzah Washal dan Lam Qamariyah",
+"tl": "Hamzatul Wasl at ang Laam ng Buwan"
+},
+"Harakat Review": {
+"ar": "مراجعة الحركات",
+"fr": "Révision des harakat",
+"ur": "حرکات کا جائزہ",
+"ha": "Bitar Harakoki",
+"id": "Ulasan Harakat",
+"tl": "Pagbabalik-aral sa Harakat"
+},
+"Kasra": {
+"ar": "الكسرة",
+"fr": "Kasra",
+"ur": "زیر",
+"ha": "Kasra",
+"id": "Kasrah",
+"tl": "Kasra"
+},
+"Kasra Phrases": {
+"ar": "جمل بالكسرة",
+"fr": "Phrases avec kasra",
+"ur": "زیر والے جملے",
+"ha": "Jimlolin Kasra",
+"id": "Kalimat Kasrah",
+"tl": "Mga Pariralang may Kasra"
+},
+"Kasra Words": {
+"ar": "كلمات بالكسرة",
+"fr": "Mots avec kasra",
+"ur": "زیر والے الفاظ",
+"ha": "Kalmomin Kasra",
+"id": "Kata-kata Kasrah",
+"tl": "Mga Salitang may Kasra"
+},
+"Kasra Words in Two Steps": {
+"ar": "كلمات بالكسرة على خطوتين",
+"fr": "Mots avec kasra en deux étapes",
+"ur": "زیر والے الفاظ دو مرحلوں میں",
+"ha": "Kalmomin Kasra a Matakai Biyu",
+"id": "Kata-kata Kasrah dalam Dua Langkah",
+"tl": "Mga Salitang may Kasra sa Dalawang Hakbang"
+},
+"Letter Shapes": {
+"ar": "أشكال الحروف",
+"fr": "Les formes des lettres",
+"ur": "حروف کی شکلیں",
+"ha": "Siffofin Baƙaƙe",
+"id": "Bentuk Huruf",
+"tl": "Mga Hugis ng Titik"
+},
+"Letters Read but Not Written": {
+"ar": "حروف تُنطق ولا تُكتب",
+"fr": "Lettres lues mais non écrites",
+"ur": "وہ حروف جو پڑھے جاتے ہیں مگر لکھے نہیں جاتے",
+"ha": "Baƙaƙen da ake Karantawa amma Ba a Rubuta Su",
+"id": "Huruf yang Dibaca tapi Tidak Ditulis",
+"tl": "Mga Titik na Binabasa pero Hindi Isinusulat"
+},
+"Look-alike Letters": {
+"ar": "الحروف المتشابهة",
+"fr": "Les lettres qui se ressemblent",
+"ur": "ملتے جلتے حروف",
+"ha": "Baƙaƙe Masu Kama da Juna",
+"id": "Huruf yang Mirip",
+"tl": "Magkakamukhang Titik"
+},
+"Madd Practice": {
+"ar": "تدريب على المدّ",
+"fr": "Entraînement au madd",
+"ur": "مد کی مشق",
+"ha": "Atisayen Madda",
+"id": "Latihan Mad",
+"tl": "Pagsasanay sa Madd"
+},
+"Madd Review {n}": {
+"ar": "مراجعة المدّ {n}",
+"fr": "Révision du madd {n}",
+"ur": "مد کا جائزہ {n}",
+"ha": "Bitar Madda {n}",
+"id": "Ulasan Mad {n}",
+"tl": "Pagbabalik-aral sa Madd {n}"
+},
+"Madd with Alif": {
+"ar": "المدّ بالألف",
+"fr": "Le madd avec alif",
+"ur": "الف کے ساتھ مد",
+"ha": "Madda da Alif",
+"id": "Mad dengan Alif",
+"tl": "Madd na may Alif"
+},
+"Madd with Waw": {
+"ar": "المدّ بالواو",
+"fr": "Le madd avec waw",
+"ur": "واؤ کے ساتھ مد",
+"ha": "Madda da Waw",
+"id": "Mad dengan Wau",
+"tl": "Madd na may Waw"
+},
+"Madd with Yaa": {
+"ar": "المدّ بالياء",
+"fr": "Le madd avec yaa",
+"ur": "یا کے ساتھ مد",
+"ha": "Madda da Yaa",
+"id": "Mad dengan Ya",
+"tl": "Madd na may Yaa"
+},
+"Meem Sakinah & Ghunnah": {
+"ar": "الميم الساكنة والغنّة",
+"fr": "Le mim sakina et la ghounna",
+"ur": "میم ساکن اور غنہ",
+"ha": "Mim Sakina da Gunna",
+"id": "Mim Sukun dan Ghunnah",
+"tl": "Meem Sakinah at Ghunnah"
+},
+"Meet the letters": {
+"ar": "تعرّف على الحروف",
+"fr": "Découvre les lettres",
+"ur": "حروف سے ملیں",
+"ha": "Haɗu da baƙaƙe",
+"id": "Kenali huruf-hurufnya",
+"tl": "Kilalanin ang mga titik"
+},
+"More Tajweed Rules": {
+"ar": "أحكام تجويد أخرى",
+"fr": "D'autres règles de tajwid",
+"ur": "تجوید کے مزید قواعد",
+"ha": "Ƙarin Dokokin Tajwidi",
+"id": "Hukum Tajwid Lainnya",
+"tl": "Higit pang Tuntunin ng Tajweed"
+},
+"More Words": {
+"ar": "كلمات أخرى",
+"fr": "D'autres mots",
+"ur": "مزید الفاظ",
+"ha": "Ƙarin Kalmomi",
+"id": "Kata-kata Lagi",
+"tl": "Higit pang Salita"
+},
+"More letters": {
+"ar": "حروف أخرى",
+"fr": "D'autres lettres",
+"ur": "مزید حروف",
+"ha": "Ƙarin baƙaƙe",
+"id": "Huruf lainnya",
+"tl": "Higit pang titik"
+},
+"Noon Sakinah & Tanween {n}": {
+"ar": "النون الساكنة والتنوين {n}",
+"fr": "Noun sakina et tanwine {n}",
+"ur": "نون ساکن اور تنوین {n}",
+"ha": "Nun Sakina da Tanwin {n}",
+"id": "Nun Sukun dan Tanwin {n}",
+"tl": "Noon Sakinah at Tanween {n}"
+},
+"Noon Sakinah Practice": {
+"ar": "تدريب على النون الساكنة",
+"fr": "Entraînement au noun sakina",
+"ur": "نون ساکن کی مشق",
+"ha": "Atisayen Nun Sakina",
+"id": "Latihan Nun Sukun",
+"tl": "Pagsasanay sa Noon Sakinah"
+},
+"Preparatory Final Exam": {
+"ar": "الاختبار النهائي للمستوى التمهيدي",
+"fr": "Examen final du niveau préparatoire",
+"ur": "ابتدائی درجے کا آخری امتحان",
+"ha": "Jarrabawar Ƙarshe ta Share Fage",
+"id": "Ujian Akhir Tingkat Persiapan",
+"tl": "Huling Pagsusulit ng Paghahanda"
+},
+"Qur'anic and everyday spelling": {
+"ar": "الرسم القرآني والإملائي",
+"fr": "Écriture coranique et écriture courante",
+"ur": "قرآنی اور عام املا",
+"ha": "Rubutun Alƙur'ani da na yau da kullum",
+"id": "Tulisan Al-Qur'an dan imla'i",
+"tl": "Baybay ng Qur'an at karaniwang baybay"
+},
+"Qur'anic phrases": {
+"ar": "عبارات قرآنية",
+"fr": "Passages coraniques",
+"ur": "قرآنی جملے",
+"ha": "Jimlolin Alƙur'ani",
+"id": "Kalimat Al-Qur'an",
+"tl": "Mga parirala ng Qur'an"
+},
+"Qur'anic verses": {
+"ar": "آيات من القرآن",
+"fr": "Versets du Coran",
+"ur": "قرآنی آیات",
+"ha": "Ayoyin Alƙur'ani",
+"id": "Ayat-ayat Al-Qur'an",
+"tl": "Mga talata ng Qur'an"
+},
+"Qur'anic vs Everyday Spelling": {
+"ar": "الرسم القرآني والرسم الإملائي",
+"fr": "Écriture coranique ou courante",
+"ur": "قرآنی رسم الخط اور عام املا",
+"ha": "Rubutun Alƙur'ani da Rubutun Yau da Kullum",
+"id": "Tulisan Al-Qur'an dan Tulisan Imla'i",
+"tl": "Baybay ng Qur'an at Karaniwang Baybay"
+},
+"Qur'anic words": {
+"ar": "كلمات قرآنية",
+"fr": "Mots coraniques",
+"ur": "قرآنی الفاظ",
+"ha": "Kalmomin Alƙur'ani",
+"id": "Kata-kata Al-Qur'an",
+"tl": "Mga salita ng Qur'an"
+},
+"Review Practice {n}": {
+"ar": "تدريب المراجعة {n}",
+"fr": "Entraînement de révision {n}",
+"ur": "جائزے کی مشق {n}",
+"ha": "Atisayen Bita {n}",
+"id": "Latihan Ulasan {n}",
+"tl": "Pagsasanay sa Pagbabalik-aral {n}"
+},
+"Sami & Yusuf": {
+"ar": "سامي ويوسف",
+"fr": "Sami et Youssouf",
+"ur": "سامی اور یوسف",
+"ha": "Sami da Yusuf",
+"id": "Sami dan Yusuf",
+"tl": "Sami at Yusuf"
+},
+"Shadda Phrases {n}": {
+"ar": "عبارات بالشدّة {n}",
+"fr": "Phrases avec shadda {n}",
+"ur": "شد والے جملے {n}",
+"ha": "Jimlolin Shadda {n}",
+"id": "Kalimat Tasydid {n}",
+"tl": "Mga Pariralang may Shadda {n}"
+},
+"Shadda Review": {
+"ar": "مراجعة الشدّة",
+"fr": "Révision de la shadda",
+"ur": "شد کا جائزہ",
+"ha": "Bitar Shadda",
+"id": "Ulasan Tasydid",
+"tl": "Pagbabalik-aral sa Shadda"
+},
+"Shadda with Damma": {
+"ar": "الشدّة مع الضمة",
+"fr": "La shadda avec damma",
+"ur": "شد پیش کے ساتھ",
+"ha": "Shadda da Damma",
+"id": "Tasydid dengan Dhammah",
+"tl": "Shadda na may Damma"
+},
+"Shadda with Fatha": {
+"ar": "الشدّة مع الفتحة",
+"fr": "La shadda avec fatha",
+"ur": "شد زبر کے ساتھ",
+"ha": "Shadda da Fatha",
+"id": "Tasydid dengan Fathah",
+"tl": "Shadda na may Fatha"
+},
+"Shadda with Kasra": {
+"ar": "الشدّة مع الكسرة",
+"fr": "La shadda avec kasra",
+"ur": "شد زیر کے ساتھ",
+"ha": "Shadda da Kasra",
+"id": "Tasydid dengan Kasrah",
+"tl": "Shadda na may Kasra"
+},
+"Shadda with Tanween": {
+"ar": "الشدّة مع التنوين",
+"fr": "La shadda avec tanwine",
+"ur": "شد تنوین کے ساتھ",
+"ha": "Shadda da Tanwin",
+"id": "Tasydid dengan Tanwin",
+"tl": "Shadda na may Tanween"
+},
+"Short Phrases": {
+"ar": "جمل قصيرة",
+"fr": "Courtes phrases",
+"ur": "چھوٹے جملے",
+"ha": "Gajerun Jimloli",
+"id": "Kalimat Pendek",
+"tl": "Maiikling Parirala"
+},
+"Similar Letters Meeting": {
+"ar": "التقاء الحروف المتشابهة",
+"fr": "Rencontre de lettres semblables",
+"ur": "ملتے جلتے حروف کا ملنا",
+"ha": "Haɗuwar Baƙaƙe Masu Kama",
+"id": "Pertemuan Huruf yang Serupa",
+"tl": "Pagtatagpo ng Magkakahawig na Titik"
+},
+"Sukun": {
+"ar": "السكون",
+"fr": "Soukoun",
+"ur": "جزم",
+"ha": "Sukun",
+"id": "Sukun",
+"tl": "Sukun"
+},
+"Sukun Phrases {n}": {
+"ar": "عبارات بالسكون {n}",
+"fr": "Phrases avec soukoun {n}",
+"ur": "جزم والے جملے {n}",
+"ha": "Jimlolin Sukun {n}",
+"id": "Kalimat Sukun {n}",
+"tl": "Mga Pariralang may Sukun {n}"
+},
+"Tajweed Review": {
+"ar": "مراجعة التجويد",
+"fr": "Révision du tajwid",
+"ur": "تجوید کا جائزہ",
+"ha": "Bitar Tajwidi",
+"id": "Ulasan Tajwid",
+"tl": "Pagbabalik-aral sa Tajweed"
+},
+"Tanween Damm": {
+"ar": "تنوين الضم",
+"fr": "Tanwine damm",
+"ur": "دو پیش کی تنوین",
+"ha": "Tanwin Damm",
+"id": "Tanwin Dhammah",
+"tl": "Tanween Damm"
+},
+"Tanween Fath": {
+"ar": "تنوين الفتح",
+"fr": "Tanwine fath",
+"ur": "دو زبر کی تنوین",
+"ha": "Tanwin Fath",
+"id": "Tanwin Fathah",
+"tl": "Tanween Fath"
+},
+"Tanween Kasr": {
+"ar": "تنوين الكسر",
+"fr": "Tanwine kasr",
+"ur": "دو زیر کی تنوین",
+"ha": "Tanwin Kasr",
+"id": "Tanwin Kasrah",
+"tl": "Tanween Kasr"
+},
+"The Adhan": {
+"ar": "الأذان",
+"fr": "L'adhan",
+"ur": "اذان",
+"ha": "Kiran Sallah",
+"id": "Azan",
+"tl": "Ang Adhan"
+},
+"The Alphabet": {
+"ar": "الحروف الهجائية",
+"fr": "L'alphabet",
+"ur": "حروفِ تہجی",
+"ha": "Baƙaƙe",
+"id": "Huruf Hijaiyah",
+"tl": "Ang Alpabeto"
+},
+"The Creation of Man": {
+"ar": "خلق الإنسان",
+"fr": "La création de l'homme",
+"ur": "انسان کی تخلیق",
+"ha": "Halittar Mutum",
+"id": "Penciptaan Manusia",
+"tl": "Ang Paglikha sa Tao"
+},
+"The Day of Eid": {
+"ar": "يوم العيد",
+"fr": "Le jour de l'Aïd",
+"ur": "عید کا دن",
+"ha": "Ranar Sallah",
+"id": "Hari Raya",
+"tl": "Ang Araw ng Eid"
+},
+"The Farmer": {
+"ar": "الفلّاح",
+"fr": "Le paysan",
+"ur": "کسان",
+"ha": "Manomi",
+"id": "Petani",
+"tl": "Ang Magsasaka"
+},
+"The Muslim": {
+"ar": "المسلم",
+"fr": "Le musulman",
+"ur": "مسلمان",
+"ha": "Musulmi",
+"id": "Muslim",
+"tl": "Ang Muslim"
+},
+"The Qur'an": {
+"ar": "القرآن",
+"fr": "Le Coran",
+"ur": "قرآن",
+"ha": "Alƙur'ani",
+"id": "Al-Qur'an",
+"tl": "Ang Qur'an"
+},
+"The Small Alif": {
+"ar": "الألف الصغيرة",
+"fr": "Le petit alif",
+"ur": "کھڑا زبر",
+"ha": "Ƙaramar Alif",
+"id": "Alif Kecil",
+"tl": "Ang Maliit na Alif"
+},
+"The Small Waw": {
+"ar": "الواو الصغيرة",
+"fr": "Le petit waw",
+"ur": "چھوٹا واؤ",
+"ha": "Ƙaramar Waw",
+"id": "Wau Kecil",
+"tl": "Ang Maliit na Waw"
+},
+"The Small Yaa": {
+"ar": "الياء الصغيرة",
+"fr": "Le petit yaa",
+"ur": "چھوٹی یا",
+"ha": "Ƙaramar Yaa",
+"id": "Ya Kecil",
+"tl": "Ang Maliit na Yaa"
+},
+"The Sparrow": {
+"ar": "العصفور",
+"fr": "Le moineau",
+"ur": "چڑیا",
+"ha": "Gwara",
+"id": "Burung Pipit",
+"tl": "Ang Maya"
+},
+"The Stars": {
+"ar": "النجوم",
+"fr": "Les étoiles",
+"ur": "ستارے",
+"ha": "Taurari",
+"id": "Bintang-bintang",
+"tl": "Ang mga Bituin"
+},
+"The Sun Laam": {
+"ar": "اللام الشمسية",
+"fr": "Le lam solaire",
+"ur": "لامِ شمسی",
+"ha": "Laamush Shamsiyya",
+"id": "Lam Syamsiyah",
+"tl": "Ang Laam ng Araw"
+},
+"The last letters": {
+"ar": "الحروف الأخيرة",
+"fr": "Les dernières lettres",
+"ur": "آخری حروف",
+"ha": "Baƙaƙen ƙarshe",
+"id": "Huruf-huruf terakhir",
+"tl": "Ang mga huling titik"
+},
+"Two Passages": {
+"ar": "نصّان",
+"fr": "Deux textes",
+"ur": "دو عبارتیں",
+"ha": "Sassa Biyu",
+"id": "Dua Bacaan",
+"tl": "Dalawang Talata"
+},
+"Two Short Stories": {
+"ar": "قصّتان قصيرتان",
+"fr": "Deux courtes histoires",
+"ur": "دو مختصر کہانیاں",
+"ha": "Gajerun Labarai Biyu",
+"id": "Dua Cerita Pendek",
+"tl": "Dalawang Maikling Kuwento"
+},
+"Types of Madd {n}": {
+"ar": "أنواع المدود {n}",
+"fr": "Les types de madd {n}",
+"ur": "مد کی اقسام {n}",
+"ha": "Nau'ikan Madda {n}",
+"id": "Jenis-jenis Mad {n}",
+"tl": "Mga Uri ng Madd {n}"
+},
+"Umar and Karam": {
+"ar": "عمر وكرم",
+"fr": "Omar et Karam",
+"ur": "عمر اور کرم",
+"ha": "Umar da Karam",
+"id": "Umar dan Karam",
+"tl": "Umar at Karam"
+},
+"Whole Words": {
+"ar": "كلمات كاملة",
+"fr": "Mots entiers",
+"ur": "مکمل الفاظ",
+"ha": "Cikakkun Kalmomi",
+"id": "Kata Utuh",
+"tl": "Buong Salita"
+},
+"Words in Two Steps": {
+"ar": "كلمات على خطوتين",
+"fr": "Mots en deux étapes",
+"ur": "دو مرحلوں میں الفاظ",
+"ha": "Kalmomi a Matakai Biyu",
+"id": "Kata dalam Dua Langkah",
+"tl": "Mga Salita sa Dalawang Hakbang"
+},
+"and Qur'anic words": {
+"ar": "وكلمات قرآنية",
+"fr": "et mots coraniques",
+"ur": "اور قرآنی الفاظ",
+"ha": "da kalmomin Alƙur'ani",
+"id": "dan kata-kata Al-Qur'an",
+"tl": "at mga salita ng Qur'an"
+},
+"damma": {
+"ar": "ضمة",
+"fr": "damma",
+"ur": "پیش",
+"ha": "damma",
+"id": "dhammah",
+"tl": "damma"
+},
+"end": {
+"ar": "آخر",
+"fr": "fin",
+"ur": "آخر",
+"ha": "ƙarshe",
+"id": "akhir",
+"tl": "dulo"
+},
+"fatha": {
+"ar": "فتحة",
+"fr": "fatha",
+"ur": "زبر",
+"ha": "fatha",
+"id": "fathah",
+"tl": "fatha"
+},
+"from the Mushaf": {
+"ar": "من المصحف",
+"fr": "tirés du Moushaf",
+"ur": "مصحف سے",
+"ha": "daga Mus'hafi",
+"id": "dari mushaf",
+"tl": "mula sa Mushaf"
+},
+"kasra": {
+"ar": "كسرة",
+"fr": "kasra",
+"ur": "زیر",
+"ha": "kasra",
+"id": "kasrah",
+"tl": "kasra"
+},
+"letter by letter, then joined": {
+"ar": "حرفًا حرفًا، ثم موصولة",
+"fr": "lettre par lettre, puis reliées",
+"ur": "حرف بہ حرف، پھر ملا کر",
+"ha": "harafi-harafi, sannan a haɗe",
+"id": "huruf demi huruf, lalu digabung",
+"tl": "titik por titik, saka pinagdugtong"
+},
+"madd": {
+"ar": "مدّ",
+"fr": "madd",
+"ur": "مد",
+"ha": "madda",
+"id": "mad",
+"tl": "madd"
+},
+"middle": {
+"ar": "وسط",
+"fr": "milieu",
+"ur": "درمیان",
+"ha": "tsakiya",
+"id": "tengah",
+"tl": "gitna"
+},
+"more Qur'anic phrases": {
+"ar": "عبارات قرآنية أخرى",
+"fr": "d'autres passages coraniques",
+"ur": "مزید قرآنی جملے",
+"ha": "ƙarin jimlolin Alƙur'ani",
+"id": "kalimat Al-Qur'an lainnya",
+"tl": "higit pang parirala ng Qur'an"
+},
+"review & shadda": {
+"ar": "مراجعة وشدّة",
+"fr": "révision et shadda",
+"ur": "جائزہ اور شد",
+"ha": "bita da shadda",
+"id": "ulasan dan tasydid",
+"tl": "pagbabalik-aral at shadda"
+},
+"shadda": {
+"ar": "الشدّة",
+"fr": "shadda",
+"ur": "شد",
+"ha": "shadda",
+"id": "tasydid",
+"tl": "shadda"
+},
+"start": {
+"ar": "أول",
+"fr": "début",
+"ur": "شروع",
+"ha": "farko",
+"id": "awal",
+"tl": "simula"
+},
+"sukun": {
+"ar": "سكون",
+"fr": "soukoun",
+"ur": "جزم",
+"ha": "sukun",
+"id": "sukun",
+"tl": "sukun"
+},
+"sukun & tanween": {
+"ar": "السكون والتنوين",
+"fr": "soukoun et tanwine",
+"ur": "جزم اور تنوین",
+"ha": "sukun da tanwin",
+"id": "sukun dan tanwin",
+"tl": "sukun at tanween"
+},
+"tajweed & spelling": {
+"ar": "التجويد والرسم",
+"fr": "tajwid et écriture",
+"ur": "تجوید اور املا",
+"ha": "tajwidi da rubutu",
+"id": "tajwid dan tulisan",
+"tl": "tajweed at baybay"
+},
+"the whole book!": {
+"ar": "الكتاب كله!",
+"fr": "tout le livre !",
+"ur": "پوری کتاب!",
+"ha": "dukan littafin!",
+"id": "seluruh buku!",
+"tl": "ang buong aklat!"
+},
+"two letters, then the third": {
+"ar": "حرفان، ثم الثالث",
+"fr": "deux lettres, puis la troisième",
+"ur": "دو حروف، پھر تیسرا",
+"ha": "baƙaƙe biyu, sannan na uku",
+"id": "dua huruf, lalu yang ketiga",
+"tl": "dalawang titik, saka ang ikatlo"
+},
+"ـًا  = an": {
+"ar": "ـًا  = an",
+"fr": "ـًا  = an",
+"ur": "ـًا  = اَن",
+"ha": "ـًا  = an",
+"id": "ـًا  = an",
+"tl": "ـًا  = an"
+},
+"ـٌ  = un": {
+"ar": "ـٌ  = un",
+"fr": "ـٌ  = un",
+"ur": "ـٌ  = اُن",
+"ha": "ـٌ  = un",
+"id": "ـٌ  = un",
+"tl": "ـٌ  = un"
+},
+"ـٍ  = in": {
+"ar": "ـٍ  = in",
+"fr": "ـٍ  = in",
+"ur": "ـٍ  = اِن",
+"ha": "ـٍ  = in",
+"id": "ـٍ  = in",
+"tl": "ـٍ  = in"
+},
+"ـُۥ in the Mushaf": {
+"ar": "ـُۥ في المصحف",
+"fr": "ـُۥ dans le Moushaf",
+"ur": "ـُۥ مصحف میں",
+"ha": "ـُۥ a Mus'hafi",
+"id": "ـُۥ dalam mushaf",
+"tl": "ـُۥ sa Mushaf"
+},
+"ـِۦ in the Mushaf": {
+"ar": "ـِۦ في المصحف",
+"fr": "ـِۦ dans le Moushaf",
+"ur": "ـِۦ مصحف میں",
+"ha": "ـِۦ a Mus'hafi",
+"id": "ـِۦ dalam mushaf",
+"tl": "ـِۦ sa Mushaf"
+},
+"ـٰ in the Mushaf": {
+"ar": "ـٰ في المصحف",
+"fr": "ـٰ dans le Moushaf",
+"ur": "ـٰ مصحف میں",
+"ha": "ـٰ a Mus'hafi",
+"id": "ـٰ dalam mushaf",
+"tl": "ـٰ sa Mushaf"
+},
+"Alif Madd": {
+"ar": "مدّ الألف",
+"fr": "Madd de l'alif",
+"ur": "الف کا مد",
+"ha": "Maddar Alif",
+"id": "Mad Alif",
+"tl": "Alif Madd"
+},
+"Beginner {n} Final Exam": {
+"ar": "الاختبار النهائي للمبتدئ {n}",
+"fr": "Examen final Débutant {n}",
+"ur": "بیگنر {n} کا آخری امتحان",
+"ha": "Jarrabawar Ƙarshe ta Mafari {n}",
+"id": "Ujian Akhir Pemula {n}",
+"tl": "Huling Pagsusulit ng Beginner {n}"
+},
+"Certificate earned": {
+"ar": "حصلت على الشهادة",
+"fr": "Certificat obtenu",
+"ur": "سرٹیفکیٹ مل گیا",
+"ha": "An samu takardar shaida",
+"id": "Sertifikat diperoleh",
+"tl": "Nakuha ang sertipiko"
+},
+"Completed": {
+"ar": "مكتمل",
+"fr": "Terminé",
+"ur": "مکمل",
+"ha": "An kammala",
+"id": "Selesai",
+"tl": "Tapos na"
+},
+"Completed ✓": {
+"ar": "مكتمل ✓",
+"fr": "Terminé ✓",
+"ur": "مکمل ✓",
+"ha": "An kammala ✓",
+"id": "Selesai ✓",
+"tl": "Tapos na ✓"
+},
+"Creativity": {
+"ar": "الإبداع",
+"fr": "Créativité",
+"ur": "تخلیقی صلاحیت",
+"ha": "Fasaha",
+"id": "Kreativitas",
+"tl": "Pagkamalikhain"
+},
+"Development": {
+"ar": "التطوير",
+"fr": "Développement",
+"ur": "ترقی",
+"ha": "Ci gaba",
+"id": "Pengembangan",
+"tl": "Pag-unlad"
+},
+"Each subject moves up on its own: finish a subject's level, and its next level opens. Every completed level earns a certificate.": {
+"ar": "كل مادة تتقدّم وحدها: أنهِ مستوى المادة فيُفتح مستواها التالي. وكل مستوى مكتمل يمنحك شهادة.",
+"fr": "Chaque matière avance seule : termine un niveau d'une matière et son niveau suivant s'ouvre. Chaque niveau terminé donne un certificat.",
+"ur": "ہر مضمون اپنے طور پر آگے بڑھتا ہے: مضمون کا درجہ مکمل کریں تو اس کا اگلا درجہ کھل جاتا ہے۔ ہر مکمل درجے پر سرٹیفکیٹ ملتا ہے۔",
+"ha": "Kowane fanni yana hawa da kansa: gama matakin fanni, sai matakinsa na gaba ya buɗe. Kowane mataki da aka gama yana ba da takardar shaida.",
+"id": "Setiap mata pelajaran naik sendiri: selesaikan tingkatnya, lalu tingkat berikutnya terbuka. Setiap tingkat yang selesai mendapat sertifikat.",
+"tl": "Bawat asignatura ay umaakyat nang mag-isa: tapusin ang antas nito, at bubukas ang susunod. Bawat natapos na antas ay may sertipiko."
+},
+"Everyday Spelling": {
+"ar": "الرسم الإملائي",
+"fr": "Orthographe courante",
+"ur": "عام املا",
+"ha": "Rubutun Yau da Kullum",
+"id": "Tulisan Imla'i",
+"tl": "Karaniwang Baybay"
+},
+"everyday spelling": {
+"ar": "الرسم الإملائي",
+"fr": "orthographe courante",
+"ur": "عام املا",
+"ha": "rubutun yau da kullum",
+"id": "tulisan imla'i",
+"tl": "karaniwang baybay"
+},
+"Fast": {
+"ar": "سريع",
+"fr": "Rapide",
+"ur": "تیز",
+"ha": "Da sauri",
+"id": "Cepat",
+"tl": "Mabilis"
+},
+"Final exam · opens the next level": {
+"ar": "الاختبار النهائي · يفتح المستوى التالي",
+"fr": "Examen final · ouvre le niveau suivant",
+"ur": "آخری امتحان · اگلا درجہ کھولتا ہے",
+"ha": "Jarrabawar ƙarshe · tana buɗe mataki na gaba",
+"id": "Ujian akhir · membuka tingkat berikutnya",
+"tl": "Huling pagsusulit · bubuksan ang susunod na antas"
+},
+"Finish all the lessons to unlock the exam.": {
+"ar": "أنهِ كل الدروس لفتح الاختبار.",
+"fr": "Termine toutes les leçons pour débloquer l'examen.",
+"ur": "امتحان کھولنے کے لیے تمام اسباق مکمل کریں۔",
+"ha": "Gama dukan darussa don buɗe jarrabawar.",
+"id": "Selesaikan semua pelajaran untuk membuka ujian.",
+"tl": "Tapusin lahat ng aralin para mabuksan ang pagsusulit."
+},
+"Islamic education, step by step.": {
+"ar": "تعليم إسلامي، خطوة بخطوة.",
+"fr": "L'éducation islamique, pas à pas.",
+"ur": "اسلامی تعلیم، قدم بہ قدم۔",
+"ha": "Ilimin Musulunci, mataki-mataki.",
+"id": "Pendidikan Islam, langkah demi langkah.",
+"tl": "Edukasyong Islamiko, hakbang-hakbang."
+},
+"Languages": {
+"ar": "اللغات",
+"fr": "Langues",
+"ur": "زبانیں",
+"ha": "Harsuna",
+"id": "Bahasa",
+"tl": "Mga Wika"
+},
+"Learn new languages.": {
+"ar": "تعلّم لغات جديدة.",
+"fr": "Apprends de nouvelles langues.",
+"ur": "نئی زبانیں سیکھیں۔",
+"ha": "Koyi sababbin harsuna.",
+"id": "Belajar bahasa baru.",
+"tl": "Matuto ng mga bagong wika."
+},
+"Personal, professional and technical growth.": {
+"ar": "نموّ شخصي ومهني وتقني.",
+"fr": "Développement personnel, professionnel et technique.",
+"ur": "ذاتی، پیشہ ورانہ اور تکنیکی ترقی۔",
+"ha": "Ci gaban kai, sana'a da fasaha.",
+"id": "Pengembangan pribadi, profesional, dan teknis.",
+"tl": "Personal, propesyonal at teknikal na pag-unlad."
+},
+"Creative skills and practical talents.": {
+"ar": "مهارات إبداعية ومواهب عملية.",
+"fr": "Compétences créatives et talents pratiques.",
+"ur": "تخلیقی مہارتیں اور عملی صلاحیتیں۔",
+"ha": "Fasahohin kirkira da baiwa ta aiki.",
+"id": "Keterampilan kreatif dan bakat praktis.",
+"tl": "Malikhaing kasanayan at praktikal na talento."
+},
+"Lesson {n} · {n} min": {
+"ar": "الدرس {n} · {n} دقائق",
+"fr": "Leçon {n} · {n} min",
+"ur": "سبق {n} · {n} منٹ",
+"ha": "Darasi {n} · minti {n}",
+"id": "Pelajaran {n} · {n} menit",
+"tl": "Aralin {n} · {n} min"
+},
+"Lessons": {
+"ar": "الدروس",
+"fr": "Leçons",
+"ur": "اسباق",
+"ha": "Darussa",
+"id": "Pelajaran",
+"tl": "Mga Aralin"
+},
+"Lessons are being prepared. Check back soon.": {
+"ar": "الدروس قيد الإعداد. عُد قريبًا.",
+"fr": "Les leçons sont en préparation. Reviens bientôt.",
+"ur": "اسباق تیار ہو رہے ہیں۔ جلد واپس آئیں۔",
+"ha": "Ana shirya darussa. Ka dawo nan ba da daɗewa ba.",
+"id": "Pelajaran sedang disiapkan. Kembali lagi nanti.",
+"tl": "Inihahanda pa ang mga aralin. Bumalik ka maya-maya."
+},
+"Madrasah": {
+"ar": "المدرسة",
+"fr": "Madrasa",
+"ur": "مدرسہ",
+"ha": "Makaranta",
+"id": "Madrasah",
+"tl": "Madrasah"
+},
+"Open →": {
+"ar": "افتح ←",
+"fr": "Ouvrir →",
+"ur": "کھولیں ←",
+"ha": "Buɗe →",
+"id": "Buka →",
+"tl": "Buksan →"
+},
+"Open ▶": {
+"ar": "افتح ◀",
+"fr": "Ouvrir ▶",
+"ur": "کھولیں ◀",
+"ha": "Buɗe ▶",
+"id": "Buka ▶",
+"tl": "Buksan ▶"
+},
+"Opening…": {
+"ar": "جارٍ الفتح…",
+"fr": "Ouverture…",
+"ur": "کھل رہا ہے…",
+"ha": "Ana buɗewa…",
+"id": "Membuka…",
+"tl": "Binubuksan…"
+},
+"Pass the final exam to earn it.": {
+"ar": "انجح في الاختبار النهائي لتحصل عليها.",
+"fr": "Réussis l'examen final pour l'obtenir.",
+"ur": "اسے حاصل کرنے کے لیے آخری امتحان پاس کریں۔",
+"ha": "Ci jarrabawar ƙarshe don ka samu.",
+"id": "Lulus ujian akhir untuk mendapatkannya.",
+"tl": "Pumasa sa huling pagsusulit para makuha ito."
+},
+"Passed. The next stage is open.": {
+"ar": "نجحت. المرحلة التالية مفتوحة.",
+"fr": "Réussi. L'étape suivante est ouverte.",
+"ur": "کامیاب۔ اگلا مرحلہ کھل گیا۔",
+"ha": "Ka ci. Mataki na gaba ya buɗe.",
+"id": "Lulus. Tahap berikutnya terbuka.",
+"tl": "Pumasa. Bukas na ang susunod na yugto."
+},
+"Phrases": {
+"ar": "عبارات",
+"fr": "Phrases",
+"ur": "جملے",
+"ha": "Jimloli",
+"id": "Kalimat",
+"tl": "Mga Parirala"
+},
+"Plan your pace": {
+"ar": "خطّط لسرعتك",
+"fr": "Planifie ton rythme",
+"ur": "اپنی رفتار طے کریں",
+"ha": "Tsara saurinka",
+"id": "Atur kecepatanmu",
+"tl": "Planuhin ang iyong bilis"
+},
+"Promotion exam": {
+"ar": "اختبار الترقية",
+"fr": "Examen de passage",
+"ur": "ترقی کا امتحان",
+"ha": "Jarrabawar hawa",
+"id": "Ujian kenaikan",
+"tl": "Pagsusulit sa pag-akyat"
+},
+"Qur'anic Words": {
+"ar": "كلمات قرآنية",
+"fr": "Mots coraniques",
+"ur": "قرآنی الفاظ",
+"ha": "Kalmomin Alƙur'ani",
+"id": "Kata-kata Al-Qur'an",
+"tl": "Mga Salita ng Qur'an"
+},
+"Qur'anic Words {n}": {
+"ar": "كلمات قرآنية {n}",
+"fr": "Mots coraniques {n}",
+"ur": "قرآنی الفاظ {n}",
+"ha": "Kalmomin Alƙur'ani {n}",
+"id": "Kata-kata Al-Qur'an {n}",
+"tl": "Mga Salita ng Qur'an {n}"
+},
+"Relaxed": {
+"ar": "مريح",
+"fr": "Tranquille",
+"ur": "آرام سے",
+"ha": "A hankali",
+"id": "Santai",
+"tl": "Relaks"
+},
+"Review →": {
+"ar": "راجع ←",
+"fr": "Réviser →",
+"ur": "دُہرائیں ←",
+"ha": "Bita →",
+"id": "Ulas →",
+"tl": "Balikan →"
+},
+"Save my plan": {
+"ar": "احفظ خطتي",
+"fr": "Enregistrer mon plan",
+"ur": "میرا منصوبہ محفوظ کریں",
+"ha": "Ajiye tsarina",
+"id": "Simpan rencanaku",
+"tl": "I-save ang plano ko"
+},
+"Shadda": {
+"ar": "الشدّة",
+"fr": "Shadda",
+"ur": "شد",
+"ha": "Shadda",
+"id": "Tasydid",
+"tl": "Shadda"
+},
+"Short and Long": {
+"ar": "قصير وطويل",
+"fr": "Court et long",
+"ur": "چھوٹا اور لمبا",
+"ha": "Gajere da Dogo",
+"id": "Pendek dan Panjang",
+"tl": "Maikli at Mahaba"
+},
+"Skip ahead": {
+"ar": "تقدّم للأمام",
+"fr": "Avancer",
+"ur": "آگے بڑھیں",
+"ha": "Tsallaka gaba",
+"id": "Lompat ke depan",
+"tl": "Lumaktaw pasulong"
+},
+"Start here": {
+"ar": "ابدأ هنا",
+"fr": "Commence ici",
+"ur": "یہاں سے شروع کریں",
+"ha": "Fara nan",
+"id": "Mulai di sini",
+"tl": "Magsimula dito"
+},
+"Start →": {
+"ar": "ابدأ ←",
+"fr": "Commencer →",
+"ur": "شروع کریں ←",
+"ha": "Fara →",
+"id": "Mulai →",
+"tl": "Simula →"
+},
+"Steady": {
+"ar": "منتظم",
+"fr": "Régulier",
+"ur": "مستقل",
+"ha": "A tsaye",
+"id": "Stabil",
+"tl": "Tuloy-tuloy"
+},
+"Syllabus": {
+"ar": "المنهج",
+"fr": "Programme",
+"ur": "نصاب",
+"ha": "Manhaja",
+"id": "Silabus",
+"tl": "Silabus"
+},
+"Take the exam": {
+"ar": "خذ الاختبار",
+"fr": "Passer l'examen",
+"ur": "امتحان دیں",
+"ha": "Yi jarrabawar",
+"id": "Ikuti ujian",
+"tl": "Kumuha ng pagsusulit"
+},
+"Test": {
+"ar": "اختبار",
+"fr": "Test",
+"ur": "ٹیسٹ",
+"ha": "Gwaji",
+"id": "Uji",
+"tl": "Test"
+},
+"Test mode ON": {
+"ar": "وضع الاختبار مُفعّل",
+"fr": "Mode test ACTIVÉ",
+"ur": "ٹیسٹ موڈ آن",
+"ha": "Yanayin gwaji A KUNNE",
+"id": "Mode uji AKTIF",
+"tl": "Test mode NAKA-ON"
+},
+"This lesson is for Premium members.": {
+"ar": "هذا الدرس لأعضاء بريميوم.",
+"fr": "Cette leçon est réservée aux membres Premium.",
+"ur": "یہ سبق پریمیم اراکین کے لیے ہے۔",
+"ha": "Wannan darasi na membobin Premium ne.",
+"id": "Pelajaran ini untuk anggota Premium.",
+"tl": "Para sa mga Premium member ang araling ito."
+},
+"Verses & Hadith {n}": {
+"ar": "آيات وأحاديث {n}",
+"fr": "Versets et hadiths {n}",
+"ur": "آیات اور احادیث {n}",
+"ha": "Ayoyi da Hadisai {n}",
+"id": "Ayat dan Hadis {n}",
+"tl": "Mga Talata at Hadith {n}"
+},
+"Waw Madd": {
+"ar": "مدّ الواو",
+"fr": "Madd du waw",
+"ur": "واؤ کا مد",
+"ha": "Maddar Waw",
+"id": "Mad Wau",
+"tl": "Waw Madd"
+},
+"What will you learn today?": {
+"ar": "ماذا ستتعلّم اليوم؟",
+"fr": "Qu'apprendras-tu aujourd'hui ?",
+"ur": "آج آپ کیا سیکھیں گے؟",
+"ha": "Me za ka koya yau?",
+"id": "Apa yang akan kamu pelajari hari ini?",
+"tl": "Ano ang matututunan mo ngayon?"
+},
+"Words": {
+"ar": "كلمات",
+"fr": "Mots",
+"ur": "الفاظ",
+"ha": "Kalmomi",
+"id": "Kata-kata",
+"tl": "Mga Salita"
+},
+"words": {
+"ar": "كلمات",
+"fr": "mots",
+"ur": "الفاظ",
+"ha": "kalmomi",
+"id": "kata-kata",
+"tl": "mga salita"
+},
+"Words & Phrases": {
+"ar": "كلمات وعبارات",
+"fr": "Mots et phrases",
+"ur": "الفاظ اور جملے",
+"ha": "Kalmomi da Jimloli",
+"id": "Kata dan Kalimat",
+"tl": "Mga Salita at Parirala"
+},
+"Yaa Madd": {
+"ar": "مدّ الياء",
+"fr": "Madd du yaa",
+"ur": "یا کا مد",
+"ha": "Maddar Yaa",
+"id": "Mad Ya",
+"tl": "Yaa Madd"
+},
+"all harakat": {
+"ar": "كل الحركات",
+"fr": "toutes les harakat",
+"ur": "تمام حرکات",
+"ha": "dukan harakoki",
+"id": "semua harakat",
+"tl": "lahat ng harakat"
+},
+"all letters with damma": {
+"ar": "كل الحروف بالضمة",
+"fr": "toutes les lettres avec damma",
+"ur": "تمام حروف پیش کے ساتھ",
+"ha": "dukan baƙaƙe da damma",
+"id": "semua huruf dengan dhammah",
+"tl": "lahat ng titik na may damma"
+},
+"all letters with kasra": {
+"ar": "كل الحروف بالكسرة",
+"fr": "toutes les lettres avec kasra",
+"ur": "تمام حروف زیر کے ساتھ",
+"ha": "dukan baƙaƙe da kasra",
+"id": "semua huruf dengan kasrah",
+"tl": "lahat ng titik na may kasra"
+},
+"all madd": {
+"ar": "كل أنواع المدّ",
+"fr": "tous les madd",
+"ur": "تمام مد",
+"ha": "dukan madda",
+"id": "semua mad",
+"tl": "lahat ng madd"
+},
+"all the madd letters": {
+"ar": "كل حروف المدّ",
+"fr": "toutes les lettres de madd",
+"ur": "مد کے تمام حروف",
+"ha": "dukan baƙaƙen madda",
+"id": "semua huruf mad",
+"tl": "lahat ng titik ng madd"
+},
+"all three madd letters": {
+"ar": "حروف المدّ الثلاثة",
+"fr": "les trois lettres de madd",
+"ur": "مد کے تینوں حروف",
+"ha": "baƙaƙen madda uku",
+"id": "ketiga huruf mad",
+"tl": "tatlong titik ng madd"
+},
+"and phrases": {
+"ar": "وعبارات",
+"fr": "et phrases",
+"ur": "اور جملے",
+"ha": "da jimloli",
+"id": "dan kalimat",
+"tl": "at mga parirala"
+},
+"in shape and in sound": {
+"ar": "في الشكل وفي الصوت",
+"fr": "par la forme et par le son",
+"ur": "شکل اور آواز میں",
+"ha": "a siffa da sauti",
+"id": "dalam bentuk dan bunyi",
+"tl": "sa hugis at sa tunog"
+},
+"longer phrases": {
+"ar": "عبارات أطول",
+"fr": "phrases plus longues",
+"ur": "لمبے جملے",
+"ha": "dogayen jimloli",
+"id": "kalimat lebih panjang",
+"tl": "mas mahahabang parirala"
+},
+"longer words": {
+"ar": "كلمات أطول",
+"fr": "mots plus longs",
+"ur": "لمبے الفاظ",
+"ha": "dogayen kalmomi",
+"id": "kata lebih panjang",
+"tl": "mas mahahabang salita"
+},
+"meem": {
+"ar": "الميم",
+"fr": "mim",
+"ur": "میم",
+"ha": "mim",
+"id": "mim",
+"tl": "meem"
+},
+"noon": {
+"ar": "النون",
+"fr": "noun",
+"ur": "نون",
+"ha": "nun",
+"id": "nun",
+"tl": "noon"
+},
+"raa": {
+"ar": "الراء",
+"fr": "raa",
+"ur": "را",
+"ha": "raa",
+"id": "ra",
+"tl": "raa"
+},
+"tanween": {
+"ar": "التنوين",
+"fr": "tanwin",
+"ur": "تنوین",
+"ha": "tanwin",
+"id": "tanwin",
+"tl": "tanween"
+},
+"on waw": {
+"ar": "على الواو",
+"fr": "sur le waw",
+"ur": "واؤ پر",
+"ha": "a kan waw",
+"id": "di atas wau",
+"tl": "sa waw"
+},
+"on yaa": {
+"ar": "على الياء",
+"fr": "sur le yaa",
+"ur": "یا پر",
+"ha": "a kan yaa",
+"id": "di atas ya",
+"tl": "sa yaa"
+},
+"phrases with all harakat": {
+"ar": "عبارات بكل الحركات",
+"fr": "phrases avec toutes les harakat",
+"ur": "تمام حرکات والے جملے",
+"ha": "jimloli da dukan harakoki",
+"id": "kalimat dengan semua harakat",
+"tl": "mga parirala na may lahat ng harakat"
+},
+"read a whole phrase": {
+"ar": "اقرأ عبارة كاملة",
+"fr": "lis une phrase entière",
+"ur": "پورا جملہ پڑھیں",
+"ha": "karanta cikakkiyar jimla",
+"id": "baca satu kalimat utuh",
+"tl": "basahin ang buong parirala"
+},
+"read in one go": {
+"ar": "اقرأ دفعة واحدة",
+"fr": "lis d'un seul coup",
+"ur": "ایک ہی بار میں پڑھیں",
+"ha": "karanta a lokaci ɗaya",
+"id": "baca sekaligus",
+"tl": "basahin nang isang tuloy"
+},
+"read letter by letter": {
+"ar": "اقرأ حرفًا حرفًا",
+"fr": "lis lettre par lettre",
+"ur": "حرف بہ حرف پڑھیں",
+"ha": "karanta harafi-harafi",
+"id": "baca huruf demi huruf",
+"tl": "basahin titik por titik"
+},
+"sentences": {
+"ar": "جمل",
+"fr": "phrases",
+"ur": "جملے",
+"ha": "jimloli",
+"id": "kalimat",
+"tl": "mga pangungusap"
+},
+"silent letters": {
+"ar": "الحروف التي لا تُنطق",
+"fr": "lettres muettes",
+"ur": "خاموش حروف",
+"ha": "baƙaƙen da ba a furtawa",
+"id": "huruf yang tidak dibaca",
+"tl": "mga titik na hindi binibigkas"
+},
+"the closed letter": {
+"ar": "الحرف الساكن",
+"fr": "la lettre fermée",
+"ur": "بند حرف",
+"ha": "harafi a rufe",
+"id": "huruf tertutup",
+"tl": "ang saradong titik"
+},
+"the disjoined letters": {
+"ar": "الحروف المقطّعة",
+"fr": "les lettres isolées",
+"ur": "حروفِ مقطعات",
+"ha": "baƙaƙen muqatta'a",
+"id": "huruf muqatha'ah",
+"tl": "ang mga hiwalay na titik"
+},
+"the marks": {
+"ar": "العلامات",
+"fr": "les signes",
+"ur": "نشانات",
+"ha": "alamomi",
+"id": "tanda-tandanya",
+"tl": "ang mga marka"
+},
+"two and three words": {
+"ar": "كلمتان وثلاث",
+"fr": "deux et trois mots",
+"ur": "دو اور تین الفاظ",
+"ha": "kalmomi biyu da uku",
+"id": "dua dan tiga kata",
+"tl": "dalawa at tatlong salita"
+},
+"with fatha": {
+"ar": "بالفتحة",
+"fr": "avec fatha",
+"ur": "زبر کے ساتھ",
+"ha": "da fatha",
+"id": "dengan fathah",
+"tl": "na may fatha"
+},
+"with the qalqalah letters": {
+"ar": "مع حروف القلقلة",
+"fr": "avec les lettres de qalqala",
+"ur": "قلقلہ کے حروف کے ساتھ",
+"ha": "da baƙaƙen qalqala",
+"id": "dengan huruf qalqalah",
+"tl": "kasama ang mga titik ng qalqalah"
+},
+"words and phrases": {
+"ar": "كلمات وعبارات",
+"fr": "mots et phrases",
+"ur": "الفاظ اور جملے",
+"ha": "kalmomi da jimloli",
+"id": "kata dan kalimat",
+"tl": "mga salita at parirala"
+},
+"{n} min": {
+"ar": "{n} دقائق",
+"fr": "{n} min",
+"ur": "{n} منٹ",
+"ha": "minti {n}",
+"id": "{n} menit",
+"tl": "{n} min"
+},
+"{n} of {n} done": {
+"ar": "{n} من {n} مكتملة",
+"fr": "{n} sur {n} faites",
+"ur": "{n} از {n} مکمل",
+"ha": "{n} cikin {n} an gama",
+"id": "{n} dari {n} selesai",
+"tl": "{n} sa {n} tapos"
+},
+"{n} of {n} done ⭐": {
+"ar": "{n} من {n} مكتملة ⭐",
+"fr": "{n} sur {n} faites ⭐",
+"ur": "{n} از {n} مکمل ⭐",
+"ha": "{n} cikin {n} an gama ⭐",
+"id": "{n} dari {n} selesai ⭐",
+"tl": "{n} sa {n} tapos ⭐"
+},
+"{n} of {n} lessons": {
+"ar": "{n} من {n} دروس",
+"fr": "{n} sur {n} leçons",
+"ur": "{n} از {n} اسباق",
+"ha": "darussa {n} cikin {n}",
+"id": "{n} dari {n} pelajaran",
+"tl": "{n} sa {n} aralin"
+},
+"{n} lessons · {n}%": {
+"ar": "{n} دروس · {n}%",
+"fr": "{n} leçons · {n}%",
+"ur": "{n} اسباق · {n}%",
+"ha": "darussa {n} · {n}%",
+"id": "{n} pelajaran · {n}%",
+"tl": "{n} aralin · {n}%"
+},
+"{n} subject": {
+"ar": "{n} مادة",
+"fr": "{n} matière",
+"ur": "{n} مضمون",
+"ha": "fanni {n}",
+"id": "{n} mata pelajaran",
+"tl": "{n} asignatura"
+},
+"{n} subjects": {
+"ar": "{n} مواد",
+"fr": "{n} matières",
+"ur": "{n} مضامین",
+"ha": "fannoni {n}",
+"id": "{n} mata pelajaran",
+"tl": "{n} asignatura"
+},
+"Qiraha": {
+"ar": "القراءة",
+"fr": "Qira'ah",
+"ur": "قراءت",
+"ha": "Qira'ah",
+"id": "Qira'ah",
+"tl": "Qira'ah"
+},
+"'arid": {
+"ar": "العارض",
+"fr": "'arid",
+"ur": "عارض",
+"ha": "'arid",
+"id": "'aridh",
+"tl": "'arid"
+},
+"badal": {
+"ar": "البدل",
+"fr": "badal",
+"ur": "بدل",
+"ha": "badal",
+"id": "badal",
+"tl": "badal"
+},
+"idgham": {
+"ar": "الإدغام",
+"fr": "idgham",
+"ur": "ادغام",
+"ha": "idgami",
+"id": "idgham",
+"tl": "idgham"
+},
+"ikhfa": {
+"ar": "الإخفاء",
+"fr": "ikhfa",
+"ur": "اخفاء",
+"ha": "ikhfa'i",
+"id": "ikhfa",
+"tl": "ikhfa"
+},
+"iqlab": {
+"ar": "الإقلاب",
+"fr": "iqlab",
+"ur": "اقلاب",
+"ha": "iqlabi",
+"id": "iqlab",
+"tl": "iqlab"
+},
+"izhar": {
+"ar": "الإظهار",
+"fr": "izhar",
+"ur": "اظہار",
+"ha": "izhari",
+"id": "izhar",
+"tl": "izhar"
+},
+"izhar shafawi": {
+"ar": "الإظهار الشفوي",
+"fr": "izhar shafawi",
+"ur": "اظہار شفوی",
+"ha": "izhar shafawi",
+"id": "izhar syafawi",
+"tl": "izhar shafawi"
+},
+"lazim": {
+"ar": "اللازم",
+"fr": "lazim",
+"ur": "لازم",
+"ha": "lazim",
+"id": "lazim",
+"tl": "lazim"
+},
+"mithlain": {
+"ar": "المثلين",
+"fr": "mithlain",
+"ur": "مثلین",
+"ha": "mislaini",
+"id": "mitslain",
+"tl": "mithlain"
+},
+"munfasil": {
+"ar": "المنفصل",
+"fr": "munfasil",
+"ur": "منفصل",
+"ha": "munfasil",
+"id": "munfashil",
+"tl": "munfasil"
+},
+"mutajanisain": {
+"ar": "المتجانسين",
+"fr": "mutajanisain",
+"ur": "متجانسین",
+"ha": "mutajanisaini",
+"id": "mutajanisain",
+"tl": "mutajanisain"
+},
+"mutaqaribain": {
+"ar": "المتقاربين",
+"fr": "mutaqaribain",
+"ur": "متقاربین",
+"ha": "mutaqaribaini",
+"id": "mutaqaribain",
+"tl": "mutaqaribain"
+},
+"muttasil": {
+"ar": "المتصل",
+"fr": "muttasil",
+"ur": "متصل",
+"ha": "muttasil",
+"id": "muttashil",
+"tl": "muttasil"
+},
+"silah": {
+"ar": "الصلة",
+"fr": "silah",
+"ur": "صلہ",
+"ha": "sila",
+"id": "shilah",
+"tl": "silah"
+},
+"wasl": {
+"ar": "الوصل",
+"fr": "wasl",
+"ur": "وصل",
+"ha": "wasl",
+"id": "washal",
+"tl": "wasl"
+},
+"qalqalah": {
+"ar": "القلقلة",
+"fr": "qalqala",
+"ur": "قلقلہ",
+"ha": "qalqala",
+"id": "qalqalah",
+"tl": "qalqalah"
+},
+"pp.{n}–{n}": {
+"ar": "ص {n}–{n}",
+"fr": "p. {n}–{n}",
+"ur": "ص {n}–{n}",
+"ha": "shafi {n}–{n}",
+"id": "hlm. {n}–{n}",
+"tl": "p. {n}–{n}"
+}
+};
+for (const [k, v] of Object.entries(STUDY)) DICT[k] = { ...v, ...(DICT[k] ?? {}) };

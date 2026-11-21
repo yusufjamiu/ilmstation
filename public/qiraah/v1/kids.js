@@ -110,7 +110,7 @@ const WHO = (typeof LESSON!=="undefined" && /adult/.test(LESSON.course)) ? "adul
 function voiceUrl(text, rate=.85, lang="ar"){
   if (AUDIO[text]) return AUDIO[text];
   // instructions (lang "en"): translated and read in the learner's language
-  if (lang!=="ar") return `${VOICE_ENDPOINT}?text=${encodeURIComponent(TX(text))}&lang=${LANG}&who=${WHO}&slow=0&v=3`;
+  if (lang!=="ar") return `${VOICE_ENDPOINT}?text=${encodeURIComponent(TX(text))}&lang=${LANG}&who=${WHO}&slow=0&v=4`;
   // letter names ending in ـاءْ (بَاءْ تَاءْ…): the voice turns the final hamza into an extra "ha",
   // so it says them the way the alphabet is recited: "baa", "taa" (the screen still shows the full name)
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
