@@ -103,7 +103,7 @@ const WHO = (typeof LESSON!=="undefined" && /adult/.test(LESSON.course)) ? "adul
 function voiceUrl(text, rate=.85, lang="ar"){
   if (AUDIO[text]) return AUDIO[text];
   // instructions (lang "en"): translated and read in the learner's language
-  if (lang!=="ar") return `${VOICE_ENDPOINT}?text=${encodeURIComponent(TX(text))}&lang=${LANG}&who=${WHO}&slow=0&v=${["yo","ig","ha"].includes(LANG)?"5n":"4"}`;
+  if (lang!=="ar") return `${VOICE_ENDPOINT}?text=${encodeURIComponent(TX(text))}&lang=${LANG}&who=${WHO}&slow=0&v=${["yo","ig","ha"].includes(LANG)?"6n":"4"}`;
   // letter names ending in ـاءْ (بَاءْ تَاءْ…): the voice turns the final hamza into an extra "ha",
   // so it says them the way the alphabet is recited: "baa", "taa" (the screen still shows the full name)
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
@@ -116,7 +116,8 @@ async function prefetchVoices(items){
   const urls = [...new Set(items.filter(Boolean).map(([t,l]) => voiceUrl(t, l==="en"?.95:.85, l||"ar")))];
   let k = 0;
   const worker = async () => { while (k < urls.length) { const u = urls[k++]; try { await fetch(u, { mode:"no-cors", cache:"force-cache" }); } catch(e){} } };
-  await Promise.all([worker(), worker(), worker()]);
+  // Yoruba/Igbo/Hausa voices come from a service that prefers one request at a time
+  await Promise.all(["yo","ig","ha"].includes(LANG) ? [worker()] : [worker(), worker(), worker()]);
 }
 /** Arabic by default; speakEn() is the friendly English voice for instructions.
     The audio plays straight from the voice server's address (Safari won't play downloaded copies inside the app's lesson box). */

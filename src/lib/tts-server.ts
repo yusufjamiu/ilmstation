@@ -107,14 +107,25 @@ export async function handleTts(request: Request): Promise<Response> {
   const spitch = process.env.SPITCH_API_KEY;
   const NAIJA: Record<string, [string, string]> = { yo: ["segun", "funmi"], ig: ["ebuka", "ngozi"], ha: ["aliyu", "zainab"] }; // [adult man, kids woman]
   if (english && spitch && NAIJA[ilang]) {
-    try {
-      const r = await fetch("https://api.spitch.app/v1/speech", {
-        method: "POST",
-        headers: { authorization: `Bearer ${spitch}`, "content-type": "application/json" },
-        body: JSON.stringify({ text, language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
-      });
-      if (r.ok) return audio(await r.arrayBuffer());
-    } catch { /* fall through */ }
+    // up to 3 tries: Spitch can refuse requests that arrive together ("too many requests") or be slow
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await fetch("https://api.spitch.app/v1/speech", {
+          method: "POST",
+          headers: { authorization: `Bearer ${spitch}`, "content-type": "application/json" },
+          body: JSON.stringify({ text, language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
+          signal: AbortSignal.timeout(20000),
+        });
+        if (r.ok) {
+          const buf = await r.arrayBuffer();
+          if (buf.byteLength > 1000) return audio(buf);
+        } else {
+          console.error("spitch", r.status, (await r.text().catch(() => "")).slice(0, 300));
+          if (r.status !== 429 && r.status < 500) break; // a real error (e.g. text too long): use the backup voice
+        }
+      } catch (e) { console.error("spitch", String(e)); }
+      await new Promise((ok) => setTimeout(ok, 800 * (attempt + 1)));
+    }
   }
   if (english && NAIJA[ilang]) backup = true;
 
