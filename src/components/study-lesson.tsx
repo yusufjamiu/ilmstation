@@ -60,7 +60,7 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
   const url = lesson.html?.[chosen as keyof typeof lesson.html];
   const [finished, setFinished] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
-  useLessonBridge(frameRef, lesson.id); // the lesson asks the app for the mic, speech checking and saved progress
+  useLessonBridge(frameRef, lesson.id, lang); // the lesson asks the app for the mic, speech checking and saved progress
   // "smart" lessons (they say hello) finish themselves when the learner passes, so the manual button is hidden
   const [smart, setSmart] = useState(false);
   const [myNote, setMyNote] = useState(note);

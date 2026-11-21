@@ -45,6 +45,12 @@ const TAJWEED_RULE =
   "Qalqalah (a light echo) on ق ط ب ج د with sukun. Short vowels stay short. Pronounce the last vowel of every word unless a sukun is written. " +
   "Disjoined letters at the start of a surah are read by their letter names. ";
 
+// Instructions in other languages: speak that language like a native teacher.
+const LANG_NAMES: Record<string, string> = { ar: "Modern Standard Arabic (fusha)", fr: "French", ur: "Urdu", ha: "Hausa", id: "Indonesian", tl: "Filipino (Tagalog)", yo: "Yoruba", bn: "Bengali", tr: "Turkish", sw: "Swahili" };
+const speakIn = (code: string) => code && code !== "en" && LANG_NAMES[code]
+  ? ` The text is in ${LANG_NAMES[code]}: read it in ${LANG_NAMES[code]} with a natural native accent, not an English accent. Keep Arabic and Islamic words in their proper Arabic pronunciation.`
+  : "";
+
 // Letters that dialects often change. A note is added only for letters that appear in the word.
 const LETTER_NOTES: Record<string, string> = {
   "ث": "ث (tha) is 'th' as in English 'think' — tongue between the teeth. NEVER 's' or 'z'.",
@@ -72,12 +78,15 @@ export async function handleTts(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const text = (url.searchParams.get("text") ?? "").trim();
-  const english = url.searchParams.get("lang") === "en";
+  // instructions: ?lang=<code> (en, ar, fr, ur, ha, id, tl, yo…); the Arabic reading has no lang
+  const ilang = (url.searchParams.get("lang") ?? "").toLowerCase();
+  const english = /^[a-z]{2,3}$/.test(ilang);          // "english" = spoken instructions, in the learner's language
   const adult = url.searchParams.get("who") === "adult";   // adult narrator, otherwise Nuri for children
   // Only short lesson text, so nobody can use this to read other things on your bill
   if (english) {
-    if (!text || text.length > 400 || !/^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text))
-      return json({ error: "Short English text only (max 400 characters)." }, 400);
+    const ok = ilang === "en" ? /^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text) : /^[\p{L}\p{M}\p{N}\s.,!?'’:;()\-–—«»"“”،؟·]+$/u.test(text);
+    if (!text || text.length > 500 || !ok)
+      return json({ error: "Short lesson text only (max 500 characters)." }, 400);
   } else if (!text || text.length > 120 || !/^[\u0600-\u06FF\s،.]+$/.test(text))
     return json({ error: "Arabic text only (max 120 characters)." }, 400);
   const tajweed = !english && url.searchParams.get("tj") === "1";   // Intermediate lessons: full tajweed
@@ -117,7 +126,7 @@ export async function handleTts(request: Request): Promise<Response> {
         model: "gpt-4o-mini-tts",
         voice: english ? (adult ? "onyx" : "coral") : "onyx", // adults: the same deep male voice as the Arabic reading
         input: text,
-        instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) : tajweed ? TAJWEED_RULE + notes : READ_RULE + guide + notes,
+        instructions: english ? (adult ? ADULT_TEACHER : KID_TEACHER) + speakIn(ilang) : tajweed ? TAJWEED_RULE + notes : READ_RULE + guide + notes,
         speed: english ? (adult ? 0.85 : 0.92) : tajweed ? (slow ? 0.8 : 0.92) : slow ? 0.8 : 1.0, // slower speeds make the voice stretch Arabic vowels
         response_format: "mp3",
       }),

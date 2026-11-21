@@ -5,6 +5,7 @@ import { callPremium, UnlockDialog, usePremium } from "@/components/premium";
 import { levelFor, useLevels, useMyXp } from "@/components/today";
 import { useEffect, useRef, useState } from "react";
 import { useLessonBridge } from "@/lib/lesson-bridge";
+import { useLanguage as useKidLang } from "@/components/language";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GraduationCap, Library, Play, Star } from "lucide-react";
@@ -133,7 +134,8 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
 function KidHtmlGame({ game, onBack, left = -1 }: { game: KidGame; onBack: () => void; left?: number }) {
   const [done, setDone] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);
-  useLessonBridge(frameRef, `kids-${game.id}`); // mic, speech checking and resume for Qira'ah kids lessons
+  const { lang: appLang } = useKidLang();
+  useLessonBridge(frameRef, `kids-${game.id}`, appLang); // mic, speech checking and resume for Qira'ah kids lessons
   useEffect(() => {
     const on = (e: MessageEvent) => {
       const d = e.data as { type?: string; score?: number; total?: number } | null;

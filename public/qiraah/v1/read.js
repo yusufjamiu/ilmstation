@@ -59,6 +59,8 @@ function stopVoice(){ try{ voiceEl.pause(); }catch(e){} if(player){ player.pause
 const WHO = (typeof LESSON!=="undefined" && /adult/.test(LESSON.course)) ? "adult" : "kid";
 function voiceUrl(text, rate=.85, lang="ar"){
   if (AUDIO[text]) return AUDIO[text];
+  // instructions (lang "en"): translated and read in the learner's language
+  if (lang!=="ar") return `${VOICE_ENDPOINT}?text=${encodeURIComponent(TX(text))}&lang=${LANG}&who=${WHO}&slow=0&v=3`;
   // letter names ending in ـاءْ (بَاءْ تَاءْ…): the voice turns the final hamza into an extra "ha",
   // so it says them the way the alphabet is recited: "baa", "taa" (the screen still shows the full name)
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
@@ -92,12 +94,80 @@ async function speak(text, rate=.85, lang="ar"){
   }
   // the voice server can't be reached: the phone's own voice as a last resort
   if (!("speechSynthesis" in window)) return;
-  const u = new SpeechSynthesisUtterance(text); u.lang = lang==="ar" ? "ar-SA" : "en-US"; u.rate = rate;
-  const vv = speechSynthesis.getVoices().find(x=>x.lang.toLowerCase().startsWith(lang)); if (vv) u.voice = vv;
+  const sl = lang==="ar" ? "ar" : LANG, said = lang==="ar" ? text : TX(text);
+  const u = new SpeechSynthesisUtterance(said); u.lang = sl==="ar" ? "ar-SA" : sl==="en" ? "en-US" : sl; u.rate = rate;
+  const vv = speechSynthesis.getVoices().find(x=>x.lang.toLowerCase().startsWith(sl)); if (vv) u.voice = vv;
   // some phones never report the end of speech, so never wait longer than the text could take
   return new Promise(res=>{ u.onend = res; u.onerror = res; setTimeout(res, 1200 + text.length*90); speechSynthesis.speak(u); });
 }
 const speakEn = (text) => speak(text, .95, "en");
+
+/* ===== LANGUAGES ==========================================================================================
+   The app tells the lesson the learner's language (ilmstation:welcome → lang). The lesson then loads
+   https://ilmstation.com/qiraah/v1/i18n/<lang>.js, which sets window.QI18N = { "English text": "translation" }.
+   Every English text on screen is swapped (exact text, or a pattern with {0} {1}…), and spoken instructions are
+   translated and read in that language. The Arabic reading itself never changes. No dictionary → English. */
+let LANG = "en";
+const I18N_BASE = (typeof VOICE_ENDPOINT!=="undefined" ? VOICE_ENDPOINT.replace(/\/api\/tts$/,"") : "https://ilmstation.com") + "/qiraah/v1/i18n/";
+let QD = {}, QPAT = [];
+const RTL_LANGS = ["ar","ur"];
+function setDict(d){
+  QD = d || {};
+  QPAT = Object.keys(QD).filter(k=>/\{\d\}/.test(k)).map(k=>{
+    const esc = k.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\\\{(\d)\\\}/g,"(.+?)");
+    return { re: new RegExp("^"+esc+"$"), order: [...k.matchAll(/\{(\d)\}/g)].map(m=>+m[1]), out: QD[k] };
+  });
+}
+/** Translate one English string (exact, then patterns; the pieces of a pattern are translated too). */
+function TX(s){
+  if (LANG==="en" || s==null) return s;
+  const str = String(s), t = str.trim();
+  if (!t) return str;
+  if (QD[t]!=null) return str.replace(t, QD[t]);
+  for (const p of QPAT){ const m = t.match(p.re); if (m){ let o=p.out; p.order.forEach((n,i)=>{ o=o.replace("{"+n+"}", TX(m[i+1])); }); return str.replace(t,o); } }
+  const num = t.match(/^(\d+)\.\s+(.+)$/);                                  // "3. Read & repeat"
+  if (num) return str.replace(t, num[1]+". "+TX(num[2]));
+  if (/\s·\s/.test(t)) return str.replace(t, t.split(/(\s+·\s+)/).map(x=>/·/.test(x)?x:TX(x)).join(""));   // "Fatha · Part 2 · رَ – عَ"
+  if (typeof window!=="undefined") (window.__missing ||= new Set()).add(t);   // for building dictionaries
+  return str;
+}
+/** Swap every English text node under root (keeps the English in node.__en, so a second pass is harmless). */
+function translateTree(root){
+  if (LANG==="en" || !root) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes=[]; while(w.nextNode()) nodes.push(w.currentNode);
+  for (const n of nodes){
+    const p=n.parentNode; if(!p || /^(SCRIPT|STYLE)$/.test(p.nodeName)) continue;
+    const v=n.nodeValue; if(!/[A-Za-z]{2}/.test(v)) continue;           // only English text
+    if(n.__out===v) continue;
+    const o=TX(v); n.__en=v; n.__out=o; if(o!==v) n.nodeValue=o;
+  }
+  root.querySelectorAll?.("[title],[aria-label],[placeholder]").forEach(el=>{
+    for (const a of ["title","aria-label","placeholder"]){ const v=el.getAttribute(a); if(v && /[A-Za-z]{2}/.test(v)){ const o=TX(v); if(o!==v) el.setAttribute(a,o); } }
+  });
+}
+let i18nObs=null;
+function startTranslating(){
+  if (LANG==="en" || i18nObs) return;
+  document.documentElement.lang = LANG;
+  if (RTL_LANGS.includes(LANG)) document.documentElement.dir = "rtl";
+  translateTree(document.body);
+  i18nObs = new MutationObserver(ms=>{ for(const m of ms){ if(m.type==="characterData") translateTree(m.target.parentNode); else m.addedNodes.forEach(n=>{ if(n.nodeType===3) translateTree(n.parentNode); else if(n.nodeType===1) translateTree(n); }); } });
+  i18nObs.observe(document.body, {childList:true, subtree:true, characterData:true});
+}
+/** Load a language's dictionary (a small script, so it also works inside the app's sandbox). */
+function loadLang(lang){
+  return new Promise(res=>{
+    if (!lang || lang==="en") return res(false);
+    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=1";
+    const done=ok=>{ clearTimeout(t); if(ok && window.QI18N){ LANG=lang; setDict(window.QI18N); startTranslating(); } res(ok); };
+    const t=setTimeout(()=>done(false), 4000);
+    s.onload=()=>done(true); s.onerror=()=>done(false);
+    document.head.appendChild(s);
+  });
+}
+// testing outside the app: add ?lang=fr to the lesson's address
+try { const q=new URLSearchParams(location.search).get("lang"); if(q) window.__qlang=q; } catch(e){}
 
 /* ===== READ & REPEAT + SAVE ======================================================================
    Inside IlmStation the APP records the mic and checks the words (your login never enters this file).
@@ -105,15 +175,15 @@ const speakEn = (text) => speak(text, .95, "en");
 let bridge = false, savedState = null;
 // Say hello to the app, and keep saying it until the app answers (it may not be listening yet at first).
 const bridgeReady = new Promise(res=>{
-  if (parent===window) return res(false);
+  if (parent===window) return loadLang(window.__qlang).then(()=>res(false));
   const hello = () => { try{ parent.postMessage({type:"ilmstation:hello"},"*"); }catch(e){} };
   let tries = 0; const again = setInterval(()=>{ if(bridge || ++tries>25) clearInterval(again); else hello(); }, 400);
   addEventListener("message", e => {
     const d = e.data || {};
     if (d.type==="ilmstation:ping") hello();                                   // the app asks "are you there?"
-    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; savedState=d.state; clearInterval(again); res(true); if(d.test) setTimeout(testTools, 300); }
+    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; savedState=d.state; clearInterval(again); loadLang(d.lang).then(()=>res(true)); if(d.test) setTimeout(testTools, 300); }
   });
-  hello(); setTimeout(()=>res(false), 2000);
+  hello(); setTimeout(()=>{ if(!bridge) loadLang(window.__qlang).then(()=>res(false)); }, 2000);
 });
 /** Admin test mode (turned on in the app): jump to any step, or mark the lesson passed. Learners never see this. */
 function testTools(){
@@ -306,7 +376,7 @@ function Intro2(st){
   const scenes=[{show:`<div class="${(SHOW[0]||"").includes(" ")?"phrase":"word"}" style="font-size:min(50px,12vw)">${SHOW.slice(0,3).join("<br>")}</div>`, say:GOAL},
     {show:`<div class="row mid">${ACTS.slice(1).map((a,i)=>`<span class="ghost" style="cursor:default">${i+1}. ${STEP_INFO[a].t}</span>`).join("")}</div>`,
      say:`You will practise step by step, and finish with ${KIDS?"a final check":"an exam"}. You need ${Math.round(PASS*100)} percent to pass, and you can try again as many times as you like.`}];
-  if (typeof RULE!=="undefined") scenes.splice(1,0,{show:`<div class="card" style="text-align:left;line-height:1.6">${RULE.text}</div>${RULE.pairs?`<div class="row mid" style="margin-top:12px;direction:rtl">${RULE.pairs.map(p=>`<span class="syl">${p[0]}</span><span style="font-size:22px">←</span><span class="syl hl">${p[1]}</span>`).join("")}</div>`:""}`, say:RULE.say||RULE.text.replace(/<[^>]+>/g,""), ar:(RULE.pairs||[]).flat()});
+  if (typeof RULE!=="undefined") scenes.splice(1,0,{show:`<div class="card" style="text-align:start;line-height:1.6">${TX(RULE.text)}</div>${RULE.pairs?`<div class="row mid" style="margin-top:12px;direction:rtl">${RULE.pairs.map(p=>`<span class="syl">${p[0]}</span><span style="font-size:22px">←</span><span class="syl hl">${p[1]}</span>`).join("")}</div>`:""}`, say:RULE.say||TX(RULE.text).replace(/<[^>]+>/g,""), ar:(RULE.pairs||[]).flat()});
   let k=0, token=++introTok;
   st.innerHTML=`<div class="card" style="padding:0;overflow:hidden">${KIDS?`<div class="nuri" style="padding-top:14px">🌙</div>`:""}<div class="vstage" id="vs"></div><div class="vcap" id="cap"></div></div>${nextBtn(KIDS?"Let's go":"Start the lesson")}`;
   bindNext();
