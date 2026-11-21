@@ -7652,3 +7652,4 @@ const EXTRA2: Record<string, T> = {
 };
 delete EXTRA2["Challenge · {x}"];
 for (const [k, v] of Object.entries(EXTRA2)) DICT[k] = { ...(DICT[k] ?? {}), ...v };
+DICT["Live a Muslim life in Lagos and Ilorin."] = { ar: "عِش حياة المسلم في لاغوس وإيلورين.", fr: "Vis une vie de musulman à Lagos et Ilorin.", ur: "لاگوس اور الورن میں مسلمان زندگی گزاریں۔", ha: "Yi rayuwar Musulmi a Legas da Ilorin.", id: "Jalani kehidupan Muslim di Lagos dan Ilorin.", tl: "Mamuhay bilang Muslim sa Lagos at Ilorin.", yo: "Gbé ìgbésí ayé Mùsùlùmí ní Èkó àti Ìlọrin.", ig: "Bie ndụ Alakụba na Legọs na Ilorin.", bn: "লাগোস ও ইলোরিনে মুসলিম জীবন যাপন করুন।", ms: "Jalani kehidupan Muslim di Lagos dan Ilorin." };

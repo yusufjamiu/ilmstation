@@ -243,11 +243,13 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
         <p className="mt-2 text-sm">Aqeedah, Hadith, Seerah, Fiqh, Arabic, Qur’an and more. Short quizzes, XP for every right answer, and challenges with friends.</p>
         <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold">Choose a topic <ChevronRight className="size-4" /></span>
       </button>}
-      <a href="/world" className="block border-2 border-foreground bg-[#10201e] p-6 text-left text-[#fdf8ec] shadow-brutal transition hover:-translate-y-0.5">
-        <small className="text-xs font-bold uppercase text-[#e6b84a]">New · 3D world</small>
-        <strong className="mt-2 block font-serif text-4xl font-normal">IlmWorld</strong>
-        <p className="mt-2 text-sm opacity-90">Live a Muslim life in Lagos and Ilorin, with Makkah and Madinah for Hajj and Umrah: pray at the masjid, learn, work, rent a home, race at the arena, and meet other players.</p>
-        <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[#e6b84a]">Enter IlmWorld <ChevronRight className="size-4" /></span>
+      <a href="/world" className="group relative block overflow-hidden border-2 border-foreground bg-[#10201e] text-left text-[#fdf8ec] shadow-brutal transition hover:-translate-y-0.5">
+        <img src="/ilmworld-preview.jpg" alt="A street in IlmWorld with a masjid" loading="lazy" className="aspect-[9/5] w-full object-cover transition group-hover:scale-[1.02]" />
+        <span className="absolute left-3 top-3 bg-[#e6b84a] px-2 py-1 text-[11px] font-bold uppercase text-[#2a1c05]">New · 3D world</span>
+        <div className="flex flex-wrap items-end justify-between gap-3 p-4">
+          <span><strong className="block font-serif text-3xl font-normal leading-none">IlmWorld</strong><span className="mt-1 block text-sm opacity-85">Live a Muslim life in Lagos and Ilorin.</span></span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-[#e6b84a]">Enter IlmWorld <ChevronRight className="size-4" /></span>
+        </div>
       </a>
       <button onClick={() => go("games")} className="border-2 border-foreground bg-secondary p-6 text-left text-secondary-foreground shadow-brutal transition hover:-translate-y-0.5 md:col-span-2">
         <small className="text-xs font-bold uppercase">New</small>

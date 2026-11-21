@@ -66,6 +66,26 @@ const LETTER_NOTES: Record<string, string> = {
   "ط": "ط (ta) is a heavy 't'.",
 };
 
+
+/** Spitch's Yoruba/Igbo/Hausa voices don't know Arabic: spell Arabic terms the way local Muslims say them,
+    and drop Arabic-script letters (they're on the screen; the voice can't read them). */
+const NAIJA_SAY: [RegExp, string][] = [
+  [/\bAssalamu alaikum\b|\bAssalamu-alaikum\b/gi, "Asalaamu alaikum"], [/\bMasha'?Allah\b|\bMasya Allah\b/gi, "Maasha Allah"],
+  [/\bBarakallahu fee?kum\b/gi, "Baarakallahu fiikum"], [/\bBismillah\b/gi, "Bisimillah"], [/\bAlhamdulillah\b/gi, "Alhamdulillahi"],
+  [/\bQira'ah\b/gi, "Kiraa'a"], [/\bNour al-Bayan\b/gi, "Nuurul Bayaan"], [/\bMumtaz\b/gi, "Mumtaazu"],
+  [/\bAlif\b/g, "Alifu"], [/\bBaa\b/g, "Baa"], [/\bJeem\b|\bJiim\b/g, "Jiimu"], [/\bDaal\b/g, "Daali"], [/\bDhaal\b/g, "Zaali"],
+  [/\bSeen\b/g, "Siini"], [/\bSheen\b/g, "Shiini"], [/\bSaad\b/g, "Saadi"], [/\bDaad\b/g, "Daadi"], [/\bAyn\b/g, "Aini"], [/\bGhayn\b/g, "Gaini"],
+  [/\bQaaf\b/g, "Kaafu"], [/\bKaaf\b/g, "Kaafu"], [/\bLaam\b/g, "Laamu"], [/\bMeem\b/g, "Miimu"], [/\bNoon\b/g, "Nuunu"], [/\bWaw\b/g, "Waawu"],
+  [/\bfatha\b/gi, "fataha"], [/\bkasra\b/gi, "kasira"], [/\bsukun\b/gi, "sukuun"], [/\btanween\b/gi, "tanwiini"], [/\bmadd\b/gi, "maddu"],
+  [/\bshadda\b/gi, "shaddah"], [/\btajweed\b/gi, "tajwiidi"], [/\bghunnah\b/gi, "gunnah"], [/\bqalqalah\b/gi, "kalkalah"],
+  [/\bHamzatul Wasl\b/gi, "Hamzatul Wasli"], [/\bMus'?hafi?\b/gi, "Musihafi"], [/\bKùránì\b/g, "Kurani"],
+];
+function forNaija(text: string): string {
+  let t = text.replace(/[؀-ۿݐ-ݿࢠ-ࣿ]+/g, " ");
+  for (const [re, to] of NAIJA_SAY) t = t.replace(re, to);
+  return t.replace(/\(\s*\)/g, "").replace(/\s*[–—-]\s*(?=[.,!?:]|$)/g, "").replace(/\s{2,}/g, " ").replace(/\s+([.,!?:])/g, "$1").trim();
+}
+
 export async function handleTts(request: Request): Promise<Response> {
   const cors = { "access-control-allow-origin": "*" }; // lesson files may be served from storage
   const json = (o: unknown, status = 200) =>
@@ -113,7 +133,7 @@ export async function handleTts(request: Request): Promise<Response> {
         const r = await fetch("https://api.spitch.app/v1/speech", {
           method: "POST",
           headers: { authorization: `Bearer ${spitch}`, "content-type": "application/json" },
-          body: JSON.stringify({ text, language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
+          body: JSON.stringify({ text: forNaija(text) || text, language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
           signal: AbortSignal.timeout(20000),
         });
         if (r.ok) {
