@@ -26,8 +26,7 @@ export function KidHome({ go }: { go: Go }) {
     ["study", "Study", "Your lessons", GraduationCap, "bg-secondary text-secondary-foreground"],
   ] as const;
   return <div className="iq-rise">
-    <p className="text-xs font-bold uppercase text-muted-foreground">Assalamu alaikum</p>
-    <h1 className="font-serif text-5xl leading-none sm:text-6xl">Hi, {firstName || "friend"}! 👋</h1>
+    <h1 className="font-serif text-5xl leading-none sm:text-6xl"><span className="block text-4xl sm:text-5xl">Assalamu alaikum</span>{`${firstName || "friend"}! 👋`}</h1>
     <p className="mt-3 text-lg text-muted-foreground">What would you like to do today?</p>
     <div className="mt-6 grid gap-4 sm:grid-cols-2">{tiles.map(([id, t, b, Icon, tint]) => <button key={id} onClick={() => go(id)} className={cn("flex min-h-44 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", tint)}>
       <Icon className="size-12" />

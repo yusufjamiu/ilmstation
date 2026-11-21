@@ -98,9 +98,25 @@ export async function handleTts(request: Request): Promise<Response> {
     : "";
   const notes = [...new Set([...text].filter((c) => LETTER_NOTES[c]))].map((c) => " " + LETTER_NOTES[c]).join("");
 
+  let backup = false; // a native voice was wanted but isn't available: don't cache the stand-in for long
   const audio = (buf: ArrayBuffer) => new Response(buf, {
-    headers: { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400, s-maxage=31536000, immutable", ...cors },
+    headers: { "content-type": "audio/mpeg", "cache-control": backup ? "public, max-age=600" : "public, max-age=86400, s-maxage=31536000, immutable", ...cors },
   });
+
+  // Yoruba, Igbo and Hausa: native Nigerian voices from Spitch (add SPITCH_API_KEY in Vercel). Falls back to the voices below.
+  const spitch = process.env.SPITCH_API_KEY;
+  const NAIJA: Record<string, [string, string]> = { yo: ["segun", "funmi"], ig: ["ebuka", "ngozi"], ha: ["aliyu", "zainab"] }; // [adult man, kids woman]
+  if (english && spitch && NAIJA[ilang]) {
+    try {
+      const r = await fetch("https://api.spitch.app/v1/speech", {
+        method: "POST",
+        headers: { authorization: `Bearer ${spitch}`, "content-type": "application/json" },
+        body: JSON.stringify({ text, language: ilang, voice: NAIJA[ilang]![adult ? 0 : 1], format: "mp3", speed: adult ? 1.0 : 0.95 }),
+      });
+      if (r.ok) return audio(await r.arrayBuffer());
+    } catch { /* fall through */ }
+  }
+  if (english && NAIJA[ilang]) backup = true;
 
   // English narration: ElevenLabs if you add ELEVENLABS_API_KEY in Vercel (more natural), otherwise OpenAI.
   // Optional: ELEVENLABS_VOICE_ID (adults) and ELEVENLABS_KID_VOICE_ID (children) to pick the voices.
