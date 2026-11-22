@@ -30,11 +30,11 @@ export function KidHome({ go }: { go: Go }) {
   return <div className="iq-rise">
     <h1 className="font-serif text-5xl leading-none sm:text-6xl"><span className="block text-4xl sm:text-5xl">Assalamu alaikum</span>{`${firstName || "friend"}! 👋`}</h1>
     <p className="mt-3 text-lg text-muted-foreground">What would you like to do today?</p>
-    <div className="mt-6 grid gap-4 sm:grid-cols-2">{tiles.map(([id, t, b, Icon, tint]) => <button key={id} onClick={() => go(id)} className={cn("flex min-h-44 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", tint)}>
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">{tiles.map(([id, t, b, Icon, tint]) => <button key={id} onClick={() => go(id)} className={cn("flex min-h-44 flex-col justify-between border-2 border-foreground p-6 text-start shadow-brutal transition hover:-translate-y-1", tint)}>
       <Icon className="size-12" />
       <span><b className="block font-serif text-4xl leading-none">{t}</b><span className="text-sm font-semibold">{b}</span></span>
     </button>)}</div>
-    <button onClick={() => { requestOpenMedina(); go("kidgames"); }} className="mt-4 flex w-full items-center gap-4 border-2 border-foreground bg-[#d7ecd9] p-5 text-left text-[#1c1a17] shadow-brutal transition hover:-translate-y-1">
+    <button onClick={() => { requestOpenMedina(); go("kidgames"); }} className="mt-4 flex w-full items-center gap-4 border-2 border-foreground bg-[#d7ecd9] p-5 text-start text-[#1c1a17] shadow-brutal transition hover:-translate-y-1">
       <span className="text-5xl">{chest ? "🎁" : "🕌"}</span>
       <span><b className="block font-serif text-3xl leading-none">Medina</b><span className="text-sm font-semibold">{chest ? "Your daily chest is ready! Tap to open it" : "10 games · 100 levels · tap to play"}</span></span>
     </button>
@@ -86,7 +86,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
     <p className="mt-3 text-lg text-muted-foreground">{audience === "all" ? "Quizzes and games from IlmStation. Every right answer earns XP." : "Pick a game. Every right answer gets a star!"}</p>
     {games.length === 0 && <p className="mt-6 border-2 border-dashed border-foreground p-6 text-sm text-muted-foreground">New games are coming soon, in shaa Allah.</p>}
     <UnlockDialog item={locked} onOpenChange={(o) => { if (!o) setLocked(undefined); }} />
-    <div className="mt-6 grid gap-4 sm:grid-cols-2">{games.map((g) => <button key={g.id} onClick={() => start(g)} className={cn("flex items-center gap-5 border-2 border-foreground p-6 text-left shadow-brutal transition hover:-translate-y-1", g.tint)}>
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">{games.map((g) => <button key={g.id} onClick={() => start(g)} className={cn("flex items-center gap-5 border-2 border-foreground p-6 text-start shadow-brutal transition hover:-translate-y-1", g.tint)}>
       <span className="text-6xl">{g.emoji}</span>
       <span><b className="block font-serif text-4xl leading-none">{g.title}</b><span className="text-sm font-semibold">{!open(g) ? `🔒 Premium${g.minLevel ? ` · free at level ${g.minLevel}` : ""}` : g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
     </button>)}</div>
@@ -116,7 +116,7 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
       <p className="text-sm font-bold uppercase text-muted-foreground">{game.emoji} {game.title} · question {i + 1} of {qs.length}</p>
       <h2 className="mt-2 font-serif text-4xl leading-tight" dir="auto">{q.q}</h2>
       <div className="mt-6 grid gap-3">{q.options.map((o, k) => <button key={`${k}-${o}`} disabled={pick !== null} dir="auto" onClick={() => { setPick(k); if (k === q.answer) setScore((n) => n + 1); }}
-        className={cn("flex items-center gap-3 border-2 border-foreground p-4 text-left font-serif text-2xl shadow-brutal-sm",
+        className={cn("flex items-center gap-3 border-2 border-foreground p-4 text-start font-serif text-2xl shadow-brutal-sm",
           pick === null && "bg-background hover:bg-primary",
           pick !== null && k === q.answer && "bg-secondary text-secondary-foreground",
           pick === k && k !== q.answer && "bg-muted line-through")}>
@@ -238,7 +238,7 @@ function KidGameHub({ games, open, start, locked, setLocked, onMedina }: {
     <h1 className="font-serif text-5xl leading-none">{list[0]?.emoji ?? "🎮"} {subj}</h1>
     <p className="mt-2 text-lg text-muted-foreground">{list.filter((g) => done[g.id]).length} of {list.length} done ⭐</p>
     <div className="mt-6 grid gap-4">{list.map((g, i) => { const d = done[g.id]; const isNext = g === next; return <button key={g.id} onClick={() => play(g)}
-      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5", d ? "bg-primary" : isNext ? "bg-secondary text-secondary-foreground" : "bg-background")}>
+      className={cn("flex items-center gap-4 border-2 border-foreground p-5 text-start shadow-brutal transition-transform hover:-translate-y-0.5", d ? "bg-primary" : isNext ? "bg-secondary text-secondary-foreground" : "bg-background")}>
       <span className="grid size-14 shrink-0 place-items-center border-2 border-foreground bg-background font-serif text-2xl text-foreground">{d ? "⭐" : i + 1}</span>
       <span className="min-w-0 flex-1"><b className="block text-xl leading-tight">Level {i + 1}{g.title && g.title !== subj ? ` · ${g.title}` : ""}</b>
         <span className="text-sm">{!open(g) ? "🔒 Premium" : d ? `${d.score} of ${d.total} right · play again` : isNext ? "▶ Next" : g.kind === "html" ? "Tap to play" : `${g.questions.length} questions`}</span></span>
@@ -260,16 +260,16 @@ function KidGameHub({ games, open, start, locked, setLocked, onMedina }: {
     <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
     <h1 className="font-serif text-5xl leading-none">Games 🎮</h1>
     <p className="mt-3 text-lg text-muted-foreground">What do you want to play?</p>
-    <button onClick={onMedina} className="mt-6 flex w-full items-center gap-5 border-2 border-foreground bg-[#d7ecd9] p-6 text-left text-[#1c1a17] shadow-brutal transition hover:-translate-y-1">
+    <button onClick={onMedina} className="mt-6 flex w-full items-center gap-5 border-2 border-foreground bg-[#d7ecd9] p-6 text-start text-[#1c1a17] shadow-brutal transition hover:-translate-y-1">
       <span className="text-6xl">🕌</span>
       <span className="min-w-0 flex-1"><span className="text-xs font-bold uppercase">New · 3D world</span><b className="block font-serif text-4xl leading-none">Medina</b><span className="text-sm font-semibold">10 games · 100 levels · run, fly, build and learn!</span></span>
       <span className="hidden border-2 border-foreground bg-primary px-4 py-2 font-bold sm:block">▶ Play</span>
     </button>
-    {cont && <button onClick={() => play(cont)} className="mt-6 flex w-full items-center gap-4 border-2 border-foreground bg-secondary p-5 text-left text-secondary-foreground shadow-brutal">
+    {cont && <button onClick={() => play(cont)} className="mt-6 flex w-full items-center gap-4 border-2 border-foreground bg-secondary p-5 text-start text-secondary-foreground shadow-brutal">
       <span className="text-4xl">▶</span><span><b className="block text-xl">Continue</b><span className="text-sm">{subjOf(cont)} · Level {contN}</span></span>
     </button>}
     <div className="mt-6 grid gap-4 sm:grid-cols-3">{GAME_TYPES.map(([id, e, name], i) => { const has = games.some((g) => typeOf(g) === id); return <button key={id} disabled={!has} onClick={() => setType(id)}
-      className={cn("flex min-h-40 flex-col justify-between border-2 border-foreground p-6 text-left shadow-brutal transition-transform", has ? "hover:-translate-y-1" : "opacity-60", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-background"][i % 3])}>
+      className={cn("flex min-h-40 flex-col justify-between border-2 border-foreground p-6 text-start shadow-brutal transition-transform", has ? "hover:-translate-y-1" : "opacity-60", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-background"][i % 3])}>
       <span className="text-5xl">{e}</span><span><b className="block font-serif text-3xl leading-none">{name}</b><span className="text-sm font-semibold">{has ? "Tap to play" : "Coming soon"}</span></span>
     </button>; })}</div>
   </div>;
