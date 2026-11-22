@@ -3,11 +3,12 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/components/auth";
 import { usePremium } from "@/components/premium";
+import { useLanguage } from "@/components/language";
 
 /**
  * Medina: the kids' 3D game world (10 games, 100 levels), served from /games/medina.html.
  * The game talks to the app with postMessage:
- *   app  -> game: { source: "ilmstation", type: "init" | "premium", profile, progress, premium }
+ *   app  -> game: { source: "ilmstation", type: "init" | "premium", profile, progress, premium, lang }
  *   game -> app : { source: "medina", type: "ready" | "save" | "upgrade" | "exit", progress?, game?, level? }
  * Progress is kept in gameProgress/{uid}.medina (the same doc the other kids games use).
  */
@@ -56,6 +57,8 @@ export function MedinaPlayer({ onExit, onUpgrade }: { onExit: () => void; onUpgr
   const frameRef = useRef<HTMLIFrameElement>(null);
   const { firstName, account } = useAuth();
   const { canAccess } = usePremium();
+  // Medina speaks Arabic, Indonesian and Filipino (tl); other languages show English for now
+  const { lang } = useLanguage();
   const premium = canAccess("game-medina", "premium");
   const pending = useRef<unknown>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,6 +102,7 @@ export function MedinaPlayer({ onExit, onUpgrade }: { onExit: () => void; onUpgr
           profile: { name: firstName || "Friend", gender: account?.gender ?? "male" },
           progress,
           premium,
+          lang,
         });
       } else if (m.type === "save") {
         pending.current = m.progress;
@@ -119,7 +123,7 @@ export function MedinaPlayer({ onExit, onUpgrade }: { onExit: () => void; onUpgr
       void flush();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstName, account?.gender]);
+  }, [firstName, account?.gender, lang]);
 
   // tell the game when Premium changes while the kid is playing
   useEffect(() => {
