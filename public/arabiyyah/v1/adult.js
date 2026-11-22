@@ -374,6 +374,9 @@ function introScenes(){
     {show:"logo", say:"السَّلَامُ عَلَيْكُمْ. Welcome to the Arabic class. In this course you will learn to understand, read and speak Arabic, the language of the Qur'an, step by step."},
     {show:"book", say:"We follow the famous book, Lessons in Arabic Language, by Dr. V. عَبْدِ الرَّحِيمْ, taught at the Islamic University of Madinah."},
     {show:"parts", say:"The course has four levels. Beginner 1 is Book 1. Beginner 2 is the first half of Book 2. Beginner 3 is the second half of Book 2. Beginner 4 is Book 3. Each level ends with a final exam and a certificate."});
+  const LEVEL_INFO = {"beginner-2":["Beginner 2","the first half of Book 2, lessons 1 to 15"], "beginner-3":["Beginner 3","the second half of Book 2, lessons 16 to 31"], "beginner-4":["Beginner 4","Book 3"]};
+  if (LESSON.lesson===1 && LEVEL_INFO[LESSON.level]) { const [nm,what]=LEVEL_INFO[LESSON.level];
+    sc.push({show:"parts", say:`السَّلَامُ عَلَيْكُمْ. Welcome to ${nm}. In this level you will study ${what}. It ends with a final exam and a certificate. مَا شَاءَ اللهُ, you have come far. Keep going.`}); }
   sc.push({show:"today", say:GOAL},
     {show:"steps", say:`In each lesson you learn the new rule and the new words, you read sentences aloud and the app checks you, you practise with short exercises, and you finish with an exam. You need ${Math.round(PASS*100)} percent to pass, and you can retake it as many times as you like.`},
     {show:"go", say:"Listen carefully and repeat everything aloud. بِسْمِ اللهِ. Let's begin."});
