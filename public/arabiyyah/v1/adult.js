@@ -314,7 +314,8 @@ const plain = s => String(s).replace(/[ً-ْٰ]/g,"");
 
 /* ---- steps ---- */
 const TYPES = { match:Match, watch:Watch, rules:Rules, words:Words, repeat:Repeat, choose:Choose, listen:Choose, build:Build, spell:Spell, exam:Exam };
-const STEPS = STEPS_DEF.map(s=>s.name);
+const VIS = STEPS_DEF.filter(s=>!s.hidden);   // hidden steps are question pools for an exam
+const STEPS = VIS.map(s=>s.name);
 const L = { next:"Next", start:"Start lesson", cont:"Continue where you stopped", restart:"Start again",
   play:"Play", listen:"Listen", me:"My voice", tap:"Tap the mic and read it aloud", listening:"Listening… tap again to stop", heardL:"We heard:",
   wrong:"Not quite. Listen again and repeat.", selfQ:"We couldn't check automatically. Compare your voice with the teacher's:", selfOk:"I read it correctly", again:"Try again",
@@ -339,7 +340,7 @@ const plainSay = t => String(t).replace(/[؟?!]/g,"").trim();
 function Lesson(i){
   clearInterval(timer); stopVoice(); stepNow=i; maxStep=Math.max(maxStep,i); scrollTo(0,0);
   saveState({step:i});
-  const def=STEPS_DEF[i];
+  const def=VIS[i];
   view.innerHTML=`<div class="fade"><div class="steps">${STEPS.map((s,k)=>`<button class="${k<i?'done':k===i?'on':''}" data-k="${k}" title="${s}"></button>`).join("")}</div>
     <div class="stepLabel"><span>Step ${i+1} of ${STEPS.length} · ${def.name}</span></div><div id="stage"></div></div>`;
   view.querySelectorAll(".steps button").forEach(b=>b.onclick=()=>{ const k=+b.dataset.k; if(k<=maxStep) Lesson(k); });
@@ -368,6 +369,7 @@ const head = def => `<h2>${arWrap(def.title||def.name)}</h2>${def.sub?`<p class=
 /* ---- WATCH: a short narrated intro with captions ---- */
 function introScenes(){
   const sc=[];
+  if (LESSON.final) return [{show:"today", say:GOAL}, {show:"go", say:"Take your time and read each question carefully. بِسْمِ اللهِ. Good luck."}];
   if (LESSON.level==="beginner-1" && LESSON.lesson===1) sc.push(
     {show:"logo", say:"السَّلَامُ عَلَيْكُمْ. Welcome to the Arabic class. In this course you will learn to understand, read and speak Arabic, the language of the Qur'an, step by step."},
     {show:"book", say:"We follow the famous book, Lessons in Arabic Language, by Dr. V. عَبْدِ الرَّحِيمْ, taught at the Islamic University of Madinah."},
@@ -624,12 +626,12 @@ function Spell(st, def){
 function makeExam(def){
   const qs=[];
   def.from.forEach(([name, n])=>{ const s=STEPS_DEF.find(x=>x.name===name); if(!s) return;
-    shuffle(s.items).slice(0,n).forEach(it=>qs.push(s.type==="build" ? {...it, build:true, tag:"Build"} : s.type==="spell" ? {...it, spell:true, tag:"Write"} : {...it, tag:s.name})); });
+    shuffle(s.items).slice(0,n).forEach(it=>qs.push(s.type==="build" ? {...it, build:true, tag:"Build"} : s.type==="spell" ? {...it, spell:true, tag:"Write"} : {...it, tag:s.title||s.name})); });
   return shuffle(qs);
 }
 function Exam(st, def){
   const n=def.from.reduce((a,[,k])=>a+k,0);
-  st.innerHTML=`<div class="card result"><div style="font-size:46px">📝</div><h2>Lesson ${LESSON.lesson} exam</h2>
+  st.innerHTML=`<div class="card result"><div style="font-size:46px">📝</div><h2>${LESSON.final?"Final exam":"Lesson "+LESSON.lesson+" exam"}</h2>
     <p class="lead">${n} questions · ${Math.round(def.minutes||8)} minutes · pass mark ${Math.round(PASS*100)}%</p><button class="btn gold pulse" id="se">${L.startExam}</button></div>`;
   $("#se").onclick=()=>run(st, def);
 }
@@ -683,6 +685,6 @@ function run(st, def){
 }
 
 if (window.parent !== window) document.body.classList.add("embedded");
-$("#lsub").textContent = `${LESSON.level.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase())} · Lesson ${LESSON.lesson}`;
+$("#lsub").textContent = `${LESSON.level.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase())} · ${LESSON.final?"Final exam":"Lesson "+LESSON.lesson}`;
 $("#closeBtn").onclick = () => { stopVoice(); clearInterval(timer); try{ parent.postMessage({type:"ilmstation:close"},"*"); }catch(e){} };
 Intro();
