@@ -14,6 +14,7 @@ import { useAuth } from "@/components/auth";
 import { cn } from "@/lib/utils";
 import { quizQuestionsFor } from "@/components/quiz-visual";
 import { awardXp } from "@/lib/xp";
+import { MedinaPlayer, requestOpenMedina, takeOpenMedinaRequest, useMedinaChestReady } from "@/components/medina";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Go = (s: any) => void;
@@ -21,6 +22,7 @@ type Go = (s: any) => void;
 /** A simple, friendly home for children. */
 export function KidHome({ go }: { go: Go }) {
   const { firstName } = useAuth();
+  const chest = useMedinaChestReady();
   const tiles = [
     ["kidgames", "Games", "Fun quizzes · earn stars", Play, "bg-primary"],
     ["study", "Study", "Your lessons", GraduationCap, "bg-secondary text-secondary-foreground"],
@@ -32,6 +34,10 @@ export function KidHome({ go }: { go: Go }) {
       <Icon className="size-12" />
       <span><b className="block font-serif text-4xl leading-none">{t}</b><span className="text-sm font-semibold">{b}</span></span>
     </button>)}</div>
+    <button onClick={() => { requestOpenMedina(); go("kidgames"); }} className="mt-4 flex w-full items-center gap-4 border-2 border-foreground bg-[#d7ecd9] p-5 text-left text-[#1c1a17] shadow-brutal transition hover:-translate-y-1">
+      <span className="text-5xl">{chest ? "🎁" : "🕌"}</span>
+      <span><b className="block font-serif text-3xl leading-none">Medina</b><span className="text-sm font-semibold">{chest ? "Your daily chest is ready! Tap to open it" : "10 games · 100 levels · tap to play"}</span></span>
+    </button>
   </div>;
 }
 
@@ -66,12 +72,14 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
   const [pick, setPick] = useState<number | null>(null);
   const [score, setScore] = useState(0);
   const [done, setDone] = useState(false);
+  const [medina, setMedina] = useState(() => audience === "kids" && takeOpenMedinaRequest());
   const qs = game?.questions ?? [];
   const q = qs[i];
   const start = (g: KidGame) => { if (!open(g)) { setLocked({ id: `game-${g.id}`, title: g.title, cost: g.cost ?? 0 }); return; } setGame(g); setI(0); setPick(null); setScore(0); setDone(false); };
-  const pt = usePlaytime(!!game && !done);
+  const pt = usePlaytime((!!game && !done) || medina);
 
-  if (!game && audience === "kids") return <KidGameHub games={games} open={open} start={start} locked={locked} setLocked={setLocked} />;
+  if (medina) return pt.locked ? <TimeUp resetsAt={pt.resetsAt} kid onBack={() => setMedina(false)} /> : <MedinaPlayer onExit={() => setMedina(false)} onUpgrade={() => {}} />;
+  if (!game && audience === "kids") return <KidGameHub games={games} open={open} start={start} locked={locked} setLocked={setLocked} onMedina={() => setMedina(true)} />;
   if (!game) return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
     <h1 className="font-serif text-5xl leading-none">{audience === "all" ? "Games & quizzes" : "Games 🎮"}</h1>
@@ -206,8 +214,8 @@ function useGameProgress(): Played {
   return done;
 }
 const GAME_TYPES: [string, string, string][] = [["quiz", "🧠", "Quizzes"], ["puzzle", "🧩", "Puzzles"], ["memory", "🃏", "Memory games"]];
-function KidGameHub({ games, open, start, locked, setLocked }: {
-  games: KidGame[]; open: (g: KidGame) => boolean; start: (g: KidGame) => void;
+function KidGameHub({ games, open, start, locked, setLocked, onMedina }: {
+  games: KidGame[]; open: (g: KidGame) => boolean; start: (g: KidGame) => void; onMedina: () => void;
   locked: { id: string; title: string; cost: number } | undefined; setLocked: (v: { id: string; title: string; cost: number } | undefined) => void;
 }) {
   const done = useGameProgress();
@@ -252,6 +260,11 @@ function KidGameHub({ games, open, start, locked, setLocked }: {
     <p className="text-xs font-bold uppercase text-muted-foreground">Play and learn</p>
     <h1 className="font-serif text-5xl leading-none">Games 🎮</h1>
     <p className="mt-3 text-lg text-muted-foreground">What do you want to play?</p>
+    <button onClick={onMedina} className="mt-6 flex w-full items-center gap-5 border-2 border-foreground bg-[#d7ecd9] p-6 text-left text-[#1c1a17] shadow-brutal transition hover:-translate-y-1">
+      <span className="text-6xl">🕌</span>
+      <span className="min-w-0 flex-1"><span className="text-xs font-bold uppercase">New · 3D world</span><b className="block font-serif text-4xl leading-none">Medina</b><span className="text-sm font-semibold">10 games · 100 levels · run, fly, build and learn!</span></span>
+      <span className="hidden border-2 border-foreground bg-primary px-4 py-2 font-bold sm:block">▶ Play</span>
+    </button>
     {cont && <button onClick={() => play(cont)} className="mt-6 flex w-full items-center gap-4 border-2 border-foreground bg-secondary p-5 text-left text-secondary-foreground shadow-brutal">
       <span className="text-4xl">▶</span><span><b className="block text-xl">Continue</b><span className="text-sm">{subjOf(cont)} · Level {contN}</span></span>
     </button>}
