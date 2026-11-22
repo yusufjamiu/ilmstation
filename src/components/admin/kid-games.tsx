@@ -11,7 +11,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
 
 type Q = { q: string; options: string[]; answer: number; why: string };
-type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string; audience?: "kids" | "all"; tier?: "free" | "premium"; cost?: number; minLevel?: number; gameType?: string; subject?: string; lang?: string };
+/** Firestore refuses fields set to undefined: drop them before saving. */
+const clean = <T extends object>(o: T): T => JSON.parse(JSON.stringify(o)) as T;
+type Game = { id: string; title: string; emoji: string; color: string; status: "draft" | "published"; order: number; questions: Q[]; createdAt: number; kind?: "quiz" | "html"; htmlUrl?: string; audience?: "kids" | "all"; tier?: "free" | "premium"; cost?: number; minLevel?: number; gameType?: string; subject?: string; lang?: string; builder?: "puzzle" | "memory"; picUrl?: string; fact?: string; grid?: string; pairs?: { a: string; b: string }[] };
 const COLORS: [string, string][] = [["yellow", "Yellow"], ["green", "Green"], ["white", "White"], ["grey", "Grey"]];
 const blankQ = (): Q => ({ q: "", options: ["", "", "", ""], answer: 0, why: "" });
 
@@ -33,6 +35,18 @@ export function KidGamesSection() {
       toast.success("Game uploaded");
     } catch { toast.error("Upload failed. Check the Storage rules for kidgames/."); } finally { setUploading(false); }
   };
+  const uploadPic = async (file?: File) => {
+    if (!file || !form) return;
+    if (!file.type.startsWith("image/")) { toast.error("Choose a picture (JPG, PNG or WebP)"); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Keep the picture under 5 MB"); return; }
+    setUploading(true);
+    try {
+      const r = ref(getStorage(), `kidgames/${form.id}-picture`);
+      await uploadBytes(r, file, { contentType: file.type });
+      setForm({ ...form, picUrl: await getDownloadURL(r) });
+      toast.success("Picture uploaded");
+    } catch { toast.error("Upload failed. Check the Storage rules for kidgames/."); } finally { setUploading(false); }
+  };
   useEffect(() => onSnapshot(collection(db, "kidGames"), (s) => setItems(s.docs.map((d) => ({ ...(d.data() as Omit<Game, "id">), id: d.id })).sort((a, b) => a.order - b.order)), () => setItems([])), []);
 
   const rows = items ?? [];
@@ -41,10 +55,30 @@ export function KidGamesSection() {
 
   const save = async (g: Game) => {
     if (!g.title.trim()) { toast.error("Give the game a title"); return; }
+    if (g.builder === "puzzle" || g.builder === "memory") {
+      let htmlUrl = "";
+      let extra: Partial<Game> = {};
+      if (g.builder === "puzzle") {
+        if (!g.picUrl) { toast.error("Upload the puzzle picture"); return; }
+        const grid = g.grid || "3x3";
+        htmlUrl = `/games/kids/puzzle.html?${new URLSearchParams({ img: g.picUrl, t: g.title.trim(), f: (g.fact ?? "").trim(), g: grid })}`;
+        extra = { grid, fact: (g.fact ?? "").trim() };
+      } else {
+        const pairs = (g.pairs ?? []).map((x) => ({ a: x.a.trim(), b: x.b.trim() })).filter((x) => x.a && x.b);
+        if (pairs.length < 3) { toast.error("Add at least 3 pairs of cards"); return; }
+        if (pairs.length > 10) { toast.error("Use 10 pairs at most"); return; }
+        htmlUrl = `/games/kids/memory.html?${new URLSearchParams({ t: g.title.trim(), p: JSON.stringify(pairs.map((x) => [x.a, x.b])) })}`;
+        extra = { pairs };
+      }
+      const { id: bid, ...bdata } = g;
+      try { await setDoc(doc(db, "kidGames", bid), clean({ ...bdata, ...extra, kind: "html", htmlUrl, gameType: g.builder, title: g.title.trim(), questions: [] })); record(`Saved kids game ${g.title.trim()}`); toast.success("Saved"); setForm(null); }
+      catch { toast.error("Couldn't save. Check you are an admin."); }
+      return;
+    }
     if (g.kind === "html") {
       if (!g.htmlUrl) { toast.error("Upload the game’s .html file"); return; }
       const { id: hid, ...hdata } = g;
-      try { await setDoc(doc(db, "kidGames", hid), { ...hdata, title: g.title.trim(), questions: [] }); record(`Saved kids game ${g.title.trim()}`); toast.success("Saved"); setForm(null); }
+      try { await setDoc(doc(db, "kidGames", hid), clean({ ...hdata, builder: undefined, title: g.title.trim(), questions: [] })); record(`Saved kids game ${g.title.trim()}`); toast.success("Saved"); setForm(null); }
       catch { toast.error("Couldn't save. Check you are an admin."); }
       return;
     }
@@ -60,7 +94,7 @@ export function KidGamesSection() {
     }
     if (!questions.length) { toast.error("Add at least one question"); return; }
     const { id, ...data } = g;
-    try { await setDoc(doc(db, "kidGames", id), { ...data, title: g.title.trim(), questions }); record(`Saved kids game ${g.title.trim()}`); toast.success("Saved"); setForm(null); }
+    try { await setDoc(doc(db, "kidGames", id), clean({ ...data, builder: undefined, title: g.title.trim(), questions })); record(`Saved kids game ${g.title.trim()}`); toast.success("Saved"); setForm(null); }
     catch { toast.error("Couldn't save. Check you are an admin."); }
   };
   const move = async (i: number, d: number) => {
@@ -120,7 +154,7 @@ export function KidGamesSection() {
               <Field label="Status"><select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Game["status"] })}><option value="draft">Draft</option><option value="published">Published</option></select></Field>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Type"><select className={inputCls} value={form.gameType ?? "quiz"} onChange={(e) => setForm({ ...form, gameType: e.target.value })}><option value="quiz">🧠 Quiz</option><option value="puzzle">🧩 Puzzle</option><option value="memory">🃏 Memory game</option></select></Field>
+              <Field label="Type"><select className={inputCls} value={form.gameType ?? "quiz"} onChange={(e) => { const t = e.target.value; setForm({ ...form, gameType: t, ...(t === "puzzle" ? { kind: "html" as const, builder: "puzzle" as const } : t === "memory" ? { kind: "html" as const, builder: "memory" as const, pairs: form.pairs?.length ? form.pairs : [{ a: "", b: "" }, { a: "", b: "" }, { a: "", b: "" }] } : { kind: "quiz" as const, builder: undefined }) }); }}><option value="quiz">🧠 Quiz</option><option value="puzzle">🧩 Puzzle</option><option value="memory">🃏 Memory game</option></select></Field>
               <Field label="Subject (e.g. Duas)"><input list="game-subjects" className={inputCls} value={form.subject ?? ""} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Duas" />
                 <datalist id="game-subjects">{[...new Set(rows.map((r) => r.subject).filter(Boolean))].map((x) => <option key={x} value={x} />)}</datalist></Field>
             </div>
@@ -133,18 +167,41 @@ export function KidGamesSection() {
               <Field label="Unlock with points (0 = Premium only)"><input type="number" min={0} className={inputCls} value={form.cost ?? 0} onChange={(e) => setForm({ ...form, cost: Math.max(0, Number(e.target.value) || 0) })} /></Field>
               <Field label="Free from level (0 = never)"><input type="number" min={0} className={inputCls} value={form.minLevel ?? 0} onChange={(e) => setForm({ ...form, minLevel: Math.max(0, Number(e.target.value) || 0) })} /></Field>
             </div>}
-            <div className="flex flex-wrap gap-4 text-sm"><span className="font-semibold">Type:</span>
-              <label className="flex items-center gap-2"><input type="radio" checked={form.kind !== "html"} onChange={() => setForm({ ...form, kind: "quiz" })} /> Quiz (build here)</label>
-              <label className="flex items-center gap-2"><input type="radio" checked={form.kind === "html"} onChange={() => setForm({ ...form, kind: "html" })} /> HTML game (upload)</label>
+            <div className="flex flex-wrap gap-4 text-sm"><span className="font-semibold">Make it:</span>
+              {(form.gameType ?? "quiz") === "quiz" && <label className="flex items-center gap-2"><input type="radio" checked={form.kind !== "html" && !form.builder} onChange={() => setForm({ ...form, kind: "quiz", builder: undefined })} /> Quiz (build here)</label>}
+              {form.gameType === "puzzle" && <label className="flex items-center gap-2"><input type="radio" checked={form.builder === "puzzle"} onChange={() => setForm({ ...form, kind: "html", builder: "puzzle" })} /> Picture puzzle (build here)</label>}
+              {form.gameType === "memory" && <label className="flex items-center gap-2"><input type="radio" checked={form.builder === "memory"} onChange={() => setForm({ ...form, kind: "html", builder: "memory", pairs: form.pairs?.length ? form.pairs : [{ a: "", b: "" }, { a: "", b: "" }, { a: "", b: "" }] })} /> Memory cards (build here)</label>}
+              <label className="flex items-center gap-2"><input type="radio" checked={form.kind === "html" && !form.builder} onChange={() => setForm({ ...form, kind: "html", builder: undefined })} /> HTML game (upload)</label>
             </div>
-            {form.kind === "html" && <fieldset className="grid gap-2 border-2 border-foreground p-3">
+            {form.builder === "puzzle" && <fieldset className="grid gap-3 border-2 border-foreground p-3">
+              <legend className="px-1 text-sm font-bold">🧩 Picture puzzle</legend>
+              {form.picUrl && <img src={form.picUrl} alt="" className="max-h-48 w-fit border-2 border-foreground object-contain" />}
+              <label className="inline-flex w-fit cursor-pointer items-center gap-2 border-2 border-foreground bg-primary px-3 py-2 text-sm font-semibold shadow-brutal-sm">{uploading ? "Uploading…" : form.picUrl ? "Change picture" : "Upload picture"}
+                <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={(e) => { void uploadPic(e.target.files?.[0]); e.target.value = ""; }} /></label>
+              <Field label="Pieces"><select className={inputCls} value={form.grid ?? "3x3"} onChange={(e) => setForm({ ...form, grid: e.target.value })}>
+                {[["2x2", "4 pieces · very easy"], ["3x2", "6 pieces · easy"], ["3x3", "9 pieces · medium"], ["3x4", "12 pieces · harder"], ["4x4", "16 pieces · hard"], ["5x5", "25 pieces · very hard"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+              <Field label="Fact shown when finished (optional)"><textarea rows={2} dir="auto" className={`${inputCls} h-auto py-2`} value={form.fact ?? ""} onChange={(e) => setForm({ ...form, fact: e.target.value })} placeholder="The Kaaba is in Makkah. Muslims face it when they pray." /></Field>
+              <p className="text-xs text-muted-foreground">Kids tap two pieces to swap them. Wide or tall pictures keep their shape.</p>
+            </fieldset>}
+            {form.builder === "memory" && <fieldset className="grid gap-2 border-2 border-foreground p-3">
+              <legend className="px-1 text-sm font-bold">🃏 Memory cards</legend>
+              <p className="text-xs text-muted-foreground">Each pair is two cards that go together, like “Bismillah” and “🍽️ Before eating”. Put the same thing on both cards for an easy game. 3 to 10 pairs.</p>
+              {(form.pairs ?? []).map((pr, i) => <div key={i} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+                <input dir="auto" className={inputCls} value={pr.a} onChange={(e) => setForm({ ...form, pairs: (form.pairs ?? []).map((x, j) => (j === i ? { ...x, a: e.target.value } : x)) })} placeholder="Card 1 (e.g. ب)" />
+                <span className="text-lg">↔</span>
+                <input dir="auto" className={inputCls} value={pr.b} onChange={(e) => setForm({ ...form, pairs: (form.pairs ?? []).map((x, j) => (j === i ? { ...x, b: e.target.value } : x)) })} placeholder="Card 2 (e.g. Baa)" />
+                <Button size="sm" variant="outline" aria-label="Remove pair" disabled={(form.pairs ?? []).length <= 1} onClick={() => setForm({ ...form, pairs: (form.pairs ?? []).filter((_, j) => j !== i) })}><Trash2 /></Button>
+              </div>)}
+              {(form.pairs ?? []).length < 10 && <Button size="sm" variant="outline" className="w-fit" onClick={() => setForm({ ...form, pairs: [...(form.pairs ?? []), { a: "", b: "" }] })}><Plus /> Add pair</Button>}
+            </fieldset>}
+            {form.kind === "html" && !form.builder && <fieldset className="grid gap-2 border-2 border-foreground p-3">
               <legend className="px-1 text-sm font-bold">HTML game</legend>
               <p className="text-sm">{form.htmlUrl ? <>Uploaded · <a className="underline" href={form.htmlUrl} target="_blank" rel="noreferrer">preview</a></> : "Not uploaded yet"}</p>
               <label className="inline-flex w-fit cursor-pointer items-center gap-2 border-2 border-foreground bg-primary px-3 py-2 text-sm font-semibold shadow-brutal-sm">{uploading ? "Uploading…" : form.htmlUrl ? "Replace .html" : "Upload .html"}
                 <input type="file" accept=".html,.htm,text/html" className="hidden" disabled={uploading} onChange={(e) => { void uploadHtml(e.target.files?.[0]); e.target.value = ""; }} /></label>
               <p className="text-xs text-muted-foreground">One self-contained .html file. It runs in a safe sandbox. To give XP when it ends, the game calls <code>parent.postMessage({"{"} type: "ilmstation:done", score: 4, total: 5 {"}"}, "*")</code>. Otherwise kids tap “I’ve finished”.</p>
             </fieldset>}
-            {form.kind !== "html" && <>
+            {form.kind !== "html" && !form.builder && <>
             {form.questions.map((q, i) => <fieldset key={i} className="grid gap-2 border-2 border-foreground p-3">
               <legend className="px-1 text-sm font-bold">Question {i + 1}</legend>
               <textarea rows={2} dir="auto" className={`${inputCls} h-auto py-2`} value={q.q} onChange={(e) => setQ(i, { q: e.target.value })} placeholder="How many times do we pray each day?" />

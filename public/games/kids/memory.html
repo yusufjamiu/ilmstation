@@ -88,18 +88,22 @@ const P = {
   ] },
 };
 const LEVEL_PAIRS = [3, 4, 6, 6, 8];
-const COLS = { 6: 3, 8: 4, 12: 3, 16: 4 };
+const COLS = { 4: 2, 6: 3, 8: 4, 10: 4, 12: 3, 14: 4, 16: 4, 18: 4, 20: 4 };
 const UI = {
   sub: L('Find the cards that go together', 'ابحث عن البطاقتين اللتين تتناسبان', 'Temukan kartu yang berpasangan', 'Hanapin ang magkatugmang card'),
   done: L('MashaAllah! All pairs found!', 'ما شاء الله! وجدت كل الأزواج!', 'MasyaAllah! Semua pasangan ditemukan!', 'MashaAllah! Nahanap ang lahat ng pares!'),
   moves: L('moves', 'حركة', 'langkah', 'galaw'), again: L('↻ Again', '↻ مرة أخرى', '↻ Ulangi', '↻ Ulitin'), level: L('Level', 'المرحلة', 'Level', 'Level'),
 };
 
-const pack = P[Q.get('s')] || P.letters;
+// Custom memory game made in the admin: ?t=<title>&p=[["Bismillah","Before eating"],...]
+let customPairs = null;
+try { const raw = JSON.parse(Q.get('p') || 'null'); if (Array.isArray(raw)) customPairs = raw.filter(x => Array.isArray(x) && x[0] && x[1]).slice(0, 10).map(x => [String(x[0]), String(x[1])]); } catch (e) {}
+const CUSTOM = !!(customPairs && customPairs.length >= 2);
+const pack = CUSTOM ? { name: Q.get('t') || '', pool: customPairs } : (P[Q.get('s')] || P.letters);
 const lv = Math.max(0, Math.min(4, (parseInt(Q.get('l'), 10) || 1) - 1));
-const nPairs = Math.min(LEVEL_PAIRS[lv], pack.pool.length);
+const nPairs = CUSTOM ? pack.pool.length : Math.min(LEVEL_PAIRS[lv], pack.pool.length);
 // each level uses its own slice of the pool so levels feel different
-const start = (lv * 3) % Math.max(1, pack.pool.length - nPairs + 1);
+const start = CUSTOM ? 0 : (lv * 3) % Math.max(1, pack.pool.length - nPairs + 1);
 const chosen = pack.pool.slice(start, start + nPairs);
 let cards = [], open = [], matched = 0, moves = 0, lock = false;
 
@@ -155,7 +159,7 @@ function win() {
 }
 function texts() {
   document.documentElement.lang = LANG; document.documentElement.dir = LANG === 'ar' ? 'rtl' : 'ltr';
-  $('title').textContent = `🃏 ${tr(pack.name)} · ${tr(UI.level)} ${lv + 1}`;
+  $('title').textContent = CUSTOM ? `🃏 ${tr(pack.name)}` : `🃏 ${tr(pack.name)} · ${tr(UI.level)} ${lv + 1}`;
   $('sub').textContent = tr(UI.sub); $('again').textContent = tr(UI.again);
   cards.forEach(c => { c.el.querySelector('.front').innerHTML = faceHtml(c.v); });
 }

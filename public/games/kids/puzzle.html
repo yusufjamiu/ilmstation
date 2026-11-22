@@ -103,15 +103,24 @@ const UI = {
   again: L('↻ Again', '↻ مرة أخرى', '↻ Ulangi', '↻ Ulitin'), level: L('Level', 'المرحلة', 'Level', 'Level'),
   done: L('MashaAllah!', 'ما شاء الله!', 'MasyaAllah!', 'MashaAllah!'),
 };
-const tr = o => o[LANG] || o.en;
+const tr = o => (typeof o === 'string' ? o : o[LANG] || o.en);
 
-const pack = PACKS[Q.get('s')] || PACKS.places;
+// Custom puzzle made in the admin: ?img=<picture>&t=<title>&f=<fact>&g=3x3
+const CUSTOM = Q.get('img');
+const pack = CUSTOM ? { name: L('', '', '', '') } : (PACKS[Q.get('s')] || PACKS.places);
 const lvIdx = Math.max(0, Math.min(4, (parseInt(Q.get('l'), 10) || 1) - 1));
-const [picId, titleO, factO] = pack.levels[lvIdx];
-const [COLS, ROWS] = GRIDS[lvIdx];
+const [picId, titleO, factO] = CUSTOM ? ['', Q.get('t') || '', Q.get('f') || ''] : pack.levels[lvIdx];
+const gq = (Q.get('g') || '').match(/^(\d)x(\d)$/);
+const [COLS, ROWS] = CUSTOM ? (gq ? [Math.min(6, +gq[1]), Math.min(6, +gq[2])] : [3, 3]) : GRIDS[lvIdx];
 const N = COLS * ROWS;
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">${PICS[picId]}</svg>`;
-const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+const url = CUSTOM ? CUSTOM : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">${PICS[picId]}</svg>`);
+// keep the picture's own shape (wide or tall photos are not squashed)
+let ratio = 1;
+function fitBoard() {
+  const w = Math.min(innerWidth * 0.92, 500, innerHeight * 0.62 * ratio);
+  $('board').style.width = w + 'px'; $('board').style.height = (w / ratio) + 'px'; $('board').style.aspectRatio = 'auto';
+}
+if (CUSTOM) { const im = new Image(); im.onload = () => { const r = im.naturalWidth / im.naturalHeight; if (r > 0.4 && r < 2.5) { ratio = r; fitBoard(); } }; im.src = CUSTOM; addEventListener('resize', () => { if (ratio !== 1) fitBoard(); }); }
 
 let order = [], sel = null, moves = 0, solved = false;
 const board = $('board'), tiles = [];
@@ -163,7 +172,7 @@ function win() {
   setTimeout(() => {
     $('stars').innerHTML = [0, 1, 2].map(i => `<span class="${i < nStars ? '' : 'off'}">⭐</span>`).join('');
     $('wTitle').textContent = tr(UI.done) + ' ' + tr(titleO);
-    $('wImg').src = url; $('wFact').textContent = tr(factO);
+    $('wImg').src = url; $('wFact').textContent = tr(factO); $('wFact').style.display = tr(factO) ? '' : 'none';
     $('win').classList.add('on');
     try { const u = new SpeechSynthesisUtterance(tr(factO).replace('ﷺ', '')); u.lang = { en: 'en-US', ar: 'ar-SA', id: 'id-ID', tl: 'fil-PH' }[LANG]; speechSynthesis.speak(u); } catch (e) {}
   }, 500);
@@ -171,9 +180,9 @@ function win() {
 }
 function texts() {
   document.documentElement.lang = LANG; document.documentElement.dir = LANG === 'ar' ? 'rtl' : 'ltr';
-  $('title').textContent = `🧩 ${tr(pack.name)}: ${tr(titleO)}`;
+  $('title').textContent = CUSTOM ? `🧩 ${tr(titleO)}` : `🧩 ${tr(pack.name)}: ${tr(titleO)}`;
   $('sub').textContent = tr(UI.hint);
-  $('lvl').textContent = `⭐ ${tr(UI.level)} ${lvIdx + 1}`;
+  $('lvl').textContent = CUSTOM ? `🧩 ${N}` : `⭐ ${tr(UI.level)} ${lvIdx + 1}`;
   $('peekBtn').textContent = tr(UI.peek); $('mixBtn').textContent = tr(UI.mix); $('again').textContent = tr(UI.again);
 }
 $('peek').style.backgroundImage = `url("${url}")`;
