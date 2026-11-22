@@ -5,7 +5,6 @@ import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { db } from "@/lib/firebase";
-import { STARTER_GAMES } from "@/lib/kids-starter-games";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
@@ -72,26 +71,45 @@ export function KidGamesSection() {
     await w.commit().catch(() => toast.error("Couldn't reorder"));
   };
 
-  // one tap: adds the ready-made quizzes, puzzles and memory games that aren't here yet (never overwrites your edits)
-  const [adding, setAdding] = useState(false);
-  const addStarters = async () => {
-    const have = new Set(rows.map((r) => r.id));
-    const todo = STARTER_GAMES.filter((g) => !have.has(g.id));
-    if (!todo.length) { toast.success("All starter games are already added"); return; }
-    setAdding(true);
-    try {
-      for (let i = 0; i < todo.length; i += 400) {
-        const w = writeBatch(db);
-        todo.slice(i, i + 400).forEach((g) => w.set(doc(db, "kidGames", g.id), { ...g, status: "published", audience: "kids", cost: 0, minLevel: 0, createdAt: Date.now() }));
-        await w.commit();
-      }
-      toast.success(`Added ${todo.length} starter games`);
-      record(`Added ${todo.length} starter kids games`);
-    } catch { toast.error("Couldn't add the starter games"); } finally { setAdding(false); }
+  // Upload many HTML games at once. Each file can say what it is with <meta name="ilmstation:type|subject|level|emoji|tier|lang|audience" content="…">.
+  // Same type + subject + level replaces the old game (so fixed files can be uploaded again).
+  const [bulk, setBulk] = useState<string | null>(null);
+  const bulkUpload = async (files: FileList | null) => {
+    const list = [...(files ?? [])].filter((f) => /\.html?$/i.test(f.name));
+    if (!list.length) { toast.error("Choose .html files"); return; }
+    const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "game";
+    const tint: Record<string, string> = { quiz: "yellow", puzzle: "green", memory: "white" };
+    let ok = 0; const failed: string[] = [];
+    for (const [n, f] of list.entries()) {
+      setBulk(`Uploading ${n + 1} of ${list.length}…`);
+      try {
+        if (f.size > 10 * 1024 * 1024) throw new Error("too big");
+        const page = new DOMParser().parseFromString(await f.text(), "text/html");
+        const m = (k: string) => page.querySelector(`meta[name="ilmstation:${k}"]`)?.getAttribute("content")?.trim() ?? "";
+        const type = ["quiz", "puzzle", "memory"].includes(m("type")) ? m("type") : "quiz";
+        const subject = m("subject") || f.name.replace(/\.html?$/i, "").replace(/[-_]+/g, " ");
+        const level = Math.max(1, parseInt(m("level"), 10) || 1);
+        const id = `kg-${type}-${slug(subject)}-${level}`;
+        const r = ref(getStorage(), `kidgames/${id}.html`);
+        await uploadBytes(r, f, { contentType: "text/html" });
+        const htmlUrl = await getDownloadURL(r);
+        await setDoc(doc(db, "kidGames", id), {
+          title: subject, subject, emoji: m("emoji") || "🎮", color: tint[type], status: "published", order: level - 1, questions: [], createdAt: Date.now(),
+          kind: "html", htmlUrl, gameType: type, audience: m("audience") === "all" ? "all" : "kids", tier: m("tier") === "premium" ? "premium" : "free", cost: 0, minLevel: 0, lang: m("lang") || "all",
+        });
+        ok++;
+      } catch { failed.push(f.name); }
+    }
+    setBulk(null);
+    if (ok) { toast.success(`Uploaded ${ok} game${ok === 1 ? "" : "s"}`); record(`Uploaded ${ok} kids HTML games`); }
+    if (failed.length) toast.error(`Couldn't upload: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? ` and ${failed.length - 3} more` : ""}`);
   };
 
-  return <Page eyebrow="App · Kids and adults" title="Games & quizzes" actions={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={adding} onClick={() => void addStarters()}>{adding ? "Adding…" : "📦 Add starter games"}</Button><Button onClick={() => setForm(blank())}><Plus /> Add game</Button></div>}>
-    <p className="mb-5 max-w-2xl text-sm text-muted-foreground">Quizzes and games for kids, or for teens and adults (in Play → Games & quizzes). Until you publish kids games, kids see the 4 starter games.</p>
+  return <Page eyebrow="App · Kids and adults" title="Games & quizzes" actions={<div className="flex flex-wrap gap-2">
+      <label className={`inline-flex cursor-pointer items-center gap-2 border-2 border-foreground bg-background px-3 py-2 text-sm font-semibold shadow-brutal-sm ${bulk ? "pointer-events-none opacity-60" : ""}`}>{bulk ?? "⬆️ Upload many HTML games"}
+        <input type="file" multiple accept=".html,.htm,text/html" className="hidden" onChange={(e) => { void bulkUpload(e.target.files); e.target.value = ""; }} /></label>
+      <Button onClick={() => setForm(blank())}><Plus /> Add game</Button></div>}>
+    <p className="mb-5 max-w-2xl text-sm text-muted-foreground">Quizzes and games for kids, or for teens and adults (in Play → Games & quizzes). Until you publish kids games, kids see the 4 starter games. To add many at once, tap “Upload many HTML games” and select all the files: each file already says its type, subject and level.</p>
     <PlaySettings />
     <Panel title="Games" tag={`${rows.filter((g) => g.status === "published").length} published`}>
       {rows.length === 0 ? <p className="text-sm text-muted-foreground">No games yet. Add the first one.</p> : <ul className="grid gap-2">{rows.map((g, i) => <li key={g.id} className={`flex flex-wrap items-center gap-3 border-2 border-foreground p-3 ${g.status === "draft" ? "opacity-70" : ""}`}>
