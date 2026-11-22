@@ -268,7 +268,7 @@ function KidGameHub({ games, open, start, locked, setLocked, onMedina }: {
     {cont && <button onClick={() => play(cont)} className="mt-6 flex w-full items-center gap-4 border-2 border-foreground bg-secondary p-5 text-start text-secondary-foreground shadow-brutal">
       <span className="text-4xl">▶</span><span><b className="block text-xl">Continue</b><span className="text-sm">{subjOf(cont)} · Level {contN}</span></span>
     </button>}
-    <div className="mt-6 grid gap-4 sm:grid-cols-3">{GAME_TYPES.filter(([id]) => games.some((g) => typeOf(g) === id)).map(([id, e, name], i) => { const has = true; return <button key={id} onClick={() => setType(id)}
+    <div className="mt-6 grid gap-4 sm:grid-cols-3">{GAME_TYPES.map(([id, e, name], i) => { const has = games.some((g) => typeOf(g) === id); return <button key={id} disabled={!has} onClick={() => setType(id)}
       className={cn("flex min-h-40 flex-col justify-between border-2 border-foreground p-6 text-start shadow-brutal transition-transform", has ? "hover:-translate-y-1" : "opacity-60", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-background"][i % 3])}>
       <span className="text-5xl">{e}</span><span><b className="block font-serif text-3xl leading-none">{name}</b><span className="text-sm font-semibold">{has ? "Tap to play" : "Coming soon"}</span></span>
     </button>; })}</div>
