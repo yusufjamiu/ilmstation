@@ -7662,3 +7662,21 @@ const MEDINA_CARDS: Record<string, T> = {
   "Your daily chest is ready! Tap to open it": { ar: "صندوقك اليومي جاهز! اضغط لتفتحه", fr: "Ton coffre du jour est prêt ! Touche pour l'ouvrir", ur: "آپ کا روزانہ کا صندوق تیار ہے! کھولنے کے لیے دبائیں", ha: "Akwatin yau naka ya shirya! Danna don ka buɗe shi", id: "Peti harianmu sudah siap! Ketuk untuk membukanya", tl: "Handa na ang araw-araw mong kahon! I-tap para buksan", yo: "Àpótí ojoojúmọ́ rẹ ti ṣetán! Tẹ̀ láti ṣí i", ig: "Igbe ụbọchị gị dị njikere! Pịa ka imeghe ya", bn: "তোমার আজকের বাক্স তৈরি! খুলতে চাপুন", ms: "Peti harian kamu sudah sedia! Ketik untuk membukanya" },
 };
 for (const [k, v] of Object.entries(MEDINA_CARDS)) DICT[k] = { ...(DICT[k] ?? {}), ...v };
+
+// Subjects of the kids HTML games (Quizzes, Puzzles, Memory games)
+const KIDS_GAME_SUBJECTS: Record<string, T> = {
+  "Good Manners": { ar: "الأخلاق الحسنة", id: "Adab yang Baik", tl: "Mabuting Asal" },
+  "5 Pillars": { ar: "أركان الإسلام", id: "Rukun Islam", tl: "5 Haligi" },
+  "Salah & Wudu": { ar: "الصلاة والوضوء", id: "Shalat & Wudhu", tl: "Salah at Wudu" },
+  "The Prophets": { ar: "الأنبياء", id: "Para Nabi", tl: "Ang mga Propeta" },
+  "Prophets": { ar: "الأنبياء", id: "Para Nabi", tl: "Mga Propeta" },
+  "The Quran": { ar: "القرآن", id: "Al-Qur'an", tl: "Ang Quran" },
+  "Ramadan & Eid": { ar: "رمضان والعيد", id: "Ramadhan & Idul Fitri", tl: "Ramadan at Eid" },
+  "Arabic Letters": { ar: "الحروف العربية", id: "Huruf Arab", tl: "Mga Titik Arabe" },
+  "Makkah & Madinah": { ar: "مكة والمدينة", id: "Makkah & Madinah", tl: "Makkah at Madinah" },
+  "Holy Places": { ar: "الأماكن المقدسة", id: "Tempat Suci", tl: "Mga Banal na Lugar" },
+  "Allah's Creation": { ar: "من خلق الله", id: "Ciptaan Allah", tl: "Nilikha ng Allah" },
+  "Duas": { ar: "الأدعية والأذكار", id: "Doa & Dzikir", tl: "Mga Dua" },
+  "Numbers": { ar: "الأرقام", id: "Angka", tl: "Mga Numero" },
+};
+for (const [k, v] of Object.entries(KIDS_GAME_SUBJECTS)) DICT[k] = { ...v, ...(DICT[k] ?? {}) };
