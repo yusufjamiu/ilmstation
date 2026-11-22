@@ -53,7 +53,8 @@ function unlockVoice(){
   if (pending) { const [t,l] = pending; pending = null; speak(t,.85,l); }
 }
 ["pointerdown","touchend","click"].forEach(ev => addEventListener(ev, unlockVoice, true));
-function stopVoice(){ try{ voiceEl.pause(); }catch(e){} if(player){ player.pause(); player=null; } try{ speechSynthesis.cancel(); }catch(e){} }
+let mixGen = 0;   // a mixed English + Arabic sentence stops when anything else starts speaking
+function stopVoice(){ if(!speak._mix) mixGen++; try{ voiceEl.pause(); }catch(e){} if(player){ player.pause(); player=null; } try{ speechSynthesis.cancel(); }catch(e){} }
 // adults hear a calm adult narrator; children hear Nuri
 const WHO = (typeof LESSON!=="undefined" && /adult/.test(LESSON.course)) ? "adult" : "kid";
 function voiceUrl(text, rate=.85, lang="ar"){
@@ -78,7 +79,7 @@ async function prefetchVoices(items){
 /** Arabic by default; speakEn() is the friendly English voice for instructions.
     The audio plays straight from the voice server's address (Safari won't play downloaded copies inside the app's lesson box). */
 async function speak(text, rate=.85, lang="ar"){
-  if (muted) return; stopVoice();
+  if (muted) return; if(!speak._mix) mixGen++; stopVoice();
   // letter names ending in ـاءْ (بَاءْ تَاءْ…): the voice turns the final hamza into an extra "ha",
   // so it says them the way the alphabet is recited: "baa", "taa" (the screen still shows the full name)
   const url = voiceUrl(text, rate, lang);
@@ -101,6 +102,25 @@ async function speak(text, rate=.85, lang="ar"){
   return new Promise(res=>{ u.onend = res; u.onerror = res; setTimeout(res, 1200 + text.length*90); speechSynthesis.speak(u); });
 }
 const speakEn = (text) => speak(text, .95, "en");
+/** Split a sentence into English parts and Arabic parts: [[isArabic, text], …] */
+function mixParts(text){
+  const out=[]; const re=/[\u0600-\u06FF][\u0600-\u06FF\u064B-\u0652\u0670\s،؟]*/g; let last=0, m;
+  const t=String(text);
+  while((m=re.exec(t))){ if(m.index>last) out.push([0,t.slice(last,m.index)]); out.push([1,m[0]]); last=m.index+m[0].length; }
+  if(last<t.length) out.push([0,t.slice(last)]);
+  return out.map(([a,x])=>[a, a ? x.replace(/[؟ـ]/g," ").replace(/\s+/g," ").trim() : x.replace(/\s+/g," ").replace(/^[\s,.;:]+(?=\w)/,"").trim()])
+            .filter(([a,x])=> a ? x : /[A-Za-z0-9]/.test(x));
+}
+/** English with Arabic words inside: the Arabic voice reads the Arabic words, so they are pronounced correctly. */
+async function speakMix(text){
+  const parts = mixParts(text), my = ++mixGen;
+  for (const [ar, t] of parts){
+    if (my !== mixGen || muted) return;
+    speak._mix = true; const p = ar ? speak(t) : speakEn(t); speak._mix = false;
+    await p;
+  }
+}
+const mixPrefetch = text => mixParts(text).map(([ar,t]) => ar ? [t] : [t,"en"]);
 
 /* ===== LANGUAGES ==========================================================================================
    The app tells the lesson the learner's language (ilmstation:welcome → lang). The lesson then loads
@@ -303,7 +323,7 @@ const L = { next:"Next", start:"Start lesson", cont:"Continue where you stopped"
 
 async function Intro(){
   await bridgeReady;
-  prefetchVoices([...introScenes().map(x=>[x.say,"en"]), ...WORDS.map(w=>[plainSay(w.ar)]), ...PRAISE.map(x=>[x.ar])]);
+  prefetchVoices([...introScenes().flatMap(x=>mixPrefetch(x.say)), ...RULES.flatMap(r=>mixPrefetch(r.say||"")), ...WORDS.map(w=>[plainSay(w.ar)]), ...PRAISE.map(x=>[x.ar])]);
   const resume = savedState && savedState.step>0 && savedState.step<STEPS.length;
   view.innerHTML=`<div class="card intro fade" style="margin-top:22px"><div class="ar" style="font-size:28px;color:var(--em)">${LESSON.ar}</div>
     <h1 style="margin-top:6px">${LESSON.title}</h1><p class="lead" style="margin:0">${LESSON.sub}</p>
@@ -324,7 +344,7 @@ function Lesson(i){
     <div class="stepLabel"><span>Step ${i+1} of ${STEPS.length} · ${def.name}</span></div><div id="stage"></div></div>`;
   view.querySelectorAll(".steps button").forEach(b=>b.onclick=()=>{ const k=+b.dataset.k; if(k<=maxStep) Lesson(k); });
   const talk = def.say || (["watch","rules","exam"].includes(def.type) ? "" : spokenEn(def.sub||""));
-  stepIntro = talk ? Promise.resolve(speakEn(talk)).then(()=>wait(250)) : Promise.resolve();
+  stepIntro = talk ? Promise.resolve(speakMix(talk)).then(()=>wait(250)) : Promise.resolve();
   TYPES[def.type]($("#stage"), def);
 }
 const nextBtn=(label=L.next)=>`<div class="row end" style="margin-top:18px"><button class="btn pulse" id="nx">${label} →</button></div>`;
@@ -333,25 +353,28 @@ function bindNext(){ $("#nx").onclick=()=>Lesson(stepNow+1); }
 const SPOKEN = {"هٰذَا":"haadhaa","هٰذِهِ":"haadhihi","ذٰلِكَ":"dhaalika","تِلْكَ":"tilka","مَا":"maa","مَنْ":"man","نَعَمْ":"na'am","لَا":"laa","الْ":"al","ة":"taa marbuutah",
   "فِي":"fee","عَلَى":"'alaa","مِنْ":"min","مِنَ":"mina","إِلَى":"ilaa","هُوَ":"huwa","هِيَ":"hiya","يَا":"yaa","لِ":"li","تَحْتَ":"tahta","أَ":"a","وَ":"wa","ل":"laam"};
 function spokenEn(t){
-  const dict = Object.assign({}, ...[...WORDS, ...(typeof EXTRA!=="undefined"?EXTRA:[])].map(x=>({[x.ar]:x.tr})), SPOKEN);
-  let s = String(t).replace(/<[^>]+>/g," ").replace(/[\u0600-\u06FF][\u0600-\u06FF\u064B-\u0652\u0670]*/g, m => " "+(dict[m]||dict[m.replace(/[ًٌٍ]$/,"")]||"")+" ");
-  s = s.replace(/\s*→\s*/g,": use ").replace(/\+/g," plus ").replace(/[·≠]/g,", ").replace(/[“”"…]/g,"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[ʿʾ]/g,"'");
-  return s.replace(/[^A-Za-z0-9\s.,!?':;()\-]/g," ").replace(/\s+([.,!?])/g,"$1").replace(/\(\s*\)/g,"").replace(/\s+/g," ").trim();
+  let s = String(t).replace(/<[^>]+>/g," ")
+    // endings and vowel names: said by the Arabic voice
+    .replace(/\(?-ati\b\)?/g," تِ ").replace(/\(?-aani\b\)?/g," آنِ ").replace(/\(?-at\b\)?/g," تَاءْ ").replace(/\(?-un\b\)?/g," أُنْ ").replace(/\(?-an\b\)?/g," أَنْ ")
+    .replace(/\(?-i\b\)?/g," كَسْرَةْ ").replace(/\bkasra\b/g,"كَسْرَةْ").replace(/\bdamma\b/g,"ضَمَّةْ").replace(/\bfatha\b/g,"فَتْحَةْ").replace(/\bsukun\b/g,"سُكُونْ").replace(/\bshadda\b/g,"شَدَّةْ")
+    .replace(/(^|[^\u0600-\u06FF\u064B-\u0652])ة(?=$|[^\u0600-\u06FF\u064B-\u0652])/g,"$1 تَاءْ مَرْبُوطَةْ ").replace(/(^|[^\u0600-\u06FF\u064B-\u0652])ت(?=$|[^\u0600-\u06FF\u064B-\u0652])/g,"$1 تَاءْ ").replace(/\s*→\s*/g,": use ").replace(/\+/g," plus ").replace(/[·≠←]/g,", ").replace(/[“”"…]/g,"")
+    .normalize("NFC").replace(/[ʿʾ]/g,"'");
+  return s.replace(/[^A-Za-z0-9\s.,!?':;()\-\u0600-\u06FF\u064B-\u0652\u0670]/g," ").replace(/\s+([.,!?])/g,"$1").replace(/\(\s*\)/g,"").replace(/\s+/g," ").trim();
 }
 let stepIntro = Promise.resolve();
 const firstSay = (st, fn) => stepIntro.then(()=>{ if(st.isConnected) fn(); });
-const head = def => `<h2>${def.title||def.name}</h2>${def.sub?`<p class="lead">${def.sub}</p>`:""}`;
+const head = def => `<h2>${arWrap(def.title||def.name)}</h2>${def.sub?`<p class="lead">${arWrap(def.sub)}</p>`:""}`;
 
 /* ---- WATCH: a short narrated intro with captions ---- */
 function introScenes(){
   const sc=[];
   if (LESSON.level==="beginner-1" && LESSON.lesson===1) sc.push(
-    {show:"logo", say:"Assalamu alaikum, and welcome to the Arabiyyah class. In this course you will learn to understand, read and speak Arabic, the language of the Qur'an, step by step."},
-    {show:"book", say:"We follow the famous book, Lessons in Arabic Language, by Dr. V. Abdur-Raheem, taught at the Islamic University of Madinah."},
+    {show:"logo", say:"السَّلَامُ عَلَيْكُمْ. Welcome to the Arabic class. In this course you will learn to understand, read and speak Arabic, the language of the Qur'an, step by step."},
+    {show:"book", say:"We follow the famous book, Lessons in Arabic Language, by Dr. V. عَبْدِ الرَّحِيمْ, taught at the Islamic University of Madinah."},
     {show:"parts", say:"The course has four levels. Beginner 1 is Book 1. Beginner 2 is the first half of Book 2. Beginner 3 is the second half of Book 2. Beginner 4 is Book 3. Each level ends with a final exam and a certificate."});
   sc.push({show:"today", say:GOAL},
     {show:"steps", say:`In each lesson you learn the new rule and the new words, you read sentences aloud and the app checks you, you practise with short exercises, and you finish with an exam. You need ${Math.round(PASS*100)} percent to pass, and you can retake it as many times as you like.`},
-    {show:"go", say:"Listen carefully and repeat everything aloud. Bismillah, let's begin."});
+    {show:"go", say:"Listen carefully and repeat everything aloud. بِسْمِ اللهِ. Let's begin."});
   return sc;
 }
 function Watch(st){
@@ -374,7 +397,7 @@ function Watch(st){
   function jump(i){ k=Math.max(0,Math.min(scenes.length-1,i)); paused=false; pp.textContent="⏸"; play(); }
   async function play(){ const my=++token; stopVoice();
     while(k<scenes.length){ dots(); const sc=scenes[k]; vs.innerHTML=visual(sc.show); cap.textContent=sc.say;
-      await Promise.all([speakEn(sc.say), wait(1500)]); if(!alive(my)) return; await wait(500); if(!alive(my)) return; k++; }
+      await Promise.all([speakMix(sc.say), wait(1500)]); if(!alive(my)) return; await wait(500); if(!alive(my)) return; k++; }
     dots(); done(); }
   function done(){ if(!$("#nx")){ $("#nxw").innerHTML=nextBtn("Start the lesson"); bindNext(); } }
   pp.onclick=()=>{ if(paused){ paused=false; pp.textContent="⏸"; play(); } else { paused=true; token++; stopVoice(); pp.textContent="▶"; } };
@@ -385,12 +408,13 @@ function Watch(st){
 
 /* ---- RULES: one card per rule, with examples to hear ---- */
 /** "مَا ≠ مَنْ" + "maa · man" + "what · who" → columns, so each meaning sits under its own Arabic word */
+const arSize = a => { const n=String(a).replace(/[\u064B-\u0652\u0670]/g,"").length; return n>16?" long":n>9?" mid":""; };
 function ruleHead(R){
-  const sp = x => String(x).split(/\s+[·≠]\s+/);
-  const A=sp(R.ar), T=sp(R.tr), E=sp(R.en), sep=/≠/.test(R.ar)?"≠":"·";
-  if (A.length<2 || T.length!==A.length) return `<div class="ruleAr ar">${arWrap(R.ar,true)}</div><div class="tr">${R.tr}</div><div class="ruleEn">${R.en}</div>`;
+  const sp = x => String(x).split(/\s+[·≠←]\s+/);
+  const A=sp(R.ar), T=sp(R.tr), E=sp(R.en), sep=/≠/.test(R.ar)?"≠":/←/.test(R.ar)?"←":"·";
+  if (A.length<2 || T.length!==A.length) return `<div class="ruleAr ar${arSize(R.ar)}">${arWrap(R.ar,true)}</div><div class="tr">${R.tr}</div><div class="ruleEn">${R.en}</div>`;
   const eCols = E.length===A.length;
-  return `<div class="rhead">${A.map((a,i)=>`${i?`<div class="rsep">${sep}</div>`:""}<div class="rcol"><div class="ruleAr ar">${a}</div><div class="tr">${T[i]}</div>${eCols?`<div class="ruleEn">${E[i]}</div>`:""}</div>`).join("")}</div>${eCols?"":`<div class="ruleEn">${R.en}</div>`}`;
+  return `<div class="rhead${A.some(a=>arSize(a))?" stack":""}">${A.map((a,i)=>`${i&&A.length===2?`<div class="rsep">${sep==="←"&&A.some(a=>arSize(a))?"↓":sep}</div>`:""}<div class="rcol"><div class="ruleAr ar${arSize(a)}">${a}</div><div class="tr">${T[i]}</div>${eCols?`<div class="ruleEn">${E[i]}</div>`:""}</div>`).join("")}</div>${eCols?"":`<div class="ruleEn">${R.en}</div>`}`;
 }
 /** keep Arabic inside English text together and in the right order */
 function arWrap(html, whole){
@@ -404,12 +428,12 @@ function Rules(st, def){
     const R=RULES[r], last=r===RULES.length-1;
     st.innerHTML=`${head(def)}<div class="card rule fade"><span class="counter">${r+1} / ${RULES.length}</span>
       ${ruleHead(R)}
-      <p class="ruleNote">${arWrap(R.note)}</p>${R.cmp?`<div class="cmp">${R.cmp.map(c=>`<div><b class="ar">${c.ar}</b>${c.en}<br><span>${c.pics}</span></div>`).join("")}</div>`:""}
-      <div class="exs">${R.ex.map(([ar,en,pic],j)=>`<button class="ex" data-j="${j}">${pic?picHTML(pic,en):""}<span class="ar">${ar}</span><small>${en}</small><i>🔊</i></button>`).join("")}</div></div>
+      <p class="ruleNote">${arWrap(R.note)}</p>${R.cmp?`<div class="cmp">${R.cmp.map(c=>`<div><b class="ar${c.ar.length>16?" sm":""}">${c.ar}</b>${c.en}<br><span>${c.pics}</span></div>`).join("")}</div>`:""}
+      <div class="exs${R.read?" read":""}">${R.ex.map(([ar,en,pic],j)=>`<button class="ex" data-j="${j}">${pic?picHTML(pic,en):""}<span class="ar">${ar}</span><small>${en}</small><i>🔊</i></button>`).join("")}</div></div>
       <div class="row end" style="margin-top:16px">${r?`<button class="btn sec" id="pv">← Back</button>`:""}<button class="btn pulse" id="nr">${last?L.next+" →":"Next rule →"}</button></div>`;
     const play=async()=>{ for(const [ar] of R.ex){ if(!st.isConnected||R!==RULES[r]) return; await sayAr(ar); await wait(350); } };
     st.querySelectorAll(".ex").forEach(b=>b.onclick=()=>{ st.querySelectorAll(".ex").forEach(x=>x.classList.remove("on")); b.classList.add("on"); sayAr(R.ex[+b.dataset.j][0]); });
-    (async()=>{ await speakEn(R.say||R.note); if(st.isConnected && RULES[r]===R) play(); })();
+    (async()=>{ await speakMix(R.say||spokenEn(R.note)); if(st.isConnected && RULES[r]===R) play(); })();
     $("#nr").onclick=()=>{ if(last) Lesson(stepNow+1); else { r++; draw(); } };
     const pv=$("#pv"); if(pv) pv.onclick=()=>{ r--; draw(); };
   }

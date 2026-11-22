@@ -251,3 +251,12 @@ body.embedded #closeBtn{display:grid;place-items:center}
 .arIn.lw{white-space:normal}
 /* Arabic order: the first example / word sits on the right */
 .exs,.wgrid{direction:rtl} .exs .ex,.wgrid .wcard{direction:ltr}
+.ruleAr.mid{font-size:min(46px,10vw)} .ruleAr.long{font-size:min(36px,7.5vw)}
+.rhead.stack{flex-direction:column;align-items:center;gap:0} .rhead.stack .rsep{margin:-6px 0 -10px;font-size:30px}
+.exs.read .ex{flex:1 1 100%;flex-direction:column;align-items:stretch;padding:10px 44px 10px 44px;font-size:26px;position:relative}
+.exs.read .ex .pic{position:absolute;left:10px;top:12px}
+.exs.read .ex .ar{font-size:24px;line-height:1.75;text-align:right;width:100%}
+.exs.read .ex small{display:none;text-align:left;margin-top:4px}
+.exs.read .ex.on small{display:block}
+.exs.read .ex i{left:auto;right:12px;top:14px}
+.cmp b.ar.sm{font-size:22px;line-height:1.7}
