@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>IlmStation Memory</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:#faf6ee;color:#1c1a17;font-family:"Baloo Bhaijaan 2",system-ui,sans-serif;user-select:none;-webkit-user-select:none;overflow:hidden}
+  #app{height:100%;display:flex;flex-direction:column;align-items:center;padding:12px;gap:10px}
+  .top{width:100%;max-width:560px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .pill{border:2px solid #1c1a17;background:#fff;padding:3px 12px;font-weight:800;font-size:17px;box-shadow:3px 3px 0 #1c1a17;white-space:nowrap}
+  h1{font-size:24px;line-height:1.1;text-align:center}
+  #sub{font-size:15px;color:#6b6257;text-align:center;margin-top:-6px}
+  #grid{display:grid;gap:10px;width:min(94vw,560px);flex:1;max-height:calc(100% - 120px);align-content:center}
+  .card{perspective:600px;cursor:pointer;min-height:0}
+  .inner{position:relative;width:100%;height:100%;transition:transform .35s;transform-style:preserve-3d}
+  .card.up .inner,.card.done .inner{transform:rotateY(180deg)}
+  .face{position:absolute;inset:0;border:2.5px solid #1c1a17;box-shadow:3px 3px 0 #1c1a17;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;align-items:center;justify-content:center;text-align:center;padding:4px;overflow:hidden}
+  .back{background:#237a48;background-image:radial-gradient(circle at 50% 50%,#f0c23c 0 14%,transparent 15%),repeating-linear-gradient(45deg,rgba(255,255,255,.08) 0 8px,transparent 8px 16px)}
+  .front{background:#fff;transform:rotateY(180deg);flex-direction:column;line-height:1.1;font-weight:800}
+  .card.done .front{background:#dff3e6;border-color:#237a48}
+  .card.done{animation:hop .4s}
+  @keyframes hop{50%{transform:translateY(-8px)}}
+  .big{font-size:clamp(26px,8vw,46px)}
+  .ar{font-family:"Baloo Bhaijaan 2","Noto Naskh Arabic",Tahoma,sans-serif}
+  .txt{font-size:clamp(12px,3.4vw,17px)}
+  #win{position:fixed;inset:0;background:rgba(250,246,238,.92);display:none;align-items:center;justify-content:center;padding:20px}
+  #win.on{display:flex}
+  .box{max-width:420px;width:100%;border:3px solid #1c1a17;background:#fff;box-shadow:6px 6px 0 #1c1a17;padding:20px;text-align:center}
+  .stars{font-size:44px;letter-spacing:4px}.stars .off{filter:grayscale(1);opacity:.3}
+  .box p{font-size:17px;margin:6px 0 14px}
+  button{font-family:inherit;font-weight:800;font-size:18px;border:2px solid #1c1a17;background:#f0c23c;padding:8px 18px;box-shadow:3px 3px 0 #1c1a17;cursor:pointer;color:#1c1a17}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top"><span class="pill" id="moves">👆 0</span><span class="pill" id="pairs">🃏 0/0</span></div>
+  <h1 id="title">Memory</h1>
+  <div id="sub">Find the pairs</div>
+  <div id="grid"></div>
+</div>
+<div id="win"><div class="box"><div class="stars" id="stars"></div><h1 id="wTitle"></h1><p id="wText"></p><button id="again">↻</button></div></div>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+let LANG = (Q.get('lang') || 'en').slice(0, 2);
+const L = (en, ar, id, tl) => ({ en, ar, id: id || en, tl: tl || en });
+const tr = o => (typeof o === 'string' ? o : o[LANG] || o.en);
+
+/* pairs: [left, right]; a string is the same in every language */
+const P = {
+  letters: { name: L('Arabic Letters', 'الحروف العربية', 'Huruf Arab', 'Mga Titik Arabe'), same: false, pool: [
+    ['ب', L('Baa', 'باء', 'Ba', 'Baa')], ['ت', L('Taa', 'تاء', 'Ta', 'Taa')], ['ث', L('Thaa', 'ثاء', 'Tsa', 'Thaa')], ['ج', L('Jeem', 'جيم', 'Jim', 'Jeem')],
+    ['ح', L('Haa', 'حاء', 'Ha', 'Haa')], ['خ', L('Khaa', 'خاء', 'Kha', 'Khaa')], ['د', L('Daal', 'دال', 'Dal', 'Daal')], ['ر', L('Raa', 'راء', 'Ra', 'Raa')],
+    ['س', L('Seen', 'سين', 'Sin', 'Seen')], ['ش', L('Sheen', 'شين', 'Syin', 'Sheen')], ['ع', L('Ayn', 'عين', "'Ain", 'Ayn')], ['م', L('Meem', 'ميم', 'Mim', 'Meem')],
+    ['ن', L('Noon', 'نون', 'Nun', 'Noon')], ['و', L('Waw', 'واو', 'Wau', 'Waw')], ['ي', L('Yaa', 'ياء', 'Ya', 'Yaa')], ['ف', L('Faa', 'فاء', 'Fa', 'Faa')],
+  ] },
+  duas: { name: L('Duas', 'الأدعية والأذكار', 'Doa & Dzikir', 'Mga Dua'), same: false, pool: [
+    [L('Bismillah', 'بسم الله'), L('🍽️ Before eating', '🍽️ قبل الأكل', '🍽️ Sebelum makan', '🍽️ Bago kumain')],
+    [L('Alhamdulillah', 'الحمد لله'), L('😋 After eating', '😋 بعد الأكل', '😋 Setelah makan', '😋 Pagkatapos kumain')],
+    [L('Assalamu alaikum', 'السلام عليكم', "Assalamu'alaikum"), L('👋 Meeting someone', '👋 عند اللقاء', '👋 Bertemu seseorang', '👋 Pagkikita')],
+    [L('JazakAllahu khayran', 'جزاك الله خيرًا', 'Jazakallahu khairan'), L('🎁 Saying thanks', '🎁 عند الشكر', '🎁 Berterima kasih', '🎁 Pagpapasalamat')],
+    [L('In shaa Allah', 'إن شاء الله', 'Insya Allah'), L('📅 Future plans', '📅 للمستقبل', '📅 Rencana nanti', '📅 Plano sa hinaharap')],
+    [L('SubhanAllah', 'سبحان الله', 'Subhanallah'), L('🌈 Something amazing', '🌈 عند التعجّب', '🌈 Hal menakjubkan', '🌈 Kamangha-mangha')],
+    [L('Yarhamukallah', 'يرحمك الله'), L('🤧 Someone sneezes', '🤧 عند العطاس', '🤧 Orang bersin', '🤧 May bumahing')],
+    [L('Astaghfirullah', 'أستغفر الله'), L('😔 Saying sorry to Allah', '😔 طلب المغفرة', '😔 Mohon ampun', '😔 Paghingi ng tawad sa Allah')],
+  ] },
+  prophets: { name: L('Prophets', 'الأنبياء', 'Para Nabi', 'Mga Propeta'), same: false, pool: [
+    [L('Nuh', 'نوح'), L('🚢 The ark', '🚢 السفينة', '🚢 Bahtera', '🚢 Ang arko')],
+    [L('Yunus', 'يونس'), L('🐋 The big fish', '🐋 الحوت', '🐋 Ikan besar', '🐋 Malaking isda')],
+    [L('Musa', 'موسى'), L('🌊 The sea split', '🌊 انشقاق البحر', '🌊 Laut terbelah', '🌊 Nahating dagat')],
+    [L('Ibrahim', 'إبراهيم'), L('🕋 Built the Kaaba', '🕋 بنى الكعبة', "🕋 Membangun Ka'bah", '🕋 Nagtayo ng Kaaba')],
+    [L('Sulaiman', 'سليمان'), L('🐜 Talked to the ants', '🐜 كلّم النمل', '🐜 Berbicara dengan semut', '🐜 Kinausap ang mga langgam')],
+    [L('Yusuf', 'يوسف'), L('🕳️ The well', '🕳️ البئر', '🕳️ Sumur', '🕳️ Ang balon')],
+    [L('Adam', 'آدم'), L('🌱 The first man', '🌱 أول البشر', '🌱 Manusia pertama', '🌱 Unang tao')],
+    [L('Muhammad ﷺ', 'محمد ﷺ'), L('⭐ The last prophet', '⭐ خاتم الأنبياء', '⭐ Nabi terakhir', '⭐ Huling propeta')],
+  ] },
+  pillars: { name: L('5 Pillars', 'أركان الإسلام', 'Rukun Islam', '5 Haligi'), same: false, pool: [
+    [L('Shahada', 'الشهادة', 'Syahadat'), '☝️'], [L('Salah', 'الصلاة', 'Shalat'), '🧎'], [L('Zakat', 'الزكاة'), '💰'],
+    [L('Sawm', 'الصوم', 'Puasa'), '🌙'], [L('Hajj', 'الحج', 'Haji'), '🕋'],
+    [L('Wudu', 'الوضوء', 'Wudhu'), '💧'], [L('Masjid', 'المسجد'), '🕌'], [L('Quran', 'القرآن', "Al-Qur'an"), '📖'],
+  ] },
+  numbers: { name: L('Numbers', 'الأرقام', 'Angka', 'Mga Numero'), same: false, pool: [
+    ['1', '١'], ['2', '٢'], ['3', '٣'], ['4', '٤'], ['5', '٥'], ['6', '٦'], ['7', '٧'], ['8', '٨'], ['9', '٩'], ['10', '١٠'],
+  ] },
+};
+const LEVEL_PAIRS = [3, 4, 6, 6, 8];
+const COLS = { 6: 3, 8: 4, 12: 3, 16: 4 };
+const UI = {
+  sub: L('Find the cards that go together', 'ابحث عن البطاقتين اللتين تتناسبان', 'Temukan kartu yang berpasangan', 'Hanapin ang magkatugmang card'),
+  done: L('MashaAllah! All pairs found!', 'ما شاء الله! وجدت كل الأزواج!', 'MasyaAllah! Semua pasangan ditemukan!', 'MashaAllah! Nahanap ang lahat ng pares!'),
+  moves: L('moves', 'حركة', 'langkah', 'galaw'), again: L('↻ Again', '↻ مرة أخرى', '↻ Ulangi', '↻ Ulitin'), level: L('Level', 'المرحلة', 'Level', 'Level'),
+};
+
+const pack = P[Q.get('s')] || P.letters;
+const lv = Math.max(0, Math.min(4, (parseInt(Q.get('l'), 10) || 1) - 1));
+const nPairs = Math.min(LEVEL_PAIRS[lv], pack.pool.length);
+// each level uses its own slice of the pool so levels feel different
+const start = (lv * 3) % Math.max(1, pack.pool.length - nPairs + 1);
+const chosen = pack.pool.slice(start, start + nPairs);
+let cards = [], open = [], matched = 0, moves = 0, lock = false;
+
+const isAr = s => /[؀-ۿ]/.test(s);
+function faceHtml(v) {
+  const s = tr(v);
+  if (/^\p{Extended_Pictographic}/u.test(s) && s.includes(' ')) { const [e, ...rest] = s.split(' '); return `<span class="big">${e}</span><span class="txt">${rest.join(' ')}</span>`; }
+  if ([...s].length <= 3) return `<span class="big ${isAr(s) ? 'ar' : ''}">${s}</span>`;
+  return `<span class="txt ${isAr(s) ? 'ar' : ''}" style="font-size:clamp(13px,3.8vw,19px)">${s}</span>`;
+}
+function beep(f, d = 0.1) { try { const a = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)()); const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; g.gain.setValueAtTime(0.12, a.currentTime); g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + d); o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + d); } catch (e) {} }
+function deal() {
+  const grid = $('grid'); grid.innerHTML = ''; open = []; matched = 0; moves = 0; lock = false;
+  const deck = [];
+  chosen.forEach((p, i) => { deck.push({ pid: i, v: p[0] }); deck.push({ pid: i, v: p[1] }); });
+  deck.sort(() => Math.random() - 0.5);
+  const cols = COLS[deck.length] || 4, rows = Math.ceil(deck.length / cols);
+  grid.style.gridTemplateColumns = `repeat(${cols},1fr)`; grid.style.gridTemplateRows = `repeat(${rows},minmax(0,1fr))`;
+  cards = deck.map(d => {
+    const el = document.createElement('div'); el.className = 'card';
+    el.innerHTML = `<div class="inner"><div class="face back"></div><div class="face front">${faceHtml(d.v)}</div></div>`;
+    el.onclick = () => flip(el, d);
+    grid.appendChild(el); d.el = el; return d;
+  });
+  hud();
+}
+function hud() { $('moves').textContent = `👆 ${moves}`; $('pairs').textContent = `🃏 ${matched}/${nPairs}`; }
+function flip(el, d) {
+  if (lock || el.classList.contains('up') || el.classList.contains('done')) return;
+  el.classList.add('up'); open.push(d); beep(700, 0.06);
+  if (open.length < 2) return;
+  moves++; const [a, b] = open;
+  if (a.pid === b.pid) {
+    setTimeout(() => { a.el.classList.add('done'); b.el.classList.add('done'); a.el.classList.remove('up'); b.el.classList.remove('up'); matched++; hud(); beep(880); setTimeout(() => beep(1175), 90); open = [];
+      if (matched === nPairs) win(); }, 300);
+  } else {
+    lock = true;
+    setTimeout(() => { a.el.classList.remove('up'); b.el.classList.remove('up'); open = []; lock = false; beep(260, 0.15); }, 900);
+  }
+  hud();
+}
+function win() {
+  const misses = moves - nPairs;
+  const nStars = misses <= Math.ceil(nPairs * 0.6) ? 3 : misses <= nPairs * 1.5 ? 2 : 1;
+  setTimeout(() => {
+    [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, 0.25), i * 130));
+    $('stars').innerHTML = [0, 1, 2].map(i => `<span class="${i < nStars ? '' : 'off'}">⭐</span>`).join('');
+    $('wTitle').textContent = tr(UI.done);
+    $('wText').textContent = `👆 ${moves} ${tr(UI.moves)}`;
+    $('win').classList.add('on');
+  }, 500);
+  parent.postMessage({ type: 'ilmstation:done', score: nStars, total: 3 }, '*');
+}
+function texts() {
+  document.documentElement.lang = LANG; document.documentElement.dir = LANG === 'ar' ? 'rtl' : 'ltr';
+  $('title').textContent = `🃏 ${tr(pack.name)} · ${tr(UI.level)} ${lv + 1}`;
+  $('sub').textContent = tr(UI.sub); $('again').textContent = tr(UI.again);
+  cards.forEach(c => { c.el.querySelector('.front').innerHTML = faceHtml(c.v); });
+}
+$('again').onclick = () => { $('win').classList.remove('on'); deal(); };
+addEventListener('message', e => { const d = e.data || {}; if (d.type === 'ilmstation:welcome' && d.lang) { LANG = String(d.lang).slice(0, 2); if (!UI.sub[LANG]) LANG = 'en'; texts(); } });
+if (!UI.sub[LANG]) LANG = 'en';
+deal(); texts();
+try { parent.postMessage({ type: 'ilmstation:hello' }, '*'); } catch (e) {}
+})();
+</script>
+</body>
+</html>

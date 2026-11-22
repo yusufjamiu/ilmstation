@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { db } from "@/lib/firebase";
+import { STARTER_GAMES } from "@/lib/kids-starter-games";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, inputCls, Page, Panel, useAudit, useConfirm } from "./ui";
@@ -71,7 +72,25 @@ export function KidGamesSection() {
     await w.commit().catch(() => toast.error("Couldn't reorder"));
   };
 
-  return <Page eyebrow="App · Kids and adults" title="Games & quizzes" actions={<Button onClick={() => setForm(blank())}><Plus /> Add game</Button>}>
+  // one tap: adds the ready-made quizzes, puzzles and memory games that aren't here yet (never overwrites your edits)
+  const [adding, setAdding] = useState(false);
+  const addStarters = async () => {
+    const have = new Set(rows.map((r) => r.id));
+    const todo = STARTER_GAMES.filter((g) => !have.has(g.id));
+    if (!todo.length) { toast.success("All starter games are already added"); return; }
+    setAdding(true);
+    try {
+      for (let i = 0; i < todo.length; i += 400) {
+        const w = writeBatch(db);
+        todo.slice(i, i + 400).forEach((g) => w.set(doc(db, "kidGames", g.id), { ...g, status: "published", audience: "kids", cost: 0, minLevel: 0, createdAt: Date.now() }));
+        await w.commit();
+      }
+      toast.success(`Added ${todo.length} starter games`);
+      record(`Added ${todo.length} starter kids games`);
+    } catch { toast.error("Couldn't add the starter games"); } finally { setAdding(false); }
+  };
+
+  return <Page eyebrow="App · Kids and adults" title="Games & quizzes" actions={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={adding} onClick={() => void addStarters()}>{adding ? "Adding…" : "📦 Add starter games"}</Button><Button onClick={() => setForm(blank())}><Plus /> Add game</Button></div>}>
     <p className="mb-5 max-w-2xl text-sm text-muted-foreground">Quizzes and games for kids, or for teens and adults (in Play → Games & quizzes). Until you publish kids games, kids see the 4 starter games.</p>
     <PlaySettings />
     <Panel title="Games" tag={`${rows.filter((g) => g.status === "published").length} published`}>
