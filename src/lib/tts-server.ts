@@ -172,23 +172,33 @@ export async function handleTts(request: Request): Promise<Response> {
   const notes = [...new Set([...text].filter((c) => LETTER_NOTES[c]))].map((c) => " " + LETTER_NOTES[c]).join("");
 
   let backup = false; // a native voice was wanted but isn't available: don't cache the stand-in for long
-  const audio = (buf: ArrayBuffer) => new Response(buf, {
+  const respond = (buf: ArrayBuffer) => new Response(buf, {
     headers: { "content-type": "audio/mpeg", "cache-control": backup ? "public, max-age=600" : "public, max-age=86400, s-maxage=31536000, immutable", ...cors },
   });
+
+  // Every voice (OpenAI, ElevenLabs, Spitch) is made once and kept in Firebase Storage. To make them all again:
+  // delete the "tts-cache" folder in Firebase Storage, or change TTS_STORE_VERSION in Vercel.
+  const L = ilang.toUpperCase();
+  const storeKey = await voiceKey([
+    process.env.TTS_STORE_VERSION ?? "1", url.searchParams.get("v") ?? "", ilang, adult ? "adult" : "kid", tajweed ? "tj" : "", slow ? "slow" : "", say, text,
+    ["yo", "ig", "ha"].includes(ilang) ? (process.env[`ELEVENLABS_${L}_${adult ? "" : "KID_"}VOICE_ID`] ?? process.env[`ELEVENLABS_NAIJA_${adult ? "" : "KID_"}VOICE_ID`] ?? "") : "",
+  ]);
+  const kept = await storedVoice(storeKey);
+  if (kept) return respond(kept);                    // made before: no cost
+  const audio = async (buf: ArrayBuffer) => {         // stand-ins (backup) aren't kept, so the right voice replaces them later
+    if (!backup && buf.byteLength > 1000) await keepVoice(storeKey, buf);
+    return respond(buf);
+  };
 
   // Yoruba, Igbo and Hausa: ElevenLabs Eleven v4 first (it reads the Arabic words well too), then Spitch, then OpenAI.
   // Vercel: ELEVENLABS_API_KEY, and optionally ELEVENLABS_NAIJA_VOICE_ID (adults) / ELEVENLABS_NAIJA_KID_VOICE_ID (kids).
   const elevenKey = process.env.ELEVENLABS_API_KEY;
   if (english && elevenKey && ["yo", "ig", "ha"].includes(ilang)) {
     // each language can have its own readers: ELEVENLABS_YO_VOICE_ID / ELEVENLABS_YO_KID_VOICE_ID (also IG, HA)
-    const L = ilang.toUpperCase();
     const vid = adult
       ? process.env[`ELEVENLABS_${L}_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB"
       : process.env[`ELEVENLABS_${L}_KID_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_KID_VOICE_ID ?? process.env.ELEVENLABS_KID_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
     const said = speakable(text, ilang);
-    const storeKey = await voiceKey(["eleven_v4", vid, ilang, said]);
-    const kept = await storedVoice(storeKey);
-    if (kept) return audio(kept);   // made before: no credits used
     // "robust" stability: the expressive model then reads every word instead of skipping some
     for (const body of [
       { text: said, model_id: "eleven_v4", language_code: ilang, voice_settings: { stability: 1.0, similarity_boost: 0.8 } },
@@ -201,7 +211,7 @@ export async function handleTts(request: Request): Promise<Response> {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(20000),
         });
-        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) { await keepVoice(storeKey, buf); return audio(buf); } }
+        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) return audio(buf); }
         else { console.error("eleven", r.status, (await r.text().catch(() => "")).slice(0, 300)); if (r.status === 401 || r.status === 429) break; }
       } catch (e) { console.error("eleven", String(e)); break; }
     }
@@ -222,7 +232,7 @@ export async function handleTts(request: Request): Promise<Response> {
         });
         if (r.ok) {
           const buf = await r.arrayBuffer();
-          if (buf.byteLength > 1000) return audio(buf);
+          if (buf.byteLength > 1000) { if (elevenKey) backup = true; return audio(buf); } // ElevenLabs is the chosen voice: Spitch only stands in
         } else {
           console.error("spitch", r.status, (await r.text().catch(() => "")).slice(0, 300));
           if (r.status !== 429 && r.status < 500) break; // a real error (e.g. text too long): use the backup voice
