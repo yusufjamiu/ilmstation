@@ -66,7 +66,7 @@ function voiceUrl(text, rate=.85, lang="ar"){
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
   const q = lang==="ar" ? `&say=${encodeURIComponent(sayGuide(spoken))}` : `&lang=${lang}&who=${WHO}`;
   // v = voice version: raise it when the voice rules change, so saved recordings are made again
-  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=${lang==="ar"?2:3}`;
+  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=${lang==="ar"?"a3":3}`;
 }
 /** Fetch a lesson's sounds in the background (3 at a time), so they play instantly when tapped. */
 async function prefetchVoices(items){
@@ -179,7 +179,7 @@ function startTranslating(){
 function loadLang(lang){
   return new Promise(res=>{
     if (!lang || lang==="en") return res(false);
-    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611231832";
+    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611232313";
     const done=ok=>{ clearTimeout(t); if(ok && window.QI18N){ LANG=lang; setDict(window.QI18N); startTranslating(); } res(ok); };
     const t=setTimeout(()=>done(false), 4000);
     s.onload=()=>done(true); s.onerror=()=>done(false);
@@ -530,7 +530,10 @@ document.head.insertAdjacentHTML("beforeend", `<style>
 .bigpic{font-size:120px;text-align:center;line-height:1.1;cursor:pointer}.bigpic .pic.word{font-size:28px;padding:18px 22px}
 .bigar{font:700 46px var(--ar);text-align:center;direction:rtl;margin:6px 0}
 .kopts{display:grid;gap:16px;margin-top:18px}.kopts.n2{grid-template-columns:1fr 1fr}.kopts.n3{grid-template-columns:1fr 1fr 1fr}
-.kopt{position:relative;border:4px solid #e6e1d6;background:#fff;border-radius:26px;min-height:140px;font-size:84px;display:grid;place-items:center;cursor:pointer;transition:transform .15s}
+.kopts>*{min-width:0}.kopt img,.kopt svg{max-width:100%;height:auto}.kopts.n3{gap:10px}.kopts.n3 .kopt{font-size:58px;min-height:112px;border-radius:20px}
+.kpair{display:flex;direction:rtl;justify-content:center;align-items:flex-start;gap:10px;flex-wrap:wrap;margin:4px 0 8px}.kpair>div{text-align:center}.kpair .ar{font:700 34px var(--ar)}.kpair small{display:block;color:#6b665c;font-size:15px;direction:ltr}.kpair .sep{font-size:26px;color:#9a948a;padding-top:6px}
+.wcard.say{border-color:var(--gold);box-shadow:0 0 0 4px var(--goldSoft)}
+.kopt{position:relative;overflow:hidden;border:4px solid #e6e1d6;background:#fff;border-radius:26px;min-height:140px;font-size:84px;display:grid;place-items:center;cursor:pointer;transition:transform .15s}
 .kopt.txt{font:700 24px var(--ar);direction:rtl;padding:14px;min-height:96px}.kopt.mean{font:700 18px Manrope,system-ui;padding:12px;min-height:90px}
 .kopt.glow{border-color:var(--gold);animation:glow 1s ease-in-out infinite}@keyframes glow{50%{transform:scale(1.06);box-shadow:0 0 0 8px var(--goldSoft)}}
 .kopt.right{border-color:var(--em);background:var(--emSoft)}.kopt.shake{animation:shake .35s}@keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
@@ -688,17 +691,33 @@ function rulesStep(rules){ return ()=>{
   let i=0;
   const show=()=>{ if(i>=rules.length) return next();
     const R=rules[i], ex=(R.ex||[]).slice(0,3), kn=(KIDNOTES[LESSON.adultLesson]||[])[i];
-    view.innerHTML=`<div class="card kid">${dots(i,rules.length)}<h2 class="ar" style="direction:rtl">${R.ar}</h2><p class="lead">${R.en}</p>
+    view.innerHTML=`<div class="card kid">${dots(i,rules.length)}${ruleHead(R)}
       <p style="font-size:17px;line-height:1.7">${arWrapK(kn || R.note)}</p>
       <div class="wlist">${ex.map((e,k)=>`<div class="wcard" data-k="${k}"><div class="ar">${e[0]}</div><small>${TX(e[1])}</small></div>`).join("")}</div>
       <div class="row end" style="margin-top:16px"><button class="btn pulse" id="nx">Next →</button></div></div>`;
     window.__q={learn:true};
     view.querySelectorAll(".wcard").forEach(c=>c.onclick=()=>sayAr(ex[+c.dataset.k][0]));
-    $("#nx").onclick=()=>{ stopVoice(); i++; show(); };
-    setTimeout(()=>sayEn(kn || R.say || strip(R.note)), 300);
+    const my=++K_RTOK;
+    $("#nx").onclick=()=>{ K_RTOK++; stopVoice(); i++; show(); };
+    // Nuri reads the card by herself: the Arabic, then the explanation, then each example (the card lights up)
+    (async()=>{ await wait(300); const heads=String(R.ar).split(/\s*[·≠→←|]\s*/).filter(x=>/[؀-ۿ]/.test(x));
+      for(const h of heads){ if(my!==K_RTOK) return; await sayAr(h); await wait(250); }
+      if(my!==K_RTOK) return; await sayEn(kn || R.say || strip(R.note));
+      const cards=[...view.querySelectorAll(".wcard")];
+      for(let k=0;k<cards.length;k++){ if(my!==K_RTOK) return; await wait(400); if(my!==K_RTOK) return; cards[k].classList.add("say"); await sayAr(ex[k][0]); cards[k].classList.remove("say"); }
+    })();
   };
   show();
 }; }
+let K_RTOK=0;
+/* rule title: "هٰذَا · ذٰلِكَ" with "this · that": each meaning sits under its own Arabic word (Arabic reads right to left) */
+function ruleHead(R){
+  const seps=String(R.ar).match(/[·≠→←|]/g)||[], A=String(R.ar).split(/\s*[·≠→←|]\s*/), E=String(TX(R.en||"")).split(/\s*·\s*/);
+  if(A.length>1 && A.length===E.length){
+    return `<div class="kpair">${A.map((a,k)=>`${k?`<span class="sep">${seps[k-1]}</span>`:""}<div><div class="ar">${a}</div><small>${E[k]}</small></div>`).join("")}</div>`;
+  }
+  return `<h2 class="ar" style="direction:rtl">${R.ar}</h2><p class="lead">${R.en}</p>`;
+}
 const arWrapK = h => String(h||"").replace(/([؀-ۿ][؀-ۿً-ْٰ\s،.؟/]*[؀-ۿً-ْٰ])/g,'<bdi class="ar" style="font-size:1.15em">$1</bdi>');
 
 /* 9–13: word list */

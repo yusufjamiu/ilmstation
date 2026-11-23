@@ -11,6 +11,7 @@ const READ_RULE =
   "Only stretch a vowel where there is a long-vowel letter (alif, waw, ya), and then for EXACTLY two counts " +
   "(natural madd, madd tabii): 'taa' is ta + one extra beat, never 'taaaaa'. Never stretch longer than two counts. " +
   "Pronounce the short vowel on the LAST letter of every word too — do not drop it. " +
+  "Tanween (ً ٍ ٌ) ends the word with a short vowel plus n: قَلَمٌ is qa-la-mun, three quick equal beats — never 'qaa-la-mu'. A short vowel after the FIRST letter is short too. " +
   "Only when the last letter carries a written sukun (ْ) do you stop on it without a vowel. " +
   "Example: كَتَبَ is 'ka-ta-ba' — three equal short beats. NOT 'kaa-ta-ba', NOT 'katab'.";
 

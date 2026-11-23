@@ -66,7 +66,7 @@ function voiceUrl(text, rate=.85, lang="ar"){
   const spoken = lang==="ar" ? text.replace(/اءْ?(?=\s|$|،)/g, "ا") : text;
   const q = lang==="ar" ? `&say=${encodeURIComponent(sayGuide(spoken))}` : `&lang=${lang}&who=${WHO}`;
   // v = voice version: raise it when the voice rules change, so saved recordings are made again
-  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=${lang==="ar"?2:3}`;
+  return `${VOICE_ENDPOINT}?text=${encodeURIComponent(spoken)}${q}&slow=${rate<.6?1:0}&v=${lang==="ar"?"a3":3}`;
 }
 /** Fetch a lesson's sounds in the background (3 at a time), so they play instantly when tapped. */
 async function prefetchVoices(items){
@@ -179,7 +179,7 @@ function startTranslating(){
 function loadLang(lang){
   return new Promise(res=>{
     if (!lang || lang==="en") return res(false);
-    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611231832";
+    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611232313";
     const done=ok=>{ clearTimeout(t); if(ok && window.QI18N){ LANG=lang; setDict(window.QI18N); startTranslating(); } res(ok); };
     const t=setTimeout(()=>done(false), 4000);
     s.onload=()=>done(true); s.onerror=()=>done(false);

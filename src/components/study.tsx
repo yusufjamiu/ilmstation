@@ -291,7 +291,7 @@ function CardAction({ label, pulse }: { label: string; pulse?: boolean }) {
 const KID_TINTS = ["bg-primary", "bg-secondary text-secondary-foreground", "bg-[#d7ecd9] text-[#1c1a17]", "bg-[#f7d9c4] text-[#1c1a17]", "bg-[#d9e3f7] text-[#1c1a17]"];
 function kidEmoji(name: string) {
   const n = name.toLowerCase();
-  if (/letter|qa.?idah|alphabet|huruf|arab/.test(n)) return "🔤";
+  if (/letter|qa.?idah|alphabet|huruf|arab/.test(n)) return "أ ب ت";   // Arabic letters, not "abc"
   if (/dua|du.?a|supplicat/.test(n)) return "🤲";
   if (/prophet|nabi|anbiya|stor|seerah|sirah/.test(n)) return "🌙";
   if (/salah|salat|prayer|wudu/.test(n)) return "🕌";
