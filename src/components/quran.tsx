@@ -62,11 +62,23 @@ const arDigits = (n: number) => n.toLocaleString("ar-EG");
 type PageAyah = { surah: number; surahName: string; n: number; text: string; meaning: string; juz: number };
 const pageCache = new Map<string, PageAyah[]>();
 /** One page of the printed Madinah mushaf: exactly the verses that sit on that page. */
-async function fetchAlquranCloud(page: number): Promise<PageAyah[]> {
+async function fetchAlquranCloudBase(page: number): Promise<PageAyah[]> {
   const json = await withTimeout(fetch(`https://api.alquran.cloud/v1/page/${page}/editions/quran-uthmani,${quranEdition()}`).then(res => res.json()), 12000) as { data: { ayahs: { text: string; numberInSurah: number; juz: number; surah: { number: number; name: string } }[] }[] };
   const [ar, en] = json.data;
   if (!ar || !en) throw new Error("missing");
   return ar.ayahs.map((a, i) => ({ surah: a.surah.number, surahName: a.surah.name, n: a.numberInSurah, juz: a.juz, meaning: en.ayahs[i]?.text ?? "", text: a.numberInSurah === 1 && a.surah.number !== 1 && a.text.startsWith("بِسْمِ") ? a.text.split(" ").slice(4).join(" ") : a.text }));
+}
+/* Meanings for languages our main Qur'an service doesn't have (free Quran API by fawazahmed0). */
+const FAWAZ_EDITIONS: Record<string, string> = { yo: "yor-shaykhaburahima", ms: "msa-abdullahmuhamma", bn: "ben-abubakrzakaria", tl: "fil-abdullatifeduar" };
+const appLangQ = () => { try { return localStorage.getItem("iq_lang") ?? "en"; } catch { return "en"; } };
+async function fetchAlquranCloud(page: number): Promise<PageAyah[]> {
+  const list = await fetchAlquranCloudBase(page);
+  const ed = FAWAZ_EDITIONS[appLangQ()]; if (!ed) return list;
+  try {
+    const j = await withTimeout(fetch(`https://cdn.jsdelivr.net/gh/fawazahmed0/quran-api@1/editions/${ed}/pages/${page}.json`).then(r => r.json()), 12000) as { pages?: { chapter: number; verse: number; text: string }[] };
+    const m = new Map((j.pages ?? []).map(v => [`${v.chapter}:${v.verse}`, v.text]));
+    return list.map(a => ({ ...a, meaning: m.get(`${a.surah}:${a.n}`) ?? a.meaning }));
+  } catch { return list; }
 }
 async function fetchQuranCom(page: number): Promise<PageAyah[]> {
   const json = await withTimeout(fetch(`https://api.quran.com/api/v4/verses/by_page/${page}?fields=text_uthmani&translations=131&per_page=50`).then(res => res.json()), 12000) as { verses: { verse_key: string; verse_number: number; juz_number: number; text_uthmani: string; translations?: { text: string }[] }[] };
@@ -79,11 +91,11 @@ async function fetchQuranCom(page: number): Promise<PageAyah[]> {
 }
 /** Tries alquran.cloud, then Quran.com, and retries once, so one slow or blocked server doesn't break the page. */
 async function loadPage(page: number): Promise<PageAyah[]> {
-  const cached = pageCache.get(`${quranEdition()}:${page}`);
+  const cached = pageCache.get(`${quranEdition()}:${appLangQ()}:${page}`);
   if (cached) return cached;
   let lastError: unknown;
   for (const fetcher of [fetchAlquranCloud, fetchQuranCom, fetchAlquranCloud]) {
-    try { const list = await fetcher(page); pageCache.set(`${quranEdition()}:${page}`, list); return list; } catch (e) { lastError = e; }
+    try { const list = await fetcher(page); pageCache.set(`${quranEdition()}:${appLangQ()}:${page}`, list); return list; } catch (e) { lastError = e; }
   }
   throw lastError;
 }
@@ -679,8 +691,10 @@ function VerseMeaning({ surah, n, initial }: { surah: number; n: number; initial
   useEffect(() => {
     if (initial?.trim()) { setM(initial); return; }
     let live = true; setM("");
-    fetch(`https://api.alquran.cloud/v1/ayah/${surah}:${n}/${quranEdition()}`).then(r => r.json())
-      .then((j: { data?: { text?: string } }) => { if (live) setM(j.data?.text ?? ""); }).catch(() => {});
+    const ed = FAWAZ_EDITIONS[appLangQ()];
+    (ed ? fetch(`https://cdn.jsdelivr.net/gh/fawazahmed0/quran-api@1/editions/${ed}/${surah}/${n}.json`).then(r => r.json()).then((j: { text?: string }) => j.text ?? "")
+        : fetch(`https://api.alquran.cloud/v1/ayah/${surah}:${n}/${quranEdition()}`).then(r => r.json()).then((j: { data?: { text?: string } }) => j.data?.text ?? ""))
+      .then(t => { if (live) setM(t); }).catch(() => {});
     return () => { live = false; };
   }, [surah, n, initial]);
   return <p className="mt-3 text-base leading-relaxed">{m || "…"}</p>;
