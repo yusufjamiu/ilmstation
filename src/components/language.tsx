@@ -37,11 +37,19 @@ const dict: Record<string, Partial<Record<Lang, string>>> = {
 const KEY = "iq_lang";
 const subs = new Set<() => void>();
 const detect = (): Lang => { try { for (const n of navigator.languages ?? [navigator.language]) { const low = n.toLowerCase(); const c = low.startsWith("fil") || low.startsWith("tl") ? "tl" : low.slice(0, 2) === "in" ? "id" : low.slice(0, 2); if (languages.some((l) => l.code === c)) return c as Lang; } } catch { /* ignore */ } return "en"; };
-const read = (): Lang => { try { const v = localStorage.getItem(KEY); if (languages.some((l) => l.code === v)) return v as Lang; const d = detect(); localStorage.setItem(KEY, d); return d; } catch { return "en"; } };
+/** The user's own choice wins; until they choose, follow the phone's language (English if we don't have it). */
+const MANUAL = "iq_lang_manual";
+const read = (): Lang => {
+  try {
+    const v = localStorage.getItem(KEY);
+    if (localStorage.getItem(MANUAL) === "1" && languages.some((l) => l.code === v)) return v as Lang;
+    const d = detect(); if (v !== d) localStorage.setItem(KEY, d); return d;
+  } catch { return "en"; }
+};
 
 export function useLanguage() {
   const lang = useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, read, () => "en" as Lang);
-  const set = (l: Lang) => { localStorage.setItem(KEY, l); subs.forEach((f) => f()); const u = lAuth.currentUser; if (u) void lSet(lDoc(lDb, "profiles", u.uid), { language: l }, { merge: true }).catch(() => {}); };
+  const set = (l: Lang, auto = false) => { localStorage.setItem(KEY, l); if (!auto) localStorage.setItem(MANUAL, "1"); subs.forEach((f) => f()); const u = lAuth.currentUser; if (u) void lSet(lDoc(lDb, "profiles", u.uid), { language: l }, { merge: true }).catch(() => {}); };
   const t = (s: string) => (lang === "en" ? s : (DICT[s] as Record<string, string> | undefined)?.[lang] ?? dict[s]?.[lang] ?? s);
   return { lang, set, t };
 }
@@ -119,7 +127,7 @@ let obs: MutationObserver | null = null;
 export function LanguageBoot() {
   const { lang, set } = useLanguage();
   const liveL = useLiveLanguages();
-  useEffect(() => { if (liveReady && !liveL.some((l) => l.code === lang)) set("en"); }, [lang, liveL]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (liveReady && !liveL.some((l) => l.code === lang)) set("en", true); }, [lang, liveL]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const dir = languages.find((l) => l.code === lang)?.dir ?? "ltr";
     document.documentElement.lang = lang; document.documentElement.dir = dir;
