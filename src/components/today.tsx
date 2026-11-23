@@ -20,7 +20,29 @@ import type { ShareCard } from "@/components/share-actions";
 const pad = (n: number) => String(n).padStart(2, "0");
 export const dayKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const addDays = (key: string, n: number) => { const [y, m, d] = key.split("-").map(Number); return dayKey(new Date(y ?? 2026, (m ?? 1) - 1, (d ?? 1) + n)); };
-const hijriOf = (d: Date) => { try { return `${new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", { day: "numeric", month: "long", year: "numeric" }).format(d).replace(/\s*AH$/, "")} AH`; } catch { return ""; } };
+const HIJRI_EN = ["Muharram", "Safar", "Rabi‘ al-Awwal", "Rabi‘ al-Thani", "Jumada al-Ula", "Jumada al-Akhirah", "Rajab", "Sha‘ban", "Ramadan", "Shawwal", "Dhu al-Qi‘dah", "Dhu al-Hijjah"];
+const HIJRI_AR = ["محرم", "صفر", "ربيع الأول", "ربيع الآخر", "جمادى الأولى", "جمادى الآخرة", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة"];
+/** Hijri day, month and year: from the phone's Umm al-Qura calendar, or calculated if the phone has none. */
+function hijriParts(d: Date): { day: number; month: number; year: number } {
+  try {
+    const parts = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura-nu-latn", { day: "numeric", month: "numeric", year: "numeric" }).formatToParts(d);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? NaN);
+    const r = { day: get("day"), month: get("month"), year: get("year") };
+    if (r.year > 1300 && r.year < 1600 && r.month >= 1 && r.month <= 12 && r.day >= 1) return r;
+  } catch { /* use the calculation below */ }
+  const jd = Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000) + 2440588;
+  let l = jd - 1948440 + 10632; const n = Math.floor((l - 1) / 10631); l = l - 10631 * n + 354;
+  const j = Math.floor((10985 - l) / 5316) * Math.floor((50 * l) / 17719) + Math.floor(l / 5670) * Math.floor((43 * l) / 15238);
+  l = l - Math.floor((30 - j) / 15) * Math.floor((17719 * j) / 50) - Math.floor(j / 16) * Math.floor((15238 * j) / 43) + 29;
+  const month = Math.floor((24 * l) / 709);
+  return { day: l - Math.floor((709 * month) / 24), month, year: 30 * n + j - 30 };
+}
+const hijriOf = (d: Date) => {
+  const { day, month, year } = hijriParts(d);
+  let lang = "en"; try { lang = localStorage.getItem("iq_lang") ?? "en"; } catch { /* ignore */ }
+  if (lang === "ar" || lang === "ur") { const ar = (x: number) => x.toLocaleString("ar-EG", { useGrouping: false }); return `${ar(day)} ${HIJRI_AR[month - 1]} ${ar(year)} هـ`; }
+  return `${day} ${HIJRI_EN[month - 1]} ${year} AH`;
+};
 
 /** e.g. "Thursday · 12 November · 2 Jumada II 1448 AH" */
 export function todayLabel() {
