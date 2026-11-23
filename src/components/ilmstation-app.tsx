@@ -1,3 +1,4 @@
+import { doc as docLB, setDoc as setDocLB } from "firebase/firestore";
 import { FamilyHalaqah as FamilyHalaqahLive } from "@/components/halaqah";
 import { QuestMap as QuestMapReal } from "@/components/study";
 import { TrendingUp as YTrend, Target as YTarget, Award as YAward, Wallet as YWallet, Users as YUsers, Baby as YFamily, Crown as YCrown, Share2 as YShare, BookOpen as YBook, Settings as YCog, HelpCircle as YHelp, FileText as YDoc, LogOut as YLogOut, ChevronRight as YChevron, Star as YStar, Zap as YZap, Flame as YFlame } from "lucide-react";
@@ -73,13 +74,13 @@ function AchievementsTab() {
 import { cn } from "@/lib/utils";
 import { awardXp } from "@/lib/xp";
 
-type Screen = "home" | "you" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games";
+type Screen = "home" | "you" | "kidrank" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games";
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
-const KID_SCREENS = ["home", "kidgames", "study", "library", "settings"];
+const KID_SCREENS = ["kidrank", "home", "kidgames", "study", "library", "settings"];
 const kidNav = [
-  { label: "Learn & play", items: [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library]] },
+  { label: "Learn & play", items: [["home", "Home", Home], ["kidrank", "Leaderboard", Trophy], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library]] },
   { label: "You", items: [["settings", "Settings", Settings]] },
 ] as const;
 const navGroups = [
@@ -116,7 +117,9 @@ export function IlmStationApp() {
   const streakInfo = useStreak();
   const { premium } = usePremium();
   const { account } = useAuth();
-  const isKid = account?.zone === "kids";
+  const isKid = account ? account.zone === "kids" : (() => { try { return localStorage.getItem("ilm:kid") === "1"; } catch { return false; } })();
+  useEffect(() => { if (!account) return; try { localStorage.setItem("ilm:kid", account.zone === "kids" ? "1" : "0"); } catch { /* ignore */ }
+    const u = yAuth.currentUser; if (u) void setDocLB(docLB(yDb, "players", u.uid), { zone: account.zone ?? "adult" }, { merge: true }).catch(() => {}); }, [account?.zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const inbox = useInbox();
   const profileScreen: Screen = isKid ? "settings" : "community";
   const selectScreen = (next: Screen) => { setScreen(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
@@ -150,6 +153,7 @@ export function IlmStationApp() {
         <InstallBanner />
         <NotifyPrompt />
         {screen === "home" && (isKid ? <KidHome go={selectScreen} /> : <HomeScreen go={selectScreen} onShare={openShare} />)}
+        {screen === "kidrank" && <KidLeaderboard />}
         {screen === "kidgames" && <KidGames />}
         {screen === "games" && <KidGames audience="all" />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
@@ -433,5 +437,14 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
       <a className={row} href="/terms" target="_blank" rel="noreferrer">{label(YDoc, "Terms of Use")}<YChevron className="size-4" /></a>
       <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/" }); }}>{label(YLogOut, "Log out")}<YChevron className="size-4" /></button>
     </div>
+  </Frame>;
+}
+
+/** Kids' leaderboard: only kids, first names only. */
+function KidLeaderboard() {
+  const { rows } = useLeaderboard(true);
+  return <Frame eyebrow="Kids" title="Leaderboard">
+    {rows.length ? <div className="border-2 border-foreground bg-background p-3 shadow-brutal">{rows.slice(0, 10).map((r, i) => <Rank key={r.id} n={String(i + 1)} name={r.name} xp={`${r.xp} XP`} active={r.me} />)}</div>
+      : <p className="border-2 border-dashed border-foreground p-6 text-lg">Play games and finish lessons to get on the leaderboard!</p>}
   </Frame>;
 }

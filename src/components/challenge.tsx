@@ -70,12 +70,12 @@ function usePlayers() {
   return { players: docs.filter((p) => p.uid !== myId).map(toRival), myId, me: { wins: mine?.wins ?? 0, losses: mine?.losses ?? 0, bestRun: mine?.bestRun ?? 0, streak: mine?.streak ?? 0, xp: mine?.xp ?? 50 } };
 }
 
-export function useLeaderboard() {
+export function useLeaderboard(kid = false) {
   const [myId, setMyId] = useState<string | null>(null);
   const [docs, setDocs] = useState<PlayerDoc[]>([]);
   useEffect(() => onAuthStateChanged(auth, (u) => setMyId(u?.uid ?? null)), []);
   useEffect(() => onSnapshot(fsQuery(collection(db, "players"), orderBy("lastSeen", "desc"), limit(100)), (snap) => setDocs(snap.docs.map((d) => d.data() as PlayerDoc)), () => {}), []);
-  const rows = docs.map((p) => ({ id: p.uid, name: p.username || (p.name ?? "Learner").split(" ")[0] || "Learner", xp: p.xp ?? 50, me: p.uid === myId })).sort((a, b) => b.xp - a.xp);
+  const rows = docs.filter((p) => (kid ? (p as { zone?: string }).zone === "kids" : (p as { zone?: string }).zone !== "kids")).map((p) => ({ id: p.uid, name: kid ? ((p.name ?? p.username ?? "Learner").split(" ")[0] || "Learner") : p.username || (p.name ?? "Learner").split(" ")[0] || "Learner", xp: p.xp ?? 50, me: p.uid === myId })).sort((a, b) => b.xp - a.xp);
   return { rows };
 }
 

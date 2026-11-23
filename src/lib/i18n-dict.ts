@@ -7680,3 +7680,5 @@ const KIDS_GAME_SUBJECTS: Record<string, T> = {
   "Numbers": { ar: "الأرقام", id: "Angka", tl: "Mga Numero" },
 };
 for (const [k, v] of Object.entries(KIDS_GAME_SUBJECTS)) DICT[k] = { ...v, ...(DICT[k] ?? {}) };
+
+DICT["Play games and finish lessons to get on the leaderboard!"] = { ar: "العب وأنهِ الدروس لتظهر في لوحة المتصدرين!", fr: "Joue et termine des leçons pour apparaître au classement !", ur: "کھیلیں اور اسباق مکمل کریں تاکہ لیڈر بورڈ پر آئیں!", ha: "Yi wasanni ka gama darussa don shiga teburin gwaraza!", id: "Main game dan selesaikan pelajaran agar masuk papan peringkat!", tl: "Maglaro at tapusin ang mga aralin para mapasama sa leaderboard!" };
