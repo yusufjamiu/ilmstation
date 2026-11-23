@@ -332,7 +332,7 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
         <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
           <div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(x => x.n === pick.surah)?.name} · {pick.surah}:{pick.n}</p><button onClick={() => setPick(null)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
           <p dir="rtl" lang="ar" className="mt-3 text-right font-arabic text-3xl leading-[2]">{(pick as { text?: string }).text}</p>
-          <p className="mt-3 text-base leading-relaxed">{pick.meaning}</p>
+          <VerseMeaning surah={pick.surah} n={pick.n} initial={pick.meaning} />
         </div>
       </div>, document.body)}
       {pick && <section className={cn(panel, "space-y-1")}><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s => s.n === pick.surah)?.name} · verse {pick.n}</p><p className="text-sm leading-relaxed">{pick.meaning}</p></section>}
@@ -671,4 +671,17 @@ function swipeStart(e: { touches: ArrayLike<{ clientX: number; clientY: number }
 function swipeEnd(e: { changedTouches: ArrayLike<{ clientX: number; clientY: number }> }, next: () => void, prev: () => void) {
   const t = e.changedTouches[0]!; const dx = t.clientX - swipeX, dy = t.clientY - swipeY;
   if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) (dx > 0 ? next : prev)();
+}
+
+/** A verse's meaning in the app's language; fetches it on its own if the page came without meanings. */
+function VerseMeaning({ surah, n, initial }: { surah: number; n: number; initial: string }) {
+  const [m, setM] = useState(initial);
+  useEffect(() => {
+    if (initial?.trim()) { setM(initial); return; }
+    let live = true; setM("");
+    fetch(`https://api.alquran.cloud/v1/ayah/${surah}:${n}/${quranEdition()}`).then(r => r.json())
+      .then((j: { data?: { text?: string } }) => { if (live) setM(j.data?.text ?? ""); }).catch(() => {});
+    return () => { live = false; };
+  }, [surah, n, initial]);
+  return <p className="mt-3 text-base leading-relaxed">{m || "…"}</p>;
 }
