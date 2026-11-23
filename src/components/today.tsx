@@ -1,3 +1,4 @@
+import { useLanguage } from "@/components/language";
 import { addPhrase } from "@/components/language";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
@@ -705,7 +706,20 @@ export function useWisdomTranslations() {
 
 /** Today's wisdom, with the meaning in the user's language (built-in and admin wisdoms alike). */
 export function useTodaysWisdom(...args: Parameters<typeof useTodaysWisdomRaw>): ReturnType<typeof useTodaysWisdomRaw> {
-  useWisdomTranslations();
-  const w = useTodaysWisdomRaw(...args);
-  return (w ? localizeWisdom(w as { text: string }) : w) as ReturnType<typeof useTodaysWisdomRaw>;
+  const w = useTodaysWisdomRaw(...args) as unknown as ({ text: string; tr?: Record<string, string> } | null | undefined);
+  const lang = useLanguage().lang as string;
+  const [tr, setTr] = useState<{ k: string; text: string } | null>(null);
+  const k = w ? `${lang}|${w.text.trim()}` : "";
+  useEffect(() => {
+    if (!w || lang === "en" || lang === "ar") return;
+    const typed = w.tr?.[lang]?.trim(); if (typed) { setTr({ k, text: typed }); return; }
+    const known = trGet(k); if (known) { setTr({ k, text: known }); return; }
+    let live = true;
+    fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: w.text, lang }) })
+      .then((r) => r.json()).then((j: { text?: string }) => { if (j.text) { trSet(k, j.text); if (live) setTr({ k, text: j.text }); } }).catch(() => {});
+    return () => { live = false; };
+  }, [k]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!w || lang === "en" || lang === "ar") return w as ReturnType<typeof useTodaysWisdomRaw>;
+  const text = tr && tr.k === k ? tr.text : w.tr?.[lang]?.trim() || trGet(k);
+  return (text ? { ...w, text } : w) as ReturnType<typeof useTodaysWisdomRaw>;
 }
