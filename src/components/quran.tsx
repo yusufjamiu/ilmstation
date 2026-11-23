@@ -336,9 +336,9 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
       </div>}
       {pick && <section className={cn(panel, "space-y-1")}><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s => s.n === pick.surah)?.name} · verse {pick.n}</p><p className="text-sm leading-relaxed">{pick.meaning}</p></section>}
       <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
-        <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
+        <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
         <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
-        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page">Previous <ArrowRight /></Button>
+        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page" className="hidden sm:inline-flex">Previous <ArrowRight /></Button>
       </div>
     </>}
   </div>;
@@ -441,12 +441,12 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
       {meta && cur && <p className="px-1 text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {cur.n}</p>}
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
-      {layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={key => { const i = ayahs.findIndex(a2 => `${a2.surah}:${a2.n}` === key); if (i >= 0) setPick(i); }}/>
-        : <MushafPage page={page} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={a2 => { const i = ayahs.indexOf(a2); if (i >= 0) setPick(i); }}/>}
+      <div onTouchStart={swipeStart} onTouchEnd={e => swipeEnd(e, () => go(page + 1), () => go(page - 1))}>{layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={key => { const i = ayahs.findIndex(a2 => `${a2.surah}:${a2.n}` === key); if (i >= 0) setPick(i); }}/>
+        : <MushafPage page={page} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={a2 => { const i = ayahs.indexOf(a2); if (i >= 0) setPick(i); }}/>}</div>
       <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
-        <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
+        <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
         <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
-        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page">Previous <ArrowRight /></Button>
+        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page" className="hidden sm:inline-flex">Previous <ArrowRight /></Button>
       </div>
     </>}
     <audio ref={audio} src={src || undefined} preload="auto" onEnded={ended} onPause={() => { if (audio.current && !audio.current.ended) setPlaying(false); }} onPlay={() => setPlaying(true)}/>
@@ -649,9 +649,17 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
       </div>
     </section>}
     <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
-      <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page"><ArrowLeft /> Next</Button>
+      <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
       <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
-      <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page">Previous <ArrowRight /></Button>
+      <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page" className="hidden sm:inline-flex">Previous <ArrowRight /></Button>
     </div>
   </div>;
+}
+
+/* Swipe to turn pages: right = next page (like a printed mushaf), left = previous. */
+let swipeX = 0, swipeY = 0;
+function swipeStart(e: { touches: ArrayLike<{ clientX: number; clientY: number }> }) { swipeX = e.touches[0]!.clientX; swipeY = e.touches[0]!.clientY; }
+function swipeEnd(e: { changedTouches: ArrayLike<{ clientX: number; clientY: number }> }, next: () => void, prev: () => void) {
+  const t = e.changedTouches[0]!; const dx = t.clientX - swipeX, dy = t.clientY - swipeY;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) (dx > 0 ? next : prev)();
 }
