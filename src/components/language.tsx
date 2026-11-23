@@ -161,3 +161,10 @@ export function useLiveLanguages() {
   const v = useSyncExternalStore((cb) => { startLive(); liveSubs.add(cb); return () => liveSubs.delete(cb); }, () => live, () => DEFAULT_LIVE);
   return languages.filter((l) => v.includes(l.code));
 }
+
+/** Adds a translation at runtime (e.g. an auto-translated Daily Wisdom) and refreshes the screen. */
+export function addPhrase(en: string, lang: string, text: string) {
+  const k = en.trim(); if (!k || !text) return;
+  (DICT as Record<string, Record<string, string>>)[k] = { ...((DICT as Record<string, Record<string, string>>)[k] ?? {}), [lang]: text };
+  try { sweep(document.body, read()); } catch { /* ignore */ }
+}

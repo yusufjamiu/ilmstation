@@ -1,3 +1,4 @@
+import { addPhrase } from "@/components/language";
 import { quranEdition } from "@/components/language";
 import { LockableSelect } from "@/components/premium";
 import { useEffect, useRef, useState } from "react";
@@ -678,18 +679,22 @@ export function AdhanWatcher() {
 }
 
 /** Today's wisdom in the user's language, when a translation exists. */
-const wisdomTr = new Map<string, string>();
 const wisdomAsked = new Set<string>();
+const TR_KEY = "ilmstation:wisdom-tr";
+const trGet = (k: string): string | undefined => { try { return (JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string>)[k]; } catch { return undefined; } };
+const trSet = (k: string, v: string) => { try { const m = JSON.parse(localStorage.getItem(TR_KEY) ?? "{}") as Record<string, string>; m[k] = v; const keys = Object.keys(m); if (keys.length > 300) delete m[keys[0]!]; localStorage.setItem(TR_KEY, JSON.stringify(m)); } catch { /* ignore */ } };
 function localizeWisdom<W extends { text: string }>(w: W): W {
   let ui = "en"; try { ui = localStorage.getItem("iq_lang") ?? "en"; } catch { /* ignore */ }
-  const id = (w as unknown as { id?: string }).id;
-  const t = (w as unknown as { tr?: Record<string, string> }).tr?.[ui]?.trim() || (id ? wisdomTr.get(`${id}:${ui}`) : undefined);
-  if (t) return { ...w, text: t };
-  // not translated yet: ask the server once (it translates and saves it for everyone)
-  if (id && ui !== "en" && ui !== "ar" && !wisdomAsked.has(`${id}:${ui}`) && typeof window !== "undefined") {
-    wisdomAsked.add(`${id}:${ui}`);
-    fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, lang: ui }) })
-      .then((r) => r.json()).then((j: { text?: string }) => { if (j.text) { wisdomTr.set(`${id}:${ui}`, j.text); window.dispatchEvent(new Event("wisdom-tr")); } }).catch(() => {});
+  if (ui === "en" || ui === "ar") return w;
+  const typed = (w as unknown as { tr?: Record<string, string> }).tr?.[ui]?.trim();
+  if (typed) return { ...w, text: typed };
+  const k = `${ui}|${w.text.trim()}`;
+  const known = trGet(k);
+  if (known) { addPhrase(w.text, ui, known); return { ...w, text: known }; }
+  if (!wisdomAsked.has(k) && typeof window !== "undefined" && w.text.trim()) {
+    wisdomAsked.add(k);
+    fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: w.text, lang: ui }) })
+      .then((r) => r.json()).then((j: { text?: string }) => { if (j.text) { trSet(k, j.text); addPhrase(w.text, ui, j.text); window.dispatchEvent(new Event("wisdom-tr")); } }).catch(() => {});
   }
   return w;
 }
