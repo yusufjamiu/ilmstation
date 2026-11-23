@@ -225,8 +225,7 @@ async function wisdomImage(w: Wisdom): Promise<File | null> {
 
 /** Today's wisdom: pinned to today, else the admin's rotation, else the built-in list. */
 type StoredWisdom = Wisdom & { id: string; date?: string; active?: boolean; createdAt?: number };
-export function useTodaysWisdom(): Wisdom & {
-  useWisdomTranslations(); id: string } {
+function useTodaysWisdomRaw(): Wisdom & { id: string } {
   const [list, setList] = useState<StoredWisdom[] | null>(null);
   useEffect(() => onSnapshot(collection(db, "wisdom"),
     (s) => setList(s.docs.map((d) => ({ ...(d.data() as Omit<StoredWisdom, "id">), id: d.id }))), () => setList([])), []);
@@ -234,10 +233,10 @@ export function useTodaysWisdom(): Wisdom & {
   const fallback = { kind: fb.kind, arabic: fb.arabic, text: fb.text, source: fb.source, id: `b${fb.index}` };
   if (!list) return fallback;
   const pinned = list.find((x) => x.active !== false && x.date === dayKey());
-  if (pinned) return localizeWisdom(pinned);
+  if (pinned) return pinned;
   const pool = list.filter((x) => x.active !== false && !x.date).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   if (!pool.length) return fallback;
-  return localizeWisdom(pool[dayOfYear() % pool.length]!);
+  return pool[dayOfYear() % pool.length]!;
 }
 
 export function DailyWisdom({ onShare, w: given }: { onShare: (card: ShareCard) => void; w?: Wisdom & { id: string } }) {
@@ -702,4 +701,11 @@ function localizeWisdom<W extends { text: string }>(w: W): W {
 export function useWisdomTranslations() {
   const [, bump] = useState(0);
   useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("wisdom-tr", f); return () => window.removeEventListener("wisdom-tr", f); }, []);
+}
+
+/** Today's wisdom, with the meaning in the user's language (built-in and admin wisdoms alike). */
+export function useTodaysWisdom(...args: Parameters<typeof useTodaysWisdomRaw>): ReturnType<typeof useTodaysWisdomRaw> {
+  useWisdomTranslations();
+  const w = useTodaysWisdomRaw(...args);
+  return (w ? localizeWisdom(w as { text: string }) : w) as ReturnType<typeof useTodaysWisdomRaw>;
 }
