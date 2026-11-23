@@ -1,3 +1,4 @@
+import { createPortal as createPortalQ } from "react-dom";
 import { addMemorised as addMemorisedQ } from "@/components/hifz";
 import { checkUpTo as rvCheckUpTo, isMark as rvIsMark } from "@/components/free-revision";
 import { usePremium as usePremiumQ } from "@/components/premium";
@@ -327,13 +328,13 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
       <div onTouchStart={swipeStart} onTouchEnd={e => swipeEnd(e, () => go(page + 1), () => go(page - 1))}>{layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={key => setPick(prev => prev && `${prev.surah}:${prev.n}` === key ? null : ayahs.find(a => `${a.surah}:${a.n}` === key) ?? null)}/> : <MushafPage page={page} ayahs={ayahs} focus={pick ? `${pick.surah}:${pick.n}` : null} onSelect={a => setPick(a)}/>}</div>
-      {pick && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setPick(null)}>
+      {pick && typeof document !== "undefined" && createPortalQ(<div className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4" onClick={() => setPick(null)}>
         <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>
           <div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(x => x.n === pick.surah)?.name} · {pick.surah}:{pick.n}</p><button onClick={() => setPick(null)} aria-label="Close" className="border-2 border-foreground px-2.5 py-0.5 text-lg font-bold">✕</button></div>
           <p dir="rtl" lang="ar" className="mt-3 text-right font-arabic text-3xl leading-[2]">{(pick as { text?: string }).text}</p>
           <p className="mt-3 text-base leading-relaxed">{pick.meaning}</p>
         </div>
-      </div>}
+      </div>, document.body)}
       {pick && <section className={cn(panel, "space-y-1")}><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s => s.n === pick.surah)?.name} · verse {pick.n}</p><p className="text-sm leading-relaxed">{pick.meaning}</p></section>}
       <div className="mx-auto hidden max-w-[34rem] items-center justify-between gap-2 sm:flex">
         <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
