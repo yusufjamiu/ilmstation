@@ -201,7 +201,7 @@ const bridgeReady = new Promise(res=>{
   addEventListener("message", e => {
     const d = e.data || {};
     if (d.type==="ilmstation:ping") hello();                                   // the app asks "are you there?"
-    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; if(d.lang) window.__wantLang=d.lang; savedState=d.state; clearInterval(again); loadLang(d.lang).then(()=>res(true)); if(d.test) setTimeout(testTools, 300); }
+    if (d.type==="ilmstation:welcome" && !bridge){ bridge=true; if(d.lang) window.__wantLang=d.lang; if(d.age!=null) window.__age=+d.age; else if(d.ageGroup) window.__age={"3-5":4,"6-8":7,"9-13":11,"9-12":11}[d.ageGroup]; savedState=d.state; clearInterval(again); loadLang(d.lang).then(()=>res(true)); if(d.test) setTimeout(testTools, 300); }
   });
   hello(); setTimeout(()=>{ if(!bridge) loadLang(window.__qlang).then(()=>res(false)); }, 2000);
 });
