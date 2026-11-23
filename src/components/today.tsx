@@ -224,7 +224,8 @@ async function wisdomImage(w: Wisdom): Promise<File | null> {
 
 /** Today's wisdom: pinned to today, else the admin's rotation, else the built-in list. */
 type StoredWisdom = Wisdom & { id: string; date?: string; active?: boolean; createdAt?: number };
-export function useTodaysWisdom(): Wisdom & { id: string } {
+export function useTodaysWisdom(): Wisdom & {
+  useWisdomTranslations(); id: string } {
   const [list, setList] = useState<StoredWisdom[] | null>(null);
   useEffect(() => onSnapshot(collection(db, "wisdom"),
     (s) => setList(s.docs.map((d) => ({ ...(d.data() as Omit<StoredWisdom, "id">), id: d.id }))), () => setList([])), []);
@@ -677,8 +678,23 @@ export function AdhanWatcher() {
 }
 
 /** Today's wisdom in the user's language, when a translation exists. */
+const wisdomTr = new Map<string, string>();
+const wisdomAsked = new Set<string>();
 function localizeWisdom<W extends { text: string }>(w: W): W {
   let ui = "en"; try { ui = localStorage.getItem("iq_lang") ?? "en"; } catch { /* ignore */ }
-  const t = (w as unknown as { tr?: Record<string, string> }).tr?.[ui]?.trim();
-  return t ? { ...w, text: t } : w;
+  const id = (w as unknown as { id?: string }).id;
+  const t = (w as unknown as { tr?: Record<string, string> }).tr?.[ui]?.trim() || (id ? wisdomTr.get(`${id}:${ui}`) : undefined);
+  if (t) return { ...w, text: t };
+  // not translated yet: ask the server once (it translates and saves it for everyone)
+  if (id && ui !== "en" && ui !== "ar" && !wisdomAsked.has(`${id}:${ui}`) && typeof window !== "undefined") {
+    wisdomAsked.add(`${id}:${ui}`);
+    fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, lang: ui }) })
+      .then((r) => r.json()).then((j: { text?: string }) => { if (j.text) { wisdomTr.set(`${id}:${ui}`, j.text); window.dispatchEvent(new Event("wisdom-tr")); } }).catch(() => {});
+  }
+  return w;
+}
+/** Re-render when a translation arrives. */
+export function useWisdomTranslations() {
+  const [, bump] = useState(0);
+  useEffect(() => { const f = () => bump((n) => n + 1); window.addEventListener("wisdom-tr", f); return () => window.removeEventListener("wisdom-tr", f); }, []);
 }

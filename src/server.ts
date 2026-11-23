@@ -110,6 +110,8 @@ export default {
     // Qira'ah lessons: Arabic read aloud with every harakah (OpenAI voice)
     if (url.pathname === "/api/tts")
       return import("./lib/tts-server").then((m) => m.handleTts(request));
+    if (url.pathname === "/api/translate")
+      return import("./lib/translate-server").then((m) => m.handleTranslate(request));
     if (url.pathname === "/api/fx")
       return import("./lib/fx-server").then((m) => m.handleFx());
     if (url.pathname === "/api/version")
