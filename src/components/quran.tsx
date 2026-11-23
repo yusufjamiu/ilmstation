@@ -335,7 +335,7 @@ function Tilawah({ onBack }: { onBack?: () => void } = {}) {
         </div>
       </div>}
       {pick && <section className={cn(panel, "space-y-1")}><p className="text-xs font-bold uppercase text-muted-foreground">{surahList.find(s => s.n === pick.surah)?.name} · verse {pick.n}</p><p className="text-sm leading-relaxed">{pick.meaning}</p></section>}
-      <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
+      <div className="mx-auto hidden max-w-[34rem] items-center justify-between gap-2 sm:flex">
         <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
         <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
         <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page" className="hidden sm:inline-flex">Previous <ArrowRight /></Button>
@@ -394,6 +394,15 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
   const next = () => { if (ayahs && pos < ayahs.length - 1) setPos(pos + 1); else go(page + 1, 0); };
   const prev = () => { if (pos > 0) setPos(pos - 1); else if (page > 1) go(page - 1, 999); };
   const resume = () => { if (!lastL) return; setAskL(false); go(lastL.page, lastL.pos); setChosen(true); };
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator) || !cur) return;
+    const ms = navigator.mediaSession; const name = surahList.find(x => x.n === cur.surah)?.name ?? "";
+    try { ms.metadata = new MediaMetadata({ title: `${name} · verse ${cur.n}`, artist: r.name, album: "IlmStation", artwork: [{ src: "/icon-512.png", sizes: "512x512", type: "image/png" }] }); } catch { /* ignore */ }
+    ms.playbackState = playing ? "playing" : "paused";
+    const set = (a: MediaSessionAction, f: (() => void) | null) => { try { ms.setActionHandler(a, f); } catch { /* not supported */ } };
+    set("play", () => { if (!playing) toggle(); }); set("pause", () => { if (playing) toggle(); });
+    set("nexttrack", () => next()); set("previoustrack", () => prev());
+  }, [cur, playing, r]); // eslint-disable-line react-hooks/exhaustive-deps
   const back = onBack && <Button size="sm" variant="outline" className="shrink-0" onClick={() => { audio.current?.pause(); setPlaying(false); onBack(); }} aria-label="Back to Qur’an">←</Button>;
   const modal = (body: ReactNode, close: () => void) => <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={close}>
     <div className="max-h-[85vh] w-full max-w-md overflow-y-auto border-2 border-foreground bg-background p-5 shadow-brutal" onClick={e => e.stopPropagation()}>{body}</div></div>;
@@ -438,12 +447,11 @@ function Listen({ onBack }: { onBack?: () => void } = {}) {
         <select value={reciter} onChange={e => setReciter(e.target.value)} aria-label="Reciter" className="h-9 min-w-0 flex-1 border-2 border-foreground bg-background px-2 text-sm">{reciters.map(rc => <option key={rc.id} value={rc.id}>{rc.name}</option>)}</select>
         <select value={speed} onChange={e => setSpeed(Number(e.target.value))} aria-label="Playback speed" className="h-9 shrink-0 border-2 border-foreground bg-background px-1 text-sm">{speeds.map(v => <option key={v} value={v}>{v}×</option>)}</select>
       </div>
-      {meta && cur && <p className="px-1 text-xs font-bold uppercase text-muted-foreground">{meta.name} · verse {cur.n}</p>}
     </section>
     {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p><Button className="mt-3" onClick={() => setTick(t => t + 1)}>Try again</Button></section> : !ayahs || (!layout && !layoutFailed) ? <p className="text-sm text-muted-foreground">Loading the page…</p> : <>
       <div onTouchStart={swipeStart} onTouchEnd={e => swipeEnd(e, () => go(page + 1), () => go(page - 1))}>{layout ? <QcfPage page={page} layout={layout} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={key => { const i = ayahs.findIndex(a2 => `${a2.surah}:${a2.n}` === key); if (i >= 0) setPick(i); }}/>
         : <MushafPage page={page} ayahs={ayahs} focus={cur ? `${cur.surah}:${cur.n}` : null} onSelect={a2 => { const i = ayahs.indexOf(a2); if (i >= 0) setPick(i); }}/>}</div>
-      <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
+      <div className="mx-auto hidden max-w-[34rem] items-center justify-between gap-2 sm:flex">
         <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
         <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
         <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page" className="hidden sm:inline-flex">Previous <ArrowRight /></Button>
@@ -629,7 +637,7 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
       }}>🔊 Hear this verse</Button>}
       {voice && ayahs?.[focus] && <p className="px-1 text-xs font-bold uppercase text-muted-foreground">Listening · verse {ayahs[focus]!.n}</p>}
     </section>
-    {error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p></section> : !ayahs ? <p className="text-sm text-muted-foreground">Loading the page…</p> :
+    <div onTouchStart={swipeStart} onTouchEnd={e => swipeEnd(e, () => go(page + 1), () => go(page - 1))}>{error ? <section className={panel}><p className="text-sm">We couldn't load this page. Check your connection and try again.</p></section> : !ayahs ? <p className="text-sm text-muted-foreground">Loading the page…</p> :
       groups.map(g => {
         const start = offset; offset += g.items.length;
         const from = g.items[0]!.n - 1;
@@ -639,7 +647,7 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
         return <PageView key={`${page}-${g.surah}`} verses={g.items.map(a => ({ arabic: textOf(a), meaning: a.meaning })) as never} from={from}
           revealUpTo={showAll ? 9999 : voice || focus > 0 ? from + doneHere : 0} focus={focusHere} wordsShown={undefined} peek={!voice && !showAll}
           title={meta?.arabic ?? ""} juz={(g.items[0] as { juz?: number }).juz ?? 1} number={g.surah} marks={focusHere >= 0 ? (marks ?? undefined) as never : undefined} hintWord={undefined as never} onSelect={() => {}}/>;
-      })}
+      })}</div>
     {pageDone && ayahs && <section className="border-2 border-foreground bg-primary p-4 shadow-brutal">
       <p className="font-serif text-2xl">Page complete. Masha’Allah!</p>
       <p className="mt-1 text-sm">Add this page to your memorised verses? It joins My Hifz portion and gets revision reminders.</p>
@@ -648,7 +656,7 @@ function RevisionPages({ onBack }: { onBack: () => void }) {
         <Button variant="outline" onClick={() => { setPageDone(false); go(page + 1); }}>Next page</Button>
       </div>
     </section>}
-    <div className="mx-auto flex max-w-[34rem] items-center justify-between gap-2">
+    <div className="mx-auto hidden max-w-[34rem] items-center justify-between gap-2 sm:flex">
       <Button size="sm" variant="outline" disabled={page >= TOTAL_PAGES} onClick={() => go(page + 1)} aria-label="Next page" className="hidden sm:inline-flex"><ArrowLeft /> Next</Button>
       <span className="text-sm font-bold tabular-nums">{page} / {TOTAL_PAGES}</span>
       <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go(page - 1)} aria-label="Previous page" className="hidden sm:inline-flex">Previous <ArrowRight /></Button>
