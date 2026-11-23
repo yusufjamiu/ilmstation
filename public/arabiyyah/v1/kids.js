@@ -134,9 +134,9 @@ const RTL_LANGS = ["ar","ur"];
 function setDict(d){
   QD = d || {};
   QPAT = Object.keys(QD).filter(k=>/\{\d\}/.test(k)).map(k=>{
-    const esc = k.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\\\{(\d)\\\}/g,"(.+?)");
+    const esc = k.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/\\\{(\d)\\\}/g,"(\\d+)");   // {0} {1} … stand for numbers
     return { re: new RegExp("^"+esc+"$"), order: [...k.matchAll(/\{(\d)\}/g)].map(m=>+m[1]), out: QD[k] };
-  });
+  }).sort((a,b)=>b.re.source.length-a.re.source.length);
 }
 /** Translate one English string (exact, then patterns; the pieces of a pattern are translated too). */
 function TX(s){
@@ -179,7 +179,7 @@ function startTranslating(){
 function loadLang(lang){
   return new Promise(res=>{
     if (!lang || lang==="en") return res(false);
-    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=1";
+    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611231832";
     const done=ok=>{ clearTimeout(t); if(ok && window.QI18N){ LANG=lang; setDict(window.QI18N); startTranslating(); } res(ok); };
     const t=setTimeout(()=>done(false), 4000);
     s.onload=()=>done(true); s.onerror=()=>done(false);
