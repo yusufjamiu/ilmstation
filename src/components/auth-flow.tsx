@@ -1,3 +1,6 @@
+import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid } from "firebase/auth";
+import { doc as dK, getDoc as gK, setDoc as sK } from "firebase/firestore";
+import { auth as aK, db as dbK } from "@/lib/firebase";
 import { useEffect as useEffectL, useState as useStateL } from "react";
 import { GoogleAuthProvider, getRedirectResult, signInWithPopup, signInWithRedirect } from "firebase/auth";
 import { useEffect as useGEffect, useState as useGState } from "react";
@@ -175,6 +178,7 @@ export function SignupFlow() {
   const { lang, set: setLanguage } = useLanguage();
   const { account, loggedIn, signUp, logOut, firstName } = useAuth();
   const [step, setStep] = useState(0);
+  const [forChild, setForChild] = useStateL(false);
   const [draft, setDraft] = useState<Draft>({ language: lang, name: "", username: "", email: "", password: "", zone: null, gender: null, interests: [] });
   const [result, setResult] = useState<{ score: number | null; level: Level } | null>(null);
   const [signupError, setSignupError] = useState("");
@@ -234,7 +238,10 @@ export function SignupFlow() {
 
   return <AuthShell mode="signup" aside={aside}>
     {step < steps.length - 1 && <StepHeader step={step} />}
-    {step === 1 && <GoogleButton />}
+    {step === 1 && !forChild && <button type="button" onClick={() => setForChild(true)} className="mb-4 flex w-full items-center gap-3 border-2 border-foreground bg-primary/30 p-4 text-left shadow-brutal-sm transition hover:bg-primary/50"><span className="text-3xl">🧒</span><span><b className="block">Signing up for your child?</b><span className="text-sm text-muted-foreground">Create a child account</span></span></button>}
+    {step === 1 && forChild && <ChildSignup onBack={() => setForChild(false)} />}
+    {step === 1 && forChild && <style>{"[data-child-signup] ~ *{display:none!important}"}</style>}
+    {step === 1 && !forChild && <GoogleButton />}
     {step === 0 && <LanguageStep value={draft.language} onNext={(language) => { update({ language }); setLanguage(language); try { sessionStorage.setItem("signupLang", language); } catch { /* ignore */ } next(); }} />}
     {step === 1 && <AccountStep draft={draft} existingEmail={account?.email} serverError={accountError} onBack={back} onNext={(name, username, email) => { setAccountError(""); update({ name, username, email }); next(); }} />}
     {step === 2 && <PasswordStep onBack={back} onNext={(password) => { update({ password }); next(); }} />}
@@ -533,5 +540,69 @@ function GoogleButton() {
       {busy ? "Opening Google…" : "Continue with Google"}
     </button>
     <div className="mt-5 flex items-center gap-3 text-xs font-bold uppercase text-muted-foreground"><span className="h-px flex-1 bg-foreground/30" />or<span className="h-px flex-1 bg-foreground/30" /></div>
+  </div>;
+}
+
+/** Sign up for a child: a light parent account in the background + the child account, then open the kids' zone. */
+function ChildSignup({ onBack }: { onBack: () => void }) {
+  const [childName, setChildName] = useStateL(""); const [age, setAge] = useStateL(7); const [gender, setGender] = useStateL<"male" | "female" | "">("");
+  const [username, setUsername] = useStateL(""); const [childPass, setChildPass] = useStateL("");
+  const [email, setEmail] = useStateL(""); const [parentPass, setParentPass] = useStateL(""); const [consent, setConsent] = useStateL(false);
+  const [busy, setBusy] = useStateL(false); const [err, setErr] = useStateL("");
+  const box = "mt-1 h-11 w-full border-2 border-foreground bg-background px-3";
+  const create = async () => {
+    setErr("");
+    const un = username.trim().toLowerCase(); const em = email.trim().toLowerCase();
+    if (!childName.trim()) return setErr("Add your child's first name.");
+    if (!gender) return setErr("Choose boy or girl.");
+    if (!/^[a-z0-9_]{3,20}$/.test(un)) return setErr("Username: 3–20 letters, numbers or _.");
+    if (childPass.length < 6) return setErr("Child's password: at least 6 characters.");
+    if (!/^\S+@\S+\.\S+$/.test(em)) return setErr("Enter a valid email, like name@example.com.");
+    if (parentPass.length < 6) return setErr("Your password: at least 6 characters.");
+    if (!consent) return setErr("Please confirm you're this child's parent or guardian.");
+    setBusy(true);
+    try {
+      if ((await gK(dK(dbK, "usernames", un))).exists()) throw new Error("That username is taken. Try another.");
+      let cred;
+      try { cred = await cuParent(aK, em, parentPass); }
+      catch (e) { if ((e as { code?: string }).code === "auth/email-already-in-use") throw new Error("You already have an account. Log in, then add your child in Family hub."); throw new Error("Couldn't create the parent account. Check the email and password."); }
+      const pu = cred.user;
+      let pun = (em.split("@")[0]!.replace(/[^a-z0-9_]/g, "").slice(0, 14) || "parent");
+      for (let i = 0; i < 6; i++) { const c = `${pun}${Math.floor(1000 + Math.random() * 9000)}`; if (!(await gK(dK(dbK, "usernames", c))).exists()) { pun = c; break; } }
+      const lang = (() => { try { return sessionStorage.getItem("signupLang") || localStorage.getItem("iq_lang") || "en"; } catch { return "en"; } })();
+      await sK(dK(dbK, "usernames", pun), { uid: pu.uid });
+      await sK(dK(dbK, "profiles", pu.uid), { name: "Parent", username: pun, email: em, language: lang, zone: "adult", level: "Beginner", xp: 50, interests: [], parentOnly: true, createdAt: Date.now() });
+      await sK(dK(dbK, "emails", em), { uid: pu.uid }).catch(() => {});
+      const token = await pu.getIdToken();
+      const call = (body: Record<string, unknown>) => fetch("/api/family", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ ok?: boolean; error?: string; uid?: string; token?: string }>);
+      const r1 = await call({ action: "createChild", name: childName.trim(), age, gender, username: un, password: childPass });
+      if (!r1.ok) throw new Error(r1.error ?? "Couldn't create your child's account.");
+      const r2 = r1.uid ? await call({ action: "childLogin", uid: r1.uid }) : { ok: false };
+      if (r2.ok && r2.token) { await sictKid(aK, r2.token); try { localStorage.setItem("ilm:kid", age <= 12 ? "1" : "0"); } catch { /* ignore */ } window.location.href = "/app"; return; }
+      window.location.href = "/login";
+    } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  };
+  return <div data-child-signup className="space-y-4">
+    <div className="flex items-center justify-between"><p className="font-serif text-2xl">🧒 A child account</p><button type="button" onClick={onBack} className="text-sm font-semibold underline underline-offset-4">Back</button></div>
+    <section className="space-y-3 border-2 border-foreground p-4">
+      <p className="text-xs font-bold uppercase text-muted-foreground">Your child</p>
+      <label className="block text-sm font-semibold">First name<input value={childName} onChange={(e) => setChildName(e.target.value)} className={box} /></label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-sm font-semibold">Age<select value={age} onChange={(e) => setAge(Number(e.target.value))} className={box}>{Array.from({ length: 14 }, (_, i) => i + 4).map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+        <div className="text-sm font-semibold">Boy or girl<div className="mt-1 grid grid-cols-2 gap-2">{(["male", "female"] as const).map((g) => <button key={g} type="button" onClick={() => setGender(g)} className={`h-11 border-2 border-foreground font-bold ${gender === g ? "bg-primary" : "bg-background"}`}>{g === "male" ? "Boy" : "Girl"}</button>)}</div></div>
+      </div>
+      <label className="block text-sm font-semibold">Username (to log in)<input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20))} placeholder="e.g. amina_10" autoCapitalize="none" className={box} /></label>
+      <label className="block text-sm font-semibold">Child's password<input type="password" value={childPass} onChange={(e) => setChildPass(e.target.value)} autoComplete="new-password" className={box} /></label>
+    </section>
+    <section className="space-y-3 border-2 border-foreground p-4">
+      <p className="text-xs font-bold uppercase text-muted-foreground">You (parent or guardian)</p>
+      <label className="block text-sm font-semibold">Your email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={box} /></label>
+      <label className="block text-sm font-semibold">Your password<input type="password" value={parentPass} onChange={(e) => setParentPass(e.target.value)} autoComplete="new-password" className={box} /></label>
+      <p className="text-xs text-muted-foreground">For password resets and to manage your child later in Family hub.</p>
+    </section>
+    <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-1" /> <span>I’m this child’s parent or guardian, and I agree to the <a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.</span></label>
+    {err && <p className="border-2 border-foreground bg-destructive/10 p-3 text-sm">{err}</p>}
+    <button type="button" disabled={busy} onClick={() => void create()} className="h-12 w-full border-2 border-foreground bg-primary font-bold shadow-brutal disabled:opacity-60">{busy ? "Creating…" : "Create my child’s account"}</button>
   </div>;
 }
