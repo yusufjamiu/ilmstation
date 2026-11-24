@@ -620,6 +620,43 @@ function gable(
   }
 }
 
+const CAR_COLOURS = [0xf4f4f2, 0x1d1f22, 0x8a929a, 0x2a4a6a, 0x7d2f3a, 0xc9b28a, 0x2f6f4f];
+/** A family car parked in a yard or a carport, its nose to the gate (built into the batch). */
+function parkedCar(b: Batch, x: number, z: number, colour: number, ry = 0) {
+  const body = MAT.plain(colour, 0.35),
+    glass = MAT.plain(0x22313d, 0.2),
+    tyre = MAT.plain(0x161616, 0.9),
+    lamp = MAT.plain(0xf4efd6, 0.3),
+    tail = MAT.plain(0xb3262e, 0.4);
+  const c = Math.cos(ry),
+    s = Math.sin(ry);
+  const at = (lx: number, lz: number): [number, number] => [
+    x + lx * c + lz * s,
+    z - lx * s + lz * c,
+  ];
+  const [bx, bz] = at(0, 0);
+  b.box(1.9, 0.7, 4.3, body, bx, 0.32, bz, ry);
+  const [cx, cz] = at(0, -0.25);
+  b.box(1.7, 0.62, 2.3, glass, cx, 1.02, cz, ry);
+  b.box(1.72, 0.08, 2.1, body, cx, 1.62, cz, ry);
+  for (const [lx, lz] of [
+    [-0.92, 1.35],
+    [0.92, 1.35],
+    [-0.92, -1.35],
+    [0.92, -1.35],
+  ]) {
+    const [wx, wz] = at(lx, lz);
+    const g = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 12);
+    g.rotateZ(Math.PI / 2);
+    b.add(g, tyre, wx, 0.36, wz, ry);
+  }
+  for (const lx of [-0.62, 0.62]) {
+    const [fx, fz] = at(lx, 2.16);
+    b.box(0.4, 0.16, 0.04, lamp, fx, 0.75, fz, ry);
+    const [tx, tz] = at(lx, -2.16);
+    b.box(0.4, 0.16, 0.04, tail, tx, 0.75, tz, ry);
+  }
+}
 /**
  * A walled compound with its front fence on z = +depth/2 (facing the street).
  * `turn` = 0 when the street is south of the plot, Math.PI when it is north.
@@ -949,6 +986,15 @@ export function compound(
         tz - 0.3,
       );
       solid(tx - 0.3, tx + 0.3, tz - 0.3, tz + 0.3);
+    }
+  }
+  // many homes have the family car in the yard, inside the gate
+  {
+    const cz = front - 3.4;
+    const dice = ((o.number * 2654435761) >>> 0) / 4294967296;
+    if (dice < 0.5 && cz - 2.3 > bz + BD / 2 + 2.4) {
+      parkedCar(b, gx, cz, CAR_COLOURS[Math.floor(dice * 14) % CAR_COLOURS.length]);
+      solid(gx - 1, gx + 1, cz - 2.2, cz + 2.2);
     }
   }
 
@@ -2599,7 +2645,12 @@ function styledHouse(
     b.plane(0.5, 0.25, MAT.plaque("No. " + o.number), gx + gw / 2 + 0.3, PH - 0.5, front + 0.36);
   }
 
-  let door = toArea(0, front - 4);
+  let doorLz = front - 4;
+  const doorAt = (lx: number, lz: number) => {
+    doorLz = lz;
+    return toArea(lx, lz);
+  };
+  let door = doorAt(0, front - 4);
   const top = { y: 0 };
 
   if (style === "tents") {
@@ -2625,7 +2676,7 @@ function styledHouse(
       neemTree(b, tx, front - 1.6, 0.8);
       solid(tx - 0.3, tx + 0.3, front - 1.9, front - 1.3);
     }
-    door = toArea(gx, front - 2);
+    door = doorAt(gx, front - 2);
   } else if (style === "local" && type === "faceme") {
     /* face-me-I-face-you: a long rooming house, rooms facing each other across a corridor */
     const BW = PW - 6,
@@ -2692,7 +2743,7 @@ function styledHouse(
         lz,
         0,
       );
-    door = toArea(0, dz + 2.8);
+    door = doorAt(0, dz + 2.8);
   } else if (style === "local") {
     /* the Lagos bungalow (or storey building) */
     const floors = Math.min(localMax, floorsIn);
@@ -2834,7 +2885,7 @@ function styledHouse(
         1.3,
         front + T / 2 + 0.02,
       );
-    door = toArea(0, dz + 2.8);
+    door = doorAt(0, dz + 2.8);
   } else if (style === "modern" && block) {
     /* a modern block of flats: white floors with glass bands, balconies with glass rails */
     const floors = floorsIn;
@@ -2871,7 +2922,7 @@ function styledHouse(
       fanPalm(b, px, front - 1.5, 0.9);
       solid(px - 0.3, px + 0.3, front - 1.8, front - 1.2);
     }
-    door = toArea(0, dz + 1.6);
+    door = doorAt(0, dz + 1.6);
   } else if (style === "modern") {
     /* a Lekki villa: white and charcoal blocks, big glass, flat roofs */
     const BW = Math.min(PW - 4, 13 + Math.floor(r() * 3)),
@@ -2927,6 +2978,10 @@ function styledHouse(
         [2, 1.9],
       ])
         b.box(0.1, 2.6, 0.1, dark, cx + px, 0, cz + pz);
+      if (r() < 0.75) {
+        parkedCar(b, cx, cz, CAR_COLOURS[Math.floor(r() * CAR_COLOURS.length)]);
+        solid(cx - 1, cx + 1, cz - 2.2, cz + 2.2);
+      }
     }
     // a paved strip, fan palms and sometimes a small pool
     b.add(groundGeo(PW - 1, 2.2, 2), MAT.paving(), 0, 0.05, front - 1.4, 0, false);
@@ -2940,7 +2995,7 @@ function styledHouse(
       const px = s * (BW / 2 + (PW - BW) / 4);
       b.add(groundGeo((PW - BW) / 2 - 1, BD * 0.7, 2), MAT2.water(), px, 0.06, bz, 0, false);
     }
-    door = toArea(-BW / 2 + 1.6, bz + BD / 2 + 1.2);
+    door = doorAt(-BW / 2 + 1.6, bz + BD / 2 + 1.2);
   } else if (style === "ilorin") {
     /* an Ilorin house: earth-toned walls, arches, a crenellated roof line */
     const floors = Math.min(2, floorsIn);
@@ -3026,7 +3081,7 @@ function styledHouse(
         0.3,
         dz + 2.4,
       );
-    door = toArea(0, dz + 2.6);
+    door = doorAt(0, dz + 2.6);
   } else {
     /* Saudi: cream stone, mashrabiya, flat roof with teeth (and towers by the Haram) */
     const tower = style === "tower";
@@ -3130,7 +3185,17 @@ function styledHouse(
       datePalmInto(b, tx, tz, 0.8);
       solid(tx - 0.3, tx + 0.3, tz - 0.3, tz + 0.3);
     }
-    door = toArea(tower ? BW * 0.35 : 0, dz + 1.2);
+    door = doorAt(tower ? BW * 0.35 : 0, dz + 1.2);
+  }
+
+  // the family car in the yard, inside the gate, when there is room before the front door
+  if ((style === "local" || style === "ilorin") && type !== "faceme") {
+    const cz = front - 3.4;
+    const dice = ((o.number * 2654435761 + Math.round(o.x)) >>> 0) / 4294967296;
+    if (dice < 0.45 && cz - 2.3 > doorLz + 0.6) {
+      parkedCar(b, gx, cz, CAR_COLOURS[Math.floor(dice * 15) % CAR_COLOURS.length]);
+      solid(gx - 1, gx + 1, cz - 2.2, cz + 2.2);
+    }
   }
 
   b.base.identity();
