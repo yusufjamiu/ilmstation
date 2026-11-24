@@ -446,17 +446,15 @@ function InterestsStep({ value, onBack, onNext }: { value: string[]; onBack: () 
   const ROWS = 5, cols = Math.ceil(interestOptions.length / ROWS);
   return <form onSubmit={(e) => { e.preventDefault(); if (enough) onNext(picked); }}>
     <style>{"@keyframes interestBob{0%,100%{translate:0 0}50%{translate:0 -6px}}.interest-bob{animation:interestBob 4.5s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.interest-bob{animation:none}}"}</style>
-    {/* phones: floating bubbles, scroll sideways */}
-    <div className="-mx-5 overflow-x-auto pb-3 pt-2 sm:hidden">
-      <div className="relative mx-5" style={{ width: cols * 90 + 118, height: (ROWS - 1) * 84 + 116 }}>
-        {interestOptions.map(({ label }, i) => { const on = picked.includes(label); const c = Math.floor(i / ROWS), r = i % ROWS;
-          return <button key={label} data-plain type="button" aria-pressed={on} onClick={() => toggle(label)}
-            className={cn("interest-bob absolute grid size-[112px] place-items-center rounded-full p-3 text-center text-[15px] font-bold leading-tight transition-[transform,background-color] duration-300", on ? "z-10 scale-105 bg-primary shadow-lg" : "bg-foreground/[0.07]")}
-            style={{ left: c * 90 + (r % 2) * 45, top: r * 84, animationDelay: `${(i % 7) * 0.45}s` }}>{label}</button>; })}
-      </div>
+    {/* phones and tablets: floating bubbles that fit the screen */}
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-2.5 py-2 lg:hidden">
+      {interestOptions.map(({ label }, i) => { const on = picked.includes(label); const size = [104, 92, 112, 96, 100, 88][i % 6]!;
+        return <button key={label} data-plain type="button" aria-pressed={on} onClick={() => toggle(label)}
+          className={cn("interest-bob grid shrink-0 place-items-center rounded-full p-2 text-center text-[14px] font-bold leading-tight transition-[transform,background-color] duration-300", on ? "scale-105 bg-primary text-foreground shadow-lg" : "bg-muted")}
+          style={{ width: size, height: size, animationDelay: `${(i % 7) * 0.45}s` }}>{label}</button>; })}
     </div>
     {/* computers: as before */}
-    <div className="hidden grid-cols-2 gap-2.5 sm:grid sm:grid-cols-4">{interestOptions.map(({ label }) => { const on = picked.includes(label); return <button key={label} type="button" aria-pressed={on} onClick={() => toggle(label)} className={cn("flex min-h-14 items-center justify-center gap-1.5 border-2 border-foreground px-2 py-3 text-sm font-semibold transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
+    <div className="hidden grid-cols-2 gap-2.5 lg:grid lg:grid-cols-4">{interestOptions.map(({ label }) => { const on = picked.includes(label); return <button key={label} type="button" aria-pressed={on} onClick={() => toggle(label)} className={cn("flex min-h-14 items-center justify-center gap-1.5 border-2 border-foreground px-2 py-3 text-sm font-semibold transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
       {on && <Check className="size-4 shrink-0" />}{label}
     </button>; })}</div>
     <p className={cn("mt-4 text-sm font-semibold", enough ? "text-secondary" : "text-muted-foreground")} aria-live="polite">{picked.length} selected{enough ? " — great choices" : ` · pick ${3 - picked.length} more`}</p>
