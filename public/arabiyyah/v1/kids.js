@@ -78,8 +78,8 @@ async function prefetchVoices(items){
 }
 /** Arabic by default; speakEn() is the friendly English voice for instructions.
     The audio plays straight from the voice server's address (Safari won't play downloaded copies inside the app's lesson box). */
-async function speak(text, rate=.85, lang="ar"){
-  if (muted) return; if(!speak._mix) mixGen++; stopVoice();
+async function speak(text, rate=.85, lang="ar", again){
+  if (muted) return; if(!speak._mix && !again) mixGen++; stopVoice();
   // letter names ending in ـاءْ (بَاءْ تَاءْ…): the voice turns the final hamza into an extra "ha",
   // so it says them the way the alphabet is recited: "baa", "taa" (the screen still shows the full name)
   const url = voiceUrl(text, rate, lang);
@@ -92,6 +92,8 @@ async function speak(text, rate=.85, lang="ar"){
       if (voiceEl.readyState >= 1) cap(); else voiceEl.onloadedmetadata = cap; });
   }catch(e){
     if (e && e.name === "NotAllowedError"){ pending = [text,lang]; return; }   // blocked until the first tap
+    // the voice was slow or busy: ask once more before using the phone's voice (so a sentence keeps one voice)
+    if (!again){ const g = mixGen; await new Promise(r=>setTimeout(r, 900)); if (g !== mixGen) return; return speak(text, rate, lang, true); }
   }
   // the voice server can't be reached: the phone's own voice as a last resort
   if (!("speechSynthesis" in window)) return;
@@ -179,7 +181,7 @@ function startTranslating(){
 function loadLang(lang){
   return new Promise(res=>{
     if (!lang || lang==="en") return res(false);
-    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611232333";
+    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611240815";
     const done=ok=>{ clearTimeout(t); if(ok && window.QI18N){ LANG=lang; setDict(window.QI18N); startTranslating(); } res(ok); };
     const t=setTimeout(()=>done(false), 4000);
     s.onload=()=>done(true); s.onerror=()=>done(false);

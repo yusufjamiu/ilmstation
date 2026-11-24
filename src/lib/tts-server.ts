@@ -140,6 +140,21 @@ async function keepVoice(key: string, buf: ArrayBuffer): Promise<void> {
   try { const b = await voiceBucket(); if (b) await b.file(`tts-cache/${key}.mp3`).save(Buffer.from(buf), { contentType: "audio/mpeg", resumable: false }); } catch { /* not fatal */ }
 }
 
+/** Sample rate of an MP3 (ElevenLabs files here are 44.1 kHz, OpenAI's are 24 kHz): tells which voice made a stored file. */
+function mp3Rate(buf: ArrayBuffer): number {
+  const b = new Uint8Array(buf); let i = 0;
+  if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) i = 10 + ((b[6] & 127) << 21 | (b[7] & 127) << 14 | (b[8] & 127) << 7 | (b[9] & 127));
+  const end = Math.min(b.length - 3, i + 4096);
+  for (; i < end; i++) {
+    if (b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0) {
+      const ver = (b[i + 1] >> 3) & 3, sr = (b[i + 2] >> 2) & 3;
+      const T: Record<number, number[]> = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+      return T[ver]?.[sr] ?? 0;
+    }
+  }
+  return 0;
+}
+
 export async function handleTts(request: Request): Promise<Response> {
   const cors = { "access-control-allow-origin": "*" }; // lesson files may be served from storage
   const json = (o: unknown, status = 200) =>
@@ -185,7 +200,9 @@ export async function handleTts(request: Request): Promise<Response> {
     ["yo", "ig", "ha"].includes(ilang) ? (process.env[`ELEVENLABS_${L}_${adult ? "" : "KID_"}VOICE_ID`] ?? process.env[`ELEVENLABS_NAIJA_${adult ? "" : "KID_"}VOICE_ID`] ?? "") : "",
   ]);
   const kept = await storedVoice(storeKey);
-  if (kept) return respond(kept);                    // made before: no cost
+  // made before: no cost. But if an instruction was saved in a backup voice while ElevenLabs is the chosen voice,
+  // make it again so every part of a sentence has the same voice.
+  if (kept && !(english && process.env.ELEVENLABS_API_KEY && mp3Rate(kept) !== 44100)) return respond(kept);
   const audio = async (buf: ArrayBuffer) => {         // stand-ins (backup) aren't kept, so the right voice replaces them later
     if (!backup && buf.byteLength > 1000) await keepVoice(storeKey, buf);
     return respond(buf);
@@ -248,16 +265,21 @@ export async function handleTts(request: Request): Promise<Response> {
   // Optional: ELEVENLABS_VOICE_ID (adults) and ELEVENLABS_KID_VOICE_ID (children) to pick the voices.
   const eleven = process.env.ELEVENLABS_API_KEY;
   if (english && eleven && !["yo", "ig", "ha"].includes(ilang)) {
-    try {
-      const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB" /* Adam: male */ : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
-      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
-        method: "POST",
-        headers: { "xi-api-key": eleven, "content-type": "application/json", accept: "audio/mpeg" },
-        body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.55, similarity_boost: 0.75 } }),
-      });
-      if (r.ok) return audio(await r.arrayBuffer());
-      // if ElevenLabs fails (e.g. out of credits), fall through to OpenAI
-    } catch { /* fall through to OpenAI */ }
+    const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB" /* Adam: male */ : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
+    for (let attempt = 0; attempt < 2; attempt++) {   // ElevenLabs can refuse requests that arrive together: try twice
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: { "xi-api-key": eleven, "content-type": "application/json", accept: "audio/mpeg" },
+          body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.55, similarity_boost: 0.75 } }),
+          signal: AbortSignal.timeout(20000),
+        });
+        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) return audio(buf); }
+        else { console.error("eleven", r.status, (await r.text().catch(() => "")).slice(0, 200)); if (r.status !== 429 && r.status < 500) break; }
+      } catch (e) { console.error("eleven", String(e)); }
+      await new Promise((ok) => setTimeout(ok, 900));
+    }
+    backup = true;   // OpenAI only stands in: not kept, so ElevenLabs replaces it next time
   }
 
   try {
