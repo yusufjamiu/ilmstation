@@ -1389,9 +1389,20 @@ export class IlmCityEngine {
     if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
     if (
-      ["lekki", "ikeja", "akoka", "agege", "ikorodu", "fate", "ilorincentral", "tanke"].includes(
-        D.id,
-      )
+      [
+        "lekki",
+        "ikeja",
+        "akoka",
+        "agege",
+        "ikorodu",
+        "fate",
+        "ilorincentral",
+        "tanke",
+        "wuse",
+        "abujacentral",
+        "sabongari",
+        "nassarawa",
+      ].includes(D.id)
     )
       this.buildBoutique(D);
     this.reserved = this.reserved.filter((r) => !playHold.includes(r));
@@ -2681,6 +2692,10 @@ export class IlmCityEngine {
       if (l.id === "masjid-quba") this.masjidCrown(l.x, sz - 23, 4, 6);
       if (l.id === "masjid-qiblatayn") this.masjidCrown(l.x, sz - 23, 2, 2);
       if (l.id === "masjid-qiblatayn") this.mountUhud(D);
+      // Abuja's National Mosque: a golden dome and four tall minarets; Kano's Central
+      // Mosque: two minarets and green domes
+      if (l.id === "abuja-national-mosque") this.masjidCrown(l.x, sz - 23, 4, 1, 0xd4a72c, 9);
+      if (l.id === "kano-central-mosque") this.masjidCrown(l.x, sz - 23, 2, 3, 0x2e8b57);
     } else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
     else if (l.kind === "home") this.buildHome(l.x, sz - 17);
     else if (l.kind === "souq") this.buildSouq(l.x, sz - 19, l);
@@ -5172,7 +5187,14 @@ export class IlmCityEngine {
   }
 
   /** Tall white minarets at the corners and a row of white domes on a mosque's roof. */
-  private masjidCrown(cx: number, cz: number, minarets: number, domes: number) {
+  private masjidCrown(
+    cx: number,
+    cz: number,
+    minarets: number,
+    domes: number,
+    domeColor = 0xf8f6f0,
+    bigDome = 3.6,
+  ) {
     const W = 34,
       D = 22,
       H = 7.6;
@@ -5202,10 +5224,10 @@ export class IlmCityEngine {
     }
     for (let i = 0; i < domes; i++) {
       const x = domes === 1 ? 0 : -W / 2 + 5 + (i * (W - 10)) / (domes - 1);
-      const r = i === Math.floor(domes / 2) ? 3.6 : 2.4;
+      const r = i === Math.floor(domes / 2) ? bigDome : 2.4;
       const d = new THREE.Mesh(
         new THREE.SphereGeometry(r, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2),
-        mat(0xf8f6f0, { roughness: 0.5 }),
+        mat(domeColor, { roughness: 0.5, metalness: domeColor === 0xd4a72c ? 0.4 : 0 }),
       );
       d.position.set(x, H + 0.6, -2);
       d.castShadow = true;
@@ -6492,7 +6514,14 @@ export class IlmCityEngine {
       W = 18,
       Dp = 14,
       bz = -1.5;
-    const wall = tier === 1 ? 0xeef1f4 : D.city === "ilorin" ? 0xe7c49a : 0xe9dcc0;
+    const wall =
+      tier === 1
+        ? 0xeef1f4
+        : D.city === "ilorin"
+          ? 0xe7c49a
+          : D.city === "kano"
+            ? 0xd9a27a
+            : 0xe9dcc0;
     const trim = tier === 1 ? 0x2a4a7a : 0x1f6f63;
     const body = mat(wall, { roughness: 0.8 });
     const glass = MAT2.glass();

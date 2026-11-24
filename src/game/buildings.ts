@@ -2228,7 +2228,9 @@ export type HouseStyle =
   /** Egbeda: Lagos bungalows, duplexes and taller storey buildings */
   | "storey"
   /** Ajegunle: Lagos houses and face-me-I-face-you rooming houses */
-  | "ajegunle";
+  | "ajegunle"
+  /** Kano's old city: red-earth Hausa houses with horned roof corners (zanko) */
+  | "hausa";
 /** What kind of home a plot holds, when it isn't an ordinary house. */
 export type HomeType = "tower" | "faceme";
 
@@ -2401,6 +2403,7 @@ const LOCAL_SKIRT = [0x7a4a3a, 0x3d4a5a, 0x5a3a2a, 0x2f5a4a, 0x8a2f3a];
 const ZINC = [0x9aa3a8, 0x8a5a3a, 0xa0302a, 0x2f5f8a, 0x3d6a3a, 0x7a3a2a];
 const ILORIN_WALLS = [0xe0a868, 0xe8b878, 0xd99a62, 0xf0c890, 0xdcaa78, 0xe6c49a];
 const ILORIN_TRIM = [0x1f6f63, 0xf4efe4, 0x2a4a7a, 0x6b2f2a];
+const HAUSA_WALLS = [0xb5683c, 0xa65d36, 0xc07a48, 0x9e5a35, 0xb97245];
 const SAUDI_WALLS = [0xeee3cc, 0xe6d6b8, 0xf3ece0, 0xdccaa8, 0xe9dcc2, 0xf6f1e6];
 const MODERN_WALLS = [0xf4f4f0, 0xe9e9e6, 0xefeae2];
 const MODERN_ACCENT = [0x3a3d42, 0x2b2f33, 0x5a5f66];
@@ -2538,6 +2541,9 @@ function styledHouse(
   let localMax = 2;
   /** Lekki and Ikeja: a modern block of 3 or 4 floors */
   let block = false;
+  /** Kano: built like an Ilorin house, in red earth with horns and carved relief */
+  const hausa = style === "hausa";
+  if (hausa) style = "ilorin";
   if (style === "prime") {
     // no bungalows: glass towers, storey buildings and duplexes
     const k = r();
@@ -2584,7 +2590,7 @@ function styledHouse(
       : style === "local"
         ? pick([0xe9dcc0, 0xd8c3a5, 0xe6d2b5, 0xcfd8c8, 0xf0e6d0])
         : style === "ilorin"
-          ? pick(ILORIN_WALLS)
+          ? pick(hausa ? HAUSA_WALLS : ILORIN_WALLS)
           : pick(SAUDI_WALLS);
   const FH =
     style === "tents"
@@ -3036,8 +3042,8 @@ function styledHouse(
       BD = Math.min(PD - 9, 8 + Math.floor(r() * 2));
     const bz = -PD / 2 + 1.5 + BD / 2;
     const FHt = 3.3;
-    const wallCc = pick(ILORIN_WALLS);
-    const trim = pick(ILORIN_TRIM);
+    const wallCc = hausa ? wallC : pick(ILORIN_WALLS);
+    const trim = hausa ? 0x5a2e1a : pick(ILORIN_TRIM);
     const wallM = MAT.plaster(wallCc);
     const trimM = MAT.plain(trim);
     b.box(BW + 0.3, 0.5, BD + 0.3, MAT.plain(0x9a7a5a), 0, 0, bz);
@@ -3077,6 +3083,7 @@ function styledHouse(
       [0.25, BD, -BW / 2, 0],
     ] as [number, number, number, number][]) {
       b.box(w, 0.6, d, wallM, x, tp, bz + z);
+      if (hausa) continue;
       const along = w > d;
       const L = along ? w : d;
       for (let t = -L / 2 + 0.4; t < L / 2; t += 1.1)
@@ -3090,8 +3097,28 @@ function styledHouse(
           along ? bz + z : bz + t,
         );
     }
+    if (hausa) {
+      // zanko: the horned pinnacles on the roof corners and over the door
+      const horn = new THREE.ConeGeometry(0.28, 1.3, 6);
+      for (const [hx, hz] of [
+        [-BW / 2, -BD / 2],
+        [BW / 2, -BD / 2],
+        [-BW / 2, BD / 2],
+        [BW / 2, BD / 2],
+        [-0.9, BD / 2],
+        [0.9, BD / 2],
+      ] as [number, number][])
+        b.add(horn, wallM, hx, tp + 1.2, bz + hz);
+      // carved relief round the doorway and a band of patterns under the roof
+      const relief = MAT.plain(0xe8d8b8);
+      b.box(3.0, 0.14, 0.06, relief, 0, 3.45, dz + 1.64);
+      b.box(0.14, 2.8, 0.06, relief, -1.0, 0.6, dz + 1.64);
+      b.box(0.14, 2.8, 0.06, relief, 1.0, 0.6, dz + 1.64);
+      for (let t = -BW / 2 + 1; t < BW / 2 - 0.5; t += 1.6)
+        b.box(0.7, 0.12, 0.05, relief, t, tp - 0.45, bz + BD / 2 + 0.04);
+    }
     // a small green dome on the roof of some houses
-    if (r() < 0.35) {
+    if (!hausa && r() < 0.35) {
       b.add(new THREE.CylinderGeometry(1.1, 1.1, 0.8, 16), wallM, BW / 2 - 2, tp + 0.4, bz);
       b.add(
         new THREE.SphereGeometry(1.1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
