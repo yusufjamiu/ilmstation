@@ -9223,7 +9223,7 @@ export class IlmCityEngine {
       g.add(crew);
       this.terminalStaff.push(crew);
       this.zones.push({
-        id: "board",
+        id: "gate",
         label: "Board the plane",
         x: o.x + 17.4,
         z: o.z + 4,

@@ -7168,7 +7168,7 @@ function CityGame({
         setDriving(false);
         return;
       }
-      if (id === "checkin" || id === "security" || id === "board") {
+      if (id === "checkin" || id === "security" || id === "gate") {
         const t = ticketRef.current;
         if (!t) {
           toast("Buy your ticket first: go back out to the airport entrance.");
@@ -7177,7 +7177,7 @@ function CityGame({
         if (id === "checkin") {
           if (t.step !== "checkin") {
             toast("You've checked in. Go through security.");
-            e.guideTo(t.step === "security" ? "security" : "board");
+            e.guideTo(t.step === "security" ? "security" : "gate");
             return;
           }
           setPanel({
@@ -7210,7 +7210,7 @@ function CityGame({
             ms: 2600,
             done: () => {
               t.step = "board";
-              e.guideTo("board");
+              e.guideTo("gate");
               toast(`All clear. Go to Gate ${t.gate}, your plane is boarding.`, "good");
             },
           });
@@ -7233,9 +7233,7 @@ function CityGame({
           const t = ticketRef.current;
           e.enterInterior("terminal", `${t.fromName} Airport`);
           setInside(true);
-          e.guideTo(
-            t.step === "checkin" ? "checkin" : t.step === "security" ? "security" : "board",
-          );
+          e.guideTo(t.step === "checkin" ? "checkin" : t.step === "security" ? "security" : "gate");
           toast(`Your flight to ${t.destName} is waiting. Follow the arrow.`);
           return;
         }
@@ -9591,6 +9589,8 @@ function Sheet({
   quizLeft: number;
 }) {
   const [pct, setPct] = useState(0);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (panel.kind !== "busy") return;
     const t0 = performance.now();
@@ -9601,12 +9601,12 @@ function Sheet({
       if (p < 1) raf = requestAnimationFrame(tick);
       else {
         panel.done();
-        onClose();
+        closeRef.current();
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [panel, onClose]);
+  }, [panel]);
   if (panel.kind === "info" && panel.phone)
     return (
       <PhoneFrame title={panel.title} onHome={panel.phone.home} onClose={onClose}>
