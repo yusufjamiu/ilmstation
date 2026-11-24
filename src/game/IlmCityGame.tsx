@@ -109,6 +109,9 @@ import {
   BILLBOARDS,
   BUS_FARE,
   WORLD_CITIES,
+  DEFAULT_AREA,
+  cityLive,
+  hostelInfo,
   INTERCITY,
   TRAIN_LOCAL,
   TRAIN_STATIONS,
@@ -460,7 +463,7 @@ function bikeHere(s: Save, area: string): { kind: BikeKind; color: number; hired
   if (city === "madinah")
     return (s.hire ?? 0) > Date.now() ? { kind: "city", color: HIRE_COLOR, hired: true } : null;
   if (d.holy || !s.bike) return null;
-  if (city !== cityOf(districtById(s.homeArea ?? "lekki"))) return null;
+  if (city !== cityOf(districtById(s.homeArea ?? DEFAULT_AREA))) return null;
   return { ...s.bike, hired: false };
 }
 /** The landlord can claim at most this many unpaid weeks. */
@@ -485,7 +488,7 @@ function collectRent(before: Save, after: Save): Save {
   const now = Date.now();
   let until = Math.max(after.lease.until, now - ARREARS_WEEKS * 7 * 86400000);
   if (until >= now) return after;
-  const rent = flatRent(after.homeArea ?? "lekki");
+  const rent = flatRent(after.homeArea ?? DEFAULT_AREA);
   const took = Math.floor(earned / 2);
   let pot = (after.rentPot ?? 0) + took;
   while (pot >= rent && until < now) {
@@ -1021,7 +1024,7 @@ function CityGame({
     if (save.profile && !save.homeArea)
       setSave((x) => ({
         ...x,
-        homeArea: x.district ?? "lekki",
+        homeArea: x.district ?? DEFAULT_AREA,
         items: x.items ?? [],
         needs: x.needs ?? freshNeeds(),
       }));
@@ -1037,7 +1040,7 @@ function CityGame({
   clockRef.current = clock;
   const [ctx, setCtx] = useState<Context>(null);
   const [place, setPlace] = useState(() => {
-    const d = districtById(save.district ?? "lekki");
+    const d = districtById(save.district ?? DEFAULT_AREA);
     return `${d.name}, ${d.state}`;
   });
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -1601,7 +1604,7 @@ function CityGame({
           setDelivery(null);
           update((x) => ({ ...x, meal: d.id }));
           toast(
-            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! ${engine.current?.districtId() !== (saveRef.current.homeArea ?? "lekki") ? "Sit down here, wash your hands and eat." : "Go inside, wash your hands, then eat."}`,
+            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! ${engine.current?.districtId() !== (saveRef.current.homeArea ?? DEFAULT_AREA) ? "Sit down here, wash your hands and eat." : "Go inside, wash your hands, then eat."}`,
             "good",
           );
         },
@@ -1648,7 +1651,7 @@ function CityGame({
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
           onTravel={() => openOutingsRef.current(true, "travel")}
-          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki", true)}
+          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? DEFAULT_AREA, true)}
           onHotel={() => openHotelRef.current()}
         />
       ),
@@ -2411,7 +2414,7 @@ function CityGame({
               toast(
                 bikeNow.hired
                   ? "You returned the hire bicycle before leaving."
-                  : `Your bicycle stays at home in ${cityOf(districtById(saveRef.current.homeArea ?? "lekki"))[0].toUpperCase() + cityOf(districtById(saveRef.current.homeArea ?? "lekki")).slice(1)}.`,
+                  : `Your bicycle stays at home in ${cityOf(districtById(saveRef.current.homeArea ?? DEFAULT_AREA))[0].toUpperCase() + cityOf(districtById(saveRef.current.homeArea ?? DEFAULT_AREA)).slice(1)}.`,
               ),
             2500,
           );
@@ -2501,7 +2504,7 @@ function CityGame({
   const openOutings = useCallback(
     (phone = false, tab = "now") => {
       const e = engine.current;
-      const here = e?.districtId() ?? "lekki";
+      const here = e?.districtId() ?? DEFAULT_AREA;
       setPanel({
         kind: "info",
         phone: phone ? { home: () => openPhoneRef.current() } : undefined,
@@ -3800,7 +3803,9 @@ function CityGame({
   useEffect(() => {
     // Jeddah counts as its own place: you are asked when you reach Makkah itself
     const c =
-      save.district === "jeddahairport" ? "jeddah" : cityOf(districtById(save.district ?? "lekki"));
+      save.district === "jeddahairport"
+        ? "jeddah"
+        : cityOf(districtById(save.district ?? DEFAULT_AREA));
     const prev = lastCity.current;
     lastCity.current = c;
     if (prev && prev !== c && c === "makkah" && !save.umrah?.stage && !save.hajj?.stage) {
@@ -4046,7 +4051,7 @@ function CityGame({
   visitingRef.current = visiting;
   const myPlace = () => {
     const s = saveRef.current;
-    const a = districtById(s.homeArea ?? "lekki").name;
+    const a = districtById(s.homeArea ?? DEFAULT_AREA).name;
     return s.homePlot ? `Family house · ${a}` : `Flat · ${a}`;
   };
   const publishHome = useCallback(() => {
@@ -5097,7 +5102,7 @@ function CityGame({
   }, []);
   const payRent = useCallback(() => {
     const sv = saveRef.current;
-    const area = sv.homeArea ?? "lekki";
+    const area = sv.homeArea ?? DEFAULT_AREA;
     const rent = flatRent(area);
     if (sv.coins < rent) {
       setPanel({
@@ -5211,7 +5216,7 @@ function CityGame({
   openWardrobeRef.current = openWardrobe;
   /** Rent due: what the landlord says when you come home. */
   const rentDue = useCallback((then?: () => void) => {
-    const area = saveRef.current.homeArea ?? "lekki";
+    const area = saveRef.current.homeArea ?? DEFAULT_AREA;
     const rent = flatRent(area);
     setPanel({
       kind: "info",
@@ -5877,6 +5882,16 @@ function CityGame({
       // a faculty building: a corridor with a classroom for each department and level, the
       // higher levels upstairs
       const fac0 = id.startsWith("faculty:") ? landmarkById(id.slice(8)) : null;
+      // the Islamic University of Madinah has a brothers' campus and a sisters' campus
+      if (fac0?.d.only && (fac0.d.only === "sisters") !== !!saveRef.current.profile?.female) {
+        toast(
+          fac0.d.only === "sisters"
+            ? "This is the sisters' campus. The brothers' campus is in Sultanah, take the bus there."
+            : "This is the brothers' campus. The sisters' campus is in Shuran, take the bus there.",
+          "warn",
+        );
+        return;
+      }
       if (
         fac0 &&
         !fac0.l.id.endsWith("-library") &&
@@ -6679,11 +6694,8 @@ function CityGame({
         const [, area, kk] = id.split(":");
         const D = districtById(area);
         const uni = D.campus?.gate ?? D.name;
-        const sisters = kk === "1";
+        const { name, sisters } = hostelInfo(area, Number(kk));
         const sv = saveRef.current;
-        const name = sisters
-          ? "MSSN Sisters' Hostel"
-          : `MSSN Brothers' Hostel ${kk === "0" ? "A" : "B"}`;
         if (!!sv.profile?.female !== sisters) {
           toast(
             `This hostel is for ${sisters ? "sisters" : "brothers"}. Yours is next door.`,
@@ -6705,13 +6717,13 @@ function CityGame({
             body: (
               <div className="space-y-2 text-[14px]">
                 <p>
-                  MSSN hostel rooms near {uni} are <b>free</b> for its registered students, run by
-                  the MSSN with brotherhood and sisterhood: prayers together, tafsir circles and
-                  quiet study time.
+                  {D.club ? "Student residences" : "MSSN hostel rooms"} near {uni} are <b>free</b>{" "}
+                  for its registered students: prayers together, tafsir circles and quiet study
+                  time.
                 </p>
                 <p className="text-[13px] opacity-75">
-                  Register as a student at the MSSN Secretariat on campus, then come back to move
-                  in.
+                  Register as a student at the {D.club ? `${D.club} Office` : "MSSN Secretariat"} on
+                  campus, then come back to move in.
                 </p>
               </div>
             ),
@@ -6741,7 +6753,7 @@ function CityGame({
                   setInside(true);
                   tuneRef.current();
                   toast(
-                    "Alhamdulillah! You've moved into the MSSN hostel. Rent-free while you study.",
+                    `Alhamdulillah! You've moved into ${name}. Rent-free while you study.`,
                     "good",
                   );
                 }}
@@ -6754,10 +6766,62 @@ function CityGame({
         });
         return;
       }
+      // the miqat of Madinah: put on ihram here and make the intention for Umrah
+      if (id === "office:miqat-ihram") {
+        const sv = saveRef.current;
+        if (sv.umrah?.stage || hajjIhram(sv.hajj?.stage)) {
+          toast("You're in ihram. Take the bus to Makkah from the bus stop, saying the talbiyah.");
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "Dhul Hulayfah · the miqat",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                This is <b>Dhul Hulayfah</b> (Abyar Ali), the miqat the Prophet ﷺ set for the people
+                of Madinah. Pilgrims going to Makkah for Umrah or Hajj put on ihram here.
+              </p>
+              <button
+                onClick={() =>
+                  setPanel({
+                    kind: "busy",
+                    title: female()
+                      ? "Making ghusl and getting ready"
+                      : "Making ghusl and putting on ihram",
+                    ms: 3500,
+                    done: () => {
+                      const p = saveRef.current.profile;
+                      if (p) e.setPlayerLook({ ...p, ihram: !p.female });
+                      update((x) => ({
+                        ...x,
+                        umrah: { done: x.umrah?.done ?? 0, stage: "enter" },
+                      }));
+                      sayDhikr("niyyahUmrah", () =>
+                        sayDhikr("talbiyah", () =>
+                          toast(
+                            "You're in ihram for Umrah. Take the bus to Makkah from the bus stop, or fly from the airport.",
+                            "good",
+                          ),
+                        ),
+                      );
+                    },
+                  })
+                }
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                🤍 Put on ihram and make the intention for Umrah
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       if (id.startsWith("office:") && id.endsWith("-mssn")) {
         const L = landmarkById(id.slice(7));
         if (!L) return;
         const area = L.d.id;
+        const club = L.d.club ?? "MSSN";
         setPanel({
           kind: "info",
           title: L.l.name,
@@ -6770,18 +6834,23 @@ function CityGame({
               onQuiz={() => {
                 setPanel(null);
                 quizPlace.current = keyOf("mssn", L.l.id);
-                quizHost.current = "The MSSN";
+                quizHost.current = club === "MSSN" ? "The MSSN" : club;
                 setTimeout(() => onActionRef.current("quiz"), 50);
               }}
               onRegister={(faculty) => {
                 update((x) => ({ ...x, student: { area, faculty } }));
-                toast("You're registered as a student here. Welcome to MSSN!", "good");
+                toast(
+                  club === "MSSN"
+                    ? "You're registered as a student here. Welcome to MSSN!"
+                    : "You're registered as a student here. Welcome!",
+                  "good",
+                );
                 setPanel(null);
               }}
               onAsk={async (text) => {
                 const o = onlineRef.current;
                 if (!o) {
-                  toast("Log in to IlmStation to send your question to the MSSN.", "warn");
+                  toast(`Log in to IlmStation to send your question to ${club}.`, "warn");
                   return false;
                 }
                 try {
@@ -6790,7 +6859,7 @@ function CityGame({
                     name: shownName(saveRef.current) ?? "Player",
                     text: cleanText(text),
                   });
-                  toast("Sent! The MSSN team will reply, in shaa Allah.", "good");
+                  toast(`Sent! ${club} will reply, in shaa Allah.`, "good");
                   return true;
                 } catch {
                   toast("Could not send. Try again.", "warn");
@@ -7221,7 +7290,7 @@ function CityGame({
       }
       if (id.startsWith("door:home:")) {
         const which = id.slice(10) === "home" ? "lekki" : id.slice(10);
-        const mine = saveRef.current.homeArea ?? "lekki";
+        const mine = saveRef.current.homeArea ?? DEFAULT_AREA;
         if (which !== mine) {
           toast(`Your flat is in ${estateName(mine)}. Take a danfo or keke there.`);
           return;
@@ -8196,7 +8265,7 @@ function CityGame({
     {
       const b = bikeHere(
         saveRef.current,
-        saveRef.current.district ?? saveRef.current.homeArea ?? "lekki",
+        saveRef.current.district ?? saveRef.current.homeArea ?? DEFAULT_AREA,
       );
       if (b && saveRef.current.cycling) e.setBike(b.kind, b.color);
     }
@@ -8221,7 +8290,7 @@ function CityGame({
           2500,
         );
       } else if (sv.profile) {
-        const home = sv.homeArea ?? sv.district ?? "lekki";
+        const home = sv.homeArea ?? sv.district ?? DEFAULT_AREA;
         const nm = districtById(home).name;
         // a house counts as home only while it is yours: bought, built, or rent still paid
         const house = houseOf(sv);
@@ -8521,7 +8590,7 @@ function CityGame({
   const cur = currentPrayer(clock),
     nxt = nextPrayer(clock),
     ms = masjidStatus(clock);
-  const areaLecture = districtById(save.district ?? "lekki")
+  const areaLecture = districtById(save.district ?? DEFAULT_AREA)
     .landmarks.filter((l) => l.kind === "masjid")
     .map((l) => lectureNow(l.id, clock))
     .find(Boolean);
@@ -8529,7 +8598,7 @@ function CityGame({
   openChatRef.current = (o) => void openChatWith(o);
   const goal =
     save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride && !delivery && !meal
-      ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? "lekki")
+      ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? DEFAULT_AREA)
       : null;
   const runGoal = (g: Goal) => {
     if (g.act === "jobs") return openJobs();
@@ -8646,9 +8715,9 @@ function CityGame({
   openQuranRef.current = openQuran;
   /** Away from your home city: a night in a hotel, or the way home. */
   const openHotel = () => {
-    const here = engine.current?.districtId() ?? save.district ?? "lekki";
+    const here = engine.current?.districtId() ?? save.district ?? DEFAULT_AREA;
     const D = districtById(here);
-    const home = save.homeArea ?? "lekki";
+    const home = save.homeArea ?? DEFAULT_AREA;
     const atHome = cityOf(D) === cityOf(districtById(home));
     setPanel({
       kind: "info",
@@ -8916,16 +8985,19 @@ function CityGame({
                     badge={badgeOf(saveRef.current)}
                     home={
                       saveRef.current.homePlot
-                        ? `Family house · ${districtById(saveRef.current.homeArea ?? "lekki").name}`
-                        : flatName(saveRef.current.homeArea ?? "lekki").replace("Your flat · ", "")
+                        ? `Family house · ${districtById(saveRef.current.homeArea ?? DEFAULT_AREA).name}`
+                        : flatName(saveRef.current.homeArea ?? DEFAULT_AREA).replace(
+                            "Your flat · ",
+                            "",
+                          )
                     }
                     rent={
                       saveRef.current.homePlot
                         ? null
                         : {
-                            area: saveRef.current.homeArea ?? "lekki",
+                            area: saveRef.current.homeArea ?? DEFAULT_AREA,
                             until: saveRef.current.lease?.until ?? 0,
-                            weekly: flatRent(saveRef.current.homeArea ?? "lekki"),
+                            weekly: flatRent(saveRef.current.homeArea ?? DEFAULT_AREA),
                           }
                     }
                     items={[
@@ -9028,7 +9100,7 @@ function CityGame({
               📱 Phone
             </button>
           )}
-          {!!bikeHere(save, areaNow ?? save.district ?? "lekki") && !driving && !inside && (
+          {!!bikeHere(save, areaNow ?? save.district ?? DEFAULT_AREA) && !driving && !inside && (
             <button
               onClick={() => toggleBike()}
               className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
@@ -9306,7 +9378,7 @@ function CityGame({
                 }
                 if (e?.scenePlace() === "out") {
                   // away from home: sit down where you are and eat, like at a park
-                  if (e.districtId() !== (saveRef.current.homeArea ?? "lekki")) openMeal(meal);
+                  if (e.districtId() !== (saveRef.current.homeArea ?? DEFAULT_AREA)) openMeal(meal);
                   else if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
                 } else openMeal(meal);
                 return;
@@ -9328,7 +9400,7 @@ function CityGame({
                   ? `${meal.icon} Sit at a table to eat · tap for the way`
                   : inside
                     ? `${meal.icon} Tap here: wash your hands, then eat`
-                    : engine.current?.districtId() !== (save.homeArea ?? "lekki")
+                    : engine.current?.districtId() !== (save.homeArea ?? DEFAULT_AREA)
                       ? `${meal.icon} Sit down here, wash your hands and eat · tap`
                       : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
                 : "😩 I'm hungry · tap to order food"}
@@ -9374,7 +9446,9 @@ function CityGame({
         )}
         {!inside &&
           !driving &&
-          districtById(save.district ?? "lekki").landmarks.some((l) => l.kind === "masjid") && (
+          districtById(save.district ?? DEFAULT_AREA).landmarks.some(
+            (l) => l.kind === "masjid",
+          ) && (
             <span
               className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${ms.open || areaLecture ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#fdf8ec]/90 text-[#10201e]"}`}
             >
@@ -9611,7 +9685,7 @@ function CityGame({
             </div>
             <div className="min-w-0 leading-tight">
               <div className="text-[15px] font-bold">
-                {districtById(save.district ?? "lekki").holy ? "On the bus" : "On the danfo"} ·{" "}
+                {districtById(save.district ?? DEFAULT_AREA).holy ? "On the bus" : "On the danfo"} ·{" "}
                 {ride.kmh} km/h
               </div>
               <div className="truncate text-[12.5px] opacity-80">Next stop: {ride.next}</div>
@@ -9667,9 +9741,9 @@ function CityGame({
         >
           <div className="rounded-2xl border-2 border-[#e6b84a] bg-[#1f6f63]/95 px-6 py-4 text-center text-[#fdf8ec] shadow-2xl">
             <div className="text-[12px] font-semibold uppercase tracking-[0.15em] text-[#e6b84a]">
-              {countryOf(districtById(save.district ?? "lekki")) === "Nigeria"
-                ? `${districtById(save.district ?? "lekki").state} State`
-                : countryOf(districtById(save.district ?? "lekki"))}
+              {countryOf(districtById(save.district ?? DEFAULT_AREA)) === "Nigeria"
+                ? `${districtById(save.district ?? DEFAULT_AREA).state} State`
+                : countryOf(districtById(save.district ?? DEFAULT_AREA))}
             </div>
             <div className="font-serif text-3xl leading-tight">Welcome to {arriving}</div>
           </div>
@@ -11968,36 +12042,40 @@ function Onboarding({
           <h2 className="font-serif text-2xl">Where do you want to start?</h2>
           <p className="text-[13px] opacity-75">You can travel anywhere later by danfo or car.</p>
           <div className="mt-3 space-y-2 overflow-y-auto">
-            {DISTRICTS.filter((d) => !d.holy && !d.landmarks.some((l) => l.kind === "airport")).map(
-              (d, i, all) => (
-                <div key={d.id}>
-                  {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
-                    <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
-                      {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}, {d.state}{" "}
-                      State
-                    </div>
-                  )}
-                  <button
-                    onClick={() => {
-                      setArea(d.id);
-                      setStep("life");
-                    }}
-                    className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
-                  >
-                    <div className="text-[15px] font-bold">{fullName(d)}</div>
-                    <div className="text-[12px] opacity-75">
-                      {[
-                        STREETS[d.streets[0].id]?.name,
-                        ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
-                      ]
-                        .filter(Boolean)
-                        .slice(0, 3)
-                        .join(" · ")}
-                    </div>
-                  </button>
-                </div>
-              ),
-            )}
+            {DISTRICTS.filter(
+              (d) =>
+                !d.holy &&
+                cityLive(cityOf(d)) &&
+                !d.landmarks.some((l) => l.kind === "airport") &&
+                d.id !== "dhulhulayfah",
+            ).map((d, i, all) => (
+              <div key={d.id}>
+                {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
+                  <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
+                    {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}
+                    {countryOf(d) === "Nigeria" ? `, ${d.state} State` : `, ${countryOf(d)}`}
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    setArea(d.id);
+                    setStep("life");
+                  }}
+                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
+                >
+                  <div className="text-[15px] font-bold">{fullName(d)}</div>
+                  <div className="text-[12px] opacity-75">
+                    {[
+                      STREETS[d.streets[0].id]?.name,
+                      ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
+                    ]
+                      .filter(Boolean)
+                      .slice(0, 3)
+                      .join(" · ")}
+                  </div>
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -14826,7 +14904,7 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   const t = s.tasks ?? {};
   const n = s.needs;
   const cp = currentPrayer(c);
-  const home = s.homeArea ?? "lekki";
+  const home = s.homeArea ?? DEFAULT_AREA;
   const homeDoor = s.homePlot
     ? `plot:${s.homePlot}`
     : `door:home:${home === "lekki" ? "home" : home}`;
@@ -16391,7 +16469,7 @@ function MssnView({
         onClick={onQuiz}
         className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
       >
-        📝 Take the MSSN Islamic quiz
+        📝 Take the {districtById(area).club ? "" : "MSSN "}Islamic quiz
       </button>
       {!mine &&
         (pick ? (
@@ -16415,7 +16493,9 @@ function MssnView({
           </button>
         ))}
       <div className="rounded-xl bg-white p-3">
-        <div className="text-[13px] font-semibold">Ask the MSSN a question</div>
+        <div className="text-[13px] font-semibold">
+          Ask {districtById(area).club ?? "the MSSN"} a question
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 400))}
@@ -16958,7 +17038,9 @@ function travelOptions(here: string) {
     }));
   const city = cityOf(districtById(here));
   const country = countryOf(districtById(here));
-  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot && countryOf(d) === country)
+  const away = DISTRICTS.filter(
+    (d) => !d.parent && d.id !== hereRoot && countryOf(d) === country && cityLive(cityOf(d)),
+  )
     .sort((a, b) => Number(cityOf(a) !== city) - Number(cityOf(b) !== city))
     .map((d) => {
       const stops = stopsOf(d.id);

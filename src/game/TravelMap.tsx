@@ -63,6 +63,13 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   nabawi: { name: "Al-Masjid An-Nabawi", lat: 24.4672, lng: 39.6112 },
   quba: { name: "Quba", lat: 24.4393, lng: 39.6172 },
   madinahairport: { name: "Madinah Airport", lat: 24.553, lng: 39.705 },
+  sultanah: { name: "Sultanah", lat: 24.485, lng: 39.585 },
+  shuran: { name: "Shuran", lat: 24.43, lng: 39.645 },
+  awali: { name: "Al-Awali", lat: 24.445, lng: 39.62 },
+  khalidiyyah: { name: "Al-Khalidiyyah", lat: 24.49, lng: 39.635 },
+  iumbrothers: { name: "Islamic University (Brothers)", lat: 24.497, lng: 39.555 },
+  iumsisters: { name: "Islamic University (Sisters)", lat: 24.425, lng: 39.665 },
+  dhulhulayfah: { name: "Dhul Hulayfah (Miqat)", lat: 24.413, lng: 39.543 },
   island: { name: "Lagos Island", lat: 6.455, lng: 3.395, hub: true },
   yaba: { name: "Yaba", lat: 6.512, lng: 3.378, hub: true },
   ketu: { name: "Ketu", lat: 6.595, lng: 3.39, hub: true },
@@ -124,6 +131,13 @@ const ROADS: [string, string][] = [
   ["mina", "arafat"],
   ["nabawi", "quba"],
   ["quba", "madinahairport"],
+  ["nabawi", "sultanah"],
+  ["nabawi", "shuran"],
+  ["nabawi", "awali"],
+  ["nabawi", "khalidiyyah"],
+  ["sultanah", "iumbrothers"],
+  ["shuran", "iumsisters"],
+  ["awali", "dhulhulayfah"],
 ];
 /** Which city a place on the map is in (hubs included). */
 const HUB_CITY: Record<string, string> = {

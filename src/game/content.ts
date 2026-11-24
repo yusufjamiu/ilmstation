@@ -35,6 +35,10 @@ const KANO_ST =
   "A Kano street: traders, kekes, the call to prayer from many mosques and the smell of suya.";
 const KANO_OLD =
   "Inside the old city walls: Hausa family houses of red earth, with horned roof corners and carved doorways.";
+const MADINAH_ST =
+  "A street in Madinah, named after a Companion of the Prophet ﷺ: villas, apartments and date palms.";
+const IUM_ST =
+  "The heart of campus: the university mosque, the student office, the sports field and the shaded meeting point.";
 export const STREETS: Record<string, Street> = {
   ibrahimkhalil: {
     id: "ibrahimkhalil",
@@ -209,6 +213,67 @@ export const STREETS: Record<string, Street> = {
     id: "crescentlodge",
     name: "Bola Ajibola Road",
     bio: "Student lodges and shops outside Crescent University, Abeokuta.",
+  },
+  /* Madinah neighbourhoods */
+  sultanahroad: {
+    id: "sultanahroad",
+    name: "Sultanah Road",
+    bio: "Madinah's busy high street: cafés, restaurants, perfume shops and family villas behind.",
+  },
+  khudri: { id: "khudri", name: "Abu Sa'id Al-Khudri Street", bio: MADINAH_ST },
+  salmanfarsi: { id: "salmanfarsi", name: "Salman Al-Farsi Street", bio: MADINAH_ST },
+  shuranroad: {
+    id: "shuranroad",
+    name: "Shuran Road",
+    bio: "Apartment buildings, bakeries and corner shops: homes for young families and students.",
+  },
+  bilalstreet: { id: "bilalstreet", name: "Bilal ibn Rabah Street", bio: MADINAH_ST },
+  ammarstreet: { id: "ammarstreet", name: "Ammar ibn Yasir Street", bio: MADINAH_ST },
+  awaliroad: {
+    id: "awaliroad",
+    name: "Al-Awali Road",
+    bio: "Quiet roads of white villas among the date farms south of the Prophet's Mosque ﷺ.",
+  },
+  anasstreet: { id: "anasstreet", name: "Anas ibn Malik Street", bio: MADINAH_ST },
+  saadstreet: { id: "saadstreet", name: "Sa'd ibn Mu'adh Street", bio: MADINAH_ST },
+  khalidiyyahroad: {
+    id: "khalidiyyahroad",
+    name: "Al-Khalidiyyah Road",
+    bio: "Family villas, parks and a busy coffee corner.",
+  },
+  musabstreet: { id: "musabstreet", name: "Mus'ab ibn Umair Street", bio: MADINAH_ST },
+  ubayystreet: { id: "ubayystreet", name: "Ubayy ibn Ka'b Street", bio: MADINAH_ST },
+  iumroad: {
+    id: "iumroad",
+    name: "University Road (Brothers)",
+    bio: "The road through the brothers' campus of the Islamic University of Madinah.",
+  },
+  iumavenue: { id: "iumavenue", name: "Students' Avenue (Brothers)", bio: IUM_ST },
+  iumlodge: {
+    id: "iumlodge",
+    name: "Al-Jamiah Street",
+    bio: "Student residences, bookshops and eateries outside the brothers' campus.",
+  },
+  iumsroad: {
+    id: "iumsroad",
+    name: "University Road (Sisters)",
+    bio: "The road through the sisters' campus of the Islamic University of Madinah.",
+  },
+  iumsavenue: { id: "iumsavenue", name: "Students' Avenue (Sisters)", bio: IUM_ST },
+  iumslodge: {
+    id: "iumslodge",
+    name: "Al-Ilm Street",
+    bio: "Sisters' residences, bookshops and cafés outside the sisters' campus.",
+  },
+  miqatroad: {
+    id: "miqatroad",
+    name: "Miqat Road, Abyar Ali",
+    bio: "The road to Masjid Dhul Hulayfah, the miqat of the people of Madinah, and the highway to Makkah.",
+  },
+  miqatbus: {
+    id: "miqatbus",
+    name: "Makkah Bus Station Road",
+    bio: "Buses to Makkah leave from here, full of pilgrims in ihram saying the talbiyah.",
   },
   /* Abuja */
   shehushagari: {
@@ -583,7 +648,23 @@ export type District = {
   holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
   campus?: { gate: string; z: number };
+  /** a campus for brothers only or sisters only */
+  only?: "brothers" | "sisters";
+  /** the students' society that runs the hostels (default MSSN) */
+  club?: string;
 };
+/** The name of a student hostel, and whether it is for sisters. */
+export function hostelInfo(area: string, k: number) {
+  const D = districtById(area);
+  const club = D.club ?? "MSSN";
+  const ab = ["A", "B", "C"][k] ?? "A";
+  if (D.only === "sisters") return { name: `University Sisters' Residence ${ab}`, sisters: true };
+  if (D.only === "brothers")
+    return { name: `University Brothers' Residence ${ab}`, sisters: false };
+  return k === 1
+    ? { name: `${club} Sisters' Hostel`, sisters: true }
+    : { name: `${club} Brothers' Hostel ${k === 0 ? "A" : "B"}`, sisters: false };
+}
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
     field and meeting point on MSSN Avenue behind them. */
@@ -611,6 +692,11 @@ function universityArea(o: {
   /** more places in the area */
   extra?: Landmark[];
   link?: "north" | "east" | "south";
+  only?: "brothers" | "sisters";
+  /** the students' society (default MSSN), and what its office is about */
+  club?: string;
+  clubAbout?: string;
+  half?: { x: number; z: number };
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
   // every faculty has its own building: eight along the south of MSSN Avenue, four more on
@@ -631,7 +717,9 @@ function universityArea(o: {
     busStop: o.busStop,
     parent: o.parent,
     link: o.link,
-    half: { x: 140, z: 140 },
+    half: o.half ?? { x: 140, z: 140 },
+    only: o.only,
+    club: o.club,
     tier: 2,
     toLet: 0.5,
     shops: 0.3,
@@ -696,7 +784,7 @@ function universityArea(o: {
       {
         id: `${o.id}-mssn`,
         kind: "office",
-        name: `MSSN ${o.short} Secretariat`,
+        name: o.club ? `${o.club} Office` : `MSSN ${o.short} Secretariat`,
         street: o.avenue,
         x: 122,
         side: "s",
@@ -704,7 +792,9 @@ function universityArea(o: {
         depth: 18,
         floors: 1,
         brand: { color: 0x1f6f63, accent: 0xfdf8ec },
-        about: `The Muslim Students' Society of Nigeria (MSSN), ${o.short} branch. Jumu'ah on campus, tutorials before exams, da'wah week, Ramadan iftar and registration for the Islamic Vacation Course (IVC). Every Muslim student is welcome, brothers and sisters.`,
+        about:
+          o.clubAbout ??
+          `The Muslim Students' Society of Nigeria (MSSN), ${o.short} branch. Jumu'ah on campus, tutorials before exams, da'wah week, Ramadan iftar and registration for the Islamic Vacation Course (IVC). Every Muslim student is welcome, brothers and sisters.`,
       },
       {
         id: `${o.id}-meet`,
@@ -3008,6 +3098,264 @@ export const DISTRICTS: District[] = [
     about:
       "Where BUK Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
+  /* ---------------- Madinah: the neighbourhoods round the Prophet's Mosque ﷺ ---------------- */
+  {
+    id: "sultanah",
+    city: "madinah",
+    tier: 1,
+    name: "Sultanah",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5330, z: -3900 },
+    half: { x: 140, z: 170 },
+    highway: "King Abdullah Road",
+    busStop: "Sultanah",
+    shops: 0.3,
+    toLet: 0.55,
+    streets: [
+      { id: "sultanahroad", z: 0, decor: true },
+      { id: "khudri", z: -66, decor: true },
+      { id: "salmanfarsi", z: 66, decor: true },
+    ],
+    landmarks: [
+      {
+        id: "sultanah-mosque",
+        kind: "masjid",
+        name: "Sultanah Mosque",
+        street: "sultanahroad",
+        x: -40,
+      },
+      {
+        id: "sultanah-park",
+        kind: "hangout",
+        name: "Sultanah Family Park",
+        street: "salmanfarsi",
+        x: -46,
+        side: "s",
+        width: 30,
+        depth: 18,
+        about: "Lawns, fountains and benches: families picnic here after Asr.",
+      },
+    ],
+  },
+  {
+    id: "shuran",
+    city: "madinah",
+    tier: 2,
+    name: "Shuran",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -4680, z: -3900 },
+    half: { x: 140, z: 170 },
+    highway: "Shuran Road",
+    busStop: "Shuran",
+    shops: 0.3,
+    toLet: 0.6,
+    streets: [
+      { id: "shuranroad", z: 0, decor: true },
+      { id: "bilalstreet", z: -66 },
+      { id: "ammarstreet", z: 66 },
+    ],
+    landmarks: [
+      { id: "shuran-mosque", kind: "masjid", name: "Shuran Mosque", street: "shuranroad", x: -40 },
+      { id: "shuran-souq", kind: "souq", name: "Shuran Souq", street: "bilalstreet", x: 40 },
+      {
+        id: "shuran-tahfiz",
+        kind: "school",
+        name: "Shuran Tahfiz School",
+        street: "ammarstreet",
+        x: -40,
+      },
+    ],
+  },
+  {
+    id: "awali",
+    city: "madinah",
+    tier: 1,
+    name: "Al-Awali",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5330, z: -3060 },
+    half: { x: 140, z: 170 },
+    highway: "Al-Awali Road",
+    busStop: "Al-Awali",
+    shops: 0.2,
+    toLet: 0.55,
+    streets: [
+      { id: "awaliroad", z: 0, decor: true },
+      { id: "anasstreet", z: -66, decor: true },
+      { id: "saadstreet", z: 66 },
+    ],
+    landmarks: [
+      { id: "awali-mosque", kind: "masjid", name: "Al-Awali Mosque", street: "awaliroad", x: -40 },
+      {
+        id: "awali-dates",
+        kind: "souq",
+        name: "Al-Awali Date Market",
+        street: "anasstreet",
+        x: 40,
+      },
+    ],
+  },
+  {
+    id: "khalidiyyah",
+    city: "madinah",
+    tier: 2,
+    name: "Al-Khalidiyyah",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -4680, z: -3060 },
+    half: { x: 140, z: 170 },
+    highway: "Al-Khalidiyyah Road",
+    busStop: "Al-Khalidiyyah",
+    shops: 0.25,
+    toLet: 0.6,
+    streets: [
+      { id: "khalidiyyahroad", z: 0, decor: true },
+      { id: "musabstreet", z: -66 },
+      { id: "ubayystreet", z: 66, decor: true },
+    ],
+    landmarks: [
+      {
+        id: "khalidiyyah-mosque",
+        kind: "masjid",
+        name: "Al-Khalidiyyah Mosque",
+        street: "khalidiyyahroad",
+        x: -40,
+      },
+      {
+        id: "khalidiyyah-school",
+        kind: "school",
+        name: "Al-Khalidiyyah Qur'an School",
+        street: "musabstreet",
+        x: -40,
+      },
+      {
+        id: "khalidiyyah-park",
+        kind: "hangout",
+        name: "Al-Khalidiyyah Park",
+        street: "ubayystreet",
+        x: 46,
+        side: "s",
+        width: 30,
+        depth: 18,
+        about: "A park with shade, a playground and a walking track.",
+      },
+    ],
+  },
+  universityArea({
+    id: "iumbrothers",
+    gate: "Islamic University of Madinah · Brothers",
+    name: "Islamic University (Brothers)",
+    uni: "the Islamic University of Madinah (brothers' campus)",
+    short: "IUM Brothers",
+    origin: { x: -5330, z: -4320 },
+    highway: "University Road",
+    parent: "sultanah",
+    busStop: "IUM Brothers Gate",
+    road: "iumroad",
+    avenue: "iumavenue",
+    homes: "iumlodge",
+    state: "Madinah",
+    city: "madinah",
+    region: "Madinah",
+    only: "brothers",
+    club: "Student Affairs",
+    clubAbout:
+      "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
+    faculties: [
+      "Faculty of Sharia",
+      "Faculty of Da'wah and Usul ad-Din",
+      "Faculty of the Noble Qur'an",
+      "Faculty of Hadith",
+    ],
+    more: [
+      "Faculty of Arabic Language",
+      "Faculty of Science",
+      "Faculty of Engineering",
+      "Faculty of Computer Science",
+    ],
+    about:
+      "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
+  }),
+  universityArea({
+    id: "iumsisters",
+    gate: "Islamic University of Madinah · Sisters",
+    name: "Islamic University (Sisters)",
+    uni: "the Islamic University of Madinah (sisters' campus)",
+    short: "IUM Sisters",
+    origin: { x: -4680, z: -4320 },
+    highway: "University Road",
+    parent: "shuran",
+    busStop: "IUM Sisters Gate",
+    road: "iumsroad",
+    avenue: "iumsavenue",
+    homes: "iumslodge",
+    state: "Madinah",
+    city: "madinah",
+    region: "Madinah",
+    only: "sisters",
+    club: "Student Affairs",
+    clubAbout:
+      "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
+    faculties: [
+      "Faculty of Sharia",
+      "Faculty of Da'wah and Usul ad-Din",
+      "Faculty of the Noble Qur'an",
+      "Faculty of Hadith",
+    ],
+    more: [
+      "Faculty of Arabic Language",
+      "Faculty of Science",
+      "Faculty of Engineering",
+      "Faculty of Computer Science",
+    ],
+    about:
+      "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
+  }),
+  {
+    id: "dhulhulayfah",
+    city: "madinah",
+    tier: 2,
+    name: "Dhul Hulayfah (Abyar Ali)",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5330, z: -2640 },
+    half: { x: 112, z: 90 },
+    highway: "Hijrah Road",
+    parent: "awali",
+    link: "south",
+    busStop: "Miqat",
+    toLet: 0,
+    land: 0,
+    shops: 0.6,
+    streets: [
+      { id: "miqatroad", z: 0, decor: true },
+      { id: "miqatbus", z: 55 },
+    ],
+    landmarks: [
+      {
+        id: "masjid-dhulhulayfah",
+        kind: "masjid",
+        name: "Masjid Dhul Hulayfah (Miqat)",
+        street: "miqatroad",
+        x: -40,
+      },
+      {
+        id: "miqat-ihram",
+        kind: "office",
+        name: "Ihram Shop and Changing Rooms",
+        street: "miqatroad",
+        x: 50,
+        width: 30,
+        depth: 22,
+        floors: 1,
+        brand: { color: 0xf4f4f0, accent: 0x1f6f63 },
+        about:
+          "Ihram cloths, sandals and unscented soap. Brothers' and sisters' changing rooms to put on ihram before Makkah.",
+      },
+    ],
+  },
 ];
 
 /* More homes: where an area has room beyond its streets, add a residential street lined
@@ -3059,6 +3407,10 @@ export const CITY_CENTER: Record<string, { x: number; z: number }> = {
   madinah: { x: -5000, z: -3480 },
 };
 export const cityOf = (d: District) => d.city ?? "lagos";
+/** Where a new player's world begins: IlmWorld is now one city, Madinah. */
+export const DEFAULT_AREA = "sultanah";
+/** Is this city open to players? (Lagos, Ilorin, Abeokuta, Abuja and Kano are switched off.) */
+export const cityLive = (city: string) => WORLD_CITIES.find((w) => w.id === city)?.live ?? false;
 export const centerOf = (d: District) => CITY_CENTER[cityOf(d)] ?? CITY_CENTER.lagos;
 /** Junction names, one per city. */
 export const JUNCTION_NAME: Record<string, string> = {
@@ -3094,6 +3446,8 @@ export const isPrimeArea = (id: string) => ["lekki", "badore", "ikeja", "ikejagr
 export function houseStyleOf(d: District): import("./buildings").HouseStyle {
   if (d.id === "mina" || d.id === "arafat") return "tents";
   if (d.holy) return d.id === "haram" || d.id === "nabawi" ? "tower" : "saudi";
+  if (d.id === "shuran") return "tower";
+  if (cityOf(d) === "madinah") return "villa";
   if (isPrimeArea(d.id)) return "prime";
   if (
     [
@@ -3138,7 +3492,7 @@ export const WORLD_CITIES: WorldCity[] = [
     name: "Lagos",
     state: "Lagos",
     country: "Nigeria",
-    live: true,
+    live: false,
     blurb: "The mega city: Lekki, Ikeja, Ikorodu, the lagoon and the bridges.",
   },
   {
@@ -3146,7 +3500,7 @@ export const WORLD_CITIES: WorldCity[] = [
     name: "Ilorin",
     state: "Kwara",
     country: "Nigeria",
-    live: true,
+    live: false,
     blurb: "The city of scholars: the Central Mosque, Oja-Oba, Unilorin and the Emir's palace.",
   },
   {
@@ -3154,7 +3508,7 @@ export const WORLD_CITIES: WorldCity[] = [
     name: "Abeokuta",
     state: "Ogun",
     country: "Nigeria",
-    live: true,
+    live: false,
     blurb: "The rock city: Olumo Rock, Ake palace, adire cloth and Crescent University.",
   },
   {
@@ -3162,7 +3516,7 @@ export const WORLD_CITIES: WorldCity[] = [
     name: "Abuja",
     state: "FCT",
     country: "Nigeria",
-    live: true,
+    live: false,
     blurb: "The capital: the National Mosque, Maitama mansions, Wuse Market and Gwarinpa estate.",
   },
   {
@@ -3170,7 +3524,7 @@ export const WORLD_CITIES: WorldCity[] = [
     name: "Kano",
     state: "Kano",
     country: "Nigeria",
-    live: true,
+    live: false,
     blurb:
       "The old walled city: Hausa mud houses, Kurmi Market, the Emir's palace and the Central Mosque.",
   },

@@ -19,6 +19,8 @@ import {
   type Billboard,
   type District,
   type Landmark,
+  DEFAULT_AREA,
+  hostelInfo,
 } from "./content";
 import { darkness, type Clock } from "./time";
 import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
@@ -275,6 +277,9 @@ function part(geo: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0) {
   return m;
 }
 const capsule = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 4, 10);
+
+/** Makkah and Madinah: date palms, Saudi flags, no overhead cables. */
+const saudiCity = (D: District) => ["madinah", "makkah"].includes(cityOf(D));
 
 /** A low-poly person with real arms and legs that swing when walking.
     Brothers wear a kaftan, trousers and kufi; sisters wear an abaya and hijab. */
@@ -712,10 +717,10 @@ export class IlmCityEngine {
     this.buildCoach();
     this.buildLecture();
     this.buildCorridor();
-    this.startId = start?.district ?? "lekki";
+    this.startId = start?.district ?? DEFAULT_AREA;
     this.buildWorld();
     this.buildTraffic();
-    this.district = districtById(start?.district ?? "lekki");
+    this.district = districtById(start?.district ?? DEFAULT_AREA);
     const home = districtById("lekki").origin;
     if (start?.car) {
       this.car.position.set(start.car.x, 0, start.car.z);
@@ -1417,7 +1422,9 @@ export class IlmCityEngine {
     // Manaar University College, going up at the end of Sheikh Habeeb Adewuyi Street
     if (D.id === "ikorodu") this.buildManaarSite(batch, -110);
     const wires = new THREE.Group();
-    if (!D.holy) zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
+    // Saudi cities have their cables underground
+    if (!D.holy && !["madinah", "makkah"].includes(cityOf(D)))
+      zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
     D.streets
       .filter((st) => st.decor)
@@ -1437,7 +1444,7 @@ export class IlmCityEngine {
               z + 0.45,
             );
             if (k % 2 === 0) {
-              if (D.holy) datePalmInto(batch, x, z, 0.75);
+              if (D.holy || saudiCity(D)) datePalmInto(batch, x, z, 0.75);
               else batch.addObject(palm(x, z, 0.85));
             } else {
               const bed = new THREE.Mesh(
@@ -1462,7 +1469,7 @@ export class IlmCityEngine {
               );
               pole.position.set(x + 1.6, 2.75, z);
               batch.addObject(pole);
-              if (D.holy) {
+              if (D.holy || saudiCity(D)) {
                 // the Saudi flag: green with the shahadah and a white sword
                 const fl = new THREE.Mesh(new THREE.PlaneGeometry(1.26, 0.8), MAT.plain(0x006c35));
                 fl.position.set(x + 1.6 + 0.63, 5.0, z);
@@ -1525,7 +1532,7 @@ export class IlmCityEngine {
       const isPalm = rnd() < 0.55,
         sc = isPalm ? 0.8 + rnd() * 0.3 : 0.9 + rnd() * 0.4;
       // date palms in Makkah and Madinah, neem trees on Arafat
-      if (D.holy) datePalmInto(batch, x, z, sc);
+      if (D.holy || saudiCity(D)) datePalmInto(batch, x, z, sc);
       else batch.addObject(isPalm ? palm(x, z, sc) : tree(x, z, sc));
       this.addCollider("out", x - 0.45, x + 0.45, z - 0.45, z + 0.45);
       n++;
@@ -1712,7 +1719,7 @@ export class IlmCityEngine {
     for (const ch of D.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     const rnd = mulberry(h);
     const XR = halfOf(D).x - 12;
-    const holy = !!D.holy;
+    const holy = !!D.holy || ["madinah", "makkah"].includes(cityOf(D));
     const ANKARA = [
       0xc8262a, 0x1f4f9a, 0xf2c230, 0x2d8a4a, 0x8a2f4f, 0xe07a2a, 0x5a3f6a, 0x1d6b6a, 0xb8573a,
       0x2a2a2a, 0xf4f0e6, 0x7a4a2a, 0x3a6ab8, 0xd94f7a,
@@ -1738,7 +1745,8 @@ export class IlmCityEngine {
     const SKIN = [0x5a3a24, 0x6b4428, 0x4a2e1c, 0x7a5030];
     const someone = () => withFar(...someone0());
     const someone0 = (): [THREE.Group, number, number] => {
-      const sister = rnd() < 0.45;
+      const roll = rnd();
+      const sister = D.only ? D.only === "sisters" : roll < 0.45;
       const seed = Math.floor(rnd() * 1000);
       const skin = SKIN[seed % SKIN.length];
       if (holy)
@@ -6564,7 +6572,7 @@ export class IlmCityEngine {
   /** MSSN hostels: blocks of flats in the neighbourhood outside the campus wall, free for
       the university's registered students (brothers' and sisters' blocks apart). */
   private buildHostels(D: District, XR: number, rnd: () => number) {
-    const names = ["MSSN Brothers' Hostel A", "MSSN Sisters' Hostel", "MSSN Brothers' Hostel B"];
+    const names = [0, 1, 2].map((k) => hostelInfo(D.id, k).name);
     // the streets outside the campus wall (south of it), nearest the gate first
     const streets = D.streets.filter((st) => st.z > (D.campus?.z ?? -34)).sort((a, b) => a.z - b.z);
     let k = 0;
@@ -6586,7 +6594,7 @@ export class IlmCityEngine {
             rnd,
             floors: 3,
             width: 24,
-            wall: k === 1 ? 0xe9d6dc : 0xd9e6d2,
+            wall: hostelInfo(D.id, k).sisters ? 0xe9d6dc : 0xd9e6d2,
             style: "storey",
           });
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
@@ -6606,7 +6614,7 @@ export class IlmCityEngine {
           });
           const t = label(`🏠 ${names[k]} · free for students`, {
             size: 1.05,
-            bg: k === 1 ? "rgba(125,47,74,0.92)" : "rgba(31,111,99,0.92)",
+            bg: hostelInfo(D.id, k).sisters ? "rgba(125,47,74,0.92)" : "rgba(31,111,99,0.92)",
           });
           t.position.set(c.gate.x, 5, c.gate.z);
           this.dg.add(t);
