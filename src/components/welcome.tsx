@@ -53,9 +53,9 @@ export function Welcome({ onSignup, onLogin }: { onSignup: () => void; onLogin: 
   const [q, setQ] = useState("");
   useEffect(() => setPick(lang), [lang]);
   const list = live.filter((l) => !q.trim() || `${l.native} ${l.label}`.toLowerCase().includes(q.trim().toLowerCase()));
-  const cols = useMemo(() => [TILES.filter((_, i) => i % 3 === 0), TILES.filter((_, i) => i % 3 === 1), TILES.filter((_, i) => i % 3 === 2)], []);
+  const cols = useMemo(() => [0, 7, 14, 4, 11].map((k) => [...TILES.slice(k), ...TILES.slice(0, k)]), []);
 
-  if (step === "lang") return <main className="mx-auto flex h-[100dvh] max-w-md flex-col bg-[#f7f3ea] px-6 pb-5 pt-12 text-[#1c1a17]">
+  if (step === "lang") return <div className="min-h-[100dvh] bg-[#f7f3ea]"><main className="mx-auto flex h-[100dvh] max-w-md flex-col bg-[#f7f3ea] px-6 pb-5 pt-12 text-[#1c1a17]">
     <h1 className="text-[26px] font-extrabold tracking-tight">Choose a language</h1>
     <label className="mt-4 flex items-center gap-3 rounded-xl bg-black/5 px-4 py-2.5">
       <Search className="size-4 opacity-70" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search languages…" className="w-full bg-transparent font-mono text-[13px] outline-none" />
@@ -69,18 +69,20 @@ export function Welcome({ onSignup, onLogin }: { onSignup: () => void; onLogin: 
     </div>
     <button type="button" onClick={() => { set(pick); try { localStorage.setItem("ilm:welcomeLang", "1"); } catch { /* ignore */ } setStep("welcome"); }}
       className="mt-2 rounded-full border-[1.5px] border-black bg-[#f6b700] py-3 text-base font-extrabold uppercase shadow-[0_3px_0_#000] active:translate-y-0.5 active:shadow-[0_1px_0_#000]">Continue</button>
-  </main>;
+  </main></div>;
 
-  return <main className="relative mx-auto flex h-[100dvh] max-w-md flex-col overflow-hidden bg-black text-white">
+  return <main className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
     <style>{"@keyframes welcomeScroll{from{transform:translateY(0)}to{transform:translateY(-50%)}}.welcome-col{animation:welcomeScroll linear infinite}@media (prefers-reduced-motion: reduce){.welcome-col{animation:none}}"}</style>
-    <div data-no-translate className="pointer-events-none absolute inset-x-0 top-0 grid h-[78%] grid-cols-3 gap-3 px-3" aria-hidden>
+    <div data-no-translate className="pointer-events-none absolute inset-x-0 top-0 grid h-[78%] grid-cols-3 gap-3 px-3 sm:grid-cols-5 sm:gap-4 sm:px-4" aria-hidden>
       <Column items={cols[0]!} secs={46} />
       <Column items={cols[1]!} secs={38} reverse />
       <Column items={cols[2]!} secs={52} />
+      <div className="hidden sm:block"><Column items={cols[3]!} secs={44} reverse /></div>
+      <div className="hidden sm:block"><Column items={cols[4]!} secs={49} /></div>
       <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-b from-transparent to-black" />
     </div>
     <button type="button" onClick={() => setStep("lang")} aria-label="Change language" className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full border-2 border-white/80 bg-black/70 px-3 py-1.5 text-xs font-bold uppercase"><Globe className="size-4" />{lang}</button>
-    <div className="relative z-10 mt-auto px-6 pb-8 text-center">
+    <div className="relative z-10 mx-auto mt-auto w-full max-w-md px-6 pb-8 text-center">
       <p className="font-serif text-5xl leading-none tracking-tight">Ilm<span className="text-[#f6b700]">Station</span></p>
       <p className="mt-3 font-mono text-sm leading-relaxed text-white/80">Seek knowledge.<br />Grow together.</p>
       <button type="button" onClick={onSignup} className="mt-6 w-full rounded-full border-2 border-black bg-[#f6b700] py-4 text-lg font-extrabold uppercase text-black shadow-[0_5px_0_#7a5a00] active:translate-y-0.5">Begin your journey</button>
