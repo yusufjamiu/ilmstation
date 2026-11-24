@@ -1036,6 +1036,10 @@ function CityGame({
     return `${d.name}, ${d.state}`;
   });
   const [panel, setPanel] = useState<Panel | null>(null);
+  // whatever you were doing at home (sleeping, sitting, cooking) ends when its window closes
+  useEffect(() => {
+    if (!panel) engine.current?.homeActEnd();
+  }, [panel]);
   const [bigClock, setBigClock] = useState(false);
   const panelRef = useRef<Panel | null>(null);
   panelRef.current = panel;
@@ -5632,6 +5636,7 @@ function CityGame({
         id.startsWith("seat:") ||
         id === "exit" ||
         id === "eat" ||
+        id === "cook" ||
         id === "pray" ||
         id === "masjid-rest" ||
         id === "prayermat" ||
@@ -7384,11 +7389,70 @@ function CityGame({
         });
         return;
       }
+      if (id === "tv") {
+        e.homeAct("tv");
+        onActionRef.current("radio");
+        return;
+      }
+      if (id === "laptop") {
+        e.homeAct("laptop");
+        openPlacesRef.current(e.districtId(), false);
+        return;
+      }
+      if (id === "cook") {
+        const cookPrice = (d: (typeof MENU)[number]) => Math.ceil(d.points * 0.6);
+        setPanel({
+          kind: "info",
+          title: "Cook at home",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Cooking costs less than buying food. Pick what to cook; the ingredients are paid
+                from your wallet.
+              </p>
+              {MENU.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => {
+                    const price = cookPrice(d);
+                    if (saveRef.current.coins < price) {
+                      toast(`You need ${N(price)} for the ingredients.`, "warn");
+                      return;
+                    }
+                    update((x) => ({ ...x, coins: x.coins - price }));
+                    engine.current?.homeAct("cook");
+                    setPanel({
+                      kind: "busy",
+                      title: `Cooking ${d.name.toLowerCase()}`,
+                      ms: 5000,
+                      done: () => {
+                        update((x) => ({ ...x, meal: d.id }));
+                        engine.current?.guideTo("eat");
+                        toast(
+                          `Your ${d.name.toLowerCase()} is ready! Sit at the table to eat.`,
+                          "good",
+                        );
+                      },
+                    });
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left"
+                >
+                  <span className="text-2xl">{d.icon}</span>
+                  <span className="flex-1 font-bold">{d.name}</span>
+                  <span className="text-[13px] font-semibold">{N(cookPrice(d))}</span>
+                </button>
+              ))}
+            </div>
+          ),
+        });
+        return;
+      }
       if (id === "sofa") {
+        e.homeAct("sofa");
         setPanel({
           kind: "busy",
           title: "Resting on the sofa",
-          ms: 2500,
+          ms: 3500,
           done: () => {
             need({ energy: 15 });
             toast("A short rest. SubhanAllah.", "good");
@@ -7432,11 +7496,12 @@ function CityGame({
           body: (
             <AdhkarView
               kind="sleep"
-              onDone={() =>
+              onDone={() => (
+                engine.current?.homeAct("sleep"),
                 setPanel({
                   kind: "busy",
                   title: "Sleeping",
-                  ms: 3500,
+                  ms: 5000,
                   done: () => {
                     const late = c.min >= c.times.isha || c.min < c.times.fajr;
                     update((x) => ({
@@ -7451,7 +7516,7 @@ function CityGame({
                     );
                   },
                 })
-              }
+              )}
             />
           ),
         });
@@ -7460,8 +7525,10 @@ function CityGame({
       if (id === "eat") {
         // the dining table: eat the food you collected, or order some
         const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
-        if (m) openMealRef.current(m);
-        else openFood("order");
+        if (m) {
+          e.homeAct("eat");
+          openMealRef.current(m);
+        } else openFood("order");
         return;
       }
       if (id === "prayermat") {
@@ -9437,7 +9504,11 @@ function Sheet({
   return (
     <div
       data-game-ui
-      className="absolute inset-0 flex items-end justify-center bg-black/30 p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:items-center"
+      className={
+        panel.kind === "busy"
+          ? "pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+          : "absolute inset-0 flex items-end justify-center bg-black/30 p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:items-center"
+      }
       onClick={panel.kind === "busy" ? undefined : onClose}
     >
       <div

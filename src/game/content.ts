@@ -2730,7 +2730,15 @@ export const HOME_ITEMS: HomeItem[] = [
     does: "Cook and eat at home",
   },
   { id: "fridge", name: "Fridge", icon: "🧊", naira: 500, does: "Food stays fresh" },
-  { id: "sofa", name: "Sofa", icon: "🛋️", naira: 500, does: "Rest and receive guests" },
+  { id: "sofa", name: "Sofa set", icon: "🛋️", naira: 500, does: "Rest and receive guests" },
+  { id: "tv", name: "Television", icon: "📺", naira: 400, does: "Watch IlmTV lectures" },
+  {
+    id: "laptop",
+    name: "Desk and laptop",
+    icon: "💻",
+    naira: 600,
+    does: "Plan trips, see the city",
+  },
   // decorations
   {
     id: "calligraphy",

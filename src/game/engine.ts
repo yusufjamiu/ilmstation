@@ -890,7 +890,7 @@ export class IlmCityEngine {
     this.outPos.copy(this.player.position);
     this.where = kind;
     const o = this.interiorOrigin[kind];
-    this.player.position.set(o.x, 0, o.z + 5.5);
+    this.player.position.set(o.x, 0, o.z + (kind === "home" ? 8 : 5.5));
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -7807,7 +7807,12 @@ export class IlmCityEngine {
       this.addCollider(kind, o.x - W / 2 - 5, o.x + W / 2 + 5, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
     return { g, o };
   }
-  private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zone?: Zone }>();
+  private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zones: Zone[] }>();
+  private sleepCover: THREE.Object3D | null = null;
+  private cookSteam: THREE.Object3D | null = null;
+  private eatPlate: THREE.Object3D | null = null;
+  /** doing something at home (sleeping, sitting, cooking): you stay where you are */
+  private acting: { x: number; z: number; rot: number } | null = null;
   private homeWall: THREE.MeshStandardMaterial | null = null;
   private homeFloor: THREE.MeshStandardMaterial | null = null;
   private stairs: THREE.Object3D | null = null;
@@ -7901,7 +7906,8 @@ export class IlmCityEngine {
     const kind: InteriorKind = up ? "upstairs" : "home";
     const o = this.interiorOrigin[kind];
     this.where = kind;
-    this.player.position.set(o.x + 7.2, 0, o.z + (up ? 4.6 : 4.4));
+    if (up) this.player.position.set(o.x + 7.2, 0, o.z + 4.6);
+    else this.player.position.set(o.x + 10.4, 0, o.z + 7.6);
     this.player.rotation.y = up ? Math.PI : 0;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -7916,7 +7922,7 @@ export class IlmCityEngine {
     for (const [id, it] of this.homeItems) {
       const has = owned.includes(id);
       it.obj.visible = has;
-      if (it.zone) it.zone.off = !has;
+      for (const z of it.zones) z.off = !has;
       if (has) boxes.push(...it.boxes);
     }
     this.colliders.home = boxes;
@@ -8302,9 +8308,11 @@ export class IlmCityEngine {
         g.add(p);
       });
     }
-    // Home: a flat with a bed and a bathroom. Everything else is bought.
+    // Home: a proper house in cut-away view. A parlour at the front, a dining area, a kitchen
+    // along the back, a bedroom and a bathroom behind their own walls. The bed and bathroom
+    // are always there; everything else is bought.
     {
-      const { g, o } = this.room("home", 20, 14, 0xe9dcc4, 0xb98d5e);
+      const { g, o } = this.room("home", 28, 20, 0xe9dcc4, 0xb98d5e);
       // your own paint: the walls and floor get their own materials
       this.homeFloor = new THREE.MeshStandardMaterial({ color: 0xb98d5e, roughness: 0.85 });
       this.homeWall = new THREE.MeshStandardMaterial({ color: 0xe9dcc4, roughness: 0.95 });
@@ -8312,52 +8320,97 @@ export class IlmCityEngine {
       for (const c of g.children.slice(2, 7))
         if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = this.homeWall;
       this.homeBackWall = g.children[2];
-      this.glassView = this.buildGlassView(20, 14);
+      this.glassView = this.buildGlassView(28, 20);
       g.add(this.glassView);
       const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
         box(w, h, d, c, x, y, z);
-      // bed (always there)
+      // inner walls (lower than the outer ones, so the camera sees into every room); they
+      // take your wall paint too
+      const inner = (x0: number, x1: number, z0: number, z1: number) => {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 2.8, z1 - z0), this.homeWall!);
+        w.position.set((x0 + x1) / 2, 1.4, (z0 + z1) / 2);
+        w.castShadow = w.receiveShadow = true;
+        g.add(w);
+        this.addCollider("home", o.x + x0, o.x + x1, o.z + z0, o.z + z1);
+      };
+      // the bedroom (back left), its door on the parlour side
+      inner(-14, -7.6, -1.65, -1.35);
+      inner(-5.4, -3.85, -1.65, -1.35);
+      inner(-4.15, -3.85, -10, -1.35);
+      // the bathroom (back right), its door facing the dining area
+      inner(7.85, 8.15, -10, -4);
+      inner(7.85, 9.4, -4.15, -3.85);
+      inner(11.6, 14, -4.15, -3.85);
+      // windows in the back wall: the bedroom and the kitchen
+      for (const wx of [-9.5, 1.5]) {
+        g.add(B(3.2, 2, 0.12, 0x6d4a2b, wx, 1.6, -9.82));
+        g.add(B(2.9, 1.7, 0.1, 0xa9d3e6, wx, 1.75, -9.78));
+      }
+      // bed (always there): frame, headboard, mattress, pillows and a folded wrapper
       const bed = new THREE.Group();
-      bed.add(B(3.2, 0.6, 4.2, 0x6d4a2b, 0, 0, 0));
-      bed.add(B(3, 0.4, 4, 0xf4efe4, 0, 0.6, 0));
+      bed.add(B(3.4, 0.6, 4.4, 0x6d4a2b, 0, 0, 0));
+      bed.add(B(3.4, 1.9, 0.25, 0x5a3a22, 0, 0, -2.2));
+      bed.add(B(3.2, 0.4, 4.2, 0xf4efe4, 0, 0.6, 0));
       bed.add(B(1, 0.3, 0.6, 0xe0d4c0, -0.8, 1, -1.6));
       bed.add(B(1, 0.3, 0.6, 0xe0d4c0, 0.8, 1, -1.6));
-      bed.add(B(3.1, 0.15, 2.4, 0x1f6f63, 0, 1, 0.7));
-      bed.position.set(-7, 0, -4);
-      this.solid("home", g, bed, 3.4, 4.4);
-      // bathroom corner (always there): partition walls, toilet, tap and bucket for wudu
-      g.add(B(0.25, 3, 4.2, 0xdfe6e2, 5, 0, -4.9));
-      g.add(B(2.2, 3, 0.25, 0xdfe6e2, 8.9, 0, -2.8));
-      this.addCollider("home", o.x + 4.85, o.x + 5.15, o.z - 7, o.z - 2.8);
-      this.addCollider("home", o.x + 7.8, o.x + 10, o.z - 2.95, o.z - 2.65);
-      const tiles = new THREE.Mesh(new THREE.PlaneGeometry(5, 4.2), mat(0xcfe0e6));
+      bed.add(B(3.3, 0.15, 2.4, 0x1f6f63, 0, 1, 0.8));
+      bed.position.set(-9.5, 0, -7.6);
+      this.solid("home", g, bed, 3.6, 4.6);
+      // the cover over you while you sleep
+      const cover = B(3.3, 0.4, 2.8, 0x1f6f63, -9.5, 1.02, -6.75);
+      cover.visible = false;
+      g.add(cover);
+      this.sleepCover = cover;
+      // bedside table and lamp
+      const bt = new THREE.Group();
+      bt.add(B(0.8, 0.8, 0.7, 0x8a5a3a, 0, 0, 0));
+      const btShade = cyl(0.18, 0.28, 0.35, 0xf2e3c0, 10);
+      btShade.position.y = 1.15;
+      const btBase = cyl(0.06, 0.1, 0.3, 0x3a2a1c, 8);
+      btBase.position.y = 0.95;
+      bt.add(btBase, btShade);
+      bt.position.set(-12.2, 0, -9.2);
+      this.solid("home", g, bt, 0.8, 0.7);
+      // the bathroom (always there): tiles, toilet, wash-hand basin and tap, shower, bucket
+      const tiles = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), mat(0xcfe0e6));
       tiles.rotation.x = -Math.PI / 2;
-      tiles.position.set(7.5, 0.02, -4.9);
+      tiles.position.set(11, 0.02, -7);
       g.add(tiles);
+      g.add(B(5.8, 1.6, 0.06, 0xdfeef2, 11, 0, -9.94));
       const wc = new THREE.Group();
       wc.add(B(0.7, 0.45, 0.9, 0xf7f7f4, 0, 0, 0), B(0.8, 0.9, 0.3, 0xf7f7f4, 0, 0.2, -0.5));
-      wc.position.set(8.9, 0, -6.2);
+      wc.position.set(13, 0, -9.2);
       this.solid("home", g, wc, 0.9, 1.2);
       const tap = new THREE.Group();
-      tap.add(B(1, 0.9, 0.5, 0xf7f7f4, 0, 0, 0), B(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.9, -0.1));
+      tap.add(B(1.1, 0.95, 0.55, 0xf7f7f4, 0, 0, 0), B(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.95, -0.15));
+      tap.add(B(0.8, 1, 0.05, 0xcfe6ef, 0, 1.6, -0.27));
       const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.25, 0.5, 12), mat(0x2f6fb0));
-      bucket.position.set(0.9, 0.25, 0.2);
+      bucket.position.set(1, 0.25, 0.2);
       tap.add(bucket);
-      tap.position.set(6.3, 0, -6.4);
-      this.solid("home", g, tap, 1.2, 0.6);
+      tap.position.set(9.4, 0, -9.6);
+      this.solid("home", g, tap, 1.3, 0.7);
+      const shower = new THREE.Group();
+      shower.add(B(2, 0.12, 2, 0xe9eef0, 0, 0, 0));
+      const pipe = cyl(0.04, 0.04, 2.6, 0xb8bcc2, 6);
+      pipe.position.set(0.8, 1.3, -0.9);
+      const rose = cyl(0.22, 0.1, 0.1, 0xb8bcc2, 10);
+      rose.position.set(0.6, 2.55, -0.7);
+      shower.add(pipe, rose, B(0.04, 2.2, 2, 0x8fc3d6, -1, 0.4, 0));
+      shower.position.set(12.8, 0, -5.6);
+      this.solid("home", g, shower, 2, 2);
       this.zones.push({
         id: "sleep",
         label: "Sleep / rest",
-        x: o.x - 7,
-        z: o.z - 1.2,
+        x: o.x - 9.5,
+        z: o.z - 4.3,
         r: 2,
         scene: "home",
       });
       this.zones.push({
         id: "bath",
         label: "Bathroom · wudu",
-        x: o.x + 7.2,
-        z: o.z - 4.6,
+        x: o.x + 10.6,
+        z: o.z - 7.4,
         r: 1.8,
         scene: "home",
       });
@@ -8369,6 +8422,7 @@ export class IlmCityEngine {
         w = 0,
         d = 0,
         zone?: Omit<Zone, "scene" | "x" | "z"> & { dx?: number; dz?: number },
+        more: (Omit<Zone, "scene" | "x" | "z"> & { x: number; z: number })[] = [],
       ) => {
         m.visible = false;
         g.add(m);
@@ -8395,47 +8449,176 @@ export class IlmCityEngine {
           };
           this.zones.push(zz);
         }
-        this.homeItems.set(id, { obj: m, boxes, zone: zz });
+        const zones = zz ? [zz] : [];
+        for (const z of more) {
+          const extra: Zone = { ...z, scene: "home", x: o.x + z.x, z: o.z + z.z, off: true };
+          this.zones.push(extra);
+          zones.push(extra);
+        }
+        this.homeItems.set(id, { obj: m, boxes, zones });
       };
       {
+        // the kitchen: worktop along the back wall, a cooker with a pot, a sink, wall cupboards
         const k = new THREE.Group();
-        k.add(
-          B(5, 1.8, 1.2, 0xf1ece0, 0, 0, 0),
-          B(5, 0.12, 1.3, 0x3a3f46, 0, 1.8, 0),
-          B(1.4, 0.15, 0.9, 0x1d1f22, 1.2, 1.92, 0),
+        k.add(B(9, 1.15, 1.3, 0xf1ece0, 0, 0, 0), B(9.1, 0.1, 1.4, 0x3a3f46, 0, 1.15, 0));
+        for (let d = -4; d <= 4; d += 1.5) k.add(B(0.04, 0.9, 0.02, 0xb8a888, d, 0.12, 0.66));
+        k.add(B(1.6, 0.08, 1, 0x1d1f22, -2.5, 1.25, 0));
+        for (const [bx, bz] of [
+          [-2.9, -0.2],
+          [-2.1, -0.2],
+          [-2.9, 0.25],
+          [-2.1, 0.25],
+        ])
+          k.add(B(0.3, 0.02, 0.3, 0x55585c, bx, 1.33, bz));
+        const pot = cyl(0.32, 0.3, 0.42, 0xb8bcc2, 14);
+        pot.position.set(-2.9, 1.55, -0.2);
+        k.add(pot);
+        k.add(B(1.3, 0.06, 0.8, 0x9aa3a8, 1.8, 1.24, 0));
+        const faucet = cyl(0.04, 0.04, 0.5, 0xb8bcc2, 6);
+        faucet.position.set(1.8, 1.5, -0.35);
+        k.add(faucet);
+        k.add(B(9, 0.9, 0.7, 0xe8e0cf, 0, 2.7, -0.3));
+        k.add(B(1.8, 0.5, 0.9, 0x55585c, -2.5, 2.9, -0.2));
+        const steam = new THREE.Group();
+        for (let q = 0; q < 3; q++) {
+          const puff = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 8, 6),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }),
+          );
+          puff.position.set(-2.9 + (q - 1) * 0.12, 2 + q * 0.35, -0.2);
+          steam.add(puff);
+        }
+        steam.visible = false;
+        k.add(steam);
+        this.cookSteam = steam;
+        k.position.set(0.5, 0, -9.3);
+        item(
+          "kitchen",
+          k,
+          9,
+          1.4,
+          { id: "cook", label: "Cook a meal", r: 1.6, dx: -2.5, dz: 1.8 },
+          [{ id: "eat", label: "Eat at the table", r: 1.7, x: 1.7, z: -0.4 }],
         );
-        k.position.set(0, 0, -6.2);
-        item("kitchen", k, 5, 1.4, { id: "eat", label: "Eat at the table", r: 2, dz: 1.6 });
       }
       {
         const f = new THREE.Group();
         f.add(B(1.1, 3.2, 1, 0xd9dde0, 0, 0, 0), B(0.05, 0.6, 0.05, 0x9a9fa6, 0.4, 1.8, 0.52));
-        f.position.set(3.4, 0, -6.3);
+        f.position.set(6.6, 0, -9.3);
         item("fridge", f, 1.2, 1.1);
       }
       {
+        // dining table with four chairs
         const t = new THREE.Group();
-        t.add(B(2.4, 0.9, 1.4, 0x8a5a3a, 0, 0, 0));
-        for (const [cx, cz] of [
-          [-0.8, 1.1],
-          [0.8, 1.1],
-          [-0.8, -1.1],
-          [0.8, -1.1],
+        t.add(B(3, 0.08, 1.6, 0x8a5a3a, 0, 1.0, 0));
+        for (const [lx, lz] of [
+          [-1.35, -0.65],
+          [1.35, -0.65],
+          [-1.35, 0.65],
+          [1.35, 0.65],
         ])
-          t.add(B(0.6, 0.55, 0.6, 0x6d4a2b, cx, 0, cz));
-        t.position.set(0, 0, -2.6);
-        item("table", t, 2.6, 3.4);
+          t.add(B(0.12, 1, 0.12, 0x6d4a2b, lx, 0, lz));
+        for (const cx of [-0.8, 0.8])
+          for (const side of [-1, 1]) {
+            const ch = new THREE.Group();
+            ch.add(
+              B(0.7, 0.08, 0.7, 0x6d4a2b, 0, 0.6, 0),
+              B(0.7, 0.9, 0.08, 0x6d4a2b, 0, 0.68, 0.32),
+            );
+            for (const [lx, lz] of [
+              [-0.3, -0.3],
+              [0.3, -0.3],
+              [-0.3, 0.3],
+              [0.3, 0.3],
+            ])
+              ch.add(B(0.07, 0.6, 0.07, 0x5a3a22, lx, 0, lz));
+            ch.position.set(cx, 0, side * 1.15);
+            ch.rotation.y = side > 0 ? 0 : Math.PI;
+            t.add(ch);
+          }
+        t.position.set(2.5, 0, -2.4);
+        item("table", t, 3.2, 1.8);
+        // your plate and a cup of water, while you eat
+        const plate = new THREE.Group();
+        const dish = cyl(0.32, 0.26, 0.05, 0xfdf8ec, 16);
+        const food = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 6), mat(0xd9822b));
+        food.scale.y = 0.4;
+        food.position.y = 0.06;
+        const cup = cyl(0.08, 0.07, 0.22, 0xcfe8f2, 10);
+        cup.position.set(0.5, 0.1, 0.1);
+        plate.add(dish, food, cup);
+        plate.position.set(1.7, 1.1, -2.85);
+        plate.visible = false;
+        g.add(plate);
+        this.eatPlate = plate;
       }
       {
+        // a parlour set: a three-seater facing the TV, and an armchair either side
         const s = new THREE.Group();
-        s.add(
-          B(3.6, 0.6, 1.2, 0x1f6f63, 0, 0, 0),
-          B(3.6, 0.9, 0.3, 0x1f6f63, 0, 0.6, 0.45),
-          B(0.3, 0.8, 1.2, 0x1f6f63, -1.8, 0.3, 0),
-          B(0.3, 0.8, 1.2, 0x1f6f63, 1.8, 0.3, 0),
-        );
-        s.position.set(-2, 0, 4.4);
-        item("sofa", s, 3.9, 1.3, { id: "sofa", label: "Sit and rest", r: 1.8, dz: -1.4 });
+        const seat = (w: number) => {
+          const q = new THREE.Group();
+          q.add(
+            B(w, 0.55, 1.2, 0x1f6f63, 0, 0, 0),
+            B(w, 1.0, 0.3, 0x1f6f63, 0, 0.5, -0.45),
+            B(0.3, 0.85, 1.2, 0x1a5c52, -w / 2, 0, 0),
+            B(0.3, 0.85, 1.2, 0x1a5c52, w / 2, 0, 0),
+          );
+          for (let c = 0; c < Math.round(w / 1.1); c++)
+            q.add(
+              B(
+                w / Math.round(w / 1.1) - 0.1,
+                0.12,
+                0.9,
+                0x24806f,
+                -w / 2 + (c + 0.5) * (w / Math.round(w / 1.1)),
+                0.55,
+                0.1,
+              ),
+            );
+          return q;
+        };
+        s.add(seat(3.6));
+        const a1 = seat(1.3);
+        a1.position.set(-3.6, 0, 2.4);
+        a1.rotation.y = Math.PI / 2;
+        const a2 = seat(1.3);
+        a2.position.set(3.6, 0, 2.4);
+        a2.rotation.y = -Math.PI / 2;
+        s.add(a1, a2);
+        s.position.set(-7, 0, 3.4);
+        item("sofa", s, 3.9, 1.3, { id: "sofa", label: "Sit on the sofa", r: 1.8, dz: 1.5 });
+        this.addCollider("home", o.x - 11.2, o.x - 10, o.z + 5.1, o.z + 6.5);
+        this.addCollider("home", o.x - 4, o.x - 2.8, o.z + 5.1, o.z + 6.5);
+      }
+      {
+        // a television on its stand, facing the sofa
+        const tv = new THREE.Group();
+        tv.add(B(3, 0.6, 0.7, 0x3a2a1c, 0, 0, 0), B(2.6, 1.5, 0.1, 0x111317, 0, 0.75, 0));
+        const screen = canvasPlane(
+          2.45,
+          1.35,
+          (c, CW, CH) => {
+            const gr = c.createLinearGradient(0, 0, 0, CH);
+            gr.addColorStop(0, "#1f6f63");
+            gr.addColorStop(1, "#10201e");
+            c.fillStyle = gr;
+            c.fillRect(0, 0, CW, CH);
+            c.fillStyle = "#e6b84a";
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.font = `800 ${Math.round(CH * 0.26)}px "Work Sans", sans-serif`;
+            c.fillText("IlmTV", CW / 2, CH * 0.42);
+            c.fillStyle = "#fdf8ec";
+            c.font = `500 ${Math.round(CH * 0.1)}px "Work Sans", sans-serif`;
+            c.fillText("Lectures · Qur'an · Kids", CW / 2, CH * 0.72);
+          },
+          256,
+        ).mesh;
+        screen.rotation.y = Math.PI;
+        screen.position.set(0, 1.5, -0.06);
+        tv.add(screen);
+        tv.position.set(-7, 0, 9.1);
+        item("tv", tv, 3, 0.8, { id: "tv", label: "Watch IlmTV", r: 1.6, dz: -1.6 });
       }
       {
         const r = new THREE.Group();
@@ -8449,13 +8632,14 @@ export class IlmCityEngine {
           m.position.y = y;
           r.add(m);
         }
-        r.position.set(0, 0, 2.2);
+        r.position.set(-7, 0, 6.3);
         item("rug", r);
       }
       {
         const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), mat(0x2f8f83));
         pm.rotation.x = -Math.PI / 2;
-        pm.position.set(-7.6, 0.03, 3.6);
+        pm.rotation.z = Math.PI / 2;
+        pm.position.set(11.4, 0.03, 1.6);
         item("prayermat", pm, 0, 0, { id: "prayermat", label: "Prayer mat", r: 1.6 });
       }
       {
@@ -8473,29 +8657,30 @@ export class IlmCityEngine {
               -0.75 + i * 0.5,
             ),
           );
-        sh.position.set(-9.6, 0, 0.4);
+        sh.rotation.y = Math.PI;
+        sh.position.set(13.5, 0, -1.6);
         item("bookshelf", sh, 0.6, 2.3, {
           id: "quranhome",
           label: "Read the Qur'an",
           r: 1.8,
-          dx: 1.4,
+          dx: -1.4,
         });
       }
       {
         const rd = new THREE.Group();
         rd.add(B(0.8, 0.7, 0.8, 0x8a5a3a, 0, 0, 0), B(0.6, 0.35, 0.25, 0x2a2c30, 0, 0.7, 0));
-        rd.position.set(2.6, 0, 5.4);
+        rd.position.set(8.6, 0, 9.2);
         item("radio", rd, 0.9, 0.9, {
           id: "radio",
           label: "Listen to a lecture",
           r: 1.6,
-          dz: -1.2,
+          dz: -1.3,
         });
       }
       {
         const wd = new THREE.Group();
         wd.add(B(0.7, 3.2, 2.4, 0xb98d5e, 0, 0, 0), B(0.05, 2.8, 0.05, 0x6d4a2b, -0.36, 0.2, 0));
-        wd.position.set(9.6, 0, 1.4);
+        wd.position.set(-13.5, 0, -4.4);
         item("wardrobe", wd, 0.8, 2.5);
       }
       {
@@ -8511,19 +8696,19 @@ export class IlmCityEngine {
         head.rotation.x = Math.PI / 2;
         head.position.y = 1.7;
         fn.add(head);
-        fn.position.set(5.2, 0, 6.0);
+        fn.position.set(-12.9, 0, 8.6);
         item("fan", fn, 0.6, 0.6);
       }
       {
         const cu = new THREE.Group();
         for (const x of [-4.6, -3.4, 3.4, 4.6]) cu.add(B(1, 2.6, 0.08, 0x2f8f83, x, 0.8, 0));
-        cu.position.set(-2, 0, -6.8);
+        cu.position.set(-7.5, 0, -9.7);
         item("curtains", cu);
       }
       {
         const cl = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20), mat(0xfdf8ec));
         cl.rotation.x = Math.PI / 2;
-        cl.position.set(-2, 3.6, -6.85);
+        cl.position.set(-2.5, 4.1, -9.85);
         item("clock", cl);
       }
       // ---- decorations ----
@@ -8567,7 +8752,7 @@ export class IlmCityEngine {
           "#1f3d37",
           "#e6b84a",
         );
-        m.position.set(-6.5, 3.3, -6.78);
+        m.position.set(-9.5, 3.6, -9.78);
         item("calligraphy", m);
       }
       {
@@ -8589,16 +8774,16 @@ export class IlmCityEngine {
           },
           256,
         ).mesh;
-        k.rotation.y = Math.PI / 2;
-        k.position.set(-9.78, 2.8, 3.6);
+        k.rotation.y = -Math.PI / 2;
+        k.position.set(13.78, 2.8, 1.6);
         item("kaabaframe", k);
       }
       {
         const pl = new THREE.Group();
         for (const [px, pz, h] of [
-          [-9.2, 6.3, 1.2],
-          [4.3, 6.4, 0.9],
-          [6.2, -2.1, 1.1],
+          [-13.2, 3.2, 1.2],
+          [4.4, 9.2, 0.9],
+          [7.2, -3.2, 1.1],
         ] as [number, number, number][]) {
           const pot = cyl(0.3, 0.22, 0.5, 0xb8573a, 10);
           pot.position.set(px, 0.25, pz);
@@ -8619,7 +8804,7 @@ export class IlmCityEngine {
         const glow = new THREE.PointLight(0xffd9a0, 6, 6, 2);
         glow.position.y = 1.8;
         lp.add(pole, shade, glow);
-        lp.position.set(-4.4, 0, 5.4);
+        lp.position.set(-10.6, 0, 2.6);
         item("lamp", lp, 0.6, 0.6);
       }
       {
@@ -8642,7 +8827,7 @@ export class IlmCityEngine {
         const chain = cyl(0.02, 0.02, 0.8, 0xe6b84a, 4);
         chain.position.y = 0.4;
         ch.add(chain);
-        ch.position.set(0, 4.1, -2.6);
+        ch.position.set(2.5, 4.1, -2.4);
         item("chandelier", ch);
       }
       {
@@ -8653,7 +8838,7 @@ export class IlmCityEngine {
         const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), mat(0xd23b6a));
         fl.position.y = 1.15;
         st.add(vase, fl);
-        st.position.set(0.6, 0, 5.6);
+        st.position.set(-3.4, 0, 2.7);
         item("sidetables", st, 0.7, 0.7);
       }
       {
@@ -8674,8 +8859,9 @@ export class IlmCityEngine {
           fish.position.set(fx, 1.2, fz);
           aq.add(fish);
         }
-        aq.position.set(9.4, 0, -1.4);
-        item("aquarium", aq, 0.8, 1.9);
+        aq.rotation.y = Math.PI / 2;
+        aq.position.set(5.6, 0, 9.2);
+        item("aquarium", aq, 1.9, 0.8);
       }
       {
         const ts = new THREE.Group();
@@ -8695,7 +8881,7 @@ export class IlmCityEngine {
         const pot = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), mat(0xb8bcc2));
         pot.position.set(0.25, 0.48, -0.15);
         ts.add(pot);
-        ts.position.set(0, 0, 2.2);
+        ts.position.set(-7, 0, 6.3);
         item("teaset", ts, 1.3, 0.8);
       }
       {
@@ -8710,7 +8896,7 @@ export class IlmCityEngine {
           m.position.y = y;
           cp.add(m);
         }
-        cp.position.set(0, 0, 2.2);
+        cp.position.set(-7, 0, 6.3);
         item("persian", cp);
       }
       {
@@ -8722,7 +8908,7 @@ export class IlmCityEngine {
           [0.4, 0x2a4a6a],
         ] as [number, number][])
           sr.add(B(0.25, 0.1, 0.35, c, sx, 0.5, 0));
-        sr.position.set(-3.4, 0, 6.5);
+        sr.position.set(-2.6, 0, 9.4);
         item("shoerack", sr, 1.4, 0.4);
       }
       {
@@ -8738,7 +8924,7 @@ export class IlmCityEngine {
         smoke.position.y = 1.35;
         smoke.scale.y = 1.8;
         bk.add(smoke);
-        bk.position.set(-8.9, 0, -1.5);
+        bk.position.set(7.4, 0, 3.4);
         item("bakhoor", bk, 0.4, 0.4);
       }
       {
@@ -8761,11 +8947,48 @@ export class IlmCityEngine {
             },
             128,
           ).mesh;
-          f.rotation.y = -Math.PI / 2;
-          f.position.set(9.78, 2.6 + (k % 2) * 0.75, 3.4 + Math.floor(k / 2) * 0.95);
+          f.rotation.y = Math.PI / 2;
+          f.position.set(-13.78, 2.6 + (k % 2) * 0.75, 4.6 + Math.floor(k / 2) * 0.95);
           pw.add(f);
         });
         item("photowall", pw);
+      }
+      {
+        // a desk with a laptop, in the bedroom: plan trips and look round the city
+        const dk = new THREE.Group();
+        dk.add(B(1, 0.08, 2.2, 0x8a5a3a, 0, 1.0, 0));
+        for (const [lx, lz] of [
+          [-0.4, -1],
+          [0.4, -1],
+          [-0.4, 1],
+          [0.4, 1],
+        ])
+          dk.add(B(0.08, 1, 0.08, 0x6d4a2b, lx, 0, lz));
+        dk.add(B(0.6, 0.04, 0.85, 0x2a2c30, -0.05, 1.08, 0));
+        const lid = B(0.04, 0.55, 0.85, 0x2a2c30, 0.25, 1.08, 0);
+        lid.rotation.z = 0.25;
+        dk.add(lid);
+        const scr = B(0.02, 0.48, 0.78, 0x6fb3c9, 0.21, 1.12, 0);
+        scr.rotation.z = 0.25;
+        dk.add(scr);
+        const chair = new THREE.Group();
+        chair.add(
+          B(0.75, 0.08, 0.75, 0x2a2c30, 0, 0.6, 0),
+          B(0.08, 1, 0.75, 0x2a2c30, -0.36, 0.68, 0),
+        );
+        const leg = cyl(0.05, 0.05, 0.6, 0x55585c, 6);
+        leg.position.y = 0.3;
+        chair.add(leg);
+        chair.position.set(-1.1, 0, 0);
+        dk.add(chair);
+        dk.position.set(-4.8, 0, -6.4);
+        item("laptop", dk, 1, 2.2, {
+          id: "laptop",
+          label: "Use the laptop",
+          r: 1.5,
+          dx: -1.2,
+          dz: 1.8,
+        });
       }
       // stairs up (only in a duplex)
       {
@@ -8773,15 +8996,15 @@ export class IlmCityEngine {
         for (let k = 0; k < 7; k++)
           stairs.add(B(2.2, 0.35 * (k + 1), 0.45, 0x8a5a3a, 0, 0, -k * 0.45));
         stairs.add(B(0.08, 1, 3.2, 0x3a2a1c, -1.1, 2.1, -1.35));
-        stairs.position.set(8.6, 0, 6.4);
+        stairs.position.set(12.6, 0, 9.4);
         stairs.visible = false;
         g.add(stairs);
         this.stairs = stairs;
         const z: Zone = {
           id: "stairs:up",
           label: "Go upstairs",
-          x: o.x + 8.6,
-          z: o.z + 5.2,
+          x: o.x + 12.6,
+          z: o.z + 7.8,
           r: 1.6,
           scene: "home",
           off: true,
@@ -8858,7 +9081,7 @@ export class IlmCityEngine {
   private camOffset() {
     const portrait = this.camera.aspect < 0.8;
     if (this.where !== "out" && !this.cine)
-      return portrait ? new THREE.Vector3(0, 22, 19) : new THREE.Vector3(0, 13, 13);
+      return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
     return new THREE.Vector3(Math.sin(this.camYaw) * d, h, Math.cos(this.camYaw) * d);
   }
@@ -9350,6 +9573,67 @@ export class IlmCityEngine {
   standUp() {
     releasePose(this.player);
   }
+  /** Do something at home that you can see: lie in bed, sit on the sofa or at the table, cook,
+      or use the laptop. Returns false when you aren't at home. */
+  homeAct(what: "sleep" | "sofa" | "eat" | "cook" | "laptop" | "tv") {
+    if (this.where !== "home") return false;
+    const o = this.interiorOrigin.home;
+    this.homeActEnd();
+    const back = {
+      x: this.player.position.x,
+      z: this.player.position.z,
+      rot: this.player.rotation.y,
+    };
+    this.tapTarget = null;
+    this.marker.visible = false;
+    const at = (x: number, y: number, z: number, rot: number) => {
+      this.player.position.set(o.x + x, y, o.z + z);
+      this.player.rotation.set(0, rot, 0);
+    };
+    if (what === "sleep") {
+      // on your back, head on the pillow, the cover over you
+      at(-9.5, 1.1, -6.7, 0);
+      this.player.rotation.set(-Math.PI / 2, 0, 0);
+      if (this.sleepCover) this.sleepCover.visible = true;
+    } else if (what === "sofa" || what === "tv") {
+      at(-7, 0, 3.55, 0);
+      poseHuman(this.player, "chair");
+    } else if (what === "eat") {
+      at(1.7, 0, -3.6, 0);
+      poseHuman(this.player, "desk");
+      if (this.eatPlate) this.eatPlate.visible = true;
+    } else if (what === "laptop") {
+      at(-5.9, 0, -6.4, Math.PI / 2);
+      poseHuman(this.player, "desk");
+    } else {
+      at(-2, 0, -7.9, Math.PI);
+      poseHuman(this.player, "cook");
+      if (this.cookSteam) this.cookSteam.visible = true;
+    }
+    this.acting = back;
+    return true;
+  }
+  /** Get up and carry on. */
+  homeActEnd() {
+    if (!this.acting) return;
+    const b = this.acting;
+    this.acting = null;
+    releasePose(this.player);
+    this.player.rotation.set(0, b.rot, 0);
+    this.player.position.set(b.x, 0, b.z);
+    if (this.sleepCover) this.sleepCover.visible = false;
+    if (this.cookSteam) this.cookSteam.visible = false;
+    if (this.eatPlate) this.eatPlate.visible = false;
+  }
+  private stepActing(t: number) {
+    // the steam over the pot drifts up while you cook
+    if (this.cookSteam?.visible)
+      this.cookSteam.children.forEach((p, k) => {
+        p.position.y = 2 + ((t * 0.6 + k * 0.33) % 1) * 1.1;
+        ((p as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity =
+          0.45 * (1 - ((t * 0.6 + k * 0.33) % 1));
+      });
+  }
   prayPose(p: Pose | null) {
     if (p) poseHuman(this.player, p);
     else releasePose(this.player);
@@ -9608,6 +9892,7 @@ export class IlmCityEngine {
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (this.pathWalk) this.stepPath(dt);
+    else if (this.acting) this.stepActing(t);
     else if (!this.riding) this.walk(v, dt, t);
 
     if (this.match && this.spectating) this.match.step(dt, null);
