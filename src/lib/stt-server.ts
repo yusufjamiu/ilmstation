@@ -21,11 +21,20 @@ export async function handleStt(request: Request): Promise<Response> {
   let uid = "";
   try { uid = (await fbAuth.verifyIdToken(token)).uid; } catch (e) { console.error("stt auth", e); return json({ error: "Please log in again." }, 401); }
 
-  // daily cap per user
+  // daily voice minutes: free users get the admin's number (3 by default), Premium is unlimited (2-hour fair-use cap)
   const day = new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
+  const ms = Math.min(120000, Math.max(1000, Number(request.headers.get("x-audio-ms") ?? 0) || 5000));
+  const [ent, cfgDoc] = await Promise.all([db.doc(`entitlements/${uid}`).get(), db.doc("siteConfig/premium").get()]);
+  const now = Date.now();
+  const premium = Math.max(Number(ent.get("premiumUntil") ?? 0), Number(ent.get("familyUntil") ?? 0)) > now;
+  const feat = ((cfgDoc.get("features") as { id: string; on?: boolean; free?: number; premium?: number }[] | undefined) ?? []).find((f) => f.id === "voice");
+  const freeMin = feat?.on === false ? 0 : Number(feat?.free ?? 3);
+  const premMin = Number(feat?.premium ?? 0) || 120;
+  const limit = (premium ? premMin : freeMin) * 60000;
   const ref = db.collection("sttUsage").doc(`${uid}_${day}`);
-  const used: number = await db.runTransaction(async (t: any) => { const n = ((await t.get(ref)).data()?.n as number | undefined) ?? 0; if (n < DAILY_CAP) t.set(ref, { n: n + 1, uid, day }, { merge: true }); return n; }); // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (used >= DAILY_CAP) return json({ error: "You've reached today's limit. Try again tomorrow." }, 429);
+  const used: number = await db.runTransaction(async (t: any) => { const d = (await t.get(ref)).data() ?? {}; const u = Number(d.ms ?? 0); const n = Number(d.n ?? 0); if (limit > 0 && u < limit && n < DAILY_CAP * 10) t.set(ref, { ms: u + ms, n: n + 1, uid, day }, { merge: true }); return limit > 0 ? u : Number.MAX_SAFE_INTEGER; }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (feat?.on === false && !premium) { /* voice checking switched off as a limit: free for everyone */ }
+  else if (used >= limit) return json({ error: premium ? "You've reached today's voice limit. Try again tomorrow." : `You've used today's ${freeMin} free voice minutes. Go Premium for unlimited, or continue tomorrow.` }, 429);
 
   const buf = await request.arrayBuffer();
   if (!buf.byteLength) return json({ error: "No audio received." }, 400);
