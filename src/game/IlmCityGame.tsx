@@ -1498,7 +1498,7 @@ function CityGame({
   /* ---------- food: order on the phone or eat at the eatery ---------- */
   const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
   const openPhoneRef = useRef<() => void>(() => {});
-  const openHotelRef = useRef<() => void>(() => {});
+  const openHotelRef = useRef<(atHotel?: boolean) => void>(() => {});
   const openQuranRef = useRef<(night: boolean) => void>(() => {});
   /** you set off to the masjid to read the Qur'an: it opens when you walk in */
   const quranNext = useRef(false);
@@ -6766,6 +6766,56 @@ function CityGame({
         });
         return;
       }
+      // the hotels round Al-Masjid An-Nabawi
+      if (id.startsWith("office:hotel-")) {
+        openHotelRef.current(true);
+        return;
+      }
+      // Jannat Al-Baqi' and the martyrs of Uhud: give salam to the people of the graves
+      if (id.startsWith("graves:")) {
+        const uhud = id === "graves:uhud";
+        setPanel({
+          kind: "info",
+          title: uhud ? "The Martyrs of Uhud" : "Jannat Al-Baqi'",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                {uhud
+                  ? "Here lie the seventy martyrs of Uhud, among them Hamzah ibn Abdil-Muttalib, the uncle of the Prophet ﷺ and the Master of the Martyrs."
+                  : "The graveyard of Madinah, beside the Prophet's Mosque ﷺ. Here lie thousands of the Companions, the wives of the Prophet ﷺ (except Khadijah and Maymunah), his daughters, his son Ibrahim, and Uthman ibn Affan."}
+              </p>
+              <p className="text-[13px] opacity-80">
+                The Prophet ﷺ taught us to say when visiting the graves:
+              </p>
+              <p dir="rtl" className="font-serif text-[20px] leading-loose">
+                السَّلَامُ عَلَيْكُمْ أَهْلَ الدِّيَارِ مِنَ الْمُؤْمِنِينَ وَالْمُسْلِمِينَ،
+                وَإِنَّا إِنْ شَاءَ اللَّهُ بِكُمْ لَلَاحِقُونَ، نَسْأَلُ اللَّهَ لَنَا وَلَكُمُ
+                الْعَافِيَةَ
+              </p>
+              <p className="text-[13px] italic">
+                "Peace be upon you, O people of the dwellings, of the believers and the Muslims. We
+                will join you, if Allah wills. We ask Allah for well-being for us and for you."
+                (Sahih Muslim)
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  need({ iman: 10 });
+                  update((x) => ({ ...x, ilm: x.ilm + 1 }));
+                  toast(
+                    "You gave salam to the people of the graves and remembered the Hereafter.",
+                    "good",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                🤲 Say the salam and make du'a for them
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       // the miqat of Madinah: put on ihram here and make the intention for Umrah
       if (id === "office:miqat-ihram") {
         const sv = saveRef.current;
@@ -8714,11 +8764,11 @@ function CityGame({
   };
   openQuranRef.current = openQuran;
   /** Away from your home city: a night in a hotel, or the way home. */
-  const openHotel = () => {
+  const openHotel = (atHotel = false) => {
     const here = engine.current?.districtId() ?? save.district ?? DEFAULT_AREA;
     const D = districtById(here);
     const home = save.homeArea ?? DEFAULT_AREA;
-    const atHome = cityOf(D) === cityOf(districtById(home));
+    const atHome = !atHotel && cityOf(D) === cityOf(districtById(home));
     setPanel({
       kind: "info",
       title: "🏨 Rest for the night",
@@ -8728,8 +8778,9 @@ function CityGame({
             <p>You are in your home city: go home to sleep, it's free.</p>
           ) : (
             <p>
-              You are in {D.name}, {D.state}, far from home. Book a hotel room here to sleep, or
-              travel back home.
+              {atHotel
+                ? `Welcome! Choose your room for the night in ${D.name}.`
+                : `You are in ${D.name}, ${D.state}, far from home. Book a hotel room here to sleep, or travel back home.`}
             </p>
           )}
           {hotelsFor(here).map((h) => {

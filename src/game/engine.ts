@@ -1860,13 +1860,7 @@ export class IlmCityEngine {
             ),
           );
         S.add(g);
-        this.addCollider(
-          "out",
-          this.ox + x - 0.7,
-          this.ox + x + 0.7,
-          this.oz + z - 0.7,
-          this.oz + z + 0.7,
-        );
+        this.addCollider("out", x - 0.7, x + 0.7, z - 0.7, z + 0.7);
         const t = someone();
         t.position.set(x + 0.2, 0, z + side * 0.35);
         t.rotation.y = side > 0 ? Math.PI : 0;
@@ -2879,7 +2873,7 @@ export class IlmCityEngine {
       // the famous mosques of Madinah keep their own shape: minarets and white domes
       if (l.id === "masjid-quba") this.masjidCrown(l.x, sz - 23, 4, 6);
       if (l.id === "masjid-qiblatayn") this.masjidCrown(l.x, sz - 23, 2, 2);
-      if (l.id === "masjid-qiblatayn") this.mountUhud(D);
+      if (l.id === "masjid-sayyid-shuhada") this.buildUhudSite(D, l.x, sz);
       // Abuja's National Mosque: a golden dome and four tall minarets; Kano's Central
       // Mosque: two minarets and green domes
       if (l.id === "abuja-national-mosque") this.masjidCrown(l.x, sz - 23, 4, 1, 0xd4a72c, 9);
@@ -5445,8 +5439,110 @@ export class IlmCityEngine {
 
   /** Al-Masjid An-Nabawi: a great white mosque with many minarets, the Green Dome, and a
       courtyard of white umbrellas. */
+  /** A walled graveyard of plain stones, as the Sunnah is: Jannat Al-Baqi' by the Prophet's
+      Mosque ﷺ, and the graves of the martyrs at Uhud. Walking up to its gate lets you give
+      salam to the people of the graves. */
+  private graveyard(cx: number, cz: number, w: number, d: number, name: string, id: string) {
+    const b = new Batch();
+    const wallM = MAT.plaster(0xe6dccb);
+    const T = 0.5,
+      H = 2.4;
+    // the walls, with a gate in the middle of the south wall
+    b.box(w, H, T, wallM, cx, 0, cz - d / 2);
+    b.box(w / 2 - 3, H, T, wallM, cx - w / 4 - 1.5, 0, cz + d / 2);
+    b.box(w / 2 - 3, H, T, wallM, cx + w / 4 + 1.5, 0, cz + d / 2);
+    b.box(T, H, d, wallM, cx - w / 2, 0, cz);
+    b.box(T, H, d, wallM, cx + w / 2, 0, cz);
+    for (const [x0, x1, z0, z1] of [
+      [cx - w / 2, cx + w / 2, cz - d / 2 - T, cz - d / 2 + T],
+      [cx - w / 2, cx - 3, cz + d / 2 - T, cz + d / 2 + T],
+      [cx + 3, cx + w / 2, cz + d / 2 - T, cz + d / 2 + T],
+      [cx - w / 2 - T, cx - w / 2 + T, cz - d / 2, cz + d / 2],
+      [cx + w / 2 - T, cx + w / 2 + T, cz - d / 2, cz + d / 2],
+    ])
+      this.addCollider("out", x0, x1, z0, z1);
+    // the gate arch
+    b.box(7, 0.8, 0.9, MAT.plain(0x9a7a3a), cx, H + 0.6, cz + d / 2);
+    for (const sx of [-1, 1]) b.box(0.9, H + 1.4, 0.9, wallM, cx + sx * 3.4, 0, cz + d / 2);
+    // sandy ground, a paved path, and rows of plain low stones
+    b.add(groundGeo(w - 1, d - 1, 3), MAT.plain(0xd8c49a), cx, 0.04, cz, 0, false);
+    b.add(groundGeo(3, d - 1, 2), MAT.paving(), cx, 0.05, cz, 0, false);
+    const stoneM = MAT.plain(0xa89a82);
+    let k = 0;
+    for (let z = cz - d / 2 + 3; z < cz + d / 2 - 3; z += 2.6)
+      for (let x = cx - w / 2 + 2.5; x < cx + w / 2 - 2; x += 1.9) {
+        if (Math.abs(x - cx) < 2.6) continue;
+        k++;
+        const j = ((k * 2654435761) >>> 0) / 4294967296;
+        b.box(0.5, 0.18, 1.5, stoneM, x + (j - 0.5) * 0.4, 0, z);
+        b.box(0.22, 0.45 + j * 0.25, 0.12, stoneM, x, 0, z - 0.7);
+      }
+    this.addCollider("out", cx - w / 2 + 2, cx - 2.2, cz - d / 2 + 2, cz + d / 2 - 2);
+    this.addCollider("out", cx + 2.2, cx + w / 2 - 2, cz - d / 2 + 2, cz + d / 2 - 2);
+    for (const m of b.build()) this.dg.add(m);
+    const t = label(name, { size: 1.2, bg: "rgba(31,111,99,0.92)" });
+    t.position.set(cx, H + 3, cz + d / 2);
+    this.dg.add(t);
+    this.zones.push({
+      id: "graves:" + id,
+      label: "Give salam to the people of the graves",
+      x: cx + this.ox,
+      z: cz + d / 2 + 2.5 + this.oz,
+      r: 3.5,
+      scene: "out",
+    });
+  }
+
+  /** Uhud: the great red mountain on the north of the area, the Archers' Hill in front of
+      it, and the graves of the martyrs beside Masjid Sayyid Ash-Shuhada. */
+  private buildUhudSite(D: District, mx: number, sz: number) {
+    const H = halfOf(D);
+    const g = new THREE.Group();
+    const cols = [0x8a3f24, 0x7a3820, 0x9a4a2a, 0x6f331d];
+    // the mountain: a long ridge of big rocks, rising in the middle
+    for (let i = 0; i < 22; i++) {
+      const t = i / 21;
+      const r = 26 + Math.sin(t * Math.PI) * 26 + ((i * 7) % 9);
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 1), mat(cols[i % 4]));
+      m.scale.set(1.25, 1.0, 0.7);
+      m.position.set(-H.x - 40 + t * (H.x * 2 + 80), r * 0.4, -H.z - 12 - (i % 3) * 8);
+      m.castShadow = true;
+      g.add(m);
+    }
+    const tl = label("Mount Uhud · جبل أحد", { size: 2.4, bg: "rgba(46,139,87,0.92)" });
+    tl.position.set(0, 70, -H.z - 12);
+    g.add(tl);
+    // Jabal Ar-Rumah, the Archers' Hill
+    const hx = mx + 110,
+      hz = sz - 120;
+    const hill = new THREE.Mesh(new THREE.DodecahedronGeometry(16, 1), mat(0xa8784f));
+    hill.scale.set(1.4, 0.55, 1);
+    hill.position.set(hx, 2, hz);
+    hill.castShadow = true;
+    g.add(hill);
+    this.addCollider("out", hx - 20, hx + 20, hz - 14, hz + 14);
+    const th = label("Jabal Ar-Rumah · the Archers' Hill", {
+      size: 1.2,
+      bg: "rgba(31,111,99,0.92)",
+    });
+    th.position.set(hx, 14, hz);
+    g.add(th);
+    this.dg.add(g);
+    // the graves of the martyrs of Uhud, Hamzah among them
+    this.graveyard(
+      mx + 10,
+      sz - 72,
+      34,
+      26,
+      "The Martyrs of Uhud · Hamzah ibn Abdil-Muttalib",
+      "uhud",
+    );
+  }
+
   private buildNabawi(l: Landmark, D: District) {
     const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
+    // Jannat Al-Baqi', east of the mosque
+    this.graveyard(l.x + 150, sz - 140, 90, 110, "Jannat Al-Baqi' · جنة البقيع", "baqi");
     const C = { x: l.x, z: sz - 125 };
     const W = 160,
       Dd = 96,
