@@ -123,8 +123,8 @@ export function LoginPage() {
           <span><b className="block text-xl">Child</b><span className="text-sm text-muted-foreground">Log in with the username your parent gave you</span></span>
         </button>
         <p className="mt-3 text-sm">New to IlmStation? <a href="/signup" className="font-bold underline underline-offset-4">Create an account</a></p>
-      </div> : <div className="mt-5 flex items-center justify-between border-2 border-foreground px-4 py-3">
-        <b>{kid ? "🧒 Child" : "🧑 Teen & Adult"}</b>
+      </div> : <div className="mb-4 mt-5 flex items-center justify-between rounded-full bg-foreground/[0.06] py-2 pl-2 pr-4 sm:rounded-none sm:border-2 sm:border-foreground sm:bg-transparent sm:px-4 sm:py-3">
+        <b className="flex items-center gap-2"><span className={`grid size-8 place-items-center rounded-full ${kid ? "bg-secondary text-secondary-foreground" : "bg-primary"}`}>{kid ? <WhoChild className="size-4" /> : <WhoAdult className="size-4" />}</span>{kid ? "Child" : "Teen & Adult"}</b>
         <button type="button" onClick={() => setWho(null)} className="text-sm font-semibold underline underline-offset-4">Change</button>
       </div>}
       {!who && <style>{"[data-login-pick] ~ *{display:none!important}"}</style>}

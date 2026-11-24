@@ -124,6 +124,8 @@ export function AuthMobileStyle() {
   useEffect(() => { if (on) document.body.dataset.auth = "1"; else delete document.body.dataset.auth; }, [on]);
   if (!on) return null;
   return <style>{`@media (max-width: 767px){
+    body[data-auth] main{padding-top:14px!important}
+    body[data-auth] main > *:first-child{margin-top:0!important;padding-top:0!important}
     body[data-auth] h1{font-size:30px!important;line-height:1.1!important;letter-spacing:-.01em}
     body[data-auth] h2{font-size:24px!important;line-height:1.15!important}
     body[data-auth] main :is(button,a)[class*="border-2"]:not([data-who-pick] *):not([class*="rounded-3xl"]){border-radius:9999px!important;border-width:1.5px!important;box-shadow:0 3px 0 hsl(var(--foreground))!important}
