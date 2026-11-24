@@ -11,7 +11,7 @@ export async function handleTranslate(request: Request): Promise<Response> {
   const key = process.env.OPENAI_API_KEY; if (!key) return json({ error: "Not set up" }, 503);
   const { text, lang } = (await request.json().catch(() => ({}))) as { text?: string; lang?: string };
   const src = (text ?? "").trim().slice(0, 1200);
-  const name = lang && /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(lang) && lang !== "en" && lang !== "ar" ? langName(lang) : "";
+  const name = lang && /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(lang) && lang !== "en" ? langName(lang) : "";
   if (!src || !name) return json({ error: "Bad request" }, 400);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const a: any = await Promise.resolve((admin as any)()); const db = typeof a.db === "function" ? a.db() : a.db;

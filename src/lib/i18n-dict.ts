@@ -7721,3 +7721,7 @@ DICT["Thank you for learning with IlmStation. Renew to keep everything unlocked.
 DICT["See plans"] = { ...(DICT["See plans"] ?? {}), ar: "عرض الخطط", fr: "Voir les offres", ur: "پلان دیکھیں", ha: "Duba tsare-tsare", id: "Lihat paket", tl: "Tingnan ang mga plano" };
 DICT["Use my points"] = { ...(DICT["Use my points"] ?? {}), ar: "استخدم نقاطي", fr: "Utiliser mes points", ur: "میرے پوائنٹس استعمال کریں", ha: "Yi amfani da makina", id: "Gunakan poin saya", tl: "Gamitin ang puntos ko" };
 DICT["Continue free"] = { ...(DICT["Continue free"] ?? {}), ar: "المتابعة مجانًا", fr: "Continuer gratuitement", ur: "مفت جاری رکھیں", ha: "Ci gaba kyauta", id: "Lanjutkan gratis", tl: "Magpatuloy nang libre" };
+
+DICT["Search languages…"] = { ...(DICT["Search languages…"] ?? {}), ar: "ابحث عن لغة…", fr: "Rechercher une langue…", ur: "زبان تلاش کریں…", ha: "Nemo harshe…", id: "Cari bahasa…", tl: "Maghanap ng wika…" };
+DICT["Begin your journey"] = { ...(DICT["Begin your journey"] ?? {}), ar: "ابدأ رحلتك", fr: "Commencez votre parcours", ur: "اپنا سفر شروع کریں", ha: "Fara tafiyarka", id: "Mulai perjalananmu", tl: "Simulan ang iyong paglalakbay" };
+DICT["Already learning?"] = { ...(DICT["Already learning?"] ?? {}), ar: "تتعلّم معنا بالفعل؟", fr: "Vous apprenez déjà ?", ur: "پہلے سے سیکھ رہے ہیں؟", ha: "Kana koyo tuni?", id: "Sudah belajar?", tl: "Nag-aaral ka na?" };
