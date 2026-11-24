@@ -34,6 +34,10 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   alhikmah: { name: "Al-Hikmah University", lat: 8.53, lng: 4.49 },
   ilorinairport: { name: "Ilorin Airport", lat: 8.44, lng: 4.494 },
   postoffice: { name: "Post Office", lat: 8.481, lng: 4.553, hub: true },
+  malete: { name: "KWASU, Malete", lat: 8.71, lng: 4.47 },
+  abeokuta: { name: "Ake, Abeokuta", lat: 7.155, lng: 3.345 },
+  crescent: { name: "Crescent University", lat: 7.19, lng: 3.39 },
+  panseke: { name: "Panseke", lat: 7.16, lng: 3.36, hub: true },
   haram: { name: "Al-Haram", lat: 21.4225, lng: 39.8262 },
   aziziyah: { name: "Aziziyah", lat: 21.405, lng: 39.87 },
   jeddahairport: { name: "Jeddah Airport", lat: 21.68, lng: 39.15 },
@@ -79,6 +83,9 @@ const ROADS: [string, string][] = [
   ["postoffice", "adewole"],
   ["fate", "ilorinairport"],
   ["adewole", "alhikmah"],
+  ["tanke", "malete"],
+  ["panseke", "abeokuta"],
+  ["panseke", "crescent"],
   ["haram", "aziziyah"],
   ["aziziyah", "jeddahairport"],
   ["aziziyah", "mina"],
@@ -93,6 +100,7 @@ const HUB_CITY: Record<string, string> = {
   ketu: "lagos",
   apapa: "lagos",
   postoffice: "ilorin",
+  panseke: "abeokuta",
 };
 const cityAt = (id: string) => HUB_CITY[id] ?? cityOf(districtById(id));
 
@@ -120,6 +128,7 @@ const projector = (f: Frame) => (id: string) => ({
 const CITY_POINT: Record<string, P & { name: string }> = {
   lagos: { name: "Lagos", lat: 6.52, lng: 3.37 },
   ilorin: { name: "Ilorin", lat: 8.49, lng: 4.55 },
+  abeokuta: { name: "Abeokuta", lat: 7.15, lng: 3.35 },
   makkah: { name: "Makkah", lat: 21.42, lng: 39.83 },
   madinah: { name: "Madinah", lat: 24.47, lng: 39.61 },
 };

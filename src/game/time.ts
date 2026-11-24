@@ -33,6 +33,14 @@ export const CITIES: Record<string, City> = {
     tz: "Africa/Lagos",
     method: METHODS.MWL,
   },
+  abeokuta: {
+    id: "abeokuta",
+    name: "Abeokuta",
+    lat: 7.1475,
+    lng: 3.3619,
+    tz: "Africa/Lagos",
+    method: METHODS.MWL,
+  },
   makkah: {
     id: "makkah",
     name: "Makkah",

@@ -1382,6 +1382,7 @@ const ALIAS: Record<string, string> = {
   "College of Medicine": "Medicine",
   Pharmaceutical: "Pharmacy",
   "Communication and Information": "Computing",
+  "Information and Communication": "Computing",
   "Communication and Media": "Social Sciences",
 };
 

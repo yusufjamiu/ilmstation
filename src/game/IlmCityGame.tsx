@@ -220,6 +220,8 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** your room in an MSSN hostel (free while you're a student there): its door's id */
+  hostel?: string;
   /** when the bought Rich family pack's house was handed over */
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
@@ -6546,6 +6548,85 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("hostel:")) {
+        const [, area, kk] = id.split(":");
+        const D = districtById(area);
+        const uni = D.campus?.gate ?? D.name;
+        const sisters = kk === "1";
+        const sv = saveRef.current;
+        const name = sisters
+          ? "MSSN Sisters' Hostel"
+          : `MSSN Brothers' Hostel ${kk === "0" ? "A" : "B"}`;
+        if (!!sv.profile?.female !== sisters) {
+          toast(
+            `This hostel is for ${sisters ? "sisters" : "brothers"}. Yours is next door.`,
+            "warn",
+          );
+          return;
+        }
+        if (sv.hostel === id) {
+          e.enterInterior("home", `${name} · your room`);
+          e.setHomeItems(sv.items ?? []);
+          setInside(true);
+          tuneRef.current();
+          return;
+        }
+        if (sv.student?.area !== area) {
+          setPanel({
+            kind: "info",
+            title: `🏠 ${name}`,
+            body: (
+              <div className="space-y-2 text-[14px]">
+                <p>
+                  MSSN hostel rooms near {uni} are <b>free</b> for its registered students, run by
+                  the MSSN with brotherhood and sisterhood: prayers together, tafsir circles and
+                  quiet study time.
+                </p>
+                <p className="text-[13px] opacity-75">
+                  Register as a student at the MSSN Secretariat on campus, then come back to move
+                  in.
+                </p>
+              </div>
+            ),
+          });
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: `🏠 ${name}`,
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                As a student of {uni}, your room here is <b>free</b>. Your furniture comes with you,
+                and you wake up here each day.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  update((x) => ({
+                    ...x,
+                    hostel: id,
+                    homeArea: area,
+                    lease: { until: Math.max(x.lease?.until ?? 0, Date.now() + 120 * 86400000) },
+                  }));
+                  e.enterInterior("home", `${name} · your room`);
+                  e.setHomeItems(saveRef.current.items ?? []);
+                  setInside(true);
+                  tuneRef.current();
+                  toast(
+                    "Alhamdulillah! You've moved into the MSSN hostel. Rent-free while you study.",
+                    "good",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                Move in (free)
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       if (id.startsWith("office:") && id.endsWith("-mssn")) {
         const L = landmarkById(id.slice(7));
         if (!L) return;
@@ -8010,7 +8091,11 @@ function CityGame({
         const left = (sv.lease?.until ?? (sv.homePlot ? 0 : Infinity)) - Date.now();
         if (house && e.plotInfo(house))
           e.startAtPlot(house, house === sv.homePlot ? `Family house · ${nm}` : "Your house");
-        else if (left < 0) {
+        else if (sv.hostel && sv.student?.area === sv.hostel.split(":")[1]) {
+          e.startAtHostel(sv.hostel, "MSSN Hostel · your room");
+          // rent-free while you study: the room stays yours
+          update((x) => ({ ...x, lease: { until: Date.now() + 120 * 86400000 } }));
+        } else if (left < 0) {
           // rent unpaid: you wake up outside the estate gate, not in the flat
           e.startAtHome(home, flatName(home));
           e.exitInterior();

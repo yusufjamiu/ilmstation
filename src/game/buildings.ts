@@ -1626,9 +1626,9 @@ export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn:
 /** How each university's buildings look. */
 export type CampusStyle = "modern" | "brick" | "classic" | "islamic";
 export function campusStyleOf(name: string): CampusStyle {
-  if (/UNILAG|LASUSTECH/.test(name)) return "modern";
+  if (/UNILAG|LASUSTECH|KWASU/.test(name)) return "modern";
   if (/LASU\b/.test(name)) return "brick";
-  if (/Hikmah|Manaar/.test(name)) return "islamic";
+  if (/Hikmah|Manaar|Crescent/.test(name)) return "islamic";
   return "classic";
 }
 /** A grand faculty building: a wide stair to a raised plaza, a tall main block, and a
@@ -1653,7 +1653,10 @@ export function faculty(
     D = o.depth,
     front = D / 2;
   b.add(groundGeo(W, D, 2), MAT.paving(), 0, 0.035, 0, 0, false);
-  const floors = Math.max(4, o.floors + 1);
+  // no two faculties alike: each has its own height and colours, from its name
+  let v = 7;
+  for (const ch of o.name) v = (v * 31 + ch.charCodeAt(0)) % 100003;
+  const floors = Math.max(4, o.floors + 1) + (v % 3);
   const FH = 3.6,
     P = 0.9, // the raised plinth
     H = P + floors * FH;
@@ -1667,6 +1670,20 @@ export function faculty(
     classic: { wall: 0xe8dcc0, trim: 0xf8f3e6, accent: 0x6a2a2a, sign: "#5a1f2a" },
     islamic: { wall: 0xf6f2e8, trim: 0x1f6f63, accent: 0xc9a227, sign: "#1f6f63" },
   }[style];
+  const tint = {
+    modern: [0xeef1f4, 0xe6edf2, 0xf2eee6, 0xe9f0ec],
+    brick: [0xa8503a, 0x96452f, 0xb2604a],
+    classic: [0xe8dcc0, 0xebcfae, 0xdfe2df, 0xf0e0b4, 0xe2d2c8],
+    islamic: [0xf6f2e8, 0xf1ebdc, 0xeef2ec],
+  }[style];
+  const trims = {
+    modern: [0x2a4a7a, 0x1f6f63, 0x7a2e22, 0x3a3f46, 0xb5651d],
+    brick: [0xf4efe4],
+    classic: [0xf8f3e6, 0xfdf8ec],
+    islamic: [0x1f6f63, 0x2a4a7a, 0x7d2f3a],
+  }[style];
+  pal.wall = tint[v % tint.length];
+  pal.trim = trims[Math.floor(v / 7) % trims.length];
   const wall = style === "brick" ? MAT.block(pal.wall) : MAT.plaster(pal.wall),
     trim = MAT.plaster(pal.trim),
     stone = MAT.plain(0xcfc8b6);
@@ -1798,6 +1815,22 @@ export function faculty(
     b.add(new THREE.CylinderGeometry(0.08, 0.1, 9, 6), MAT.plain(0xd0d0d0, 0.3), fx, 4.5, fz + 4.4);
     b.box(1.6, 1, 0.05, MAT.plain(s < 0 ? 0x008751 : pal.accent), fx + 0.85, 7.7, fz + 4.4);
     solid(fx - 0.2, fx + 0.2, fz + 4.2, fz + 4.6);
+  }
+  // shade trees and lawn on either side of the building
+  for (const s of [-1, 1]) {
+    const tx = s * (W / 2 - 0.9);
+    b.box(1.6, 0.06, D - 4, MAT2.lawn(), tx, 0.04, 0);
+    for (const tz of [front - 5.2, front - 8.3]) {
+      b.add(new THREE.CylinderGeometry(0.18, 0.26, 3, 6), MAT.plain(0x6b4a2b), tx, 1.5, tz);
+      b.add(
+        new THREE.IcosahedronGeometry(1.7 + (v % 3) * 0.25, 0),
+        MAT.plain([0x3f7a3a, 0x4d8a3f, 0x2f6a3a][Math.abs(Math.round(v + tz)) % 3]),
+        tx,
+        3.9,
+        tz,
+      );
+      solid(tx - 0.3, tx + 0.3, tz - 0.3, tz + 0.3);
+    }
   }
   const door = to(0, Math.min(front - 0.6, fz + 4.2));
   b.base.identity();

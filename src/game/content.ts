@@ -168,6 +168,43 @@ export const STREETS: Record<string, Street> = {
     bio: "The road out to Ilorin International Airport.",
   },
   adewoleroad: { id: "adewoleroad", name: "Adewole Road", bio: ILORIN_ST },
+  kwasuroad: {
+    id: "kwasuroad",
+    name: "University Road (KWASU)",
+    bio: "The road through Kwara State University, Malete, past the faculties.",
+  },
+  mssnkwasu: { id: "mssnkwasu", name: "MSSN Avenue (KWASU)", bio: MSSN_ST },
+  malete: {
+    id: "malete",
+    name: "Malete Road",
+    bio: "Student lodges, eateries and shops outside Kwara State University, Malete.",
+  },
+  akeroad: {
+    id: "akeroad",
+    name: "Ake Road",
+    bio: "In the old heart of Abeokuta, near the Ake palace and the Abeokuta Central Mosque.",
+  },
+  kutoroad: {
+    id: "kutoroad",
+    name: "Kuto Road",
+    bio: "Kuto market and the busy road to Olumo Rock.",
+  },
+  itokuroad: {
+    id: "itokuroad",
+    name: "Itoku Road",
+    bio: "The adire (tie-dye) market of Itoku, famous all over Nigeria.",
+  },
+  crescentroad: {
+    id: "crescentroad",
+    name: "University Road (Crescent)",
+    bio: "The road through Crescent University, Abeokuta, past the colleges.",
+  },
+  mssncrescent: { id: "mssncrescent", name: "MSSN Avenue (Crescent)", bio: MSSN_ST },
+  crescentlodge: {
+    id: "crescentlodge",
+    name: "Bola Ajibola Road",
+    bio: "Student lodges and shops outside Crescent University, Abeokuta.",
+  },
   hikmahuniroad: {
     id: "hikmahuniroad",
     name: "Al-Hikmah University Road",
@@ -1631,6 +1668,40 @@ export const DISTRICTS: District[] = [
     about:
       "Where Al-Hikmah Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
   }),
+  universityArea({
+    id: "malete",
+    gate: "Kwara State University, Malete",
+    name: "KWASU, Malete",
+    uni: "Kwara State University (KWASU), Malete",
+    short: "KWASU",
+    origin: { x: 4840, z: -790 },
+    highway: "Malete Road",
+    parent: "tanke",
+    link: "east",
+    busStop: "KWASU Gate",
+    road: "kwasuroad",
+    avenue: "mssnkwasu",
+    homes: "malete",
+    state: "Kwara",
+    city: "ilorin",
+    region: "Ilorin",
+    faculties: [
+      "Faculty of Pure and Applied Sciences",
+      "Faculty of Engineering and Technology",
+      "Faculty of Education",
+      "Faculty of Law",
+    ],
+    more: [
+      "Faculty of Humanities",
+      "Faculty of Management Sciences",
+      "Faculty of Social Sciences",
+      "Faculty of Agriculture",
+      "Faculty of Information and Communication Technology",
+      "College of Health Sciences",
+    ],
+    about:
+      "Where KWASU Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
   {
     id: "fate",
     city: "ilorin",
@@ -2112,6 +2183,81 @@ export const DISTRICTS: District[] = [
       },
     ],
   },
+  /* ---------------- Abeokuta, Ogun State ---------------- */
+  {
+    id: "abeokuta",
+    city: "abeokuta",
+    tier: 2,
+    name: "Ake, Abeokuta",
+    state: "Ogun",
+    region: "Abeokuta",
+    origin: { x: 2070, z: 2400 },
+    highway: "Ibara Road",
+    busStop: "Kuto",
+    shops: 0.3,
+    toLet: 0.5,
+    streets: [
+      { id: "akeroad", z: 0, decor: true },
+      { id: "kutoroad", z: -66 },
+      { id: "itokuroad", z: 66 },
+    ],
+    landmarks: [
+      {
+        id: "abeokuta-central-mosque",
+        kind: "masjid",
+        name: "Abeokuta Central Mosque",
+        street: "akeroad",
+        x: -40,
+      },
+      {
+        id: "ake-palace",
+        kind: "mansion",
+        name: "Ake Palace of the Alake of Egbaland",
+        street: "akeroad",
+        x: 50,
+        width: 48,
+        depth: 34,
+        floors: 2,
+      },
+      { id: "kuto-market", kind: "souq", name: "Kuto Market", street: "kutoroad", x: 40 },
+      {
+        id: "abeokuta-madrasah",
+        kind: "school",
+        name: "Abeokuta Arabic and Islamic School",
+        street: "itokuroad",
+        x: -40,
+      },
+    ],
+  },
+  universityArea({
+    id: "crescent",
+    gate: "Crescent University, Abeokuta",
+    name: "Crescent University",
+    uni: "Crescent University, Abeokuta",
+    short: "Crescent",
+    origin: { x: 2740, z: 2400 },
+    highway: "Lafenwa Road",
+    busStop: "Crescent Gate",
+    road: "crescentroad",
+    avenue: "mssncrescent",
+    homes: "crescentlodge",
+    state: "Ogun",
+    city: "abeokuta",
+    region: "Abeokuta",
+    faculties: [
+      "College of Natural and Applied Sciences",
+      "College of Social and Management Sciences",
+      "Bola Ajibola College of Law",
+      "College of Environmental Sciences",
+    ],
+    more: [
+      "College of Information and Communication Technology",
+      "College of Health Sciences",
+      "College of Arts and Humanities",
+    ],
+    about:
+      "Where Crescent Muslim students meet between lectures: brothers and sisters gist, plan MSSN programmes, share notes and remind one another.",
+  }),
 ];
 
 /* More homes: where an area has room beyond its streets, add a residential street lined
@@ -2156,6 +2302,7 @@ const HOME_STREET_NAMES = [
 export const CITY_CENTER: Record<string, { x: number; z: number }> = {
   lagos: { x: 0, z: 0 },
   ilorin: { x: 4200, z: -480 },
+  abeokuta: { x: 2400, z: 2400 },
   makkah: { x: -5000, z: -480 },
   madinah: { x: -5000, z: -3480 },
 };
@@ -2165,6 +2312,7 @@ export const centerOf = (d: District) => CITY_CENTER[cityOf(d)] ?? CITY_CENTER.l
 export const JUNCTION_NAME: Record<string, string> = {
   lagos: "City Junction",
   ilorin: "Post Office Roundabout",
+  abeokuta: "Panseke Roundabout",
   makkah: "Makkah Junction",
   madinah: "Madinah Junction",
 };
@@ -2231,6 +2379,14 @@ export const WORLD_CITIES: WorldCity[] = [
     country: "Nigeria",
     live: true,
     blurb: "The city of scholars: the Central Mosque, Oja-Oba, Unilorin and the Emir's palace.",
+  },
+  {
+    id: "abeokuta",
+    name: "Abeokuta",
+    state: "Ogun",
+    country: "Nigeria",
+    live: true,
+    blurb: "The rock city: Olumo Rock, Ake palace, adire cloth and Crescent University.",
   },
   {
     id: "abuja",

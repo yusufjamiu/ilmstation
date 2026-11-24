@@ -1188,6 +1188,7 @@ export class IlmCityEngine {
     if (D.campus) this.buildCampusWall(D);
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
     if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
+    if (D.campus) this.buildHostels(D, XR, rnd);
 
     // bus park
     this.buildBusPark(-72, 15, !!D.holy);
@@ -6354,6 +6355,69 @@ export class IlmCityEngine {
     }
   }
 
+  /** MSSN hostels: blocks of flats in the neighbourhood outside the campus wall, free for
+      the university's registered students (brothers' and sisters' blocks apart). */
+  private buildHostels(D: District, XR: number, rnd: () => number) {
+    const names = ["MSSN Brothers' Hostel A", "MSSN Sisters' Hostel", "MSSN Brothers' Hostel B"];
+    // the streets outside the campus wall (south of it), nearest the gate first
+    const streets = D.streets.filter((st) => st.z > (D.campus?.z ?? -34)).sort((a, b) => a.z - b.z);
+    let k = 0;
+    for (const st of streets)
+      for (const north of [false, true]) {
+        const xs: number[] = [];
+        for (let x = -(XR - 14); x <= XR - 14; x += 6) if (Math.abs(x) > 14) xs.push(x);
+        xs.sort((a, b) => Math.abs(a) - Math.abs(b));
+        for (const cx of xs) {
+          if (k >= names.length) return;
+          const cz = north ? st.z - 21.5 : st.z + 21.5;
+          if (cz - 10.5 < (D.campus?.z ?? -34)) continue;
+          if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
+          const c = compound(this.curBatch, {
+            x: cx,
+            z: cz,
+            turn: north ? 0 : Math.PI,
+            number: 1,
+            rnd,
+            floors: 3,
+            width: 24,
+            wall: k === 1 ? 0xe9d6dc : 0xd9e6d2,
+            style: "storey",
+          });
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + cx - 12,
+            x1: this.ox + cx + 12,
+            z0: this.oz + cz - 10.5,
+            z1: this.oz + cz + 10.5,
+          });
+          this.zones.push({
+            id: `hostel:${D.id}:${k}`,
+            label: names[k],
+            x: this.ox + c.door.x,
+            z: this.oz + c.door.z,
+            r: 3,
+            scene: "out",
+          });
+          const t = label(`🏠 ${names[k]} · free for students`, {
+            size: 1.05,
+            bg: k === 1 ? "rgba(125,47,74,0.92)" : "rgba(31,111,99,0.92)",
+          });
+          t.position.set(c.gate.x, 5, c.gate.z);
+          this.dg.add(t);
+          k++;
+        }
+      }
+  }
+  /** Begin the day in your hostel room; walking out puts you at the hostel gate. */
+  startAtHostel(id: string, name: string) {
+    const z = this.zones.find((q) => q.id === id);
+    if (z) {
+      this.player.position.set(z.x, 0, z.z);
+      const area = id.split(":")[1];
+      if (area) this.district = districtById(area);
+    }
+    this.enterInterior("home", name);
+  }
   /** A block of flats near the market where new players live. */
   private buildEstate(D: District, XR: number, rnd: () => number) {
     const m = this.marketSpot.get(D.id);
