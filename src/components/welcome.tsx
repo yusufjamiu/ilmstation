@@ -61,7 +61,7 @@ export function Welcome({ onSignup, onLogin }: { onSignup: () => void; onLogin: 
       <Search className="size-5 opacity-70" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search languages…" className="w-full bg-transparent font-mono text-sm outline-none" />
     </label>
     <div className="mt-4 grid flex-1 content-start gap-3 overflow-y-auto pb-4">
-      {list.map((l) => { const on = l.code === pick; return <button key={l.code} type="button" onClick={() => setPick(l.code)}
+      {list.map((l) => { const on = l.code === pick; return <button key={l.code} type="button" onClick={() => { setPick(l.code); set(l.code); }}
         className={`flex items-center justify-between rounded-full border-2 border-black px-6 py-3.5 text-left shadow-[0_4px_0_#000] transition active:translate-y-0.5 active:shadow-[0_2px_0_#000] ${on ? "bg-[#f6b700]" : "bg-white"}`}>
         <span className="font-mono text-base" dir={l.dir}>{l.native}</span>
         {on && <span className="grid size-6 place-items-center rounded-full bg-[#0fa86a] text-white"><Check className="size-4" /></span>}
@@ -104,4 +104,13 @@ async function translateCards(lang: string) {
   await Promise.all(missing.map((t) => fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: t, lang }) })
     .then((r) => r.json()).then((j: { text?: string }) => { if (j.text) { saved[t] = j.text; addPhrase(t, lang, j.text); } }).catch(() => {})));
   try { localStorage.setItem(key, JSON.stringify(saved)); } catch { /* ignore */ }
+}
+
+/** In the home-screen app, the website homepage jumps straight to the app. */
+export function AppHomeOnly() {
+  useEffect(() => {
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    if (standalone && window.location.pathname === "/") window.location.replace("/app");
+  }, []);
+  return null;
 }

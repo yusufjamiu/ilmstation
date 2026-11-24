@@ -177,7 +177,10 @@ type Draft = { language: Lang; name: string; username: string; email: string; pa
 export function SignupFlow() {
   const { lang, set: setLanguage } = useLanguage();
   const { account, loggedIn, signUp, logOut, firstName } = useAuth();
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => {
+    try { if (localStorage.getItem("ilm:welcomeLang")) { sessionStorage.setItem("signupLang", localStorage.getItem("iq_lang") ?? "en"); return 1; } } catch { /* ignore */ }
+    return 0;
+  });
   const [forChild, setForChild] = useStateL(false);
   const [draft, setDraft] = useState<Draft>({ language: lang, name: "", username: "", email: "", password: "", zone: null, gender: null, interests: [] });
   const [result, setResult] = useState<{ score: number | null; level: Level } | null>(null);

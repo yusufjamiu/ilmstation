@@ -437,7 +437,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
       <a className={row} href="mailto:admin@ilmstation.com">{label(YHelp, "Help & contact")}<YChevron className="size-4" /></a>
       <a className={row} href="/privacy" target="_blank" rel="noreferrer">{label(YDoc, "Privacy Policy")}<YChevron className="size-4" /></a>
       <a className={row} href="/terms" target="_blank" rel="noreferrer">{label(YDoc, "Terms of Use")}<YChevron className="size-4" /></a>
-      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/" }); }}>{label(YLogOut, "Log out")}<YChevron className="size-4" /></button>
+      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/app" }); }}>{label(YLogOut, "Log out")}<YChevron className="size-4" /></button>
     </div>
   </Frame>;
 }
