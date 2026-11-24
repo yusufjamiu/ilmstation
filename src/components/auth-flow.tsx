@@ -114,11 +114,11 @@ export function LoginPage() {
       <h1 className="mt-2 font-serif text-5xl leading-none sm:text-6xl">Log in</h1>
       <p className="mt-3 text-muted-foreground">Pick up today’s quest where you left it.</p>
       {!who ? <div data-login-pick className="mt-6 grid gap-3">
-        <button type="button" onClick={() => setWho("adult")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-primary">
+        <button type="button" onClick={() => setWho("adult")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_var(--foreground)] transition active:translate-y-1 active:shadow-[0_1px_0_var(--foreground)] bg-primary">
           <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoAdult className="size-8" /></span>
           <span><b className="block text-xl">Teen & Adult</b><span className="text-sm text-muted-foreground">Log in with Google or your email</span></span>
         </button>
-        <button type="button" onClick={() => setWho("kid")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-secondary text-secondary-foreground">
+        <button type="button" onClick={() => setWho("kid")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_var(--foreground)] transition active:translate-y-1 active:shadow-[0_1px_0_var(--foreground)] bg-secondary text-secondary-foreground">
           <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoChild className="size-8" /></span>
           <span><b className="block text-xl">Child</b><span className="text-sm text-muted-foreground">Log in with the username your parent gave you</span></span>
         </button>
@@ -245,11 +245,11 @@ export function SignupFlow() {
     {step < steps.length - 1 && <StepHeader step={step} />}
     {step === 1 && !forChild && !whoChosen && <div data-who-pick className="grid gap-4">
       <p className="font-serif text-2xl">Who is this account for?</p>
-      <button type="button" onClick={() => setWhoChosen(true)} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-primary">
+      <button type="button" onClick={() => setWhoChosen(true)} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_var(--foreground)] transition active:translate-y-1 active:shadow-[0_1px_0_var(--foreground)] bg-primary">
         <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background"><WhoAdult className="size-8" /></span>
         <span><b className="block text-2xl leading-tight">For me</b><span className="text-sm">Teen or adult</span></span>
       </button>
-      <button type="button" onClick={() => { setWhoChosen(true); setForChild(true); }} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-secondary text-secondary-foreground">
+      <button type="button" onClick={() => { setWhoChosen(true); setForChild(true); }} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_var(--foreground)] transition active:translate-y-1 active:shadow-[0_1px_0_var(--foreground)] bg-secondary text-secondary-foreground">
         <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoChild className="size-8" /></span>
         <span><b className="block text-2xl leading-tight">For my child</b><span className="text-sm opacity-90">Ages 3 to 13 · safe and simple</span></span>
       </button>
@@ -406,21 +406,23 @@ function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => vo
     setTried(true);
     if (zone && !isKid && gender) onNext(zone, gender);
   };
+  const pill = "rounded-full border-[1.5px] border-foreground shadow-[0_3px_0_var(--foreground)] active:translate-y-0.5 sm:rounded-none sm:border-2 sm:shadow-none";
   return <form noValidate onSubmit={submit} className="grid gap-6">
     <fieldset>
       <legend className="text-sm font-semibold">Your age group</legend>
-      <p className="mt-1.5 border-2 border-foreground bg-muted p-3 text-sm"><b>Under 13?</b> Ask a parent or guardian to create your account in their <b>Family hub</b>. You’ll log in with a username, no email needed.</p>
+      <p className="mt-1.5 rounded-2xl bg-muted p-3 text-sm sm:rounded-none sm:border-2 sm:border-foreground"><b>Under 13?</b> Ask a parent or guardian to create your account in their <b>Family hub</b>. You’ll log in with a username, no email needed.</p>
       <p className="mt-2 text-xs text-muted-foreground">By creating an account, you agree to our <a href="/terms" target="_blank" rel="noreferrer" className="font-semibold underline">Terms of Use</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="font-semibold underline">Privacy Policy</a>.</p>
-      <div role="radiogroup" aria-label="Age group" className="mt-1.5 grid gap-3">{(["youth", "adult"] as const).map((z) => { const on = zone === z; return <button key={z} type="button" role="radio" aria-checked={on} onClick={() => setZone(z)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 text-left transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
-        <span className="w-full text-center"><span className="block font-semibold">{zones[z].name}</span><span className="text-xs text-muted-foreground">{zones[z].ages}</span></span>
-        {on && <span className="grid size-6 shrink-0 place-items-center border-2 border-foreground bg-secondary text-secondary-foreground"><Check className="size-3.5" /></span>}
+      <div role="radiogroup" aria-label="Age group" className="mt-2 grid gap-3">{(["youth", "adult"] as const).map((z) => { const on = zone === z; return <button key={z} data-plain type="button" role="radio" aria-checked={on} onClick={() => setZone(z)} className={cn("relative flex items-center justify-center px-10 py-2.5 transition-transform", pill, on ? "bg-primary sm:shadow-brutal" : "bg-background sm:shadow-brutal-sm sm:hover:-translate-y-0.5")}>
+        <span className="text-center"><span className="block font-semibold">{zones[z].name}</span><span className="text-xs text-muted-foreground">{zones[z].ages}</span></span>
+        {on && <span className="absolute right-3 grid size-6 place-items-center rounded-full bg-secondary text-secondary-foreground sm:rounded-none sm:border-2 sm:border-foreground"><Check className="size-3.5" /></span>}
       </button>; })}</div>
       {tried && !zone && <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">Choose your age group to continue.</p>}
     </fieldset>
     <fieldset>
       <legend className="text-sm font-semibold">Gender</legend>
-      <div className="mt-1.5 grid grid-cols-2 gap-3">{(["male", "female"] as const).map((g) => { const on = gender === g; return <button key={g} type="button" aria-pressed={on} onClick={() => setGender(g)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 font-semibold capitalize transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
-        {g}{on && <span className="grid size-6 place-items-center border-2 border-foreground bg-secondary text-secondary-foreground"><Check className="size-3.5" /></span>}
+      <div className="mt-2 grid grid-cols-2 gap-3">{(["male", "female"] as const).map((g) => { const on = gender === g; const Fig = g === "male" ? MaleFigure : FemaleFigure; return <button key={g} data-plain type="button" aria-pressed={on} onClick={() => setGender(g)} className={cn("flex items-center gap-2.5 px-4 py-2.5 font-mono text-[15px] capitalize transition-transform sm:font-sans sm:font-semibold sm:py-3", pill, on ? "bg-primary sm:shadow-brutal" : "bg-background sm:shadow-brutal-sm sm:hover:-translate-y-0.5")}>
+        <Fig className="size-6 shrink-0" /><span className="flex-1 text-left">{g}</span>
+        {on && <span className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground sm:rounded-none sm:border-2 sm:border-foreground"><Check className="size-3.5" /></span>}
       </button>; })}</div>
       {tried && !gender && <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">Choose one to continue.</p>}
     </fieldset>
@@ -431,20 +433,36 @@ function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => vo
     <StepNav onBack={onBack} disabled={isKid} />
   </form>;
 }
-
+function MaleFigure({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden><path d="M8.6 6.2c.6-2.4 6.2-2.4 6.8 0" /><circle cx="12" cy="8" r="3.4" /><path d="M5 21c0-4 3.1-6.8 7-6.8s7 2.8 7 6.8" /><path d="M12 14.2v3" /></svg>;
+}
+function FemaleFigure({ className }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden><path d="M12 2.6c-3.5 0-5.9 2.8-5.9 6.4 0 2.2.8 4 2.1 5.2C6.3 15.4 5 17.8 5 21h14c0-3.2-1.3-5.6-3.2-6.8 1.3-1.2 2.1-3 2.1-5.2 0-3.6-2.4-6.4-5.9-6.4z" /><ellipse cx="12" cy="9.2" rx="2.7" ry="3.3" /></svg>;
+}
 function InterestsStep({ value, onBack, onNext }: { value: string[]; onBack: () => void; onNext: (v: string[]) => void }) {
   const [picked, setPicked] = useState<string[]>(value);
   const toggle = (l: string) => setPicked((p) => (p.includes(l) ? p.filter((x) => x !== l) : [...p, l]));
   const enough = picked.length >= 3;
+  const ROWS = 5, cols = Math.ceil(interestOptions.length / ROWS);
   return <form onSubmit={(e) => { e.preventDefault(); if (enough) onNext(picked); }}>
-    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">{interestOptions.map(({ label }) => { const on = picked.includes(label); return <button key={label} type="button" aria-pressed={on} onClick={() => toggle(label)} className={cn("flex min-h-14 items-center justify-center gap-1.5 border-2 border-foreground px-2 py-3 text-sm font-semibold transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
+    <style>{"@keyframes interestBob{0%,100%{translate:0 0}50%{translate:0 -6px}}.interest-bob{animation:interestBob 4.5s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.interest-bob{animation:none}}"}</style>
+    {/* phones: floating bubbles, scroll sideways */}
+    <div className="-mx-5 overflow-x-auto pb-3 pt-2 sm:hidden">
+      <div className="relative mx-5" style={{ width: cols * 90 + 118, height: (ROWS - 1) * 84 + 116 }}>
+        {interestOptions.map(({ label }, i) => { const on = picked.includes(label); const c = Math.floor(i / ROWS), r = i % ROWS;
+          return <button key={label} data-plain type="button" aria-pressed={on} onClick={() => toggle(label)}
+            className={cn("interest-bob absolute grid size-[112px] place-items-center rounded-full p-3 text-center text-[15px] font-bold leading-tight transition-[transform,background-color] duration-300", on ? "z-10 scale-105 bg-primary shadow-lg" : "bg-foreground/[0.07]")}
+            style={{ left: c * 90 + (r % 2) * 45, top: r * 84, animationDelay: `${(i % 7) * 0.45}s` }}>{label}</button>; })}
+      </div>
+    </div>
+    {/* computers: as before */}
+    <div className="hidden grid-cols-2 gap-2.5 sm:grid sm:grid-cols-4">{interestOptions.map(({ label }) => { const on = picked.includes(label); return <button key={label} type="button" aria-pressed={on} onClick={() => toggle(label)} className={cn("flex min-h-14 items-center justify-center gap-1.5 border-2 border-foreground px-2 py-3 text-sm font-semibold transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
       {on && <Check className="size-4 shrink-0" />}{label}
     </button>; })}</div>
     <p className={cn("mt-4 text-sm font-semibold", enough ? "text-secondary" : "text-muted-foreground")} aria-live="polite">{picked.length} selected{enough ? " — great choices" : ` · pick ${3 - picked.length} more`}</p>
     <StepNav onBack={onBack} disabled={!enough} />
   </form>;
 }
-
 function QuizStep({ interests, onBack, onFinish, busy }: { interests: string[]; onBack: () => void; onFinish: (score: number | null) => void | Promise<void>; busy?: boolean }) {
   const questions = useMemo(() => buildQuiz(interests), [interests]);
   const [index, setIndex] = useState(0);
@@ -458,21 +476,21 @@ function QuizStep({ interests, onBack, onFinish, busy }: { interests: string[]; 
   const advance = () => { if (last) { void onFinish(score); return; } setIndex(index + 1); setChoice(null); };
 
   return <div>
-    <div className="flex items-center justify-between text-sm font-bold"><span>Q{index + 1}/{questions.length}</span><span className="text-muted-foreground">No pressure!</span></div>
-    <div className="mt-2 h-3 border-2 border-foreground"><div className="h-full bg-primary transition-[width]" style={{ width: `${((index + (answered ? 1 : 0)) / questions.length) * 100}%` }} /></div>
-    <div className="mt-6 border-2 border-foreground bg-muted p-5 shadow-brutal">
-      <span className="inline-block border-2 border-foreground bg-secondary px-2 py-0.5 text-xs font-bold uppercase text-secondary-foreground">{q.topic}</span>
-      <h2 className="mt-3 font-serif text-3xl leading-tight">{q.q}</h2>
+    <div className="flex items-center justify-between text-sm"><span className="font-mono font-bold">Q{index + 1}/{questions.length}</span><span className="text-muted-foreground">No pressure!</span></div>
+    <div className="mt-2 h-1 overflow-hidden rounded-full bg-foreground/10 sm:h-3 sm:rounded-none sm:border-2 sm:border-foreground sm:bg-transparent"><div className="h-full rounded-full bg-primary transition-[width] sm:rounded-none" style={{ width: `${((index + (answered ? 1 : 0)) / questions.length) * 100}%` }} /></div>
+    <div className="mt-5 rounded-3xl border-[1.5px] border-foreground bg-muted p-5 shadow-[0_4px_0_var(--foreground)] sm:mt-6 sm:rounded-none sm:border-2 sm:shadow-brutal">
+      <span className="inline-block rounded-full border-[1.5px] border-secondary bg-secondary/15 px-3 py-0.5 font-mono text-xs font-bold text-secondary sm:rounded-none sm:border-2 sm:border-foreground sm:bg-secondary sm:font-sans sm:uppercase sm:text-secondary-foreground">{q.topic}</span>
+      <h2 className="mt-3 text-2xl font-bold leading-snug sm:font-serif sm:text-3xl sm:font-normal sm:leading-tight">{q.q}</h2>
       <QuizVisual kind={q.visual} compact />
     </div>
     <div className="mt-5 grid gap-3">{q.options.map((o, i) => {
       const correct = answered && i === q.answer;
       const wrong = answered && i === choice && i !== q.answer;
-      return <button key={o} type="button" disabled={answered} onClick={() => choose(i)} className={cn("flex items-center gap-3 border-2 border-foreground px-3 py-3 text-left font-semibold transition-transform disabled:cursor-default", correct ? "bg-secondary text-secondary-foreground shadow-brutal" : wrong ? "bg-destructive/15" : "bg-background shadow-brutal-sm", !answered && "hover:-translate-y-0.5")}>
-        <span className={cn("grid size-9 shrink-0 place-items-center border-2 border-current font-bold", correct && "bg-background text-foreground")}>{correct ? <Check className="size-4" /> : wrong ? <X className="size-4" /> : "ABCD"[i]}</span>{o}
+      return <button key={o} data-plain type="button" disabled={answered} onClick={() => choose(i)} className={cn("flex items-center gap-3 rounded-full border-[1.5px] border-foreground px-2 py-2 text-left font-semibold shadow-[0_3px_0_var(--foreground)] transition-transform disabled:cursor-default sm:rounded-none sm:border-2 sm:px-3 sm:py-3 sm:shadow-none", correct ? "bg-secondary text-secondary-foreground sm:shadow-brutal" : wrong ? "bg-destructive/15" : "bg-background sm:shadow-brutal-sm", !answered && "active:translate-y-0.5 sm:hover:-translate-y-0.5")}>
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-full border-[1.5px] border-current font-bold sm:rounded-none sm:border-2", correct && "bg-background text-foreground")}>{correct ? <Check className="size-4" /> : wrong ? <X className="size-4" /> : "ABCD"[i]}</span>{o}
       </button>;
     })}</div>
-    {answered && <p aria-live="polite" className="mt-5 border-l-4 border-secondary bg-muted p-4 text-sm"><b>{choice === q.answer ? "Correct. " : "Not quite. "}</b>{q.why}</p>}
+    {answered && <p aria-live="polite" className="mt-5 rounded-2xl border-l-4 border-secondary bg-muted p-4 text-sm sm:rounded-none"><b>{choice === q.answer ? "Correct. " : "Not quite. "}</b>{q.why}</p>}
     <div className="mt-8 flex items-center gap-3">
       {index === 0 && !answered && <Button type="button" variant="outline" size="lg" onClick={onBack}><ArrowLeft /> Back</Button>}
       <Button type="button" size="lg" disabled={!answered || busy} onClick={advance} className="ml-auto flex-1 sm:flex-none">{last ? (busy ? "Creating account…" : "See my level") : "Next question"} <ArrowRight /></Button>
@@ -480,7 +498,6 @@ function QuizStep({ interests, onBack, onFinish, busy }: { interests: string[]; 
     <p className="mt-5 text-center"><button type="button" disabled={busy} onClick={() => void onFinish(null)} className="text-sm font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground">Skip assessment</button></p>
   </div>;
 }
-
 function WelcomeStep({ name, zone, interests, score, level }: { name: string; zone: Zone; interests: string[]; score: number | null; level: Level }) {
   const first = name.trim().split(/\s+/)[0];
   return <div className="border-2 border-foreground bg-primary p-6 text-center text-primary-foreground shadow-brutal sm:p-10">

@@ -128,8 +128,8 @@ export function AuthMobileStyle() {
     body[data-auth] main > *:first-child{margin-top:0!important;padding-top:0!important}
     body[data-auth] h1{font-size:30px!important;line-height:1.1!important;letter-spacing:-.01em}
     body[data-auth] h2{font-size:24px!important;line-height:1.15!important}
-    body[data-auth] main :is(button,a)[class*="border-2"]:not([data-who-pick] *):not([class*="rounded-3xl"]){border-radius:9999px!important;border-width:1.5px!important;box-shadow:0 3px 0 hsl(var(--foreground))!important}
+    body[data-auth] main :is(button,a)[class*="border-2"]:not([data-who-pick] *):not([class*="rounded-3xl"]):not([data-plain]){border-radius:9999px!important;border-width:1.5px!important;box-shadow:0 3px 0 var(--foreground)!important}
     body[data-auth] main :is(button,a)[class*="h-11"],body[data-auth] main :is(button,a)[class*="h-12"]{min-height:46px;font-size:15px}
-    body[data-auth] main button[type=submit],body[data-auth] main button[class*="bg-primary"]{border-radius:9999px!important;border:1.5px solid hsl(var(--foreground))!important;box-shadow:0 3px 0 hsl(var(--foreground))!important;font-weight:800;text-transform:uppercase}
+    body[data-auth] main button[type=submit],body[data-auth] main button[class*="bg-primary"]:not([data-plain]){border-radius:9999px!important;border:1.5px solid var(--foreground)!important;box-shadow:0 3px 0 var(--foreground)!important;font-weight:800;text-transform:uppercase}
   }`}</style>;
 }
