@@ -125,6 +125,9 @@ type Walker = {
   seated?: boolean;
   /** a pilgrim in Makkah or Madinah: no name tag, does not stop to talk */
   pilgrim?: boolean;
+  /** a passer-by on the pavement (no name, no home): its place in the area's crowd, so the
+      crowd thins out as real players come */
+  crowd?: number;
 };
 
 const PALETTE = {
@@ -1562,6 +1565,8 @@ export class IlmCityEngine {
 
     // Mina and Arafat are shown as in the days of Hajj: crowds of pilgrims
     if (D.id === "arafat" || D.id === "mina") this.buildPilgrims(D, S);
+    // everywhere else: people on the pavements and traders by the road, so streets feel alive
+    else this.buildStreetLife(D, S, batch);
     // Madinah: bicycles for hire by the street
     if (D.id === "nabawi" || D.id === "quba") this.buildBikeDock(D, S);
 
@@ -1699,6 +1704,181 @@ export class IlmCityEngine {
   /** Pilgrims in ihram filling the plain: in Arafat most stand facing the Ka'bah with their
       hands raised in du'a, many round Jabal ar-Rahmah; in Mina they walk between the tents and
       the Jamarat. Drawn as a few instanced meshes, so thousands cost little. */
+  /** Passers-by walking the pavements, people standing and chatting, and roadside traders
+      under umbrellas. They have no names and no homes: houses, flats and stalls are for real
+      players. As real players come into an area, the crowd thins out to make room. */
+  private buildStreetLife(D: District, S: THREE.Object3D, batch: Batch) {
+    let h = 17;
+    for (const ch of D.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = mulberry(h);
+    const XR = halfOf(D).x - 12;
+    const holy = !!D.holy;
+    const ANKARA = [
+      0xc8262a, 0x1f4f9a, 0xf2c230, 0x2d8a4a, 0x8a2f4f, 0xe07a2a, 0x5a3f6a, 0x1d6b6a, 0xb8573a,
+      0x2a2a2a, 0xf4f0e6, 0x7a4a2a, 0x3a6ab8, 0xd94f7a,
+    ];
+    const HIJABS = [0x1d1d26, 0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0x3d5a4a, 0x6a3a5a];
+    const MEN = ["thobe", "kaftan", "kaftan", "agbada", "thobe"] as const;
+    let idx = 0;
+    // far away, a passer-by is drawn as a simple figure (2 pieces instead of 19)
+    const farBody = new THREE.CylinderGeometry(0.2, 0.32, 1.45, 7);
+    farBody.translate(0, 0.73, 0);
+    const farHead = new THREE.SphereGeometry(0.17, 8, 6);
+    farHead.translate(0, 1.6, 0);
+    const withFar = (g: THREE.Group, robe: number, head: number) => {
+      const far = new THREE.Group();
+      far.add(new THREE.Mesh(farBody, mat(robe)));
+      far.add(new THREE.Mesh(farHead, mat(head)));
+      far.visible = false;
+      g.userData.near = [...g.children];
+      g.userData.far = far;
+      g.add(far);
+      return g;
+    };
+    const SKIN = [0x5a3a24, 0x6b4428, 0x4a2e1c, 0x7a5030];
+    const someone = () => withFar(...someone0());
+    const someone0 = (): [THREE.Group, number, number] => {
+      const sister = rnd() < 0.45;
+      const seed = Math.floor(rnd() * 1000);
+      const skin = SKIN[seed % SKIN.length];
+      if (holy)
+        return sister
+          ? [person(0x15151a, { hijab: 0x15151a, seed, outfit: "abaya" }), 0x15151a, 0x15151a]
+          : [
+              person(0xf7f7f2, { cap: rnd() < 0.5 ? null : 0xffffff, seed, outfit: "thobe" }),
+              0xf7f7f2,
+              skin,
+            ];
+      const robe = ANKARA[Math.floor(rnd() * ANKARA.length)];
+      if (sister) {
+        const hj = HIJABS[Math.floor(rnd() * HIJABS.length)];
+        return [
+          person(robe, { hijab: hj, seed, outfit: rnd() < 0.3 ? "lace" : "abaya" }),
+          robe,
+          hj,
+        ];
+      }
+      return [
+        person(robe, {
+          cap: rnd() < 0.15 ? null : ANKARA[Math.floor(rnd() * ANKARA.length)],
+          seed,
+          outfit: MEN[Math.floor(rnd() * MEN.length)],
+        }),
+        robe,
+        skin,
+      ];
+    };
+    D.streets.forEach((st, k) => {
+      for (const side of [-1, 1]) {
+        // walkers going up and down the pavement
+        const n = k === 0 ? 14 : 8;
+        for (let i = 0; i < n; i++) {
+          const z = st.z + side * (8.7 + rnd() * 0.8);
+          const a = (rnd() * 2 - 1) * XR,
+            b = Math.max(-XR, Math.min(XR, a + (rnd() < 0.5 ? -1 : 1) * (40 + rnd() * 70)));
+          const g = someone();
+          g.position.set(a, 0, z);
+          S.add(g);
+          this.walkers.push({
+            g,
+            route: [
+              [b, z],
+              [a, z],
+            ],
+            k: 0,
+            wait: rnd() * 4,
+            t: 0,
+            district: D.id,
+            crowd: idx++,
+          });
+        }
+        // two or three people standing together, talking
+        for (let grp = 0; grp < (k === 0 ? 3 : 1); grp++) {
+          const x = (rnd() * 2 - 1) * (XR - 10),
+            z = st.z + side * 9.6;
+          const m = 2 + Math.floor(rnd() * 2);
+          for (let j = 0; j < m; j++) {
+            const g = someone();
+            const ang = (j / m) * Math.PI * 2;
+            g.position.set(x + Math.cos(ang) * 0.75, 0, z + Math.sin(ang) * 0.75);
+            g.rotation.y = Math.atan2(-Math.cos(ang), -Math.sin(ang));
+            S.add(g);
+            this.walkers.push({
+              g,
+              route: [[g.position.x, g.position.z]],
+              k: 0,
+              wait: 0,
+              t: 0,
+              district: D.id,
+              seated: true,
+              crowd: idx++,
+            });
+          }
+        }
+      }
+      // roadside traders: an umbrella, a table of goods and the trader on a stool
+      if (holy) return;
+      const traders = k === 0 ? 6 : 2;
+      for (let i = 0; i < traders; i++) {
+        const side = rnd() < 0.5 ? -1 : 1;
+        const x = (rnd() * 2 - 1) * (XR - 8),
+          z = st.z + side * 10.6;
+        if (!this.free(this.ox + x, this.oz + z, 1.4)) continue;
+        const g = new THREE.Group();
+        g.position.set(x, 0, z);
+        const pole = cyl(0.05, 0.05, 2.4, 0x6a6a6a, 6);
+        pole.position.y = 1.2;
+        g.add(pole);
+        const top = new THREE.Mesh(
+          new THREE.ConeGeometry(1.5, 0.6, 8, 1, true),
+          mat([0xc8262a, 0xf2c230, 0x1f4f9a, 0x2d8a4a][Math.floor(rnd() * 4)], {
+            side: THREE.DoubleSide,
+          }),
+        );
+        top.position.y = 2.5;
+        g.add(top);
+        g.add(box(1.0, 0.75, 0.55, 0x6a4a2a, 0, 0, -side * 0.5));
+        g.add(box(1.2, 0.08, 0.7, 0x8a6a4a, 0, 0.75, -side * 0.5));
+        for (let q = 0; q < 5; q++)
+          g.add(
+            box(
+              0.2,
+              0.2,
+              0.2,
+              [0xe07a2a, 0xf2c230, 0x2d8a4a, 0xc8262a, 0xf4f0e6][q],
+              -0.45 + q * 0.22,
+              0.83,
+              -side * 0.5,
+            ),
+          );
+        S.add(g);
+        this.addCollider(
+          "out",
+          this.ox + x - 0.7,
+          this.ox + x + 0.7,
+          this.oz + z - 0.7,
+          this.oz + z + 0.7,
+        );
+        const t = someone();
+        t.position.set(x + 0.2, 0, z + side * 0.35);
+        t.rotation.y = side > 0 ? Math.PI : 0;
+        sitPerson(t);
+        S.add(t);
+        this.walkers.push({
+          g: t,
+          route: [[t.position.x, t.position.z]],
+          k: 0,
+          wait: 0,
+          t: 0,
+          district: D.id,
+          seated: true,
+          crowd: idx++,
+        });
+      }
+    });
+    void batch;
+  }
+
   private buildPilgrims(D: District, S: THREE.Object3D) {
     const arafat = D.id === "arafat";
     const H = halfOf(D);
@@ -10904,8 +11084,30 @@ export class IlmCityEngine {
         else if (a.onGpu && d > this.viewDist + 400) this.freeArea(a);
       }
 
-    // neighbours
+    // neighbours (passers-by far from the camera are hidden and stand still)
+    const camP = this.camera.position;
+    const crowdCap = Math.max(20, 120 - this.remotes.size * 4);
     for (const w of this.walkers) {
+      if (w.crowd !== undefined) {
+        const par = w.g.parent;
+        if (!par?.visible) continue;
+        const dx = Math.abs(w.g.position.x + par.position.x - camP.x),
+          dz = Math.abs(w.g.position.z + par.position.z - camP.z);
+        w.g.visible = w.crowd < crowdCap && dx < 120 && dz < 120 && this.where === "out";
+        if (!w.g.visible) continue;
+        // full detail close to you, a simple figure further away
+        const close = dx < 40 && dz < 40;
+        const ud = w.g.userData as {
+          near?: THREE.Object3D[];
+          far?: THREE.Object3D;
+          close?: boolean;
+        };
+        if (ud.far && ud.close !== close) {
+          ud.close = close;
+          ud.far.visible = !close;
+          for (const c of ud.near ?? []) c.visible = close;
+        }
+      }
       if (w.seated) continue;
       if (w.talking) {
         const px = this.player.position.x - (w.g.parent?.position.x ?? 0),

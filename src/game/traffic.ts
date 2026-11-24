@@ -445,8 +445,14 @@ export class Traffic {
       d.streets.forEach((st, k) => {
         const p = streetLoop(d, st.z, k === 0 ? 11 : 8);
         if (k === 0) {
-          add("keke", p, rnd() * p.length, 0xf2c230);
-          add(kinds[Math.floor(rnd() * kinds.length)], p, rnd() * p.length);
+          // the main street is busy: kekes and cars nose to tail
+          const L = p.length;
+          const s0 = rnd() * L;
+          add("keke", p, s0, 0xf2c230);
+          add("keke", p, s0 + L * 0.5, 0xf2c230);
+          add(kinds[Math.floor(rnd() * kinds.length)], p, s0 + L * 0.25);
+          add(kinds[Math.floor(rnd() * kinds.length)], p, s0 + L * 0.75);
+          if (!d.holy) add("keke", p, s0 + L * 0.62, 0x2f9a4a);
         } else
           add(
             rnd() < 0.5 ? "keke" : kinds[Math.floor(rnd() * kinds.length)],
@@ -454,6 +460,8 @@ export class Traffic {
             rnd() * p.length,
             rnd() < 0.5 ? 0x2f9a4a : undefined,
           );
+        // and a second car on the side streets, half way round
+        if (k > 0) add(kinds[Math.floor(rnd() * kinds.length)], p, rnd() * p.length + p.length / 2);
       });
     }
     for (const v of this.vehicles) this.place(v);
