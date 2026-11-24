@@ -618,7 +618,7 @@ export class IlmCityEngine {
     upstairs: new THREE.Vector3(1100, 0, 60),
     boutique: new THREE.Vector3(1300, 0, 60),
     terminal: new THREE.Vector3(1560, 0, 0),
-    cabin: new THREE.Vector3(1560, 0, 90),
+    cabin: new THREE.Vector3(1700, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -7203,6 +7203,14 @@ export class IlmCityEngine {
       moving: boolean;
     }
   >();
+  /** On the plane, the made-up passengers make room for real players in their seats. */
+  private seatRealPlayers() {
+    if (this.where !== "cabin") return;
+    const taken = [...this.remotes.values()].map((r) => ({ x: r.tx, z: r.tz }));
+    if (this.mySeat) taken.push({ x: this.mySeat.x, z: this.mySeat.z });
+    for (const p of this.cabinPeople)
+      p.visible = !taken.some((t) => Math.hypot(t.x - p.position.x, t.z - p.position.z) < 0.6);
+  }
   /** Show the real players near you; they glide to where they last were seen. */
   setRemotePlayers(
     list: {
@@ -7282,12 +7290,29 @@ export class IlmCityEngine {
         r.g.traverse((c) => forgetHuman(c));
         this.remotes.delete(uid);
       }
+    this.seatRealPlayers();
   }
   private stepRemotes(dt: number) {
     for (const [uid, r] of this.remotes) {
       const dx = r.tx - r.g.position.x,
         dz = r.tz - r.g.position.z,
         d = Math.hypot(dx, dz);
+      const seated = !!r.g.userData.seated;
+      if (this.where === "cabin") {
+        // a real player on your flight: sitting in their own seat
+        r.g.position.set(r.tx, 0, r.tz);
+        if (!seated) {
+          r.g.rotation.y = 0;
+          if (poseHuman(r.g, "chair")) r.g.userData.seated = true;
+        }
+        r.g.rotation.y = Math.PI;
+        r.g.visible = !this.hiddenRemotes.has(uid);
+        continue;
+      }
+      if (seated) {
+        releasePose(r.g);
+        r.g.userData.seated = false;
+      }
       if (d > 40) r.g.position.set(r.tx, 0, r.tz);
       else if (d > 0.05) {
         const step = Math.min(d, Math.max(2.5, d * 2) * dt);
@@ -9189,6 +9214,27 @@ export class IlmCityEngine {
         r: 2,
         scene: "terminal",
       });
+      // the prayer room (front left): mats facing the qibla; pilgrims put on ihram here
+      g.add(B(0.25, 2.8, 6, 0xe8e2d6, -12, 0, 9.4), B(4, 2.8, 0.25, 0xe8e2d6, -17.9, 0, 6.5));
+      this.addCollider("terminal", o.x - 12.15, o.x - 11.85, o.z + 6.4, o.z + 12.4);
+      this.addCollider("terminal", o.x - 20, o.x - 15.9, o.z + 6.35, o.z + 6.65);
+      for (let k = 0; k < 3; k++) {
+        const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2), mat(0x2f8f83));
+        pm.rotation.x = -Math.PI / 2;
+        pm.position.set(-18.6 + k * 1.6, 0.03, 9.6);
+        g.add(pm);
+      }
+      const pr = label("🕌 Prayer room · Ihram", { size: 0.55, bg: "rgba(29,107,58,0.92)" });
+      pr.position.set(-16, 3.6, 7.6);
+      g.add(pr);
+      this.zones.push({
+        id: "ihramroom",
+        label: "Prayer room",
+        x: o.x - 13.6,
+        z: o.z + 8,
+        r: 2,
+        scene: "terminal",
+      });
       // waiting seats in rows
       for (let r = 0; r < 2; r++)
         for (let k = 0; k < 6; k++) {
@@ -9333,8 +9379,19 @@ export class IlmCityEngine {
   setDepartures(lines: string[]) {
     this.departures?.set(lines);
   }
+  /** Your seat on the plane: the n-th seat of your class, and its row and letter. */
+  seatFor(business: boolean, n: number) {
+    const all = this.cabinSeats.filter((s) => s.business === business);
+    const s = all[Math.abs(n) % all.length];
+    const rows = [...new Set(this.cabinSeats.map((q) => q.z))];
+    const row = rows.indexOf(s.z) + 1;
+    const xs = [...new Set(this.cabinSeats.filter((q) => q.z === s.z).map((q) => q.x))].sort(
+      (a, b) => a - b,
+    );
+    return { seat: s, label: `${row}${"ABCDEF"[xs.indexOf(s.x)]}` };
+  }
   /** Board: your seat, the other passengers, the crew in the aisle. */
-  enterCabin(business: boolean) {
+  enterCabin(business: boolean, n = 0) {
     const o = this.interiorOrigin.cabin;
     if (!this.cabinPeople.length) {
       let k = 0;
@@ -9364,16 +9421,11 @@ export class IlmCityEngine {
       this.scene.add(crewA, crewB);
       this.cabinCrew.push(crewA, crewB);
     }
-    // your seat: an aisle seat in your class, with nobody in it
-    const seat =
-      this.cabinSeats.find(
-        (s) =>
-          s.business === business && Math.abs(s.x) < 1.5 && s.x < 0 && s.z > (business ? -18 : -6),
-      ) ?? this.cabinSeats[0];
-    for (const p of this.cabinPeople) p.visible = p.userData.seat !== seat;
+    const seat = this.seatFor(business, n).seat;
     this.outPos.copy(this.player.position);
     this.where = "cabin";
     this.mySeat = { x: o.x + seat.x, z: o.z + seat.z };
+    this.seatRealPlayers();
     this.player.position.set(o.x + seat.x, 0, o.z + seat.z - 0.1);
     this.player.rotation.set(0, 0, 0);
     poseHuman(this.player, "chair");

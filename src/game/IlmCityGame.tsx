@@ -2424,9 +2424,53 @@ function CityGame({
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
       };
-      setTravelling({ from: here, to, byCar, train: train && !byCar });
+      const go = () => setTravelling({ from: here, to, byCar, train: train && !byCar });
+      // Madinah to Makkah passes Dhul Hulayfah (Masjid Abyar Ali), the miqat of Madinah
+      const sv2 = saveRef.current;
+      if (
+        cityOf(districtById(here)) === "madinah" &&
+        cityOf(districtById(to)) === "makkah" &&
+        !sv2.umrah?.stage &&
+        !hajjIhram(sv2.hajj?.stage)
+      ) {
+        setPanel({
+          kind: "info",
+          title: "The miqat of Madinah",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                On the way to Makkah you pass <b>Dhul Hulayfah</b> (Masjid Abyar Ali), the miqat of
+                Madinah. Are you going for Umrah?
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  const p = saveRef.current.profile;
+                  if (p) e.setPlayerLook({ ...p, ihram: !p.female });
+                  update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "enter" } }));
+                  sayDhikr("niyyahUmrah", () => sayDhikr("talbiyah", go));
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                🤍 Yes: stop at the miqat, put on ihram and make the intention
+              </button>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  go();
+                }}
+                className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+              >
+                No, just visiting
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      go();
     },
-    [toast, advance, update],
+    [toast, advance, update, sayDhikr],
   );
   const tripRef = useRef(startTrip);
   tripRef.current = startTrip;
@@ -7168,6 +7212,33 @@ function CityGame({
         setDriving(false);
         return;
       }
+      if (id === "ihramroom") {
+        const t = ticketRef.current;
+        if (!t?.umrah) {
+          toast("The prayer room: a quiet place to pray while you wait for your flight.");
+          return;
+        }
+        if (t.dressed) {
+          toast("You're dressed in ihram. Now check in at the IlmAir desk.");
+          e.guideTo("checkin");
+          return;
+        }
+        setPanel({
+          kind: "busy",
+          title: female() ? "Making ghusl and getting ready" : "Making ghusl and putting on ihram",
+          ms: 3500,
+          done: () => {
+            t.dressed = true;
+            wearIhram(true);
+            e.guideTo("checkin");
+            toast(
+              "Ready for ihram. Don't make the intention yet: you'll make it on the plane at the miqat. Now check in.",
+              "good",
+            );
+          },
+        });
+        return;
+      }
       if (id === "checkin" || id === "security" || id === "gate") {
         const t = ticketRef.current;
         if (!t) {
@@ -7175,6 +7246,11 @@ function CityGame({
           return;
         }
         if (id === "checkin") {
+          if (t.umrah && !t.dressed) {
+            toast("First put on your ihram in the prayer room.");
+            e.guideTo("ihramroom");
+            return;
+          }
           if (t.step !== "checkin") {
             toast("You've checked in. Go through security.");
             e.guideTo(t.step === "security" ? "security" : "gate");
@@ -7221,7 +7297,7 @@ function CityGame({
           e.guideTo(t.step);
           return;
         }
-        e.enterCabin(t.business);
+        e.enterCabin(t.business, t.seatN);
         setInside(true);
         setFlight(t);
         return;
@@ -7282,37 +7358,87 @@ function CityGame({
             );
             setTimeout(() => setArriving(null), 4500);
           };
-          // into the terminal: check in, go through security, board at the gate
+          // into the terminal: check in, go through security, board at the gate. Everyone on
+          // the same route has the same flight number, so players flying together meet.
           const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
           const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
-          const no = 100 + ((dest.length * 37 + here.length * 11) % 800);
-          const row = business ? 2 + (no % 3) : 8 + (no % 9);
-          ticketRef.current = {
-            dest,
-            destName,
-            fromName,
-            business,
-            flight: `IA ${no}`,
-            seat: `${row}${business ? "B" : "C"}`,
-            gate: "3",
-            step: "checkin",
-            arrive,
+          let hsh = 7;
+          for (const ch of city + ">" + dest) hsh = (hsh * 31 + ch.charCodeAt(0)) % 100003;
+          const no = 100 + (hsh % 800);
+          const seatN = Math.floor(Math.random() * 1000);
+          const open = (umrah: boolean) => {
+            setPanel(null);
+            ticketRef.current = {
+              dest,
+              destName,
+              fromName,
+              business,
+              flight: `IA ${no}`,
+              seat: e.seatFor(business, seatN).label,
+              seatN,
+              gate: "3",
+              step: "checkin",
+              umrah,
+              arrive: () => {
+                arrive();
+                if (umrah) {
+                  wearIhram(true);
+                  setTimeout(
+                    () =>
+                      toast(
+                        "Welcome to the Hajj Terminal! You are in ihram: go to Al-Masjid Al-Haram for tawaf.",
+                        "good",
+                      ),
+                    2500,
+                  );
+                }
+              },
+            };
+            e.enterInterior("terminal", `${fromName} Airport`);
+            setInside(true);
+            tuneRef.current();
+            e.setDepartures([
+              `IA ${no}  ${destName.padEnd(10).slice(0, 10)} Gate 3  Check-in`,
+              "IA 214  Kano       Gate 1  On time",
+              "IA 101  Abuja      Gate 2  On time",
+              "IA 777  Jeddah     Gate 4  On time",
+              "IA 778  Madinah    Gate 4  On time",
+            ]);
+            e.guideTo(umrah ? "ihramroom" : "checkin");
+            toast(
+              umrah
+                ? `Ticket to ${destName}: −${N(price)}. First, put on your ihram in the prayer room.`
+                : `${business ? "Business class" : "Economy"} ticket to ${destName}: −${N(price)}. Check in at the IlmAir desk.`,
+              "good",
+            );
           };
-          e.enterInterior("terminal", `${fromName} Airport`);
-          setInside(true);
-          tuneRef.current();
-          e.setDepartures([
-            `IA ${no}  ${destName.padEnd(10).slice(0, 10)} Gate 3  Check-in`,
-            "IA 214  Kano       Gate 1  On time",
-            "IA 101  Abuja      Gate 2  On time",
-            "IA 777  Jeddah     Gate 4  On time",
-            "IA 778  Madinah    Gate 4  On time",
-          ]);
-          e.guideTo("checkin");
-          toast(
-            `${business ? "Business class" : "Economy"} ticket to ${destName}: −${N(price)}. Check in at the IlmAir desk.`,
-            "good",
-          );
+          const sv = saveRef.current;
+          if (dest === "makkah" && !sv.umrah?.stage && !hajjIhram(sv.hajj?.stage))
+            setPanel({
+              kind: "info",
+              title: "Going to Makkah",
+              body: (
+                <div className="space-y-3 text-[14px]">
+                  <p>
+                    Are you going for Umrah? The plane passes the miqat before Jeddah, so you put on
+                    ihram here at the airport and make the intention on the plane.
+                  </p>
+                  <button
+                    onClick={() => open(true)}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                  >
+                    🤍 Yes, for Umrah
+                  </button>
+                  <button
+                    onClick={() => open(false)}
+                    className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+                  >
+                    No, just visiting
+                  </button>
+                </div>
+              ),
+            });
+          else open(false);
         };
         setPanel({
           kind: "info",
@@ -7962,7 +8088,12 @@ function CityGame({
       const o = onlineRef.current;
       const prof = saveRef.current.profile;
       const pr = e.presence();
-      const ar = pr.out ? (e.areaAt(pr.x, pr.z)?.id ?? "") : "";
+      const onPlane = e.scenePlace() === "cabin" && ticketRef.current;
+      const ar = pr.out
+        ? (e.areaAt(pr.x, pr.z)?.id ?? "")
+        : onPlane
+          ? "flight:" + ticketRef.current!.flight.replace(" ", "")
+          : "";
       const moved =
         Math.hypot(pr.x - lastSent.current.x, pr.z - lastSent.current.z) > 0.5 ||
         ar !== lastSent.current.area;
@@ -9275,6 +9406,10 @@ function CityGame({
           onAte={(full) => {
             need({ hunger: full ? 60 : 15 });
             if (full) update((x) => ({ ...x, coins: x.coins + 2 }));
+          }}
+          onMiqat={() => {
+            update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "enter" } }));
+            sayDhikr("talbiyah");
           }}
           onLand={() => {
             const t = flight;
@@ -16781,8 +16916,12 @@ type Ticket = {
   business: boolean;
   flight: string;
   seat: string;
+  seatN: number;
   gate: string;
   step: "checkin" | "security" | "board";
+  /** going for Umrah: ihram at the airport, the intention at the miqat */
+  umrah?: boolean;
+  dressed?: boolean;
   arrive: () => void;
 };
 
@@ -16844,13 +16983,15 @@ function FlightCard({
   onServe,
   onAte,
   onLand,
+  onMiqat,
 }: {
   t: Ticket;
+  onMiqat?: () => void;
   onServe: (stage: "coming" | "served" | "away", meal?: boolean) => void;
   onAte: (full: boolean) => void;
   onLand: () => void;
 }) {
-  const [phase, setPhase] = useState<"belt" | "fly" | "meal" | "landing">("belt");
+  const [phase, setPhase] = useState<"belt" | "fly" | "meal" | "miqat" | "landing">("belt");
   const [q] = useState(() => QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]);
   const [picked, setPicked] = useState<number | null>(null);
   const d = PLACE_DHIKR.ride;
@@ -16937,7 +17078,7 @@ function FlightCard({
                 <button
                   onClick={() => {
                     onServe("away");
-                    setPhase("landing");
+                    setPhase(t.umrah ? "miqat" : "landing");
                   }}
                   className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
                 >
@@ -16945,6 +17086,26 @@ function FlightCard({
                 </button>
               </>
             )}
+          </div>
+        )}
+        {phase === "miqat" && (
+          <div className="space-y-2">
+            <div className="font-bold">The captain: "We will pass the miqat in a few minutes."</div>
+            <p className="text-[13px] opacity-80">
+              Make your intention for Umrah now, in your seat, and begin the Talbiyah.
+            </p>
+            <p dir="rtl" className="font-serif text-xl leading-loose">
+              لَبَّيْكَ اللَّهُمَّ عُمْرَةً
+            </p>
+            <button
+              onClick={() => {
+                onMiqat?.();
+                setPhase("landing");
+              }}
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+            >
+              🤍 Labbayk Allahumma 'Umrah
+            </button>
           </div>
         )}
         {phase === "landing" && (
