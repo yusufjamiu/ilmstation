@@ -7289,6 +7289,13 @@ export class IlmCityEngine {
   >();
   /** On the plane, the made-up passengers make room for real players in their seats. */
   private seatRealPlayers() {
+    if (this.where === "lecture") {
+      // classmates take their seats: the made-up student there makes room
+      for (const r of this.remotes.values())
+        for (const p of this.lectureStudents)
+          if (Math.hypot(r.tx - p.position.x, r.tz - p.position.z) < 0.6) p.visible = false;
+      return;
+    }
     if (this.where !== "cabin" && this.where !== "coach") return;
     const taken = [...this.remotes.values()].map((r) => ({ x: r.tx, z: r.tz }));
     if (this.mySeat) taken.push({ x: this.mySeat.x, z: this.mySeat.z });
@@ -7317,7 +7324,7 @@ export class IlmCityEngine {
     const seen = new Set<string>();
     for (const p of list) {
       seen.add(p.uid);
-      const key = JSON.stringify(p.look) + (p.badge ?? "");
+      const key = JSON.stringify(p.look) + (p.badge ?? "") + "|" + p.name;
       let r = this.remotes.get(p.uid);
       if (r && r.look !== key) {
         r.g.removeFromParent();
@@ -7356,7 +7363,8 @@ export class IlmCityEngine {
           },
         );
         tag.position.y = 2.65;
-        g.add(tag);
+        // a player who hides their name shows none
+        if (p.name) g.add(tag);
         g.position.set(p.x, 0, p.z);
         this.scene.add(g);
         r = { g, name: p.name, look: key, tx: p.x, tz: p.z, th: p.h, moving: p.moving };
@@ -7382,12 +7390,21 @@ export class IlmCityEngine {
         dz = r.tz - r.g.position.z,
         d = Math.hypot(dx, dz);
       const seated = !!r.g.userData.seated;
-      if (this.where === "cabin" || this.where === "coach") {
-        // a real player on your flight or bus: sitting in their own seat
-        r.g.position.set(r.tx, 0, r.tz);
+      if (this.where === "cabin" || this.where === "coach" || this.where === "lecture") {
+        // a real player on your flight, bus or in your class: sitting in their own seat
+        let y = 0;
+        if (this.where === "lecture") {
+          const o = this.interiorOrigin.lecture;
+          const s = this.lectureSeats.find(
+            (q) => Math.hypot(o.x + q.x - r.tx, o.z + q.z - r.tz) < 0.6,
+          );
+          y = s?.y ?? 0;
+        }
+        r.g.position.set(r.tx, y, r.tz);
         if (!seated) {
           r.g.rotation.y = 0;
-          if (poseHuman(r.g, "chair")) r.g.userData.seated = true;
+          if (poseHuman(r.g, this.where === "lecture" ? "desk" : "chair"))
+            r.g.userData.seated = true;
         }
         r.g.rotation.y = Math.PI;
         r.g.visible = !this.hiddenRemotes.has(uid);
@@ -9737,7 +9754,14 @@ export class IlmCityEngine {
         const z = -D / 2 + 8 + i * 7.6;
         const x = side * (W / 2 - 0.08);
         const door = new THREE.Group();
-        door.add(B(0.1, 3, 2.2, 0x6d4a2b, 0, 0, 0), B(0.14, 0.2, 2.6, 0x3a2a1c, 0, 3, 0));
+        door.add(
+          B(0.16, 3.1, 2.2, 0x7a4a26, -side * 0.18, 0, 0),
+          B(0.2, 0.25, 2.8, 0xe6b84a, -side * 0.18, 3.1, 0),
+          B(0.2, 3.35, 0.2, 0xe6b84a, -side * 0.18, 0, 1.3),
+          B(0.2, 3.35, 0.2, 0xe6b84a, -side * 0.18, 0, -1.3),
+          B(0.06, 0.15, 0.3, 0xd9d1bd, -side * 0.3, 1.4, 0.7),
+          B(1.3, 0.03, 2.2, 0x1f6f63, -side * 0.9, 0.02, 0),
+        );
         const sg = sign(2.6, 0.9);
         sg.mesh.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
         sg.mesh.position.set(-side * 0.12, 3.75, 0);
@@ -9796,7 +9820,7 @@ export class IlmCityEngine {
           size: 0.55,
           bg: "rgba(31,61,90,0.92)",
         });
-        t.position.set(-(d.g.userData.side ?? 1) * 1.4, 3.9, 0);
+        t.position.set(-(d.g.userData.side ?? 1) * 2.3, 3.9, 0);
         d.g.add(t);
         d.tag = t;
       }
@@ -9853,10 +9877,14 @@ export class IlmCityEngine {
   }
   private lectureFree: number[] = [];
   /** Sit down in a free seat near the aisle. */
-  sitInLecture() {
+  sitInLecture(female = false) {
     if (this.where !== "lecture") return;
     const o = this.interiorOrigin.lecture;
-    const k = this.lectureFree[0] ?? 0;
+    // a free seat near the aisle (a different one for each player, so friends sit apart)
+    // brothers on the left of the aisle, sisters on the right
+    const mine = this.lectureFree.filter((q) => this.lectureSeats[q].x > 0 === female);
+    const pool = mine.length ? mine : this.lectureFree;
+    const k = pool[Math.floor(Math.random() * pool.length)] ?? 0;
     const s = this.lectureSeats[k];
     this.lectureStudents[k].visible = false;
     const back = {

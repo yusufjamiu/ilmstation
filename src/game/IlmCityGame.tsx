@@ -221,6 +221,8 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** in class, other students don't see your name */
+  classHidden?: boolean;
   /** your room in an MSSN hostel (free while you're a student there): its door's id */
   hostel?: string;
   /** when the bought Rich family pack's house was handed over */
@@ -5939,7 +5941,7 @@ function CityGame({
           e.setLecture(c.top, pair.dept.name, `${pair.level} Level · choose your course`);
           setInside(true);
         }
-        e.sitInLecture();
+        e.sitInLecture(!!saveRef.current.profile?.female);
         const today = clockRef.current.key;
         const s0 = saveRef.current.said;
         const ids = s0?.day === today ? s0.ids : [];
@@ -5951,28 +5953,45 @@ function CityGame({
           kind: "info",
           title: `${pair.dept.name} · ${pair.level} Level`,
           body: (
-            <InClassView
-              library={false}
-              about=""
-              faculty={c.faculty}
-              dept0={pair.dept}
-              level0={pair.level}
-              onScreen={(a, b) => e.setLecture(c.top, a, b)}
-              onCorrect={() => {
-                if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
-                update((x) => ({
-                  ...x,
-                  coins: x.coins + SCHOOL_POINTS.perCorrect,
-                  ilm: x.ilm + 2,
-                  schoolPts: (x.schoolPts ?? 0) + SCHOOL_POINTS.perCorrect,
-                }));
-                return true;
-              }}
-              onLeave={() => {
-                setPanel(null);
-                onActionRef.current("exit");
-              }}
-            />
+            <>
+              <Classmates
+                list={() => areaPlayers.current.filter((x) => x.uid !== onlineRef.current?.uid)}
+                hidden={() => !!saveRef.current.classHidden}
+                onHide={(h) => {
+                  update((x) => ({ ...x, classHidden: h }));
+                  saveRef.current = { ...saveRef.current, classHidden: h };
+                  presenceAt.current = 0;
+                  lastSent.current = { ...lastSent.current, area: "" };
+                  toast(h ? "Your name is hidden in class." : "Classmates can see your name.");
+                }}
+                onChat={(m) => {
+                  setPanel(null);
+                  openChatRef.current(m);
+                }}
+              />
+              <InClassView
+                library={false}
+                about=""
+                faculty={c.faculty}
+                dept0={pair.dept}
+                level0={pair.level}
+                onScreen={(a, b) => e.setLecture(c.top, a, b)}
+                onCorrect={() => {
+                  if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
+                  update((x) => ({
+                    ...x,
+                    coins: x.coins + SCHOOL_POINTS.perCorrect,
+                    ilm: x.ilm + 2,
+                    schoolPts: (x.schoolPts ?? 0) + SCHOOL_POINTS.perCorrect,
+                  }));
+                  return true;
+                }}
+                onLeave={() => {
+                  setPanel(null);
+                  onActionRef.current("exit");
+                }}
+              />
+            </>
           ),
         });
         return;
@@ -6004,7 +6023,7 @@ function CityGame({
             setInside(true);
             tuneRef.current();
           }
-          if (lecture) e.sitInLecture();
+          if (lecture) e.sitInLecture(!!saveRef.current.profile?.female);
           const today = clockRef.current.key;
           const s0 = saveRef.current.said;
           const ids = s0?.day === today ? s0.ids : [];
@@ -8329,13 +8348,19 @@ function CityGame({
       const pr = e.presence();
       const onPlane = e.scenePlace() === "cabin" && ticketRef.current;
       const onBus = e.scenePlace() === "coach" && busRef.current;
+      const cls = e.scenePlace() === "lecture" && classRef.current && corridorRef.current;
+      const clsPair = cls
+        ? corridorRef.current!.pairs[corridorRef.current!.floor * 12 + classRef.current!.slot]
+        : null;
       const ar = pr.out
         ? (e.areaAt(pr.x, pr.z)?.id ?? "")
         : onPlane
           ? "flight:" + ticketRef.current!.flight.replace(" ", "")
           : onBus
             ? `bus:${busRef.current!.from}>${busRef.current!.to}`
-            : "";
+            : clsPair
+              ? `class:${corridorRef.current!.id.slice(8)}:${clsPair.dept.code}:${clsPair.level}`
+              : "";
       const moved =
         Math.hypot(pr.x - lastSent.current.x, pr.z - lastSent.current.z) > 0.5 ||
         ar !== lastSent.current.area;
@@ -8350,7 +8375,8 @@ function CityGame({
         lastSent.current = { x: pr.x, z: pr.z, area: ar };
         e.presenceSent();
         o.setPresence({
-          name: prof.name,
+          // in class, a student can hide their name from the others
+          name: clsPair && saveRef.current.classHidden ? "" : prof.name,
           look: prof,
           badge: badgeOf(saveRef.current),
           x: pr.x,
@@ -17550,4 +17576,53 @@ function corridorFloorName(c: CorridorState) {
   const lo = Math.min(...here),
     hi = Math.max(...here);
   return `${FLOOR_NAMES[c.floor] ?? `Floor ${c.floor}`} · ${lo === hi ? lo : `${lo} to ${hi}`} Level`;
+}
+
+/** Who else is in this class (real players): chat with them, or hide your own name. */
+function Classmates({
+  list,
+  hidden,
+  onHide,
+  onChat,
+}: {
+  list: () => { uid: string; name: string }[];
+  hidden: () => boolean;
+  onHide: (h: boolean) => void;
+  onChat: (m: { uid: string; name: string }) => void;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 2500);
+    return () => clearInterval(id);
+  }, []);
+  const mates = list();
+  const hid = hidden();
+  return (
+    <div className="mb-3 rounded-xl bg-white p-3 text-[13px]">
+      <div className="mb-1 flex items-center justify-between">
+        <b>👥 In class with you ({mates.length})</b>
+        <button
+          onClick={() => onHide(!hid)}
+          className="text-[12px] font-bold text-[#1f6f63] underline"
+        >
+          {hid ? "Show my name" : "Hide my name"}
+        </button>
+      </div>
+      {mates.length === 0 ? (
+        <p className="opacity-65">No classmates here right now. Invite a friend to this class!</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {mates.map((m) => (
+            <button
+              key={m.uid}
+              onClick={() => onChat({ uid: m.uid, name: m.name || "A classmate" })}
+              className="rounded-full bg-[#e8f2ef] px-3 py-1 font-semibold"
+            >
+              💬 {m.name || "A classmate"}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
