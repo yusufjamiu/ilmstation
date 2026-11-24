@@ -55,20 +55,20 @@ export function Welcome({ onSignup, onLogin }: { onSignup: () => void; onLogin: 
   const list = live.filter((l) => !q.trim() || `${l.native} ${l.label}`.toLowerCase().includes(q.trim().toLowerCase()));
   const cols = useMemo(() => [TILES.filter((_, i) => i % 3 === 0), TILES.filter((_, i) => i % 3 === 1), TILES.filter((_, i) => i % 3 === 2)], []);
 
-  if (step === "lang") return <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col bg-[#f7f3ea] px-5 pb-6 pt-10 text-[#1c1a17]">
-    <h1 className="text-3xl font-extrabold tracking-tight">Choose a language</h1>
-    <label className="mt-5 flex items-center gap-3 rounded-2xl bg-black/5 px-4 py-3">
-      <Search className="size-5 opacity-70" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search languages…" className="w-full bg-transparent font-mono text-sm outline-none" />
+  if (step === "lang") return <main className="mx-auto flex h-[100dvh] max-w-md flex-col bg-[#f7f3ea] px-6 pb-5 pt-12 text-[#1c1a17]">
+    <h1 className="text-[26px] font-extrabold tracking-tight">Choose a language</h1>
+    <label className="mt-4 flex items-center gap-3 rounded-xl bg-black/5 px-4 py-2.5">
+      <Search className="size-4 opacity-70" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search languages…" className="w-full bg-transparent font-mono text-[13px] outline-none" />
     </label>
-    <div className="mt-4 grid flex-1 content-start gap-3 overflow-y-auto pb-4">
+    <div className="-mx-1 mt-3 grid flex-1 content-start gap-2.5 overflow-y-auto px-1 pb-3 pt-1">
       {list.map((l) => { const on = l.code === pick; return <button key={l.code} type="button" onClick={() => { setPick(l.code); set(l.code); }}
-        className={`flex items-center justify-between rounded-full border-2 border-black px-6 py-3.5 text-left shadow-[0_4px_0_#000] transition active:translate-y-0.5 active:shadow-[0_2px_0_#000] ${on ? "bg-[#f6b700]" : "bg-white"}`}>
-        <span className="font-mono text-base" dir={l.dir}>{l.native}</span>
-        {on && <span className="grid size-6 place-items-center rounded-full bg-[#0fa86a] text-white"><Check className="size-4" /></span>}
+        className={`flex items-center justify-between rounded-full border-[1.5px] border-black px-5 py-2.5 text-left shadow-[0_3px_0_#000] transition active:translate-y-0.5 active:shadow-[0_1px_0_#000] ${on ? "bg-[#f6b700]" : "bg-white"}`}>
+        <span className={l.dir === "rtl" ? "font-sans text-[15px]" : "font-mono text-[14px]"} dir={l.dir}>{l.native}</span>
+        {on && <span className="grid size-5 place-items-center rounded-full bg-[#0fa86a] text-white"><Check className="size-3.5" /></span>}
       </button>; })}
     </div>
     <button type="button" onClick={() => { set(pick); try { localStorage.setItem("ilm:welcomeLang", "1"); } catch { /* ignore */ } setStep("welcome"); }}
-      className="mt-2 rounded-full border-2 border-black bg-[#f6b700] py-4 text-lg font-extrabold uppercase shadow-[0_5px_0_#000] active:translate-y-0.5 active:shadow-[0_2px_0_#000]">Continue</button>
+      className="mt-2 rounded-full border-[1.5px] border-black bg-[#f6b700] py-3 text-base font-extrabold uppercase shadow-[0_3px_0_#000] active:translate-y-0.5 active:shadow-[0_1px_0_#000]">Continue</button>
   </main>;
 
   return <main className="relative mx-auto flex h-[100dvh] max-w-md flex-col overflow-hidden bg-black text-white">
