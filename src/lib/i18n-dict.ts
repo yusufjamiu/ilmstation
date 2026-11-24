@@ -7725,3 +7725,9 @@ DICT["Continue free"] = { ...(DICT["Continue free"] ?? {}), ar: "المتابع�
 DICT["Search languages…"] = { ...(DICT["Search languages…"] ?? {}), ar: "ابحث عن لغة…", fr: "Rechercher une langue…", ur: "زبان تلاش کریں…", ha: "Nemo harshe…", id: "Cari bahasa…", tl: "Maghanap ng wika…" };
 DICT["Begin your journey"] = { ...(DICT["Begin your journey"] ?? {}), ar: "ابدأ رحلتك", fr: "Commencez votre parcours", ur: "اپنا سفر شروع کریں", ha: "Fara tafiyarka", id: "Mulai perjalananmu", tl: "Simulan ang iyong paglalakbay" };
 DICT["Already learning?"] = { ...(DICT["Already learning?"] ?? {}), ar: "تتعلّم معنا بالفعل؟", fr: "Vous apprenez déjà ?", ur: "پہلے سے سیکھ رہے ہیں؟", ha: "Kana koyo tuni?", id: "Sudah belajar?", tl: "Nag-aaral ka na?" };
+
+DICT["Who is this account for?"] = { ...(DICT["Who is this account for?"] ?? {}), ar: "لمن هذا الحساب؟", fr: "Pour qui est ce compte ?", ur: "یہ اکاؤنٹ کس کے لیے ہے؟", ha: "Wannan asusu na wane ne?", id: "Akun ini untuk siapa?", tl: "Para kanino ang account na ito?" };
+DICT["For me"] = { ...(DICT["For me"] ?? {}), ar: "لي", fr: "Pour moi", ur: "میرے لیے", ha: "Domina", id: "Untuk saya", tl: "Para sa akin" };
+DICT["Teen or adult"] = { ...(DICT["Teen or adult"] ?? {}), ar: "يافع أو بالغ", fr: "Ado ou adulte", ur: "نوجوان یا بالغ", ha: "Matashi ko babba", id: "Remaja atau dewasa", tl: "Kabataan o matanda" };
+DICT["For my child"] = { ...(DICT["For my child"] ?? {}), ar: "لطفلي", fr: "Pour mon enfant", ur: "میرے بچے کے لیے", ha: "Don ɗana", id: "Untuk anak saya", tl: "Para sa anak ko" };
+DICT["Ages 3 to 13 · safe and simple"] = { ...(DICT["Ages 3 to 13 · safe and simple"] ?? {}), ar: "من 3 إلى 13 سنة · آمن وبسيط", fr: "De 3 à 13 ans · sûr et simple", ur: "3 سے 13 سال · محفوظ اور آسان", ha: "Shekaru 3 zuwa 13 · lafiya kuma mai sauƙi", id: "Usia 3 sampai 13 · aman dan mudah", tl: "Edad 3 hanggang 13 · ligtas at madali" };

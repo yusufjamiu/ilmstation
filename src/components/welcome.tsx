@@ -1,3 +1,4 @@
+import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Check, Globe, Search } from "lucide-react";
 import { addPhrase, languages, useLanguage, useLiveLanguages, type Lang } from "@/components/language";
@@ -51,7 +52,6 @@ export function Welcome({ onSignup, onLogin }: { onSignup: () => void; onLogin: 
   const [pick, setPick] = useState<Lang>(lang);
   const [q, setQ] = useState("");
   useEffect(() => setPick(lang), [lang]);
-  useEffect(() => { void translateCards(lang); }, [lang, step]);
   const list = live.filter((l) => !q.trim() || `${l.native} ${l.label}`.toLowerCase().includes(q.trim().toLowerCase()));
   const cols = useMemo(() => [TILES.filter((_, i) => i % 3 === 0), TILES.filter((_, i) => i % 3 === 1), TILES.filter((_, i) => i % 3 === 2)], []);
 
@@ -73,7 +73,7 @@ export function Welcome({ onSignup, onLogin }: { onSignup: () => void; onLogin: 
 
   return <main className="relative mx-auto flex h-[100dvh] max-w-md flex-col overflow-hidden bg-black text-white">
     <style>{"@keyframes welcomeScroll{from{transform:translateY(0)}to{transform:translateY(-50%)}}.welcome-col{animation:welcomeScroll linear infinite}@media (prefers-reduced-motion: reduce){.welcome-col{animation:none}}"}</style>
-    <div className="pointer-events-none absolute inset-x-0 top-0 grid h-[78%] grid-cols-3 gap-3 px-3" aria-hidden>
+    <div data-no-translate className="pointer-events-none absolute inset-x-0 top-0 grid h-[78%] grid-cols-3 gap-3 px-3" aria-hidden>
       <Column items={cols[0]!} secs={46} />
       <Column items={cols[1]!} secs={38} reverse />
       <Column items={cols[2]!} secs={52} />
@@ -113,4 +113,19 @@ export function AppHomeOnly() {
     if (standalone && window.location.pathname === "/") window.location.replace("/app");
   }, []);
   return null;
+}
+
+/** Log in and sign up on phones: smaller titles, pill buttons. */
+export function AuthMobileStyle() {
+  const path = useRouterState({ select: (st) => st.location.pathname });
+  const on = path === "/login" || path === "/signup";
+  useEffect(() => { if (on) document.body.dataset.auth = "1"; else delete document.body.dataset.auth; }, [on]);
+  if (!on) return null;
+  return <style>{`@media (max-width: 767px){
+    body[data-auth] h1{font-size:30px!important;line-height:1.1!important;letter-spacing:-.01em}
+    body[data-auth] h2{font-size:24px!important;line-height:1.15!important}
+    body[data-auth] main :is(button,a)[class*="border-2"]:not([data-who-pick] *):not([class*="rounded-3xl"]){border-radius:9999px!important;border-width:1.5px!important;box-shadow:0 3px 0 hsl(var(--foreground))!important}
+    body[data-auth] main :is(button,a)[class*="h-11"],body[data-auth] main :is(button,a)[class*="h-12"]{min-height:46px;font-size:15px}
+    body[data-auth] main button[type=submit],body[data-auth] main button[class*="bg-primary"]{border-radius:9999px!important;border:1.5px solid hsl(var(--foreground))!important;box-shadow:0 3px 0 hsl(var(--foreground))!important;font-weight:800;text-transform:uppercase}
+  }`}</style>;
 }

@@ -1,3 +1,4 @@
+import { UserRound as WhoAdult, Baby as WhoChild } from "lucide-react";
 import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid, signInWithEmailAndPassword as siParent, signInWithPopup as popParent, GoogleAuthProvider as GoogleParent } from "firebase/auth";
 import { doc as dK, getDoc as gK, setDoc as sK } from "firebase/firestore";
 import { auth as aK, db as dbK } from "@/lib/firebase";
@@ -24,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 /* ------------------------------- Shared shell ------------------------------ */
 
-const inputClass = "h-12 w-full border-2 border-foreground bg-background pl-10 pr-3 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+const inputClass = "h-12 w-full rounded-2xl border-0 bg-foreground/[0.06] pl-11 pr-3 font-mono text-sm sm:rounded-none sm:border-2 sm:border-foreground sm:bg-background sm:pl-10 sm:font-sans sm:text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 function AuthShell({ aside, children, mode }: { aside: ReactNode; children: ReactNode; mode: "login" | "signup" }) {
   const { loggedIn } = useAuth();
@@ -48,7 +49,7 @@ function AuthShell({ aside, children, mode }: { aside: ReactNode; children: Reac
 function Field({ label, icon: Icon, error, hint, children }: { label: string; icon: typeof User; error?: string | undefined; hint?: ReactNode; children: ReactNode }) {
   return <label className="block">
     <span className="text-sm font-semibold">{label}</span>
-    <span className="relative mt-1.5 block"><Icon aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />{children}</span>
+    <span className="relative mt-1.5 block"><Icon aria-hidden className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 opacity-70 sm:left-3 sm:opacity-100" />{children}</span>
     {hint}
     {error && <span role="alert" className="mt-1.5 block text-sm font-semibold text-destructive">{error}</span>}
   </label>;
@@ -113,12 +114,12 @@ export function LoginPage() {
       <h1 className="mt-2 font-serif text-5xl leading-none sm:text-6xl">Log in</h1>
       <p className="mt-3 text-muted-foreground">Pick up today’s quest where you left it.</p>
       {!who ? <div data-login-pick className="mt-6 grid gap-3">
-        <button type="button" onClick={() => setWho("adult")} className="flex w-full items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition hover:-translate-y-0.5 bg-background hover:bg-primary/15">
-          <span className="text-4xl">🧑</span>
+        <button type="button" onClick={() => setWho("adult")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-primary">
+          <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoAdult className="size-8" /></span>
           <span><b className="block text-xl">Teen & Adult</b><span className="text-sm text-muted-foreground">Log in with Google or your email</span></span>
         </button>
-        <button type="button" onClick={() => setWho("kid")} className="flex w-full items-center gap-4 border-2 border-foreground p-5 text-left shadow-brutal transition hover:-translate-y-0.5 bg-primary/30 hover:bg-primary/50">
-          <span className="text-4xl">🧒</span>
+        <button type="button" onClick={() => setWho("kid")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-secondary text-secondary-foreground">
+          <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoChild className="size-8" /></span>
           <span><b className="block text-xl">Child</b><span className="text-sm text-muted-foreground">Log in with the username your parent gave you</span></span>
         </button>
         <p className="mt-3 text-sm">New to IlmStation? <a href="/signup" className="font-bold underline underline-offset-4">Create an account</a></p>
@@ -182,6 +183,7 @@ export function SignupFlow() {
     return 0;
   });
   const [forChild, setForChild] = useStateL(false);
+  const [whoChosen, setWhoChosen] = useStateL(false);
   const [draft, setDraft] = useState<Draft>({ language: lang, name: "", username: "", email: "", password: "", zone: null, gender: null, interests: [] });
   const [result, setResult] = useState<{ score: number | null; level: Level } | null>(null);
   const [signupError, setSignupError] = useState("");
@@ -241,8 +243,20 @@ export function SignupFlow() {
 
   return <AuthShell mode="signup" aside={aside}>
     {step < steps.length - 1 && <StepHeader step={step} />}
-    {step === 1 && !forChild && <button type="button" onClick={() => setForChild(true)} className="mb-4 flex w-full items-center gap-3 border-2 border-foreground bg-primary/30 p-4 text-left shadow-brutal-sm transition hover:bg-primary/50"><span className="text-3xl">🧒</span><span><b className="block">Signing up for your child?</b><span className="text-sm text-muted-foreground">Create a child account</span></span></button>}
-    {step === 1 && forChild && <ChildSignup onBack={() => setForChild(false)} />}
+    {step >= 1 && step <= 5 && <div className="mb-5 flex gap-2 sm:hidden" aria-hidden>{[1, 2, 3, 4, 5].map((i) => <span key={i} className={`h-1 flex-1 rounded-full ${i < step ? "bg-secondary" : i === step ? "bg-primary" : "bg-foreground/15"}`} />)}</div>}
+    {step === 1 && !forChild && !whoChosen && <div data-who-pick className="grid gap-4">
+      <p className="font-serif text-2xl">Who is this account for?</p>
+      <button type="button" onClick={() => setWhoChosen(true)} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-primary">
+        <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background"><WhoAdult className="size-8" /></span>
+        <span><b className="block text-2xl leading-tight">For me</b><span className="text-sm">Teen or adult</span></span>
+      </button>
+      <button type="button" onClick={() => { setWhoChosen(true); setForChild(true); }} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-secondary text-secondary-foreground">
+        <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoChild className="size-8" /></span>
+        <span><b className="block text-2xl leading-tight">For my child</b><span className="text-sm opacity-90">Ages 3 to 13 · safe and simple</span></span>
+      </button>
+    </div>}
+    {step === 1 && !forChild && !whoChosen && <style>{"[data-who-pick] ~ *{display:none!important}"}</style>}
+    {step === 1 && forChild && <ChildSignup onBack={() => { setForChild(false); setWhoChosen(false); }} />}
     {step === 1 && forChild && <style>{"[data-child-signup] ~ *{display:none!important}"}</style>}
     {step === 1 && !forChild && <GoogleButton />}
     {step === 0 && <LanguageStep value={draft.language} onNext={(language) => { update({ language }); setLanguage(language); try { sessionStorage.setItem("signupLang", language); } catch { /* ignore */ } next(); }} />}
