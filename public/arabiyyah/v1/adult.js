@@ -179,7 +179,7 @@ function startTranslating(){
 function loadLang(lang){
   return new Promise(res=>{
     if (!lang || lang==="en") return res(false);
-    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611232313";
+    const s=document.createElement("script"); s.src=I18N_BASE+lang+".js?v=202611232333";
     const done=ok=>{ clearTimeout(t); if(ok && window.QI18N){ LANG=lang; setDict(window.QI18N); startTranslating(); } res(ok); };
     const t=setTimeout(()=>done(false), 4000);
     s.onload=()=>done(true); s.onerror=()=>done(false);
