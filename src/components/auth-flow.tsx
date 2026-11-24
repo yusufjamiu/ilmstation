@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid, signInWithEmailAndPassword as siParent } from "firebase/auth";
+import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid, signInWithEmailAndPassword as siParent, signInWithPopup as popParent, GoogleAuthProvider as GoogleParent } from "firebase/auth";
 import { doc as dK, getDoc as gK, setDoc as sK } from "firebase/firestore";
 import { auth as aK, db as dbK } from "@/lib/firebase";
 import { useEffect as useEffectL, useState as useStateL } from "react";
@@ -550,22 +550,26 @@ function ChildSignup({ onBack }: { onBack: () => void }) {
   const [email, setEmail] = useStateL(""); const [parentPass, setParentPass] = useStateL(""); const [consent, setConsent] = useStateL(false);
   const [busy, setBusy] = useStateL(false); const [err, setErr] = useStateL("");
   const box = "mt-1 h-11 w-full border-2 border-foreground bg-background px-3";
-  const create = async () => {
+  const create = async (useGoogle = false) => {
     setErr("");
-    const un = username.trim().toLowerCase(); const em = email.trim().toLowerCase();
+    const un = username.trim().toLowerCase(); let em = email.trim().toLowerCase();
     if (!childName.trim()) return setErr("Add your child's first name.");
     if (!gender) return setErr("Choose boy or girl.");
     if (!/^[a-z0-9_]{3,20}$/.test(un)) return setErr("Username: 3–20 letters, numbers or _.");
     if (childPass.length < 6) return setErr("Child's password: at least 6 characters.");
-    if (!/^\S+@\S+\.\S+$/.test(em)) return setErr("Enter a valid email, like name@example.com.");
-    if (parentPass.length < 6) return setErr("Your password: at least 6 characters.");
+    if (!useGoogle && !/^\S+@\S+\.\S+$/.test(em)) return setErr("Enter a valid email, like name@example.com.");
+    if (!useGoogle && parentPass.length < 6) return setErr("Your password: at least 6 characters.");
     if (!consent) return setErr("Please confirm you're this child's parent or guardian.");
     setBusy(true);
     try {
       if ((await gK(dK(dbK, "usernames", un))).exists()) throw new Error("That username is taken. Try another.");
       // a new parent account, or the parent's existing one
       let pu; let existing = false;
-      try { pu = (await cuParent(aK, em, parentPass)).user; }
+      if (useGoogle) {
+        try { pu = (await popParent(aK, new GoogleParent())).user; } catch { throw new Error("Google sign-in didn't open. Allow pop-ups, or use your email and password."); }
+        em = (pu.email ?? "").toLowerCase();
+        existing = (await gK(dK(dbK, "profiles", pu.uid))).exists();
+      } else try { pu = (await cuParent(aK, em, parentPass)).user; }
       catch (e) {
         if ((e as { code?: string }).code !== "auth/email-already-in-use") throw new Error("Couldn't create the parent account. Check the email and password.");
         try { pu = (await siParent(aK, em, parentPass)).user; existing = true; }
@@ -603,12 +607,14 @@ function ChildSignup({ onBack }: { onBack: () => void }) {
     </section>
     <section className="space-y-3 border-2 border-foreground p-4">
       <p className="text-xs font-bold uppercase text-muted-foreground">You (parent or guardian)</p>
+      <button type="button" disabled={busy} onClick={() => void create(true)} className="flex h-11 w-full items-center justify-center gap-2 border-2 border-foreground bg-background font-bold shadow-brutal-sm disabled:opacity-60"><svg viewBox="0 0 48 48" className="size-5" aria-hidden><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg> Continue with Google</button>
+      <p className="text-center text-xs font-bold text-muted-foreground">OR</p>
       <label className="block text-sm font-semibold">Your email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={box} /></label>
       <label className="block text-sm font-semibold">Your password<input type="password" value={parentPass} onChange={(e) => setParentPass(e.target.value)} autoComplete="new-password" className={box} /></label>
       <p className="text-xs text-muted-foreground">Already have an IlmStation account? Use the same email and password, and your child joins your family. New here? This creates a parent account for password resets and Family hub.</p>
     </section>
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-1" /> <span>I’m this child’s parent or guardian, and I agree to the <a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.</span></label>
     {err && <p className="border-2 border-foreground bg-destructive/10 p-3 text-sm">{err}</p>}
-    <button type="button" disabled={busy} onClick={() => void create()} className="h-12 w-full border-2 border-foreground bg-primary font-bold shadow-brutal disabled:opacity-60">{busy ? "Creating…" : "Create my child’s account"}</button>
+    <button type="button" disabled={busy} onClick={() => void create(false)} className="h-12 w-full border-2 border-foreground bg-primary font-bold shadow-brutal disabled:opacity-60">{busy ? "Creating…" : "Create my child’s account"}</button>
   </div>;
 }
