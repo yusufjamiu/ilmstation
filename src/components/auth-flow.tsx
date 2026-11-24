@@ -243,7 +243,6 @@ export function SignupFlow() {
 
   return <AuthShell mode="signup" aside={aside}>
     {step < steps.length - 1 && <StepHeader step={step} />}
-    {step >= 1 && step <= 5 && <div className="mb-5 flex gap-2 sm:hidden" aria-hidden>{[1, 2, 3, 4, 5].map((i) => <span key={i} className={`h-1 flex-1 rounded-full ${i < step ? "bg-secondary" : i === step ? "bg-primary" : "bg-foreground/15"}`} />)}</div>}
     {step === 1 && !forChild && !whoChosen && <div data-who-pick className="grid gap-4">
       <p className="font-serif text-2xl">Who is this account for?</p>
       <button type="button" onClick={() => setWhoChosen(true)} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_hsl(var(--foreground))] transition active:translate-y-1 active:shadow-[0_1px_0_hsl(var(--foreground))] bg-primary">
@@ -413,7 +412,7 @@ function DetailsStep({ draft, onBack, onNext }: { draft: Draft; onBack: () => vo
       <p className="mt-1.5 border-2 border-foreground bg-muted p-3 text-sm"><b>Under 13?</b> Ask a parent or guardian to create your account in their <b>Family hub</b>. You’ll log in with a username, no email needed.</p>
       <p className="mt-2 text-xs text-muted-foreground">By creating an account, you agree to our <a href="/terms" target="_blank" rel="noreferrer" className="font-semibold underline">Terms of Use</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="font-semibold underline">Privacy Policy</a>.</p>
       <div role="radiogroup" aria-label="Age group" className="mt-1.5 grid gap-3">{(["youth", "adult"] as const).map((z) => { const on = zone === z; return <button key={z} type="button" role="radio" aria-checked={on} onClick={() => setZone(z)} className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 text-left transition-transform", on ? "bg-primary shadow-brutal" : "bg-background shadow-brutal-sm hover:-translate-y-0.5")}>
-        <span><span className="block font-semibold">{zones[z].name}</span><span className="text-xs text-muted-foreground">{zones[z].ages} · {zones[z].blurb}</span></span>
+        <span className="w-full text-center"><span className="block font-semibold">{zones[z].name}</span><span className="text-xs text-muted-foreground">{zones[z].ages}</span></span>
         {on && <span className="grid size-6 shrink-0 place-items-center border-2 border-foreground bg-secondary text-secondary-foreground"><Check className="size-3.5" /></span>}
       </button>; })}</div>
       {tried && !zone && <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">Choose your age group to continue.</p>}
