@@ -86,7 +86,9 @@ export type InteriorKind =
   | "cabin"
   | "coach"
   | "lecture"
-  | "corridor";
+  | "corridor"
+  /** inside Al-Masjid An-Nabawi: the prayer hall, the Rawdah and the courtyard */
+  | "nabawi";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -278,6 +280,8 @@ function part(geo: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0) {
 }
 const capsule = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 4, 10);
 
+/** The size of the inside of Al-Masjid An-Nabawi. */
+const NABAWI_IN = { W: 72, D: 84 };
 /** Makkah and Madinah: date palms, Saudi flags, no overhead cables. */
 const saudiCity = (D: District) => ["madinah", "makkah"].includes(cityOf(D));
 
@@ -608,6 +612,7 @@ export class IlmCityEngine {
     coach: [],
     lecture: [],
     corridor: [],
+    nabawi: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -636,6 +641,7 @@ export class IlmCityEngine {
     coach: new THREE.Vector3(1850, 0, 320),
     lecture: new THREE.Vector3(2000, 0, 320),
     corridor: new THREE.Vector3(2150, 0, 320),
+    nabawi: new THREE.Vector3(2350, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -717,6 +723,7 @@ export class IlmCityEngine {
     this.buildCoach();
     this.buildLecture();
     this.buildCorridor();
+    this.buildNabawiInside();
     this.startId = start?.district ?? DEFAULT_AREA;
     this.buildWorld();
     this.buildTraffic();
@@ -923,7 +930,11 @@ export class IlmCityEngine {
     this.outPos.copy(this.player.position);
     this.where = kind;
     const o = this.interiorOrigin[kind];
-    this.player.position.set(o.x, 0, o.z + (kind === "home" ? 8 : 5.5));
+    this.player.position.set(
+      o.x,
+      0,
+      o.z + (kind === "home" ? 8 : kind === "nabawi" ? NABAWI_IN.D / 2 - 3 : 5.5),
+    );
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -10171,6 +10182,234 @@ export class IlmCityEngine {
       scene: "lecture",
     });
   }
+  /* ---------------- inside Al-Masjid An-Nabawi ---------------- */
+  /** The prayer hall on red carpet between rows of white columns and arches; the Rawdah on
+      green carpet between the minbar and the Prophet's house ﷺ; the gold grille where you
+      give salam; the mihrab, the minbar, Qur'an shelves, Zamzam coolers, chandeliers, an open
+      courtyard with umbrellas, and worshippers sitting in rows. */
+  private buildNabawiInside() {
+    const { W, D } = NABAWI_IN;
+    const { g, o } = this.room("nabawi", W, D, 0xeee4cf, 0x9b2a2a);
+    const b = new Batch();
+    const marble = MAT.plain(0xf6f2ea, 0.35);
+    const gold = MAT.plain(0xc9a227, 0.35);
+    const green = MAT.plain(0x2e7d4f, 0.8);
+    const wall = MAT.plaster(0xeee4cf);
+    const Q = -D / 2; // the qibla wall
+    // taller walls with arches, above the room's own walls
+    b.box(W, 4, 0.4, wall, 0, 5, Q);
+    b.box(0.4, 4, D, wall, -W / 2, 5, 0);
+    b.box(0.4, 4, D, wall, W / 2, 5, 0);
+    for (let x = -W / 2 + 3; x < W / 2; x += 6)
+      b.plane(2.6, 3.8, MAT3.archWin(0xeee4cf, 0x6b5a3a), x, 4.2, Q + 0.22);
+    // carpet rows: a gold line every 1.6 m across the hall
+    for (let z = Q + 3; z < D / 2 - 6; z += 1.6) b.box(W - 1, 0.012, 0.06, gold, 0, 0.01, z);
+    // the courtyard, open to the sky, with four umbrellas
+    const cx = -18,
+      cz = 14,
+      CW = 26,
+      CD = 22;
+    b.add(groundGeo(CW, CD, 2), marble, cx, 0.02, cz, 0, false);
+    const canopy = new THREE.ConeGeometry(3.8, 1.4, 4, 1, true);
+    canopy.rotateY(Math.PI / 4);
+    for (const [ux, uz] of [
+      [-6, -5],
+      [6, -5],
+      [-6, 5],
+      [6, 5],
+    ]) {
+      b.add(new THREE.CylinderGeometry(0.22, 0.32, 7.5, 10), marble, cx + ux, 3.75, cz + uz);
+      b.add(canopy, MAT3.fabric(), cx + ux, 8, cz + uz);
+    }
+    // the Rawdah: green carpet between the minbar and the Prophet's house ﷺ
+    const rx0 = 10,
+      rx1 = 28,
+      rz0 = Q + 1,
+      rz1 = Q + 16;
+    b.add(
+      groundGeo(rx1 - rx0, rz1 - rz0, 2),
+      green,
+      (rx0 + rx1) / 2,
+      0.02,
+      (rz0 + rz1) / 2,
+      0,
+      false,
+    );
+    // white columns all through the hall, with gold capitals and arches between them;
+    // the Rawdah's columns are wrapped in green and white
+    for (let x = -W / 2 + 6; x < W / 2 - 2; x += 6)
+      for (let z = Q + 6; z < D / 2 - 6; z += 6) {
+        if (
+          x > cx - CW / 2 - 1 &&
+          x < cx + CW / 2 + 1 &&
+          z > cz - CD / 2 - 1 &&
+          z < cz + CD / 2 + 1
+        )
+          continue;
+        if (Math.abs(x) < 2.5) continue; // the aisle from the door to the mihrab
+        const inRawdah = x > rx0 && x < rx1 && z < rz1;
+        b.add(
+          new THREE.CylinderGeometry(0.42, 0.48, 6.6, 12),
+          inRawdah ? MAT.plain(0xf8f6f0, 0.3) : marble,
+          x,
+          3.3,
+          z,
+        );
+        if (inRawdah) b.add(new THREE.CylinderGeometry(0.5, 0.5, 1.4, 12), green, x, 2.2, z);
+        b.add(new THREE.CylinderGeometry(0.62, 0.42, 0.6, 12), gold, x, 6.9, z);
+        this.addCollider("nabawi", o.x + x - 0.5, o.x + x + 0.5, o.z + z - 0.5, o.z + z + 0.5);
+      }
+    // the mihrab in the middle of the qibla wall, and the Prophet's mihrab ﷺ in the Rawdah
+    const mihrab = (x: number, w: number) => {
+      b.box(w + 1.2, 5, 0.6, gold, x, 0, Q + 0.4);
+      b.box(w, 4, 0.3, MAT.plain(0x1f5a3e, 0.6), x, 0.2, Q + 0.75);
+      b.plane(w - 0.6, 3.2, MAT3.archWin(0x1f5a3e, 0xc9a227), x, 2.2, Q + 0.92);
+    };
+    mihrab(0, 3);
+    mihrab(19, 2.2);
+    // the minbar of white marble with gold trim, its steps rising towards the qibla wall
+    for (let k = 0; k < 9; k++)
+      b.box(1.6, 0.4 * (k + 1), 0.6, marble, rx0 + 1.2, 0, Q + 9 - k * 0.6);
+    b.box(1.8, 0.2, 5.6, gold, rx0 + 1.2, 3.6, Q + 6.5);
+    b.add(new THREE.ConeGeometry(0.9, 1.8, 8), gold, rx0 + 1.2, 6, Q + 3.6);
+    this.addCollider("nabawi", o.x + rx0 + 0.3, o.x + rx0 + 2.1, o.z + Q, o.z + Q + 9.5);
+    // the house of the Prophet ﷺ, where he rests with Abu Bakr and Umar: a green wall behind a
+    // gold grille, on the east side of the Rawdah
+    const hx = rx1 + 4.2;
+    b.box(7, 6, 18, MAT.plain(0x1f6a3a, 0.6), hx, 0, Q + 10);
+    b.plane(16, 5.2, MAT3.lattice(), hx - 3.52, 3, Q + 10, -Math.PI / 2);
+    b.box(0.2, 0.3, 18, gold, hx - 3.55, 5.6, Q + 10);
+    this.addCollider("nabawi", o.x + hx - 3.6, o.x + W / 2, o.z + Q, o.z + Q + 19.5);
+    // Qur'an shelves round two columns, and Zamzam coolers
+    for (const [x, z] of [
+      [-24, Q + 8],
+      [-12, Q + 8],
+      [6, Q + 26],
+    ]) {
+      b.box(2.4, 1.8, 0.6, MAT.plain(0x6d4a2b), x, 0, z);
+      for (let k = 0; k < 6; k++)
+        b.box(
+          0.32,
+          0.5,
+          0.3,
+          MAT.plain([0x1f6f63, 0x7d2f3a, 0x2f4a7a][k % 3]),
+          x - 0.9 + k * 0.36,
+          1.85,
+          z,
+        );
+      this.addCollider("nabawi", o.x + x - 1.3, o.x + x + 1.3, o.z + z - 0.4, o.z + z + 0.4);
+      this.zones.push({
+        id: "quran",
+        label: "Read Qur'an",
+        x: o.x + x,
+        z: o.z + z + 1.4,
+        r: 1.8,
+        scene: "nabawi",
+      });
+    }
+    for (const [x, z] of [
+      [-30, Q + 30],
+      [30, Q + 34],
+    ]) {
+      b.add(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 14), MAT.plain(0xf4f4f0, 0.3), x, 0.6, z);
+      b.add(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 14), MAT.plain(0x2e7d4f), x, 1.35, z);
+      this.addCollider("nabawi", o.x + x - 0.6, o.x + x + 0.6, o.z + z - 0.6, o.z + z + 0.6);
+      this.zones.push({
+        id: "zamzam",
+        label: "Drink Zamzam",
+        x: o.x + x + (x < 0 ? 1.6 : -1.6),
+        z: o.z + z,
+        r: 1.8,
+        scene: "nabawi",
+      });
+    }
+    // gold chandeliers
+    for (const [x, z] of [
+      [-15, -16],
+      [0, -16],
+      [-6, 30],
+      [12, 10],
+    ]) {
+      b.add(new THREE.TorusGeometry(1.5, 0.12, 6, 20).rotateX(Math.PI / 2), gold, x, 7.6, z);
+      for (let k = 0; k < 8; k++)
+        b.box(
+          0.18,
+          0.3,
+          0.18,
+          MAT.bulb(),
+          x + Math.cos((k / 8) * 6.283) * 1.5,
+          7.7,
+          z + Math.sin((k / 8) * 6.283) * 1.5,
+        );
+    }
+    for (const m of b.build()) g.add(m);
+    // words over the qibla wall and the Rawdah
+    const t1 = label("Al-Masjid An-Nabawi · المسجد النبوي", {
+      bg: "rgba(0,0,0,0)",
+      fg: "#c9a227",
+      size: 2,
+    });
+    t1.position.set(0, 8.4, Q + 0.6);
+    g.add(t1);
+    const t2 = label("Ar-Rawdah Ash-Sharifah · الروضة الشريفة", {
+      size: 0.9,
+      bg: "rgba(46,125,79,0.92)",
+    });
+    t2.position.set((rx0 + rx1) / 2, 4.2, rz1);
+    g.add(t2);
+    // worshippers sitting in rows, reading or remembering Allah
+    const robes = [0xf7f7f2, 0xf2efe6, 0xe9e4d8, 0x2a3a4a, 0x6b5a3a];
+    let k = 0;
+    for (let row = 0; row < 3; row++)
+      for (let i = 0; i < 9; i++) {
+        const x = -30 + i * 3.4 + (row % 2) * 1.2,
+          z = Q + 4 + row * 3.2;
+        if (x > rx0 - 1) continue;
+        const p = person(robes[k % robes.length], {
+          cap: k % 3 ? 0xffffff : null,
+          seed: 70 + k,
+          outfit: "thobe",
+        });
+        p.position.set(x, 0, z);
+        sitPerson(p);
+        p.userData.indoors = true;
+        g.add(p);
+        k++;
+      }
+    this.zones.push({
+      id: "pray",
+      label: "Join the prayer rows",
+      x: o.x - 4,
+      z: o.z + Q + 13,
+      r: 3.2,
+      scene: "nabawi",
+    });
+    this.zones.push({
+      id: "rawdah",
+      label: "Enter the Rawdah",
+      x: o.x + (rx0 + rx1) / 2,
+      z: o.z + rz1 - 2,
+      r: 3,
+      scene: "nabawi",
+    });
+    this.zones.push({
+      id: "muwajaha",
+      label: "Give salam to the Prophet ﷺ",
+      x: o.x + hx - 5.4,
+      z: o.z + Q + 18,
+      r: 2.4,
+      scene: "nabawi",
+    });
+    this.zones.push({
+      id: "masjid-rest",
+      label: "Rest a little (free)",
+      x: o.x - 18,
+      z: o.z + 32,
+      r: 2.4,
+      scene: "nabawi",
+    });
+  }
+
   /* ---------------- a faculty's corridor: a classroom for each department and level ---- */
   private corridorDoors: {
     zone: Zone;

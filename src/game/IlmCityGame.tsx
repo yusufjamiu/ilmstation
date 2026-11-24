@@ -2224,7 +2224,7 @@ function CityGame({
     const e = engine.current;
     if (!e) return;
     const where = e.scenePlace();
-    radio.hushIf("place", where === "masjid" || where === "madrasah");
+    radio.hushIf("place", where === "masjid" || where === "nabawi" || where === "madrasah");
     const kind = e.rideKind();
     if (!kind) vehicleMute.current = null;
     const cfg = radioCfgRef.current;
@@ -6766,6 +6766,85 @@ function CityGame({
         });
         return;
       }
+      // the Rawdah: between the Prophet's house ﷺ and his minbar
+      if (id === "rawdah") {
+        setPanel({
+          kind: "info",
+          title: "Ar-Rawdah Ash-Sharifah",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                The Prophet ﷺ said:{" "}
+                <i>
+                  "What is between my house and my minbar is a garden from the gardens of Paradise."
+                </i>{" "}
+                (Al-Bukhari and Muslim)
+              </p>
+              <p className="text-[13px] opacity-80">
+                You can tell it by its green carpet. Pray here calmly, make du'a, and leave room for
+                others. In real life you book a time for the Rawdah in the Nusuk app.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  afterPrayerRef.current = () => {
+                    need({ iman: 20 });
+                    toast(
+                      "You prayed in the Rawdah, a garden of Paradise. May Allah accept it.",
+                      "good",
+                    );
+                  };
+                  startPrayerRef.current(true, "Two rak'ahs in the Rawdah");
+                }}
+                className="w-full rounded-xl bg-[#2e7d4f] px-4 py-3 font-bold text-white"
+              >
+                🤲 Pray two rak'ahs in the Rawdah
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      // the gold grille before the Prophet's house ﷺ, where he rests with Abu Bakr and Umar
+      if (id === "muwajaha") {
+        setPanel({
+          kind: "info",
+          title: "Salam to the Prophet ﷺ",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p className="text-[13px] opacity-80">
+                Stand calmly, lower your voice, and give salam. Then step to the right to greet Abu
+                Bakr, and again for Umar, may Allah be pleased with them. For your own du'a, face
+                the qiblah and ask Allah alone.
+              </p>
+              <p dir="rtl" className="font-serif text-[19px] leading-loose">
+                السَّلَامُ عَلَيْكَ يَا رَسُولَ اللَّهِ وَرَحْمَةُ اللَّهِ وَبَرَكَاتُهُ
+              </p>
+              <p className="text-[13px] italic">
+                "Peace be upon you, O Messenger of Allah, and the mercy of Allah and His blessings."
+              </p>
+              <p dir="rtl" className="font-serif text-[17px] leading-loose">
+                السَّلَامُ عَلَيْكَ يَا أَبَا بَكْرٍ · السَّلَامُ عَلَيْكَ يَا عُمَرُ
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  need({ iman: 15 });
+                  update((x) => ({ ...x, ilm: x.ilm + 2 }));
+                  toast(
+                    "You gave salam to the Prophet ﷺ and his two Companions. Send salawat on him often. +2 Ilm",
+                    "good",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                Give salam
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       // the hotels round Al-Masjid An-Nabawi
       if (id.startsWith("office:hotel-")) {
         openHotelRef.current(true);
@@ -7207,8 +7286,18 @@ function CityGame({
         quizPlace.current = keyOf("mosque", lid);
         const name = landmarkName(lid);
         // the two Holy Mosques: you walk into the real courtyard, not a small prayer hall
-        const holyMosque = lid === "masjid-al-haram" || lid === "masjid-an-nabawi";
-        if (holyMosque && e.enterHolyCourt(lid)) {
+        const holyMosque = lid === "masjid-al-haram";
+        if (lid === "masjid-an-nabawi") {
+          // inside the Prophet's Mosque ﷺ: the prayer hall, the Rawdah and the courtyard
+          e.enterInterior("nabawi", name);
+          setInside(true);
+          sayDhikr("enterMasjid", () =>
+            toast(
+              "Welcome to the Prophet's Mosque ﷺ. Pray two rak'ahs, visit the Rawdah, and give salam to the Prophet ﷺ by the gold grille.",
+              "good",
+            ),
+          );
+        } else if (holyMosque && e.enterHolyCourt(lid)) {
           if (lid === "masjid-al-haram") {
             const st = saveRef.current.umrah?.stage;
             if (st === "enter" || st === "ihram") {
@@ -7566,7 +7655,7 @@ function CityGame({
             update((x) => ({ ...x, cycling: false }));
           }
           sayDhikr("leaveHome", () => askRideRef.current());
-        } else if (was === "masjid") sayDhikr("leaveMasjid");
+        } else if (was === "masjid" || was === "nabawi") sayDhikr("leaveMasjid");
         return;
       }
       if (id === "car") {
@@ -8656,7 +8745,11 @@ function CityGame({
     if (g.act === "rest") return openHotel();
     if (g.act === "quran") {
       const pl = engine.current?.scenePlace();
-      if (pl === "masjid" || (pl === "home" && (saveRef.current.items ?? []).includes("bookshelf")))
+      if (
+        pl === "masjid" ||
+        pl === "nabawi" ||
+        (pl === "home" && (saveRef.current.items ?? []).includes("bookshelf"))
+      )
         return openQuran(false);
       if (inside) return toast("Go outside first, then walk to the masjid to read the Qur'an.");
       quranNext.current = true;
