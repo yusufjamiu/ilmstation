@@ -62,6 +62,7 @@ import {
 } from "./pitchnet";
 import {
   complexFaculties,
+  departmentsOf,
   courseTopics,
   coursesLive,
   departmentsLive,
@@ -1066,6 +1067,8 @@ function CityGame({
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
   const lastLectureRef = useRef<string | null>(null);
+  const corridorRef = useRef<CorridorState | null>(null);
+  const classRef = useRef<{ slot: number } | null>(null);
   /** your plane ticket, from buying it to landing: check in, security, board */
   const ticketRef = useRef<Ticket | null>(null);
   const [flight, setFlight] = useState<Ticket | null>(null);
@@ -5869,6 +5872,111 @@ function CityGame({
         }
         return;
       }
+      // a faculty building: a corridor with a classroom for each department and level, the
+      // higher levels upstairs
+      const fac0 = id.startsWith("faculty:") ? landmarkById(id.slice(8)) : null;
+      if (
+        fac0 &&
+        !fac0.l.id.endsWith("-library") &&
+        !fac0.l.id.endsWith("-complex") &&
+        !corridorRef.current?.entering
+      ) {
+        const L = fac0;
+        const [room, uni] = L.l.name.split(" · ");
+        const make = (depts: Dept[]) => {
+          const pairs: CorridorRoom[] = [];
+          for (const lv of LEVELS) for (const d of depts) pairs.push({ dept: d, level: lv });
+          return pairs;
+        };
+        const c: CorridorState = {
+          id,
+          faculty: L.l.name,
+          top: `${uni ?? ""} · ${room}`,
+          pairs: make(departmentsOf(L.l.name)),
+          floor: 0,
+        };
+        corridorRef.current = c;
+        sayDhikr("study", () => {
+          e.enterCorridor(L.l.name, corridorFloorName(c), corridorRooms(c));
+          setInside(true);
+          tuneRef.current();
+          toast(`${room}: find your department's classroom. Higher levels are upstairs.`);
+          // departments the team added in the admin page
+          void departmentsLive(L.l.name).then((ds) => {
+            if (corridorRef.current !== c) return;
+            c.pairs = make(ds);
+            if (e.scenePlace() === "corridor")
+              e.setCorridor(corridorFloorName(c), corridorRooms(c));
+          });
+        });
+        return;
+      }
+      if (id === "corridorstairs") {
+        const c = corridorRef.current;
+        if (!c) return;
+        const floors = Math.max(1, Math.ceil(c.pairs.length / 12));
+        c.floor = (c.floor + 1) % floors;
+        e.setCorridor(corridorFloorName(c), corridorRooms(c));
+        toast(
+          floors > 1
+            ? `You're on the ${corridorFloorName(c).split(" · ")[0].toLowerCase()}.`
+            : "This is the only floor.",
+        );
+        return;
+      }
+      if (id.startsWith("classroom:") || (id === "lectureseat" && classRef.current)) {
+        const c = corridorRef.current;
+        const slot = id === "lectureseat" ? classRef.current!.slot : Number(id.slice(10));
+        const pair = c?.pairs[c.floor * 12 + slot];
+        if (!c || !pair) return;
+        const again2 = id === "lectureseat";
+        classRef.current = { slot };
+        if (!again2) {
+          let seed = 0;
+          for (const ch of c.id + pair.dept.code + pair.level + clockRef.current.key)
+            seed = (seed * 31 + ch.charCodeAt(0)) % 9973;
+          e.enterLecture(`${pair.dept.name} · ${pair.level} Level`, seed);
+          e.setLecture(c.top, pair.dept.name, `${pair.level} Level · choose your course`);
+          setInside(true);
+        }
+        e.sitInLecture();
+        const today = clockRef.current.key;
+        const s0 = saveRef.current.said;
+        const ids = s0?.day === today ? s0.ids : [];
+        if (!ids.includes("class")) {
+          update((x) => ({ ...x, ilm: x.ilm + 2, said: { day: today, ids: [...ids, "class"] } }));
+          need({ iman: 4, social: 5 });
+        }
+        setPanel({
+          kind: "info",
+          title: `${pair.dept.name} · ${pair.level} Level`,
+          body: (
+            <InClassView
+              library={false}
+              about=""
+              faculty={c.faculty}
+              dept0={pair.dept}
+              level0={pair.level}
+              onScreen={(a, b) => e.setLecture(c.top, a, b)}
+              onCorrect={() => {
+                if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
+                update((x) => ({
+                  ...x,
+                  coins: x.coins + SCHOOL_POINTS.perCorrect,
+                  ilm: x.ilm + 2,
+                  schoolPts: (x.schoolPts ?? 0) + SCHOOL_POINTS.perCorrect,
+                }));
+                return true;
+              }}
+              onLeave={() => {
+                setPanel(null);
+                onActionRef.current("exit");
+              }}
+            />
+          ),
+        });
+        return;
+      }
       // back in your seat in the lecture theatre: the class carries on
       const again = id === "lectureseat";
       if (again) id = lastLectureRef.current ?? "";
@@ -7298,6 +7406,16 @@ function CityGame({
       }
       if (id === "exit") {
         const was = e.scenePlace();
+        if (was === "lecture" && corridorRef.current && classRef.current) {
+          setPanel(null);
+          e.backToCorridor(classRef.current.slot);
+          classRef.current = null;
+          return;
+        }
+        if (was === "corridor" || was === "lecture") {
+          corridorRef.current = null;
+          classRef.current = null;
+        }
         endVisit();
         e.exitInterior();
         setInside(false);
@@ -15541,7 +15659,12 @@ function InClassView({
   onCorrect,
   onLeave,
   onScreen,
+  dept0,
+  level0,
 }: {
+  /** a department's classroom: already in this department and level */
+  dept0?: Dept;
+  level0?: number;
   /** show what the class is on, on the lecture theatre's screen */
   onScreen?: (title: string, sub: string) => void;
   library: boolean;
@@ -15554,13 +15677,13 @@ function InClassView({
   onLeave: () => void;
 }) {
   const [depts, setDepts] = useState<Dept[] | null>(null);
-  const [dept, setDept] = useState<Dept | null>(null);
-  const [level, setLevel] = useState<number | null>(null);
+  const [dept, setDept] = useState<Dept | null>(dept0 ?? null);
+  const [level, setLevel] = useState<number | null>(level0 ?? null);
   const [courses, setCourses] = useState<{ code: string; title: string }[] | null>(null);
   const [course, setCourse] = useState<{ code: string; title: string } | null>(null);
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [topic, setTopic] = useState<Topic | null>(null);
-  const [browsing, setBrowsing] = useState(false);
+  const [browsing, setBrowsing] = useState(!!dept0);
   const [facs, setFacs] = useState<string[] | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const faculty = complexArea ? (chosen ?? undefined) : faculty0;
@@ -17330,4 +17453,27 @@ function BusCard({ trip, onArrive }: { trip: BusTrip; onArrive: () => void }) {
       </div>
     </div>
   );
+}
+
+type CorridorRoom = { dept: Dept; level: number };
+type CorridorState = {
+  id: string;
+  faculty: string;
+  top: string;
+  pairs: CorridorRoom[];
+  floor: number;
+  entering?: boolean;
+};
+const FLOOR_NAMES = ["Ground floor", "First floor", "Second floor", "Third floor"];
+/** Twelve classrooms a floor: the lower levels downstairs, the higher levels upstairs. */
+function corridorRooms(c: CorridorState) {
+  return c.pairs
+    .slice(c.floor * 12, c.floor * 12 + 12)
+    .map((p) => ({ a: p.dept.name, b: `${p.level} Level` }));
+}
+function corridorFloorName(c: CorridorState) {
+  const here = c.pairs.slice(c.floor * 12, c.floor * 12 + 12).map((p) => p.level);
+  const lo = Math.min(...here),
+    hi = Math.max(...here);
+  return `${FLOOR_NAMES[c.floor] ?? `Floor ${c.floor}`} · ${lo === hi ? lo : `${lo} to ${hi}`} Level`;
 }

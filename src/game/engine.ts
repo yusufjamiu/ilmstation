@@ -83,7 +83,8 @@ export type InteriorKind =
   | "terminal"
   | "cabin"
   | "coach"
-  | "lecture";
+  | "lecture"
+  | "corridor";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -598,6 +599,7 @@ export class IlmCityEngine {
     cabin: [],
     coach: [],
     lecture: [],
+    corridor: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -625,6 +627,7 @@ export class IlmCityEngine {
     cabin: new THREE.Vector3(1700, 0, 320),
     coach: new THREE.Vector3(1850, 0, 320),
     lecture: new THREE.Vector3(2000, 0, 320),
+    corridor: new THREE.Vector3(2150, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -705,6 +708,7 @@ export class IlmCityEngine {
     this.buildAirport();
     this.buildCoach();
     this.buildLecture();
+    this.buildCorridor();
     this.startId = start?.district ?? "lekki";
     this.buildWorld();
     this.buildTraffic();
@@ -9684,6 +9688,127 @@ export class IlmCityEngine {
       r: 2.4,
       scene: "lecture",
     });
+  }
+  /* ---------------- a faculty's corridor: a classroom for each department and level ---- */
+  private corridorDoors: {
+    zone: Zone;
+    sign: { set: (a: string, b: string) => void };
+    g: THREE.Object3D;
+    tag?: THREE.Object3D;
+  }[] = [];
+  private corridorTitle: { set: (a: string, b: string) => void } | null = null;
+  private corridorOut = new THREE.Vector3();
+  private corridorName = "";
+  private buildCorridor() {
+    const W = 12,
+      D = 56;
+    const { g, o } = this.room("corridor", W, D, 0xf1ece2, 0xc9c2b4);
+    const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+      box(w, h, d, c, x, y, z);
+    g.add(B(3, 0.02, D - 2, 0x9a8f7a, 0, 0.01, 0));
+    const sign = (w: number, h: number) => {
+      const cp = canvasPlane(w, h, () => {}, 256);
+      const set = (a: string, b: string) => {
+        const c = cp.canvas.getContext("2d")!;
+        const CW = cp.canvas.width,
+          CH = cp.canvas.height;
+        c.fillStyle = "#1f3d5a";
+        c.fillRect(0, 0, CW, CH);
+        c.fillStyle = "#fdf8ec";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `700 ${Math.round(CH * 0.26)}px "Work Sans", sans-serif`;
+        c.fillText(a.slice(0, 30), CW / 2, CH * 0.36);
+        c.fillStyle = "#e6b84a";
+        c.font = `800 ${Math.round(CH * 0.28)}px "Work Sans", sans-serif`;
+        c.fillText(b.slice(0, 26), CW / 2, CH * 0.72);
+        cp.tex.needsUpdate = true;
+      };
+      return { mesh: cp.mesh, set };
+    };
+    // the floor's name on the back wall
+    const head = sign(8, 1.6);
+    head.mesh.position.set(0, 3.6, -D / 2 + 0.06);
+    g.add(head.mesh);
+    this.corridorTitle = { set: head.set };
+    // classroom doors along both walls, six a side
+    for (const side of [-1, 1])
+      for (let i = 0; i < 6; i++) {
+        const z = -D / 2 + 8 + i * 7.6;
+        const x = side * (W / 2 - 0.08);
+        const door = new THREE.Group();
+        door.add(B(0.1, 3, 2.2, 0x6d4a2b, 0, 0, 0), B(0.14, 0.2, 2.6, 0x3a2a1c, 0, 3, 0));
+        const sg = sign(2.6, 0.9);
+        sg.mesh.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+        sg.mesh.position.set(-side * 0.12, 3.75, 0);
+        door.userData.side = side;
+        door.position.set(x, 0, z);
+        g.add(door);
+        const zone: Zone = {
+          id: `classroom:${this.corridorDoors.length}`,
+          label: "Enter the classroom",
+          x: o.x + side * (W / 2 - 1.6),
+          z: o.z + z,
+          r: 1.6,
+          scene: "corridor",
+        };
+        this.zones.push(zone);
+        this.corridorDoors.push({ zone, sign: sg, g: door });
+      }
+    // stairs at the far end, up to the next floor
+    const stairs = new THREE.Group();
+    for (let k = 0; k < 8; k++) stairs.add(B(3, 0.3 * (k + 1), 0.45, 0xd9d1bd, 0, 0, -k * 0.45));
+    stairs.position.set(-W / 2 + 2, 0, -D / 2 + 5);
+    this.solid("corridor", g, stairs, 3, 3.6);
+    this.zones.push({
+      id: "corridorstairs",
+      label: "Take the stairs",
+      x: o.x - W / 2 + 2,
+      z: o.z - D / 2 + 7.4,
+      r: 1.8,
+      scene: "corridor",
+    });
+    // notice board and benches
+    g.add(B(0.1, 1.6, 3, 0x8a6a4a, W / 2 - 0.1, 1.2, D / 2 - 6));
+    for (const z of [D / 2 - 12, -D / 2 + 14])
+      g.add(B(0.8, 0.5, 2.6, 0x6d4a2b, -W / 2 + 0.9, 0, z));
+  }
+  /** Into the faculty's corridor; rooms is what each classroom door says (up to 12). */
+  enterCorridor(name: string, floor: string, rooms: { a: string; b: string }[]) {
+    this.enterInterior("corridor", name);
+    this.corridorName = name;
+    this.corridorOut.copy(this.outPos);
+    this.setCorridor(floor, rooms);
+  }
+  setCorridor(floor: string, rooms: { a: string; b: string }[]) {
+    this.corridorTitle?.set(this.corridorName.split(" · ")[0], floor);
+    this.corridorDoors.forEach((d, k) => {
+      const r = rooms[k];
+      d.g.visible = !!r;
+      d.zone.off = !r;
+      if (d.tag) d.g.remove(d.tag);
+      d.tag = undefined;
+      if (r) {
+        d.sign.set(r.a, r.b);
+        d.zone.label = `${r.a.replace("Department of ", "")} · ${r.b}`;
+        // a sign you can read from anywhere in the corridor
+        const t = label(`${r.a.replace("Department of ", "")} · ${r.b.replace(" Level", "L")}`, {
+          size: 0.55,
+          bg: "rgba(31,61,90,0.92)",
+        });
+        t.position.set(-(d.g.userData.side ?? 1) * 1.4, 3.9, 0);
+        d.g.add(t);
+        d.tag = t;
+      }
+    });
+  }
+  /** Back out of a classroom into the corridor, by its door. */
+  backToCorridor(slot: number) {
+    this.enterInterior("corridor", this.corridorName);
+    this.outPos.copy(this.corridorOut);
+    const z = this.corridorDoors[slot]?.zone;
+    if (z) this.player.position.set(z.x, 0, z.z);
+    this.snapCamera();
   }
   /** What the screen in the lecture theatre shows. */
   setLecture(top: string, title: string, sub: string) {
