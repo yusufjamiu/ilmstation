@@ -82,7 +82,8 @@ export type InteriorKind =
   | "boutique"
   | "terminal"
   | "cabin"
-  | "coach";
+  | "coach"
+  | "lecture";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -596,6 +597,7 @@ export class IlmCityEngine {
     terminal: [],
     cabin: [],
     coach: [],
+    lecture: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -622,6 +624,7 @@ export class IlmCityEngine {
     terminal: new THREE.Vector3(1560, 0, 0),
     cabin: new THREE.Vector3(1700, 0, 320),
     coach: new THREE.Vector3(1850, 0, 320),
+    lecture: new THREE.Vector3(2000, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -701,6 +704,7 @@ export class IlmCityEngine {
     this.buildInteriors();
     this.buildAirport();
     this.buildCoach();
+    this.buildLecture();
     this.startId = start?.district ?? "lekki";
     this.buildWorld();
     this.buildTraffic();
@@ -915,6 +919,14 @@ export class IlmCityEngine {
     this.snapCamera();
   }
   exitInterior() {
+    if (this.acting && this.where !== "cabin" && this.where !== "coach") {
+      this.acting = null;
+      releasePose(this.player);
+      this.player.rotation.set(0, this.player.rotation.y, 0);
+      if (this.sleepCover) this.sleepCover.visible = false;
+      if (this.cookSteam) this.cookSteam.visible = false;
+      if (this.eatPlate) this.eatPlate.visible = false;
+    }
     if (this.where === "out") return;
     this.where = "out";
     this.player.position.copy(this.outPos);
@@ -7855,7 +7867,7 @@ export class IlmCityEngine {
   private cookSteam: THREE.Object3D | null = null;
   private eatPlate: THREE.Object3D | null = null;
   /** doing something at home (sleeping, sitting, cooking): you stay where you are */
-  private acting: { x: number; z: number; rot: number } | null = null;
+  private acting: { x: number; z: number; rot: number; scene?: InteriorKind | "out" } | null = null;
   private homeWall: THREE.MeshStandardMaterial | null = null;
   private homeFloor: THREE.MeshStandardMaterial | null = null;
   private stairs: THREE.Object3D | null = null;
@@ -9503,6 +9515,7 @@ export class IlmCityEngine {
           ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a][k % 4] } : {}),
         });
         p.position.set(o.x + s.x, 0, o.z + s.z - 0.1);
+        p.userData.indoors = true;
         this.scene.add(p);
         poseHuman(p, "chair");
         p.rotation.y = Math.PI;
@@ -9510,6 +9523,7 @@ export class IlmCityEngine {
       }
       const driver = person(0x3a3f46, { cap: 0x1d1f22, seed: 9 });
       driver.position.set(o.x - 1.8, 0, o.z - 8.4);
+      driver.userData.indoors = true;
       this.scene.add(driver);
       poseHuman(driver, "desk");
       driver.rotation.y = Math.PI;
@@ -9530,6 +9544,142 @@ export class IlmCityEngine {
     this.snapCamera();
     const rows = [...new Set(this.coachSeats.map((q) => q.z))];
     return `${rows.indexOf(seat.z) + 1}${"ABCD"[[-2.2, -1.3, 1.3, 2.2].indexOf(seat.x)]}`;
+  }
+  /* ---------------- a lecture theatre, full of students ---------------- */
+  private lectureSeats: { x: number; y: number; z: number }[] = [];
+  private lectureStudents: THREE.Object3D[] = [];
+  private lectureScreen: { set: (a: string, b: string, c: string) => void } | null = null;
+  private buildLecture() {
+    const W = 30,
+      D = 24;
+    const { g, o } = this.room("lecture", W, D, 0xf2ece0, 0x8a6a4a);
+    const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+      box(w, h, d, c, x, y, z);
+    // the screen at the front, with the course and topic on it
+    const scr = canvasPlane(12, 4.2, () => {}, 512);
+    scr.mesh.position.set(0, 3.4, -11.75);
+    g.add(scr.mesh, B(12.4, 4.6, 0.1, 0x1d1f22, 0, 1.1, -11.85));
+    const draw = (a: string, b: string, c: string) => {
+      const cx = scr.canvas.getContext("2d")!;
+      const CW = scr.canvas.width,
+        CH = scr.canvas.height;
+      cx.fillStyle = "#fdf8ec";
+      cx.fillRect(0, 0, CW, CH);
+      cx.fillStyle = "#1f6f63";
+      cx.fillRect(0, 0, CW, CH * 0.2);
+      cx.fillStyle = "#fdf8ec";
+      cx.textBaseline = "middle";
+      cx.font = `700 ${Math.round(CH * 0.09)}px "Work Sans", sans-serif`;
+      cx.fillText(a.slice(0, 48), CW * 0.04, CH * 0.1);
+      cx.fillStyle = "#10201e";
+      cx.font = `800 ${Math.round(CH * 0.13)}px "Work Sans", sans-serif`;
+      cx.fillText(b.slice(0, 32), CW * 0.04, CH * 0.42);
+      cx.fillStyle = "#3a4a46";
+      cx.font = `500 ${Math.round(CH * 0.09)}px "Work Sans", sans-serif`;
+      cx.fillText(c.slice(0, 50), CW * 0.04, CH * 0.64);
+      cx.fillStyle = "#c9a227";
+      cx.fillRect(CW * 0.04, CH * 0.82, CW * 0.3, CH * 0.02);
+      scr.tex.needsUpdate = true;
+    };
+    draw("Lecture Theatre", "Welcome to class", "Bismillah: choose your department and course");
+    this.lectureScreen = { set: draw };
+    // the lecturer's desk and podium
+    g.add(B(4, 1.1, 1.2, 0x6d4a2b, -5, 0, -8.6), B(1.2, 1.4, 0.9, 0x5a3a22, 4, 0, -9));
+    this.addCollider("lecture", o.x - 7, o.x - 3, o.z - 9.2, o.z - 8);
+    const lecturer = person(0x2f4a7a, { cap: 0xf4f1ea, seed: 11 });
+    lecturer.position.set(4, 0, -9.9);
+    g.add(lecturer);
+    const lt = label("Lecturer", { size: 0.6, bold: false });
+    lt.position.set(4, 2.6, -9.9);
+    g.add(lt);
+    // tiers of desks rising to the back, an aisle down the middle
+    for (let r = 0; r < 6; r++) {
+      const y = r * 0.45,
+        z = -4.5 + r * 2.4;
+      g.add(B(W - 2, y + 0.02, 2.4, 0x7a5a3a, 0, 0, z + 0.4));
+      for (const side of [-1, 1]) {
+        g.add(B(10.5, 0.08, 0.7, 0xc9a77a, side * 7.6, y + 1.05, z - 0.55));
+        g.add(B(10.5, 1.05, 0.08, 0x8a6a4a, side * 7.6, y, z - 0.85));
+        for (let k = 0; k < 6; k++) {
+          const x = side * (2.8 + k * 1.75);
+          g.add(
+            B(0.8, 0.5, 0.7, 0x2f4a7a, x, y, z + 0.2),
+            B(0.8, 0.9, 0.1, 0x2f4a7a, x, y + 0.5, z + 0.55),
+          );
+          this.lectureSeats.push({ x, y, z: z + 0.15 });
+        }
+      }
+      this.addCollider("lecture", o.x - W / 2, o.x - 2, o.z + z - 0.9, o.z + z + 1.6);
+      this.addCollider("lecture", o.x + 2, o.x + W / 2, o.z + z - 0.9, o.z + z + 1.6);
+    }
+    this.zones.push({
+      id: "lectureseat",
+      label: "Take a seat for the class",
+      x: o.x,
+      z: o.z - 6,
+      r: 2.4,
+      scene: "lecture",
+    });
+  }
+  /** What the screen in the lecture theatre shows. */
+  setLecture(top: string, title: string, sub: string) {
+    this.lectureScreen?.set(top, title, sub);
+  }
+  /** Into a lecture theatre: students fill the seats (a different crowd each time). */
+  enterLecture(name: string, seed = 0) {
+    const o = this.interiorOrigin.lecture;
+    if (!this.lectureStudents.length)
+      for (let k = 0; k < this.lectureSeats.length; k++) {
+        const s = this.lectureSeats[k];
+        // brothers on the left of the aisle, sisters on the right
+        const female = s.x > 0;
+        const p = person(
+          [0x2f4a7a, 0xf4f1ea, 0x6d4a2b, 0x2f6f4f, 0x7d2f3a, 0x3a3f46, 0xc9b28a][k % 7],
+          {
+            seed: k + 3,
+            ...(female
+              ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a, 0xe8e2d6][k % 5] }
+              : k % 2
+                ? { cap: 0xf4f1ea }
+                : {}),
+          },
+        );
+        p.position.set(o.x + s.x, s.y, o.z + s.z);
+        p.userData.indoors = true;
+        this.scene.add(p);
+        poseHuman(p, "desk");
+        p.rotation.y = Math.PI;
+        this.lectureStudents.push(p);
+      }
+    // who is in class today: about two in three seats
+    let r = (seed * 9301 + 49297) % 233280;
+    const free: number[] = [];
+    this.lectureStudents.forEach((p, k) => {
+      r = (r * 9301 + 49297) % 233280;
+      p.visible = r / 233280 < 0.66;
+      if (!p.visible && Math.abs(this.lectureSeats[k].x) < 5) free.push(k);
+    });
+    this.lectureFree = free;
+    this.enterInterior("lecture", name);
+  }
+  private lectureFree: number[] = [];
+  /** Sit down in a free seat near the aisle. */
+  sitInLecture() {
+    if (this.where !== "lecture") return;
+    const o = this.interiorOrigin.lecture;
+    const k = this.lectureFree[0] ?? 0;
+    const s = this.lectureSeats[k];
+    this.lectureStudents[k].visible = false;
+    const back = {
+      x: this.player.position.x,
+      z: this.player.position.z,
+      rot: this.player.rotation.y,
+    };
+    this.player.position.set(o.x + s.x, s.y, o.z + s.z);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "desk");
+    this.player.rotation.set(0, Math.PI, 0);
+    this.acting = { ...back, scene: this.where };
   }
   /** The departures board in the terminal. */
   setDepartures(lines: string[]) {
@@ -9562,6 +9712,7 @@ export class IlmCityEngine {
         p.position.set(s.x, 0, s.z - 0.1);
         this.cabinPeople.push(p);
         (p.userData.seat as unknown) = s;
+        p.userData.indoors = true;
         this.scene.add(p);
         p.position.add(o);
         // pose facing the default way, then turn to face the front of the plane
@@ -9574,6 +9725,7 @@ export class IlmCityEngine {
       crewB.position.set(o.x - 0.2, 0, o.z + 10);
       crewA.rotation.y = 0;
       crewB.rotation.y = Math.PI;
+      crewA.userData.indoors = crewB.userData.indoors = true;
       this.scene.add(crewA, crewB);
       this.cabinCrew.push(crewA, crewB);
     }
@@ -10189,7 +10341,7 @@ export class IlmCityEngine {
       poseHuman(this.player, "cook");
       if (this.cookSteam) this.cookSteam.visible = true;
     }
-    this.acting = back;
+    this.acting = { ...back, scene: this.where };
     return true;
   }
   /** Get up and carry on. */
@@ -10198,6 +10350,10 @@ export class IlmCityEngine {
     const b = this.acting;
     this.acting = null;
     releasePose(this.player);
+    this.player.position.y = 0;
+    if (this.player.rotation.x) this.player.rotation.x = 0;
+    // left the room already (the class ended by walking out): just stand up where you are
+    if (b.scene && b.scene !== this.where) return;
     this.player.rotation.set(0, b.rot, 0);
     this.player.position.set(b.x, 0, b.z);
     if (this.sleepCover) this.sleepCover.visible = false;

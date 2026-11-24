@@ -1063,6 +1063,7 @@ function CityGame({
     kmh: number;
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
+  const lastLectureRef = useRef<string | null>(null);
   /** your plane ticket, from buying it to landing: check in, security, board */
   const ticketRef = useRef<Ticket | null>(null);
   const [flight, setFlight] = useState<Ticket | null>(null);
@@ -5866,16 +5867,34 @@ function CityGame({
         }
         return;
       }
+      // back in your seat in the lecture theatre: the class carries on
+      const again = id === "lectureseat";
+      if (again) id = lastLectureRef.current ?? "";
       if (id.startsWith("faculty:")) {
         const L = landmarkById(id.slice(8));
         if (!L) return;
         const library = L.l.id.endsWith("-library");
         const [room, uni] = L.l.name.split(" · ");
-        sayDhikr("study", () => {
-          e.enterInterior("madrasah", L.l.name);
-          e.setTeacher(L.l.id.endsWith("-library") ? "Librarian" : "Lecturer");
-          setInside(true);
-          tuneRef.current();
+        lastLectureRef.current = id;
+        const lecture = !library;
+        const top = `${uni ?? ""} · ${room}`;
+        const go = (f: () => void) => (again ? f() : sayDhikr("study", f));
+        go(() => {
+          if (!again) {
+            if (lecture) {
+              let seed = 0;
+              for (const ch of id + clockRef.current.key)
+                seed = (seed * 31 + ch.charCodeAt(0)) % 9973;
+              e.enterLecture(`Lecture Theatre · ${L.l.name}`, seed);
+              e.setLecture(top, "Welcome to class", "Choose your department, level and course");
+            } else {
+              e.enterInterior("madrasah", L.l.name);
+              e.setTeacher("Librarian");
+            }
+            setInside(true);
+            tuneRef.current();
+          }
+          if (lecture) e.sitInLecture();
           const today = clockRef.current.key;
           const s0 = saveRef.current.said;
           const ids = s0?.day === today ? s0.ids : [];
@@ -5892,6 +5911,7 @@ function CityGame({
                 about={L.l.about ?? ""}
                 faculty={library ? undefined : L.l.name}
                 complexArea={L.l.id.endsWith("-complex") ? L.d.id : undefined}
+                onScreen={lecture ? (a, b) => e.setLecture(top, a, b) : undefined}
                 onCorrect={() => {
                   if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
                   update((x) => ({
@@ -15435,7 +15455,10 @@ function InClassView({
   complexArea,
   onCorrect,
   onLeave,
+  onScreen,
 }: {
+  /** show what the class is on, on the lecture theatre's screen */
+  onScreen?: (title: string, sub: string) => void;
   library: boolean;
   about: string;
   /** the Faculties Complex of this university area: choose a faculty first */
@@ -15474,6 +15497,19 @@ function InClassView({
     if (dept && course && faculty) void courseTopics(dept, faculty, course).then(setTopics);
   }, [dept, course, faculty]);
   const quiz = topic?.qs;
+  const screen = useRef(onScreen);
+  screen.current = onScreen;
+  useEffect(() => {
+    const f = screen.current;
+    if (!f) return;
+    if (course)
+      f(
+        `${course.code} · ${course.title}`,
+        topic ? `Topic: ${topic.title}` : `${dept?.name ?? ""} · ${level ?? ""} Level`,
+      );
+    else if (dept && level) f(`${dept.name}`, `${level} Level · choose your course`);
+    else if (dept) f(`${dept.name}`, "Choose your level");
+  }, [course, topic, dept, level]);
   const pick = "w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left";
   const back = (fn: () => void) => (
     <button onClick={fn} className="text-[12.5px] underline opacity-70">
