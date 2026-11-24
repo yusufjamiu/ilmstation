@@ -913,8 +913,8 @@ export function poseHuman(o: THREE.Object3D, pose: Pose) {
     turn(b.RightUpLeg, X, -CHAIR.thigh);
     turn(b.LeftLeg, X, CHAIR.knee);
     turn(b.RightLeg, X, CHAIR.knee);
-    const arm = pose === "desk" ? 0.85 : 0.35,
-      fore = pose === "desk" ? 0.55 : 0.9;
+    const arm = pose === "desk" ? 0.85 : 0.15,
+      fore = pose === "desk" ? 0.55 : 0.55;
     turn(b.LeftArm, X, -arm);
     turn(b.RightArm, X, -arm);
     turn(b.LeftForeArm, X, -fore);

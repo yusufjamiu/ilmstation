@@ -73,7 +73,15 @@ import {
    Everything is built from simple low-poly shapes so the first load stays small. */
 
 export type InteriorKind =
-  "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs" | "boutique";
+  | "masjid"
+  | "home"
+  | "madrasah"
+  | "restaurant"
+  | "mall"
+  | "upstairs"
+  | "boutique"
+  | "terminal"
+  | "cabin";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -584,6 +592,8 @@ export class IlmCityEngine {
     mall: [],
     upstairs: [],
     boutique: [],
+    terminal: [],
+    cabin: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -607,6 +617,8 @@ export class IlmCityEngine {
     mall: new THREE.Vector3(1420, 0, 0),
     upstairs: new THREE.Vector3(1100, 0, 60),
     boutique: new THREE.Vector3(1300, 0, 60),
+    terminal: new THREE.Vector3(1560, 0, 0),
+    cabin: new THREE.Vector3(1560, 0, 90),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -684,6 +696,7 @@ export class IlmCityEngine {
 
     this.buildCar();
     this.buildInteriors();
+    this.buildAirport();
     this.startId = start?.district ?? "lekki";
     this.buildWorld();
     this.buildTraffic();
@@ -6560,6 +6573,7 @@ export class IlmCityEngine {
     if (!z) return false;
     const D = this.areaAt(z.x, z.z);
     if (D) this.district = D;
+    this.leaveCabin();
     if (this.where !== "out") this.exitInterior();
     this.driving = false;
     this.player.visible = true;
@@ -9054,6 +9068,356 @@ export class IlmCityEngine {
     }
   }
 
+  /* ---------------- the airport terminal and the plane ---------------- */
+  private cabinSeats: { x: number; z: number; business: boolean }[] = [];
+  private cabinPeople: THREE.Object3D[] = [];
+  private cabinCrew: THREE.Object3D[] = [];
+  private trolley: THREE.Object3D | null = null;
+  private trayMeal: THREE.Object3D | null = null;
+  private mySeat: { x: number; z: number } | null = null;
+  private terminalStaff: THREE.Object3D[] = [];
+  private departures: { set: (lines: string[]) => void } | null = null;
+
+  private buildAirport() {
+    // The terminal: check-in desks at the back, a security arch, seats, and the gate
+    {
+      const { g, o } = this.room("terminal", 40, 26, 0xf2f2ee, 0xd9d6cf);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      // the airline's wall: IlmAir in big letters over the check-in desks
+      const sign = canvasPlane(14, 2.2, (c, W, H) => {
+        c.fillStyle = "#1f3d5a";
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = "#e6b84a";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `800 ${Math.round(H * 0.5)}px "Work Sans", sans-serif`;
+        c.fillText("✈ IlmAir · Check-in", W / 2, H / 2);
+      }).mesh;
+      sign.position.set(-6, 3.9, -12.75);
+      g.add(sign);
+      // three desks with a scale for bags, a screen and the agent behind
+      for (let i = 0; i < 3; i++) {
+        const x = -12 + i * 6;
+        const desk = new THREE.Group();
+        desk.add(B(3.6, 1.2, 1.1, 0x1f3d5a, 0, 0, 0), B(3.7, 0.08, 1.2, 0xe9e6de, 0, 1.2, 0));
+        desk.add(
+          B(1.2, 0.35, 1, 0x55585c, 2.4, 0, 0.2),
+          B(0.5, 0.4, 0.06, 0x111317, -0.8, 1.28, -0.2),
+        );
+        const belt = B(1.1, 0.05, 0.9, 0x2a2c30, 2.4, 0.35, 0.2);
+        desk.add(belt);
+        desk.position.set(x, 0, -9.2);
+        this.solid("terminal", g, desk, 4.8, 1.3);
+        const agent = person(
+          0x1f3d5a,
+          i === 1 ? { cap: null, seed: 4 } : { hijab: 0x7d2f3a, seed: i },
+        );
+        agent.position.set(x, 0, -10.6);
+        g.add(agent);
+        this.terminalStaff.push(agent);
+        // queue posts with a ribbon
+        for (const qx of [-1.8, 1.8]) {
+          const post = cyl(0.06, 0.08, 1, 0xb8bcc2, 8);
+          post.position.set(x + qx, 0.5, -6.6);
+          g.add(post);
+        }
+        g.add(B(3.6, 0.08, 0.04, 0x2f6fb0, x, 0.92, -6.6));
+      }
+      this.zones.push({
+        id: "checkin",
+        label: "Check in",
+        x: o.x - 6,
+        z: o.z - 7.4,
+        r: 2.4,
+        scene: "terminal",
+      });
+      // departures board
+      const board = canvasPlane(9, 3.4, () => {}, 512);
+      board.mesh.position.set(10, 3.3, -12.75);
+      g.add(board.mesh);
+      const drawBoard = (lines: string[]) => {
+        const c = board.canvas.getContext("2d")!;
+        const W = board.canvas.width,
+          H = board.canvas.height;
+        c.fillStyle = "#0f1a24";
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = "#e6b84a";
+        c.font = `800 ${Math.round(H * 0.12)}px "Work Sans", sans-serif`;
+        c.textBaseline = "middle";
+        c.fillText("DEPARTURES", W * 0.04, H * 0.11);
+        c.font = `600 ${Math.round(H * 0.095)}px "Work Sans", sans-serif`;
+        lines.slice(0, 6).forEach((l, k) => {
+          c.fillStyle = k % 2 ? "#cfe3ef" : "#fdf8ec";
+          c.fillText(l, W * 0.04, H * (0.27 + k * 0.13));
+        });
+        board.tex.needsUpdate = true;
+      };
+      drawBoard([
+        "IA 101  Abuja       Gate 2  On time",
+        "IA 214  Kano        Gate 1  On time",
+        "IA 330  Ilorin      Gate 3  Boarding",
+        "IA 777  Jeddah      Gate 4  On time",
+        "IA 778  Madinah     Gate 4  On time",
+      ]);
+      this.departures = { set: drawBoard };
+      // security: a walk-through arch and an X-ray belt
+      const arch = new THREE.Group();
+      arch.add(B(0.3, 2.8, 0.5, 0xb8bcc2, -1.1, 0, 0), B(0.3, 2.8, 0.5, 0xb8bcc2, 1.1, 0, 0));
+      arch.add(B(2.5, 0.4, 0.5, 0xb8bcc2, 0, 2.8, 0));
+      arch.add(B(0.5, 0.12, 0.06, 0x2fbf6a, 0, 3.0, 0.26));
+      arch.position.set(4, 0, 0);
+      g.add(arch);
+      this.addCollider("terminal", o.x + 2.6, o.x + 3.1, o.z - 0.4, o.z + 0.4);
+      this.addCollider("terminal", o.x + 4.9, o.x + 5.4, o.z - 0.4, o.z + 0.4);
+      const xray = new THREE.Group();
+      xray.add(B(4.5, 0.8, 1, 0x2a2c30, 0, 0, 0), B(1.6, 1.4, 1.2, 0xd9dde0, 0, 0.8, 0));
+      xray.position.set(8.2, 0, 0);
+      this.solid("terminal", g, xray, 4.6, 1.1);
+      const officer = person(0x2f4a3a, { cap: 0x2f4a3a, seed: 2 });
+      officer.position.set(4, 0, -1.6);
+      g.add(officer);
+      this.terminalStaff.push(officer);
+      // a rail between landside and airside, with the arch the only way through
+      g.add(B(0.1, 1, 12, 0xb8bcc2, 1.4, 0, -6.6));
+      this.addCollider("terminal", o.x + 1.3, o.x + 1.5, o.z - 12.6, o.z - 0.6);
+      this.zones.push({
+        id: "security",
+        label: "Security check",
+        x: o.x + 4,
+        z: o.z + 1.4,
+        r: 2,
+        scene: "terminal",
+      });
+      // waiting seats in rows
+      for (let r = 0; r < 2; r++)
+        for (let k = 0; k < 6; k++) {
+          const st = new THREE.Group();
+          st.add(B(0.8, 0.5, 0.8, 0x2f6fb0, 0, 0, 0), B(0.8, 0.7, 0.12, 0x2f6fb0, 0, 0.5, -0.35));
+          st.position.set(-14 + k * 1, 0, 3 + r * 3);
+          g.add(st);
+        }
+      this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 2.6, o.z + 3.4);
+      this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 5.6, o.z + 6.4);
+      // the gate: a glass wall with the plane outside, and the boarding desk
+      const glass = new THREE.Mesh(
+        new THREE.PlaneGeometry(12, 4.4),
+        new THREE.MeshStandardMaterial({ color: 0xa9d3e6, transparent: true, opacity: 0.45 }),
+      );
+      glass.rotation.y = -Math.PI / 2;
+      glass.position.set(19.75, 2.4, 4);
+      g.add(glass);
+      const outsidePlane = planeMesh(0x1f3d5a);
+      outsidePlane.scale.setScalar(0.55);
+      outsidePlane.position.set(26, 0, 4);
+      g.add(outsidePlane);
+      const gd = new THREE.Group();
+      gd.add(B(2.4, 1.1, 0.9, 0x1f3d5a, 0, 0, 0));
+      gd.position.set(15.5, 0, 8.5);
+      this.solid("terminal", g, gd, 2.4, 0.9);
+      const gateSign = label("Gate 3 · Board the plane", { size: 0.6, bg: "rgba(31,61,90,0.92)" });
+      gateSign.position.set(17, 4.2, 4);
+      g.add(gateSign);
+      const crew = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 1 });
+      crew.position.set(15.5, 0, 7.4);
+      g.add(crew);
+      this.terminalStaff.push(crew);
+      this.zones.push({
+        id: "board",
+        label: "Board the plane",
+        x: o.x + 17.4,
+        z: o.z + 4,
+        r: 2.2,
+        scene: "terminal",
+      });
+    }
+    // The cabin: a long aisle between rows of seats, windows on both sides, the galley at
+    // the front. Business class is the first four rows.
+    {
+      const W = 8,
+        D = 46;
+      const { g, o } = this.room("cabin", W, D, 0xf4f4f0, 0x2f4a7a, false);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      g.add(B(1.2, 0.02, D - 2, 0x8a2f3a, 0, 0.01, 0)); // the aisle carpet
+      // windows: sky and clouds
+      const sky = canvasPlane(
+        D - 6,
+        1.2,
+        (c, CW, CH) => {
+          for (let k = 0; k < 18; k++) {
+            const x = (k + 0.5) * (CW / 18);
+            c.fillStyle = "#e9eef0";
+            c.fillRect(x - CW / 40, 0, CW / 20, CH);
+            const gr = c.createLinearGradient(0, CH * 0.1, 0, CH * 0.9);
+            gr.addColorStop(0, "#5fa3d8");
+            gr.addColorStop(0.7, "#cfe6f5");
+            gr.addColorStop(1, "#ffffff");
+            c.fillStyle = gr;
+            c.beginPath();
+            c.ellipse(x, CH / 2, CW / 52, CH * 0.36, 0, 0, Math.PI * 2);
+            c.fill();
+          }
+        },
+        1024,
+      );
+      for (const side of [-1, 1]) {
+        const m = sky.mesh.clone();
+        m.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+        m.position.set(side * (W / 2 - 0.22), 2.1, 2);
+        g.add(m);
+        // overhead lockers
+        g.add(B(0.7, 0.7, D - 8, 0xe9e9e4, side * (W / 2 - 0.55), 3.3, 2));
+      }
+      // rows of seats: business (2 wide seats a side) at the front, economy behind
+      const seatMesh = (wide: boolean, colour: number) => {
+        const q = new THREE.Group();
+        const w = wide ? 1.3 : 0.9;
+        q.add(B(w, 0.55, 0.9, colour, 0, 0, 0), B(w, 1.3, 0.25, colour, 0, 0.4, 0.42));
+        q.add(
+          B(0.12, 0.75, 0.9, 0x55585c, -w / 2, 0, 0),
+          B(0.12, 0.75, 0.9, 0x55585c, w / 2, 0, 0),
+        );
+        return q;
+      };
+      let z = -D / 2 + 6;
+      for (let r = 0; r < 14; r++) {
+        const business = r < 4;
+        const xs = business ? [-2.8, -1.4, 1.4, 2.8] : [-3, -2.1, -1.2, 1.2, 2.1, 3];
+        for (const x of xs) {
+          const st = seatMesh(business, business ? 0x7d2f3a : 0x1f3d5a);
+          st.position.set(x, 0, z);
+          g.add(st);
+          this.cabinSeats.push({ x, z, business });
+        }
+        this.addCollider("cabin", o.x - W / 2, o.x - 0.7, o.z + z - 0.45, o.z + z + 0.55);
+        this.addCollider("cabin", o.x + 0.7, o.x + W / 2, o.z + z - 0.45, o.z + z + 0.55);
+        z += business ? 2 : 1.45;
+        if (r === 3) {
+          // a curtain between business and economy
+          g.add(
+            B(2.2, 2.6, 0.06, 0x8a2f3a, -2.8, 0, z - 0.6),
+            B(2.2, 2.6, 0.06, 0x8a2f3a, 2.8, 0, z - 0.6),
+          );
+          z += 0.6;
+        }
+      }
+      // the galley at the front
+      g.add(B(W - 0.6, 1.2, 1.4, 0xd9dde0, 0, 0, -D / 2 + 1.2));
+      const tag = label("IlmAir", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
+      tag.position.set(0, 3.6, -D / 2 + 1);
+      g.add(tag);
+      // a trolley the crew push down the aisle
+      const tr = new THREE.Group();
+      tr.add(B(0.7, 1.1, 1.1, 0xb8bcc2, 0, 0.08, 0), B(0.72, 0.05, 1.12, 0x1f3d5a, 0, 1.18, 0));
+      tr.position.set(0, 0, -D / 2 + 3);
+      g.add(tr);
+      this.trolley = tr;
+      // your meal on the seat-back tray
+      const meal = new THREE.Group();
+      meal.add(B(0.8, 0.05, 0.5, 0x55585c, 0, 0, 0));
+      const plate = cyl(0.2, 0.17, 0.04, 0xfdf8ec, 14);
+      plate.position.set(-0.12, 0.07, 0);
+      const food = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 6), mat(0xd9822b));
+      food.scale.y = 0.45;
+      food.position.set(-0.12, 0.12, 0);
+      const cup = cyl(0.06, 0.05, 0.16, 0xcfe8f2, 8);
+      cup.position.set(0.25, 0.1, 0);
+      meal.add(plate, food, cup);
+      meal.visible = false;
+      g.add(meal);
+      this.trayMeal = meal;
+    }
+  }
+  /** The departures board in the terminal. */
+  setDepartures(lines: string[]) {
+    this.departures?.set(lines);
+  }
+  /** Board: your seat, the other passengers, the crew in the aisle. */
+  enterCabin(business: boolean) {
+    const o = this.interiorOrigin.cabin;
+    if (!this.cabinPeople.length) {
+      let k = 0;
+      for (const s of this.cabinSeats) {
+        k++;
+        if (k % 5 === 2) continue; // a few empty seats
+        const female = k % 3 === 0;
+        const p = person([0x2f4a7a, 0x6d4a2b, 0x2f6f4f, 0xf4f1ea, 0x7d2f3a, 0x3a3f46][k % 6], {
+          seed: k,
+          ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a][k % 4] } : {}),
+        });
+        p.position.set(s.x, 0, s.z - 0.1);
+        this.cabinPeople.push(p);
+        (p.userData.seat as unknown) = s;
+        this.scene.add(p);
+        p.position.add(o);
+        // pose facing the default way, then turn to face the front of the plane
+        poseHuman(p, "chair");
+        p.rotation.y = Math.PI;
+      }
+      const crewA = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 1 });
+      const crewB = person(0x1f3d5a, { hijab: 0x7d2f3a, seed: 3 });
+      crewA.position.set(o.x, 0, o.z - 18);
+      crewB.position.set(o.x - 0.2, 0, o.z + 10);
+      crewA.rotation.y = 0;
+      crewB.rotation.y = Math.PI;
+      this.scene.add(crewA, crewB);
+      this.cabinCrew.push(crewA, crewB);
+    }
+    // your seat: an aisle seat in your class, with nobody in it
+    const seat =
+      this.cabinSeats.find(
+        (s) =>
+          s.business === business && Math.abs(s.x) < 1.5 && s.x < 0 && s.z > (business ? -18 : -6),
+      ) ?? this.cabinSeats[0];
+    for (const p of this.cabinPeople) p.visible = p.userData.seat !== seat;
+    this.outPos.copy(this.player.position);
+    this.where = "cabin";
+    this.mySeat = { x: o.x + seat.x, z: o.z + seat.z };
+    this.player.position.set(o.x + seat.x, 0, o.z + seat.z - 0.1);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "chair");
+    this.player.rotation.set(0, Math.PI, 0);
+    this.acting = { x: o.x - 0.2, z: o.z + seat.z - 0.6, rot: Math.PI };
+    if (this.trayMeal) {
+      this.trayMeal.position.set(seat.x, 1.05, seat.z - 0.75);
+      this.trayMeal.visible = false;
+    }
+    if (this.trolley) this.trolley.position.set(0, 0, -20);
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+  }
+  /** The crew bring the trolley to your row (and serve your meal, when you earned it). */
+  cabinServe(stage: "coming" | "served" | "away", meal = true) {
+    if (!this.mySeat || !this.trolley) return;
+    const o = this.interiorOrigin.cabin;
+    const z = this.mySeat.z - o.z;
+    const crew = this.cabinCrew[0];
+    if (stage === "away") {
+      this.trolley.position.set(0, 0, -20);
+      crew?.position.set(o.x, 0, o.z - 18);
+      return;
+    }
+    this.trolley.position.set(0.2, 0, z - 1.6);
+    if (crew) {
+      crew.position.set(o.x + 0.3, 0, o.z + z - 0.4);
+      crew.rotation.y = -Math.PI / 2 - 0.4;
+    }
+    if (stage === "served" && this.trayMeal) this.trayMeal.visible = meal;
+  }
+  /** Off the plane. */
+  leaveCabin() {
+    if (this.where !== "cabin") return;
+    this.acting = null;
+    releasePose(this.player);
+    this.player.rotation.set(0, 0, 0);
+    if (this.trayMeal) this.trayMeal.visible = false;
+    this.cabinServe("away");
+    this.mySeat = null;
+  }
+
   /* ---------------- loop ---------------- */
   private resize() {
     const w = this.host.clientWidth || 1,
@@ -9080,6 +9444,8 @@ export class IlmCityEngine {
   }
   private camOffset() {
     const portrait = this.camera.aspect < 0.8;
+    if (this.where === "cabin")
+      return portrait ? new THREE.Vector3(0, 8, 9) : new THREE.Vector3(0, 6, 7.5);
     if (this.where !== "out" && !this.cine)
       return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
@@ -9615,7 +9981,7 @@ export class IlmCityEngine {
   }
   /** Get up and carry on. */
   homeActEnd() {
-    if (!this.acting) return;
+    if (!this.acting || this.where === "cabin") return;
     const b = this.acting;
     this.acting = null;
     releasePose(this.player);

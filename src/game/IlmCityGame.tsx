@@ -1063,6 +1063,9 @@ function CityGame({
     kmh: number;
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
+  /** your plane ticket, from buying it to landing: check in, security, board */
+  const ticketRef = useRef<Ticket | null>(null);
+  const [flight, setFlight] = useState<Ticket | null>(null);
   const talkingRef = useRef<number | null>(null);
   const workSkip = useRef(false);
   const hajjDone = useRef(new Set<string>());
@@ -7165,9 +7168,77 @@ function CityGame({
         setDriving(false);
         return;
       }
+      if (id === "checkin" || id === "security" || id === "board") {
+        const t = ticketRef.current;
+        if (!t) {
+          toast("Buy your ticket first: go back out to the airport entrance.");
+          return;
+        }
+        if (id === "checkin") {
+          if (t.step !== "checkin") {
+            toast("You've checked in. Go through security.");
+            e.guideTo(t.step === "security" ? "security" : "board");
+            return;
+          }
+          setPanel({
+            kind: "info",
+            title: "Your boarding pass",
+            body: (
+              <BoardingPass
+                t={t}
+                name={saveRef.current.profile?.name ?? firstName}
+                onGo={() => {
+                  t.step = "security";
+                  setPanel(null);
+                  e.guideTo("security");
+                  toast("Checked in. Now go through security.", "good");
+                }}
+              />
+            ),
+          });
+          return;
+        }
+        if (id === "security") {
+          if (t.step === "checkin") {
+            toast("Check in at the IlmAir desk first.");
+            e.guideTo("checkin");
+            return;
+          }
+          setPanel({
+            kind: "busy",
+            title: "Security check: your bag goes through the scanner",
+            ms: 2600,
+            done: () => {
+              t.step = "board";
+              e.guideTo("board");
+              toast(`All clear. Go to Gate ${t.gate}, your plane is boarding.`, "good");
+            },
+          });
+          return;
+        }
+        if (t.step !== "board") {
+          toast(t.step === "checkin" ? "Check in first." : "Go through security first.");
+          e.guideTo(t.step);
+          return;
+        }
+        e.enterCabin(t.business);
+        setInside(true);
+        setFlight(t);
+        return;
+      }
       if (id.startsWith("airport:")) {
         const city = id.slice(8);
         const here = e.districtId();
+        if (ticketRef.current) {
+          const t = ticketRef.current;
+          e.enterInterior("terminal", `${t.fromName} Airport`);
+          setInside(true);
+          e.guideTo(
+            t.step === "checkin" ? "checkin" : t.step === "security" ? "security" : "board",
+          );
+          toast(`Your flight to ${t.destName} is waiting. Follow the arrow.`);
+          return;
+        }
         const homeCountry = WORLD_CITIES.find((w) => w.id === city)?.country ?? "Nigeria";
         const priceTo = (dest: string, business: boolean) => {
           const abroad =
@@ -7202,12 +7273,7 @@ function CityGame({
           if (!port) return;
           setPanel(null);
           update((x) => ({ ...x, coins: x.coins - price }));
-          toast(
-            `${business ? "Business class" : "Economy"} ticket: −${N(price)}. Say the du'a for travelling. Bismillah!`,
-            "good",
-          );
-          sayDhikr("ride");
-          arriveRef.current = () => {
+          const arrive = () => {
             engine.current?.arriveAt("airport:" + dest);
             setTravelling(null);
             setDriving(false);
@@ -7218,7 +7284,37 @@ function CityGame({
             );
             setTimeout(() => setArriving(null), 4500);
           };
-          setTravelling({ from: here, to: port.id, byCar: false, plane: true });
+          // into the terminal: check in, go through security, board at the gate
+          const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
+          const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
+          const no = 100 + ((dest.length * 37 + here.length * 11) % 800);
+          const row = business ? 2 + (no % 3) : 8 + (no % 9);
+          ticketRef.current = {
+            dest,
+            destName,
+            fromName,
+            business,
+            flight: `IA ${no}`,
+            seat: `${row}${business ? "B" : "C"}`,
+            gate: "3",
+            step: "checkin",
+            arrive,
+          };
+          e.enterInterior("terminal", `${fromName} Airport`);
+          setInside(true);
+          tuneRef.current();
+          e.setDepartures([
+            `IA ${no}  ${destName.padEnd(10).slice(0, 10)} Gate 3  Check-in`,
+            "IA 214  Kano       Gate 1  On time",
+            "IA 101  Abuja      Gate 2  On time",
+            "IA 777  Jeddah     Gate 4  On time",
+            "IA 778  Madinah    Gate 4  On time",
+          ]);
+          e.guideTo("checkin");
+          toast(
+            `${business ? "Business class" : "Economy"} ticket to ${destName}: −${N(price)}. Check in at the IlmAir desk.`,
+            "good",
+          );
         };
         setPanel({
           kind: "info",
@@ -9174,6 +9270,22 @@ function CityGame({
         </div>
       )}
       {travelling && <TravelMap {...travelling} onDone={() => arriveRef.current?.()} />}
+      {flight && (
+        <FlightCard
+          t={flight}
+          onServe={(stage, meal) => engine.current?.cabinServe(stage, meal)}
+          onAte={(full) => {
+            need({ hunger: full ? 60 : 15 });
+            if (full) update((x) => ({ ...x, coins: x.coins + 2 }));
+          }}
+          onLand={() => {
+            const t = flight;
+            ticketRef.current = null;
+            setFlight(null);
+            t.arrive();
+          }}
+        />
+      )}
       {panel && (
         <Sheet
           panel={panel}
@@ -16657,6 +16769,195 @@ function PhoneView({
           {icon("#3a7bd5", "🚌", "Travel", onTravel)}
           {icon("#1f6f63", "📍", "Places", onPlaces)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+type Ticket = {
+  dest: string;
+  destName: string;
+  fromName: string;
+  business: boolean;
+  flight: string;
+  seat: string;
+  gate: string;
+  step: "checkin" | "security" | "board";
+  arrive: () => void;
+};
+
+/** The boarding pass the check-in agent prints for you. */
+function BoardingPass({ t, name, onGo }: { t: Ticket; name: string; onGo: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Assalamu alaikum! Here is your boarding pass. Your bag is checked in.
+      </p>
+      <div className="overflow-hidden rounded-2xl bg-white shadow">
+        <div className="flex items-center justify-between bg-[#1f3d5a] px-4 py-2 text-[#fdf8ec]">
+          <b>✈ IlmAir</b>
+          <span className="text-[12px] font-bold text-[#e6b84a]">
+            {t.business ? "BUSINESS" : "ECONOMY"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 p-4 text-[13px]">
+          <div>
+            <div className="opacity-60">Passenger</div>
+            <b>{name || "Passenger"}</b>
+          </div>
+          <div>
+            <div className="opacity-60">Flight</div>
+            <b>{t.flight}</b>
+          </div>
+          <div>
+            <div className="opacity-60">From</div>
+            <b>{t.fromName}</b>
+          </div>
+          <div>
+            <div className="opacity-60">To</div>
+            <b>{t.destName}</b>
+          </div>
+          <div>
+            <div className="opacity-60">Gate</div>
+            <b>{t.gate}</b>
+          </div>
+          <div>
+            <div className="opacity-60">Seat</div>
+            <b>{t.seat}</b>
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={onGo}
+        className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+      >
+        Go to security
+      </button>
+    </div>
+  );
+}
+
+/** On the plane: seatbelt and the du'a for travelling, the crew's question for your meal,
+    then landing. */
+function FlightCard({
+  t,
+  onServe,
+  onAte,
+  onLand,
+}: {
+  t: Ticket;
+  onServe: (stage: "coming" | "served" | "away", meal?: boolean) => void;
+  onAte: (full: boolean) => void;
+  onLand: () => void;
+}) {
+  const [phase, setPhase] = useState<"belt" | "fly" | "meal" | "landing">("belt");
+  const [q] = useState(() => QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]);
+  const [picked, setPicked] = useState<number | null>(null);
+  const d = PLACE_DHIKR.ride;
+  const serve = useRef(onServe);
+  serve.current = onServe;
+  useEffect(() => {
+    if (phase !== "fly") return;
+    const id = setTimeout(() => {
+      serve.current("coming");
+      setPhase("meal");
+    }, 3500);
+    return () => clearTimeout(id);
+  }, [phase]);
+  return (
+    <div
+      data-game-ui
+      className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+    >
+      <div className="pointer-events-auto max-h-[60vh] w-full max-w-md overflow-auto rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        <div className="mb-2 flex items-center justify-between text-[12px] font-bold opacity-70">
+          <span>
+            ✈ {t.flight} · {t.fromName} → {t.destName}
+          </span>
+          <span>Seat {t.seat}</span>
+        </div>
+        {phase === "belt" && (
+          <div className="space-y-2">
+            <div className="font-bold">Welcome aboard! Fasten your seatbelt. 🔒</div>
+            <p className="text-[13px] opacity-75">Say the du'a for travelling as we take off:</p>
+            <p dir="rtl" className="font-serif text-xl leading-loose">
+              {d.arabic}
+            </p>
+            <p className="text-[12.5px] italic opacity-80">{d.say}</p>
+            <button
+              onClick={() => setPhase("fly")}
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+            >
+              Ameen · take off
+            </button>
+          </div>
+        )}
+        {phase === "fly" && (
+          <div className="font-bold">
+            We're in the air. The cabin crew will be with you soon… ☁️
+          </div>
+        )}
+        {phase === "meal" && (
+          <div className="space-y-2">
+            <div className="font-bold">The cabin crew: "Answer this and your meal is served!"</div>
+            <p className="text-[15px]">{q.q}</p>
+            {q.o.map((o, i) => (
+              <button
+                key={i}
+                disabled={picked !== null}
+                onClick={() => {
+                  setPicked(i);
+                  const ok = i === q.a;
+                  onServe("served", ok);
+                  onAte(ok);
+                }}
+                className={`w-full rounded-xl border px-4 py-2 text-left font-semibold ${
+                  picked === null
+                    ? "border-[#10201e]/15 bg-white"
+                    : i === q.a
+                      ? "border-[#1d6b3a] bg-[#dff2e3]"
+                      : i === picked
+                        ? "border-[#b3262e] bg-[#f8e0e0]"
+                        : "border-[#10201e]/10 bg-white opacity-60"
+                }`}
+              >
+                {o}
+              </button>
+            ))}
+            {picked !== null && (
+              <>
+                <p className="text-[13px]">
+                  <b>
+                    {picked === q.a
+                      ? "Correct! Your hot meal is served. Bismillah."
+                      : "Not quite. Here are dates and water."}
+                  </b>{" "}
+                  {q.e}
+                </p>
+                <button
+                  onClick={() => {
+                    onServe("away");
+                    setPhase("landing");
+                  }}
+                  className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                >
+                  Alhamdulillah · carry on
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {phase === "landing" && (
+          <div className="space-y-2">
+            <div className="font-bold">We'll soon land in {t.destName}. Seatbelts on, please.</div>
+            <button
+              onClick={onLand}
+              className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white"
+            >
+              Land and get off ✈
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
