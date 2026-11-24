@@ -8623,7 +8623,6 @@ function CityGame({
     const here = engine.current?.districtId() ?? save.district ?? "lekki";
     const D = districtById(here);
     const home = save.homeArea ?? "lekki";
-    const price = hotelPrice(here);
     const atHome = cityOf(D) === cityOf(districtById(home));
     setPanel({
       kind: "info",
@@ -8638,30 +8637,40 @@ function CityGame({
               travel back home.
             </p>
           )}
-          <div className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
-            <div className="font-bold">
-              {D.holy ? "Pilgrims' hotel" : "Guest house"} · {D.name}
-            </div>
-            <div className="text-[13px] opacity-75">
-              A clean room for one night: sleep, wake fully rested.
-            </div>
-            <button
-              disabled={saveRef.current.coins < price}
-              onClick={() => {
-                if (saveRef.current.coins < price) return;
-                update((x) => ({ ...x, coins: x.coins - price }));
-                saveRef.current = { ...saveRef.current, coins: saveRef.current.coins - price };
-                toast(`Room booked: ${N(price)}.`, "good");
-                onActionRef.current("sleep");
-              }}
-              className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
-            >
-              Book a room · {N(price)}
-            </button>
-            {saveRef.current.coins < price && (
-              <p className="mt-1 text-[12px] text-[#b8573a]">Not enough money for a room.</p>
-            )}
-          </div>
+          {hotelsFor(here).map((h) => {
+            const short = saveRef.current.coins < h.price;
+            return (
+              <div key={h.name} className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold">
+                    {h.icon} {h.name}
+                  </div>
+                  <span className="text-[12px] font-bold text-[#7a5a2a]">{h.tier}</span>
+                </div>
+                <div className="text-[13px] opacity-75">{h.about}</div>
+                <button
+                  disabled={short}
+                  onClick={() => {
+                    if (saveRef.current.coins < h.price) return;
+                    update((x) => ({ ...x, coins: x.coins - h.price }));
+                    saveRef.current = {
+                      ...saveRef.current,
+                      coins: saveRef.current.coins - h.price,
+                    };
+                    toast(`${h.name}: room booked, ${N(h.price)}.`, "good");
+                    if (h.perks) need(h.perks);
+                    onActionRef.current("sleep");
+                  }}
+                  className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
+                >
+                  Book a night · {N(h.price)}
+                </button>
+                {short && (
+                  <p className="mt-1 text-[12px] text-[#b8573a]">Not enough money for this one.</p>
+                )}
+              </div>
+            );
+          })}
           {!atHome && (
             <button
               onClick={() => {
@@ -15234,9 +15243,74 @@ function smallDhikr(c: Clock) {
   return { ...SMALL_DHIKR[block % SMALL_DHIKR.length], task: `dhikr${block}` };
 }
 
-/** A night in a hotel, in ₦10 units: dearer in Makkah and Madinah. */
-function hotelPrice(area: string) {
-  return districtById(area).holy ? 1200 : 600;
+/** Hotels for the night, cheap to grand (prices in ₦10 units). Grander rooms come with
+    more: a shower, breakfast, and in Makkah and Madinah a view of the Haram. */
+type Hotel = {
+  name: string;
+  icon: string;
+  tier: string;
+  price: number;
+  about: string;
+  perks?: Partial<Record<"hunger" | "energy" | "iman" | "social" | "clean", number>>;
+};
+function hotelsFor(area: string): Hotel[] {
+  const D = districtById(area);
+  const city = cityOf(D);
+  if (city === "makkah" || city === "madinah") {
+    const mk = city === "makkah";
+    return [
+      {
+        name: mk ? "Aziziyah Pilgrims' Lodge" : "Al-Ansar Pilgrims' Lodge",
+        icon: "🛏️",
+        tier: "Budget",
+        price: 300,
+        about: "A shared room with other pilgrims, a short bus ride from the Haram. Sleep well.",
+      },
+      {
+        name: mk ? "Al-Safwah Hotel" : "Al-Madinah Hotel",
+        icon: "🏨",
+        tier: "Standard",
+        price: 900,
+        about: "Your own room, a walk from the Haram. Sleep, then a hot shower.",
+        perks: { clean: 20 },
+      },
+      {
+        name: mk ? "Clock Tower Suites · Kaaba view" : "Nabawi View Suites",
+        icon: "🌟",
+        tier: "Luxury",
+        price: 3500,
+        about: mk
+          ? "A suite over the Haram with a view of the Kaaba. Breakfast and a shower included."
+          : "A suite facing Al-Masjid An-Nabawi and the Green Dome. Breakfast and a shower included.",
+        perks: { clean: 25, hunger: 50, iman: 15 },
+      },
+    ];
+  }
+  return [
+    {
+      name: `${D.name} Guest House`,
+      icon: "🛏️",
+      tier: "Budget",
+      price: 250,
+      about: "A simple, clean room for the night.",
+    },
+    {
+      name: `${D.name} City Hotel`,
+      icon: "🏨",
+      tier: "Standard",
+      price: 600,
+      about: "A good room with a fan and a hot shower.",
+      perks: { clean: 20 },
+    },
+    {
+      name: `${D.name} Grand Hotel`,
+      icon: "🌟",
+      tier: "Luxury",
+      price: 2500,
+      about: "Air-conditioned suite, buffet breakfast and a pool. You wake up like new.",
+      perks: { clean: 25, hunger: 50, social: 10 },
+    },
+  ];
 }
 
 /* ---------------- graphics setting ---------------- */
