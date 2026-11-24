@@ -1,3 +1,4 @@
+import { DEFAULT_PREMIUM as PREMIUM_DEFAULTS } from "./premium-config";
 import { createHash } from "node:crypto";
 import { esc, layout, sendEmail } from "./email-server";
 import { FieldValue } from "firebase-admin/firestore";
@@ -9,7 +10,7 @@ const DAY = 86_400_000;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const int = (v: unknown, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
 type Admin = NonNullable<Awaited<ReturnType<typeof admin>>>;
-type Pending = { ref: string; amount: number; currency: string; planId: string; days: number; at: number };
+type Pending = { ref: string; amount: number; currency: string; planId: string; days: number; at: number; beneficiary?: string };
 
 async function paystack(path: string, init?: RequestInit) {
   const r = await fetch(`https://api.paystack.co${path}`, { ...init, headers: { authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY ?? ""}`, "content-type": "application/json", ...(init?.headers ?? {}) } });
@@ -39,11 +40,13 @@ async function applyPayment(a: Admin, uid: string, ref: string): Promise<{ ok: b
   const now = Date.now();
   const until = await a.db.runTransaction(async (tx) => {
     const payRef = a.db.doc(`payments/${ref}`);
-    const [p, e] = await Promise.all([tx.get(payRef), tx.get(entRef)]);
+    const target = pending.beneficiary ? a.db.doc(`entitlements/${pending.beneficiary}`) : entRef;
+    const [p, e] = await Promise.all([tx.get(payRef), tx.get(target)]);
     if (p.exists) return Number(e.get("premiumUntil") ?? 0);
     const u = Math.max(now, Number(e.get("premiumUntil") ?? 0)) + pending.days * DAY;
-    tx.set(entRef, { premiumUntil: u, plan: pending.planId, source: "paystack", pending: FieldValue.delete() }, { merge: true });
-    tx.set(payRef, { uid, kind: "premium", planId: pending.planId, days: pending.days, amount: Number(d.amount), currency: pending.currency, email: (d.customer as { email?: string } | undefined)?.email ?? null, at: now });
+    tx.set(target, { premiumUntil: u, plan: pending.planId, source: "paystack", ...(pending.beneficiary ? { paidBy: uid } : { pending: FieldValue.delete() }) }, { merge: true });
+    if (pending.beneficiary) tx.set(entRef, { pending: FieldValue.delete() }, { merge: true });
+    tx.set(payRef, { uid, beneficiary: pending.beneficiary ?? null, kind: "premium", planId: pending.planId, days: pending.days, amount: Number(d.amount), currency: pending.currency, email: (d.customer as { email?: string } | undefined)?.email ?? null, at: now });
     return u;
   });
   const custEmail = (d.customer as { email?: string } | undefined)?.email ?? "";
@@ -54,8 +57,8 @@ async function applyPayment(a: Admin, uid: string, ref: string): Promise<{ ok: b
       { label: "Open IlmStation", url: "https://ilmstation.com/app" }));
   }
   if (String(pending.planId ?? "").startsWith("custom-")) await a.db.doc(`planRequests/${String(pending.planId).slice(7)}`).set({ status: "paid", paidAt: Date.now() }, { merge: true }).catch(() => {});
-  const fam = await a.db.doc(`families/${uid}`).get();
-  await Promise.all((((fam.get("memberUids") as string[]) ?? [])).map((m) => a.db.doc(`entitlements/${m}`).set({ familyUntil: until }, { merge: true })));
+  const fam = pending.beneficiary ? null : await a.db.doc(`families/${uid}`).get();
+  if (fam) await Promise.all((((fam.get("memberUids") as string[]) ?? [])).map((m) => a.db.doc(`entitlements/${m}`).set({ familyUntil: until }, { merge: true })));
   return { ok: true, until };
 }
 
@@ -112,7 +115,14 @@ export async function handlePremium(request: Request): Promise<Response> {
 
   // start a Paystack payment for a plan (the price comes from the admin's settings)
   if (action === "checkout") {
-    const plan = cfg.plans.find((p) => p.id === String(data.planId ?? "") && (p.visible || p.forUid === uid));
+    const forChild = typeof data.forChild === "string" ? data.forChild : "";
+    if (forChild) {
+      const famDoc = await a.db.doc(`families/${uid}`).get();
+      const mine = (((famDoc.get("members") as { uid: string; managed?: boolean }[]) ?? [])).some((m) => m.uid === forChild && m.managed);
+      if (!mine) return json({ ok: false, error: "This child isn't in your family." });
+    }
+    const plan = forChild ? (cfg.plans.find((p) => p.id === "child") ?? PREMIUM_DEFAULTS.plans.find((p: { id: string }) => p.id === "child")) as typeof cfg.plans[number] | undefined
+      : cfg.plans.find((p) => p.id === String(data.planId ?? "") && (p.visible || p.forUid === uid));
     if (!plan || isQuote(plan)) return json({ ok: false, error: "That plan isn't available." });
     if (!email) return json({ ok: false, error: "Your account needs an email address to pay." });
     if (!process.env.PAYSTACK_SECRET_KEY) return json({ ok: false, error: "Payments aren't set up yet." });
@@ -125,13 +135,13 @@ export async function handlePremium(request: Request): Promise<Response> {
     const days = period === "year" ? 365 : 30;
     const origin = new URL(request.url).origin;
     const r = await paystack("/transaction/initialize", { method: "POST", body: JSON.stringify({
-      email, amount, currency, callback_url: `${origin}/app?s=rewards`,
+      email, amount, currency, callback_url: `${origin}/app?s=${forChild ? "family" : "rewards"}`,
       metadata: { kind: "premium", uid, planId: plan.id, days, custom_fields: [{ display_name: "Plan", variable_name: "plan", value: plan.name }] },
     }) });
     const url = r.data?.authorization_url as string | undefined;
     const reference = r.data?.reference as string | undefined;
     if (!r.status || !url || !reference) return json({ ok: false, error: "Couldn't start the payment. Try again." });
-    await ref.set({ pending: { ref: reference, amount, currency, planId: plan.id, days, at: now } satisfies Pending }, { merge: true });
+    await ref.set({ pending: { ref: reference, amount, currency, planId: plan.id, days, at: now, ...(forChild ? { beneficiary: forChild } : {}) } satisfies Pending }, { merge: true });
     return json({ ok: true, url });
   }
 

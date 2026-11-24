@@ -10,6 +10,7 @@ export const DEFAULT_PREMIUM: PremiumConfig = {
   trialDays: 7,
   plans: [
     { id: "individual", name: "Individual", price: 3500, period: "month", seats: "1 adult", kids: 0, points: ["Every Premium book, card and lesson", "All quiz topics", "Remove the IlmStation mark on cards"], visible: true },
+    { id: "child", name: "Child", price: 1500, period: "month", seats: "1 child", kids: 1, points: ["Premium for one child account", "Every Premium game, quiz and lesson", "No daily play-time limit"], visible: false },
     { id: "family2", name: "Family · 2 Kids", price: 6000, period: "month", seats: "1 adult + up to 2 kids", kids: 2, points: ["Everything in Individual", "Premium for 2 children"], visible: true },
     { id: "family5", name: "Family · 5 Kids", price: 10000, period: "month", seats: "2 adults + up to 5 kids", kids: 5, points: ["Everything in Individual", "Premium for 5 children"], visible: true },
     { id: "custom", name: "Custom", price: 0, period: "month", seats: "Schools, madrasahs, large families", kids: 99, points: ["Tailored quote from our team"], visible: true },
