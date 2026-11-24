@@ -81,7 +81,8 @@ export type InteriorKind =
   | "upstairs"
   | "boutique"
   | "terminal"
-  | "cabin";
+  | "cabin"
+  | "coach";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -594,6 +595,7 @@ export class IlmCityEngine {
     boutique: [],
     terminal: [],
     cabin: [],
+    coach: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -619,6 +621,7 @@ export class IlmCityEngine {
     boutique: new THREE.Vector3(1300, 0, 60),
     terminal: new THREE.Vector3(1560, 0, 0),
     cabin: new THREE.Vector3(1700, 0, 320),
+    coach: new THREE.Vector3(1850, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -697,6 +700,7 @@ export class IlmCityEngine {
     this.buildCar();
     this.buildInteriors();
     this.buildAirport();
+    this.buildCoach();
     this.startId = start?.district ?? "lekki";
     this.buildWorld();
     this.buildTraffic();
@@ -7205,10 +7209,10 @@ export class IlmCityEngine {
   >();
   /** On the plane, the made-up passengers make room for real players in their seats. */
   private seatRealPlayers() {
-    if (this.where !== "cabin") return;
+    if (this.where !== "cabin" && this.where !== "coach") return;
     const taken = [...this.remotes.values()].map((r) => ({ x: r.tx, z: r.tz }));
     if (this.mySeat) taken.push({ x: this.mySeat.x, z: this.mySeat.z });
-    for (const p of this.cabinPeople)
+    for (const p of this.where === "coach" ? this.coachPeople : this.cabinPeople)
       p.visible = !taken.some((t) => Math.hypot(t.x - p.position.x, t.z - p.position.z) < 0.6);
   }
   /** Show the real players near you; they glide to where they last were seen. */
@@ -7298,8 +7302,8 @@ export class IlmCityEngine {
         dz = r.tz - r.g.position.z,
         d = Math.hypot(dx, dz);
       const seated = !!r.g.userData.seated;
-      if (this.where === "cabin") {
-        // a real player on your flight: sitting in their own seat
+      if (this.where === "cabin" || this.where === "coach") {
+        // a real player on your flight or bus: sitting in their own seat
         r.g.position.set(r.tx, 0, r.tz);
         if (!seated) {
           r.g.rotation.y = 0;
@@ -9375,6 +9379,158 @@ export class IlmCityEngine {
       this.trayMeal = meal;
     }
   }
+  private coachSeats: { x: number; z: number; business: boolean }[] = [];
+  private coachPeople: THREE.Object3D[] = [];
+  private coachViews: THREE.Texture[] = [];
+  private buildCoach() {
+    const W = 6.4,
+      D = 22;
+    const { g, o } = this.room("coach", W, D, 0xe9e6de, 0x3a3f46, false);
+    const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+      box(w, h, d, c, x, y, z);
+    g.add(B(1, 0.02, D - 2, 0x55585c, 0, 0.01, 0));
+    // the view: bush, palm trees and houses going by
+    const view = (seed: number) => {
+      const v = canvasPlane(
+        D - 4,
+        1.4,
+        (c, CW, CH) => {
+          const gr = c.createLinearGradient(0, 0, 0, CH);
+          gr.addColorStop(0, "#9fd0ee");
+          gr.addColorStop(0.62, "#d9eef8");
+          gr.addColorStop(0.63, "#6f9a4a");
+          gr.addColorStop(1, "#4f7a34");
+          c.fillStyle = gr;
+          c.fillRect(0, 0, CW, CH);
+          let r = seed;
+          const rnd = () => (r = (r * 9301 + 49297) % 233280) / 233280;
+          for (let k = 0; k < 26; k++) {
+            const x = rnd() * CW;
+            if (rnd() < 0.45) {
+              c.fillStyle = "#6b4a2b";
+              c.fillRect(x, CH * 0.3, CW / 260, CH * 0.35);
+              c.fillStyle = "#2f6f3a";
+              c.beginPath();
+              c.ellipse(x, CH * 0.3, CW / 70, CH * 0.1, 0, 0, Math.PI * 2);
+              c.fill();
+            } else {
+              c.fillStyle = ["#e9dcc4", "#d8c3a0", "#f2efe8"][Math.floor(rnd() * 3)];
+              c.fillRect(x, CH * 0.42, CW / 45, CH * 0.22);
+              c.fillStyle = ["#8a3a2a", "#5a5f66", "#2f6f63"][Math.floor(rnd() * 3)];
+              c.fillRect(x - CW / 400, CH * 0.38, CW / 45 + CW / 200, CH * 0.05);
+            }
+          }
+          // windows frames
+          for (let k = 0; k < 9; k++) {
+            c.fillStyle = "#e9e6de";
+            c.fillRect((k / 9) * CW - CW / 160, 0, CW / 80, CH);
+          }
+        },
+        1024,
+      );
+      v.tex.wrapS = THREE.RepeatWrapping;
+      this.coachViews.push(v.tex);
+      return v.mesh;
+    };
+    for (const side of [-1, 1]) {
+      const m = view(side < 0 ? 11 : 37);
+      m.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      m.position.set(side * (W / 2 - 0.22), 2.0, 1);
+      g.add(m);
+      g.add(B(0.6, 0.5, D - 6, 0xd9d6cf, side * (W / 2 - 0.5), 3.0, 1));
+    }
+    // seats: two and two, with an aisle
+    let z = -6.5;
+    for (let r = 0; r < 10; r++) {
+      for (const x of [-2.2, -1.3, 1.3, 2.2]) {
+        const q = new THREE.Group();
+        q.add(B(0.85, 0.55, 0.85, 0x2f4a7a, 0, 0, 0), B(0.85, 1.25, 0.2, 0x2f4a7a, 0, 0.4, 0.4));
+        q.add(B(0.85, 0.3, 0.06, 0xe8e2d6, 0, 1.4, 0.48));
+        q.position.set(x, 0, z);
+        g.add(q);
+        this.coachSeats.push({ x, z, business: false });
+      }
+      this.addCollider("coach", o.x - W / 2, o.x - 0.6, o.z + z - 0.45, o.z + z + 0.5);
+      this.addCollider("coach", o.x + 0.6, o.x + W / 2, o.z + z - 0.45, o.z + z + 0.5);
+      z += 1.45;
+    }
+    // the driver's seat, the wheel and the windscreen with the road ahead
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.05, 6, 18), mat(0x1d1f22));
+    wheel.rotation.x = -1.1;
+    wheel.position.set(-1.8, 1.45, -9.2);
+    g.add(
+      wheel,
+      B(1, 0.55, 0.9, 0x1d1f22, -1.8, 0, -8.4),
+      B(W - 0.6, 1, 0.8, 0x3a3f46, 0, 0, -10.3),
+    );
+    const road = canvasPlane(W - 0.6, 2, (c, CW, CH) => {
+      const gr = c.createLinearGradient(0, 0, 0, CH);
+      gr.addColorStop(0, "#9fd0ee");
+      gr.addColorStop(0.5, "#d9eef8");
+      gr.addColorStop(0.51, "#6f9a4a");
+      gr.addColorStop(1, "#4f7a34");
+      c.fillStyle = gr;
+      c.fillRect(0, 0, CW, CH);
+      c.fillStyle = "#3b3f44";
+      c.beginPath();
+      c.moveTo(CW * 0.47, CH * 0.5);
+      c.lineTo(CW * 0.53, CH * 0.5);
+      c.lineTo(CW * 0.95, CH);
+      c.lineTo(CW * 0.05, CH);
+      c.fill();
+      c.fillStyle = "#f4efd6";
+      for (let k = 0; k < 5; k++)
+        c.fillRect(CW * 0.495, CH * (0.55 + k * 0.09), CW * 0.01, CH * 0.05);
+    }).mesh;
+    road.position.set(0, 2.2, -10.75);
+    g.add(road);
+    const tag = label("🚌 IlmTransit", { size: 0.55, bg: "rgba(31,111,99,0.92)" });
+    tag.position.set(0, 3.9, -10.5);
+    g.add(tag);
+    void o;
+  }
+  /** Get on the bus: your seat among the other passengers, the driver at the wheel. */
+  enterCoach(n = 0) {
+    const o = this.interiorOrigin.coach;
+    if (!this.coachPeople.length) {
+      let k = 0;
+      for (const s of this.coachSeats) {
+        k++;
+        if (k % 4 === 1) continue;
+        const female = k % 3 === 0;
+        const p = person([0x2f4a7a, 0x6d4a2b, 0x2f6f4f, 0xf4f1ea, 0x7d2f3a, 0xc9b28a][k % 6], {
+          seed: k + 7,
+          ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a][k % 4] } : {}),
+        });
+        p.position.set(o.x + s.x, 0, o.z + s.z - 0.1);
+        this.scene.add(p);
+        poseHuman(p, "chair");
+        p.rotation.y = Math.PI;
+        this.coachPeople.push(p);
+      }
+      const driver = person(0x3a3f46, { cap: 0x1d1f22, seed: 9 });
+      driver.position.set(o.x - 1.8, 0, o.z - 8.4);
+      this.scene.add(driver);
+      poseHuman(driver, "desk");
+      driver.rotation.y = Math.PI;
+    }
+    const seat = this.coachSeats[Math.abs(n) % this.coachSeats.length];
+    this.outPos.copy(this.player.position);
+    this.where = "coach";
+    this.mySeat = { x: o.x + seat.x, z: o.z + seat.z };
+    this.seatRealPlayers();
+    this.player.position.set(o.x + seat.x, 0, o.z + seat.z - 0.1);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "chair");
+    this.player.rotation.set(0, Math.PI, 0);
+    this.acting = { x: o.x, z: o.z + seat.z - 0.6, rot: Math.PI };
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+    const rows = [...new Set(this.coachSeats.map((q) => q.z))];
+    return `${rows.indexOf(seat.z) + 1}${"ABCD"[[-2.2, -1.3, 1.3, 2.2].indexOf(seat.x)]}`;
+  }
   /** The departures board in the terminal. */
   setDepartures(lines: string[]) {
     this.departures?.set(lines);
@@ -9459,9 +9615,9 @@ export class IlmCityEngine {
     }
     if (stage === "served" && this.trayMeal) this.trayMeal.visible = meal;
   }
-  /** Off the plane. */
+  /** Off the plane or the bus. */
   leaveCabin() {
-    if (this.where !== "cabin") return;
+    if (this.where !== "cabin" && this.where !== "coach") return;
     this.acting = null;
     releasePose(this.player);
     this.player.rotation.set(0, 0, 0);
@@ -9496,8 +9652,13 @@ export class IlmCityEngine {
   }
   private camOffset() {
     const portrait = this.camera.aspect < 0.8;
-    if (this.where === "cabin")
-      return portrait ? new THREE.Vector3(0, 8, 9) : new THREE.Vector3(0, 6, 7.5);
+    if (this.where === "coach" || this.where === "cabin") {
+      // look down the aisle from just behind your row
+      const ax = -(this.player.position.x - this.interiorOrigin[this.where].x) * 0.8;
+      return this.where === "coach"
+        ? new THREE.Vector3(ax, portrait ? 7 : 5.5, portrait ? 7.5 : 6.5)
+        : new THREE.Vector3(ax, portrait ? 8 : 6, portrait ? 9 : 7.5);
+    }
     if (this.where !== "out" && !this.cine)
       return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
@@ -10033,7 +10194,7 @@ export class IlmCityEngine {
   }
   /** Get up and carry on. */
   homeActEnd() {
-    if (!this.acting || this.where === "cabin") return;
+    if (!this.acting || this.where === "cabin" || this.where === "coach") return;
     const b = this.acting;
     this.acting = null;
     releasePose(this.player);
@@ -10044,6 +10205,8 @@ export class IlmCityEngine {
     if (this.eatPlate) this.eatPlate.visible = false;
   }
   private stepActing(t: number) {
+    // the road going by outside the bus windows
+    if (this.where === "coach") for (const tx of this.coachViews) tx.offset.x = (t * 0.12) % 1;
     // the steam over the pot drifts up while you cook
     if (this.cookSteam?.visible)
       this.cookSteam.children.forEach((p, k) => {

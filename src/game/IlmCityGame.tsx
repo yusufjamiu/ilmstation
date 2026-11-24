@@ -1066,6 +1066,8 @@ function CityGame({
   /** your plane ticket, from buying it to landing: check in, security, board */
   const ticketRef = useRef<Ticket | null>(null);
   const [flight, setFlight] = useState<Ticket | null>(null);
+  const busRef = useRef<BusTrip | null>(null);
+  const [busTrip, setBusTrip] = useState<BusTrip | null>(null);
   const talkingRef = useRef<number | null>(null);
   const workSkip = useRef(false);
   const hajjDone = useRef(new Set<string>());
@@ -2424,7 +2426,18 @@ function CityGame({
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
       };
-      const go = () => setTravelling({ from: here, to, byCar, train: train && !byCar });
+      const go = () => {
+        // by bus you sit inside it, with the other passengers, while the road goes by
+        if (!byCar && !train) {
+          const seat = e.enterCoach(Math.floor(Math.random() * 1000));
+          setInside(true);
+          const bt = { from: here, to, toName: districtById(to).name, seat, far };
+          busRef.current = bt;
+          setBusTrip(bt);
+          return;
+        }
+        setTravelling({ from: here, to, byCar, train: train && !byCar });
+      };
       // Madinah to Makkah passes Dhul Hulayfah (Masjid Abyar Ali), the miqat of Madinah
       const sv2 = saveRef.current;
       if (
@@ -2474,6 +2487,9 @@ function CityGame({
   );
   const tripRef = useRef(startTrip);
   tripRef.current = startTrip;
+  // for testing in development: start a trip from the browser console
+  if (import.meta.env.DEV && typeof window !== "undefined")
+    (window as unknown as { __trip?: typeof startTrip }).__trip = startTrip;
   const openOutings = useCallback(
     (phone = false, tab = "now") => {
       const e = engine.current;
@@ -8089,11 +8105,14 @@ function CityGame({
       const prof = saveRef.current.profile;
       const pr = e.presence();
       const onPlane = e.scenePlace() === "cabin" && ticketRef.current;
+      const onBus = e.scenePlace() === "coach" && busRef.current;
       const ar = pr.out
         ? (e.areaAt(pr.x, pr.z)?.id ?? "")
         : onPlane
           ? "flight:" + ticketRef.current!.flight.replace(" ", "")
-          : "";
+          : onBus
+            ? `bus:${busRef.current!.from}>${busRef.current!.to}`
+            : "";
       const moved =
         Math.hypot(pr.x - lastSent.current.x, pr.z - lastSent.current.z) > 0.5 ||
         ar !== lastSent.current.area;
@@ -9399,6 +9418,19 @@ function CityGame({
         </div>
       )}
       {travelling && <TravelMap {...travelling} onDone={() => arriveRef.current?.()} />}
+      {busTrip && (
+        <BusCard
+          trip={busTrip}
+          onArrive={() => {
+            busRef.current = null;
+            setBusTrip(null);
+            const en = engine.current;
+            en?.leaveCabin();
+            if (en && en.scenePlace() !== "out") en.exitInterior();
+            arriveRef.current?.();
+          }}
+        />
+      )}
       {flight && (
         <FlightCard
           t={flight}
@@ -17119,6 +17151,61 @@ function FlightCard({
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+type BusTrip = { from: string; to: string; toName: string; seat: string; far: boolean };
+
+/** On the bus: your seat, the du'a for travelling, and the road to where you're going. */
+function BusCard({ trip, onArrive }: { trip: BusTrip; onArrive: () => void }) {
+  const ms = trip.far ? 14000 : 7000;
+  const [pct, setPct] = useState(0);
+  const done = useRef(onArrive);
+  done.current = onArrive;
+  useEffect(() => {
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - t0) / ms);
+      setPct(p);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else done.current();
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [ms]);
+  const d = PLACE_DHIKR.ride;
+  return (
+    <div
+      data-game-ui
+      className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+    >
+      <div className="pointer-events-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        <div className="mb-1 flex items-center justify-between text-[12px] font-bold opacity-70">
+          <span>
+            🚌 {trip.far ? "Inter-city bus" : "Bus"} to {trip.toName}
+          </span>
+          <span>Seat {trip.seat}</span>
+        </div>
+        {pct < 0.4 ? (
+          <>
+            <p dir="rtl" className="font-serif text-lg leading-loose">
+              {d.arabic}
+            </p>
+            <p className="text-[12px] italic opacity-75">{d.say}</p>
+          </>
+        ) : (
+          <p className="text-[14px] font-semibold">
+            {pct < 0.85
+              ? "On the road… look out of the window. 🌴"
+              : `Nearly there: ${trip.toName}! Get your things ready.`}
+          </p>
+        )}
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
+          <div className="h-full bg-[#1f6f63]" style={{ width: `${pct * 100}%` }} />
+        </div>
       </div>
     </div>
   );
