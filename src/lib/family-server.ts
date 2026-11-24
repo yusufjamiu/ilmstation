@@ -127,7 +127,7 @@ async function handleFamilyInner(request: Request): Promise<Response> {
     const username = String(data.username ?? "").trim().toLowerCase();
     const password = String(data.password ?? "");
     if (!name) return json({ ok: false, error: "Add their first name." });
-    if (age < 4 || age > 17) return json({ ok: false, error: "Age must be between 4 and 17." });
+    if (age < 3 || age > 17) return json({ ok: false, error: "Age must be between 3 and 17." });
     if (!gender) return json({ ok: false, error: "Choose boy or girl." });
     if (!/^[a-z0-9_]{3,20}$/.test(username)) return json({ ok: false, error: "Username: 3–20 letters, numbers or _." });
     if (password.length < 6) return json({ ok: false, error: "Password: at least 6 characters." });

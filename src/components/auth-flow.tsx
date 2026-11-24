@@ -1,4 +1,4 @@
-import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid } from "firebase/auth";
+import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid, signInWithEmailAndPassword as siParent } from "firebase/auth";
 import { doc as dK, getDoc as gK, setDoc as sK } from "firebase/firestore";
 import { auth as aK, db as dbK } from "@/lib/firebase";
 import { useEffect as useEffectL, useState as useStateL } from "react";
@@ -563,16 +563,22 @@ function ChildSignup({ onBack }: { onBack: () => void }) {
     setBusy(true);
     try {
       if ((await gK(dK(dbK, "usernames", un))).exists()) throw new Error("That username is taken. Try another.");
-      let cred;
-      try { cred = await cuParent(aK, em, parentPass); }
-      catch (e) { if ((e as { code?: string }).code === "auth/email-already-in-use") throw new Error("You already have an account. Log in, then add your child in Family hub."); throw new Error("Couldn't create the parent account. Check the email and password."); }
-      const pu = cred.user;
-      let pun = (em.split("@")[0]!.replace(/[^a-z0-9_]/g, "").slice(0, 14) || "parent");
-      for (let i = 0; i < 6; i++) { const c = `${pun}${Math.floor(1000 + Math.random() * 9000)}`; if (!(await gK(dK(dbK, "usernames", c))).exists()) { pun = c; break; } }
-      const lang = (() => { try { return sessionStorage.getItem("signupLang") || localStorage.getItem("iq_lang") || "en"; } catch { return "en"; } })();
-      await sK(dK(dbK, "usernames", pun), { uid: pu.uid });
-      await sK(dK(dbK, "profiles", pu.uid), { name: "Parent", username: pun, email: em, language: lang, zone: "adult", level: "Beginner", xp: 50, interests: [], parentOnly: true, createdAt: Date.now() });
-      await sK(dK(dbK, "emails", em), { uid: pu.uid }).catch(() => {});
+      // a new parent account, or the parent's existing one
+      let pu; let existing = false;
+      try { pu = (await cuParent(aK, em, parentPass)).user; }
+      catch (e) {
+        if ((e as { code?: string }).code !== "auth/email-already-in-use") throw new Error("Couldn't create the parent account. Check the email and password.");
+        try { pu = (await siParent(aK, em, parentPass)).user; existing = true; }
+        catch { throw new Error("This email already has an account, but the password doesn't match. If you sign in with Google, log in and add your child in Family hub."); }
+      }
+      if (!existing) {
+        let pun = (em.split("@")[0]!.replace(/[^a-z0-9_]/g, "").slice(0, 14) || "parent");
+        for (let i = 0; i < 6; i++) { const c = `${pun}${Math.floor(1000 + Math.random() * 9000)}`; if (!(await gK(dK(dbK, "usernames", c))).exists()) { pun = c; break; } }
+        const lang = (() => { try { return sessionStorage.getItem("signupLang") || localStorage.getItem("iq_lang") || "en"; } catch { return "en"; } })();
+        await sK(dK(dbK, "usernames", pun), { uid: pu.uid });
+        await sK(dK(dbK, "profiles", pu.uid), { name: "Parent", username: pun, email: em, language: lang, zone: "adult", level: "Beginner", xp: 50, interests: [], parentOnly: true, createdAt: Date.now() });
+        await sK(dK(dbK, "emails", em), { uid: pu.uid }).catch(() => {});
+      }
       const token = await pu.getIdToken();
       const call = (body: Record<string, unknown>) => fetch("/api/family", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ ok?: boolean; error?: string; uid?: string; token?: string }>);
       const r1 = await call({ action: "createChild", name: childName.trim(), age, gender, username: un, password: childPass });
@@ -589,7 +595,7 @@ function ChildSignup({ onBack }: { onBack: () => void }) {
       <p className="text-xs font-bold uppercase text-muted-foreground">Your child</p>
       <label className="block text-sm font-semibold">First name<input value={childName} onChange={(e) => setChildName(e.target.value)} className={box} /></label>
       <div className="grid grid-cols-2 gap-3">
-        <label className="text-sm font-semibold">Age<select value={age} onChange={(e) => setAge(Number(e.target.value))} className={box}>{Array.from({ length: 14 }, (_, i) => i + 4).map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+        <label className="text-sm font-semibold">Age<select value={age} onChange={(e) => setAge(Number(e.target.value))} className={box}>{Array.from({ length: 11 }, (_, i) => i + 3).map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
         <div className="text-sm font-semibold">Boy or girl<div className="mt-1 grid grid-cols-2 gap-2">{(["male", "female"] as const).map((g) => <button key={g} type="button" onClick={() => setGender(g)} className={`h-11 border-2 border-foreground font-bold ${gender === g ? "bg-primary" : "bg-background"}`}>{g === "male" ? "Boy" : "Girl"}</button>)}</div></div>
       </div>
       <label className="block text-sm font-semibold">Username (to log in)<input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20))} placeholder="e.g. amina_10" autoCapitalize="none" className={box} /></label>
@@ -599,7 +605,7 @@ function ChildSignup({ onBack }: { onBack: () => void }) {
       <p className="text-xs font-bold uppercase text-muted-foreground">You (parent or guardian)</p>
       <label className="block text-sm font-semibold">Your email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={box} /></label>
       <label className="block text-sm font-semibold">Your password<input type="password" value={parentPass} onChange={(e) => setParentPass(e.target.value)} autoComplete="new-password" className={box} /></label>
-      <p className="text-xs text-muted-foreground">For password resets and to manage your child later in Family hub.</p>
+      <p className="text-xs text-muted-foreground">Already have an IlmStation account? Use the same email and password, and your child joins your family. New here? This creates a parent account for password resets and Family hub.</p>
     </section>
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-1" /> <span>I’m this child’s parent or guardian, and I agree to the <a href="/terms" target="_blank" rel="noreferrer" className="underline">Terms</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.</span></label>
     {err && <p className="border-2 border-foreground bg-destructive/10 p-3 text-sm">{err}</p>}
