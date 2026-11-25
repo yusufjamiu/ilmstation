@@ -91,14 +91,15 @@ function StudyScreenInner() {
         <h1 className="font-serif text-4xl leading-none sm:text-5xl">What will you learn today?</h1></div>
       
     </div>
-    <div className="mt-6 grid gap-5 sm:grid-cols-2">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}
-      className={cn("flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal transition-transform", c.live ? "hover:-translate-y-0.5" : "opacity-70")}>
+    <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-5">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}
+      className={cn("flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal transition-transform", c.live ? "col-span-2 hover:-translate-y-0.5 sm:col-span-1" : "col-span-1 opacity-70 max-sm:p-3 max-sm:shadow-brutal-sm")}>
       <div className="flex items-start justify-between gap-3">
-        <span className={cn("grid size-12 place-items-center border-2 border-foreground", c.live ? "bg-primary" : "bg-muted")}><Icon className="size-6" /></span>
-        {!c.live && <span className="flex items-center gap-1 border-2 border-foreground px-2 py-0.5 text-xs font-bold"><Lock className="size-3" /> Coming soon</span>}
+        <span className={cn("grid size-12 place-items-center border-2 border-foreground", c.live ? "bg-primary" : "bg-muted max-sm:size-9")}><Icon className={cn("size-6", !c.live && "max-sm:size-5")} /></span>
+        {!c.live && <span className="flex items-center gap-1 border-2 border-foreground px-2 py-0.5 text-xs font-bold max-sm:border-0 max-sm:p-0"><Lock className="size-3 max-sm:size-4" /> <span className="max-sm:hidden">Coming soon</span></span>}
       </div>
-      <h2 className="mt-4 font-serif text-3xl">{c.name} {c.nameAr && <span dir="rtl" className="text-xl text-muted-foreground">{c.nameAr}</span>}</h2>
-      <p className="text-sm text-muted-foreground">{c.blurb}</p>
+      <h2 className={cn("mt-4 font-serif text-3xl", !c.live && "max-sm:mt-3 max-sm:text-xl max-sm:leading-tight")}>{c.name} {c.nameAr && <span dir="rtl" className={cn("text-xl text-muted-foreground", !c.live && "max-sm:block max-sm:text-base")}>{c.nameAr}</span>}</h2>
+      <p className={cn("text-sm text-muted-foreground", !c.live && "max-sm:hidden")}>{c.blurb}</p>
+      {!c.live && <p className="mt-1 text-xs font-bold sm:hidden">Coming soon</p>}
       {c.live && <CardAction label="Open →" pulse={cats.filter((x) => x.live).length === 1} />}
     </button>; })}</div>
   </div>;
