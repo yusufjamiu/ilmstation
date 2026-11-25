@@ -329,10 +329,10 @@ function LeaderboardTab(){const[scope,setScope]=useState<"friends"|"global">("gl
   <div className="space-y-2">{board.map((r,i)=><Rank key={r.id} n={`${i+1}`} name={`${r.me?`${r.name} (you)`:r.name} · ${levelFor(r.xp,levels).name}`} xp={`${r.xp} XP`} active={r.me}/>)}</div>
   {scope==="friends"&&board.length<2&&<p className="mt-3 text-xs text-muted-foreground">Add friends from Community to see them here.</p>}
 </Panel>}
-function ProgressScreen({onShare}:{onShare:()=>void}){const{account}=useAuth();const[tab,setTab]=useState("Progress");return <Frame eyebrow="Your learning record" title="Growth" actions={<Button variant="outline" onClick={onShare}><Share2/> Share month</Button>}><div className="mb-5 flex gap-2"><Button variant={tab==="Progress"?"default":"outline"} onClick={()=>setTab("Progress")}>Progress</Button><Button variant={tab==="Achievements"?"default":"outline"} onClick={()=>setTab("Achievements")}>Achievements</Button><Button variant={tab==="Leaderboard"?"default":"outline"} onClick={()=>setTab("Leaderboard")}>Leaderboard</Button></div>{tab==="Progress"&&<div className="grid gap-5 md:grid-cols-2"><LevelLadder/><Panel title="Topic performance" tag="Accuracy"><ProgressLine name="Aqeedah" value={0}/><ProgressLine name="Hadith" value={0}/><ProgressLine name="Seerah" value={0}/><ProgressLine name="Fiqh" value={0}/></Panel></div>}{tab==="Achievements"&&<AchievementsTab/>}{tab==="Leaderboard"&&<LeaderboardTab/>}</Frame>}
+function ProgressScreen({onShare}:{onShare:()=>void}){const{account}=useAuth();const[tab,setTab]=useState(()=>{try{const t=sessionStorage.getItem("iq_growth_tab");sessionStorage.removeItem("iq_growth_tab");return t||"Progress";}catch{return "Progress";}});return <Frame eyebrow="Your learning record" title="Growth" actions={<Button variant="outline" onClick={onShare}><Share2/> Share month</Button>}><div className="mb-5 flex gap-2"><Button variant={tab==="Progress"?"default":"outline"} onClick={()=>setTab("Progress")}>Progress</Button><Button variant={tab==="Achievements"?"default":"outline"} onClick={()=>setTab("Achievements")}>Achievements</Button><Button variant={tab==="Leaderboard"?"default":"outline"} onClick={()=>setTab("Leaderboard")}>Leaderboard</Button></div>{tab==="Progress"&&<div className="grid gap-5 md:grid-cols-2"><LevelLadder/><Panel title="Topic performance" tag="Accuracy"><ProgressLine name="Aqeedah" value={0}/><ProgressLine name="Hadith" value={0}/><ProgressLine name="Seerah" value={0}/><ProgressLine name="Fiqh" value={0}/></Panel></div>}{tab==="Achievements"&&<AchievementsTab/>}{tab==="Leaderboard"&&<LeaderboardTab/>}</Frame>}
 
 function RewardsScreen(){
-  const[tab,setTab]=useState("Wallet");
+  const[tab,setTab]=useState(()=>{try{const t=sessionStorage.getItem("iq_rewards_tab");sessionStorage.removeItem("iq_rewards_tab");return t||"Wallet";}catch{return "Wallet";}});
   const{points,premium,config,redeem}=usePremium();
   const[busy,setBusy]=useState<number|null>(null);
   const opts=config.redeem.map((o,i)=>({...o,i})).filter(o=>o.on);
@@ -446,17 +446,17 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
     <div className="mt-5 grid gap-3 sm:grid-cols-2 max-sm:gap-0 max-sm:overflow-hidden max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:border-foreground max-sm:bg-card max-sm:shadow-[0_4px_0_var(--foreground)]">
       {kid ? <>
         {tile(YTrend, "My progress", "Stars, levels and streak", () => go("progress"))}
-        {tile(YAward, "My badges", "Everything you’ve earned", () => go("progress"))}
+        {tile(YAward, "My badges", "Everything you’ve earned", () => { try { sessionStorage.setItem("iq_growth_tab", "Achievements"); } catch { /* */ } go("progress"); })}
         {tile(YBook, "My lessons", "Keep learning", () => go("study"))}
         {tile(YCog, "Settings", "Language and more", () => go("settings"))}
       </> : <>
         {tile(YTrend, "Progress", "Your learning record", () => go("progress"))}
         {tile(YTarget, "Quests", "Daily and weekly goals", () => go("quests"))}
-        {tile(YAward, "Badges", "Everything you’ve earned", () => go("progress"))}
+        {tile(YAward, "Badges", "Everything you’ve earned", () => { try { sessionStorage.setItem("iq_growth_tab", "Achievements"); } catch { /* */ } go("progress"); })}
         {tile(YWallet, "Wallet & points", `${pr.points ?? 0} points · swap for Premium`, () => go("rewards"))}
         {tile(YUsers, "Friends & challenges", "Your circle", () => go("community"))}
         {tile(YFamily, "Family hub", "Children’s accounts and family plan", () => go("family"))}
-        {tile(YCrown, "Premium", pr.premium ? "Your plan" : "See plans", () => go("rewards" as Screen))}
+        {tile(YCrown, "Premium", pr.premium ? "Your plan" : "See plans", () => { try { sessionStorage.setItem("iq_rewards_tab", "Premium"); } catch { /* */ } go("rewards" as Screen); })}
         {tile(YShare, "Invite friends", "Share IlmStation", () => void invite())}
       </>}
     </div>
@@ -504,8 +504,8 @@ function PremiumEnded({ go }: { go: (s: Screen) => void }) {
       <p className="mt-2 font-serif text-3xl leading-tight">{show === "trial" ? "Your free trial has ended" : "Your Premium has ended"}</p>
       <p className="mt-2 text-sm text-muted-foreground">Thank you for learning with IlmStation. Renew to keep everything unlocked.</p>
       <div className="mt-5 grid gap-2">
-        <Button onClick={() => { close(); go("rewards"); }}>See plans</Button>
-        <Button variant="outline" onClick={() => { close(); go("rewards"); }}>Use my points</Button>
+        <Button onClick={() => { close(); try { sessionStorage.setItem("iq_rewards_tab", "Premium"); } catch { /* */ } go("rewards"); }}>See plans</Button>
+        <Button variant="outline" onClick={() => { close(); try { sessionStorage.setItem("iq_rewards_tab", "Redeem"); } catch { /* */ } go("rewards"); }}>Use my points</Button>
         <Button variant="ghost" onClick={close}>Continue free</Button>
       </div>
     </div>
