@@ -375,7 +375,7 @@ function CommunityScreen({go,onShare}:{go:(s:Screen)=>void;onShare:()=>void}){
   const username=account?.name?(account.username ?? account.name.toLowerCase().replace(/\s+/g,"")):"username";
   const initial=account?.name?.[0]?.toUpperCase()??"?";
   const level=account?.level??"Beginner";
-  return <Frame eyebrow="Your circle" title="Community" actions={<Button onClick={()=>go("challenge")}><Trophy/> New challenge</Button>}><div className="mb-5 flex flex-wrap gap-2">{["Profile","Friends","Requests","Find friends"].map(t=><Button key={t} variant={tab===t?"default":"outline"} onClick={()=>setTab(t)}>{t}</Button>)}</div>{tab==="Profile"?<div className="grid gap-5 md:grid-cols-[1fr_2fr]"><Panel><div className="grid size-24 place-items-center bg-primary font-serif text-5xl">{initial}</div><h2 className="mt-4 font-serif text-3xl">{displayName}</h2><p className="text-muted-foreground">@{username} · {level} Seeker</p><Button className="mt-5" variant="outline" onClick={onShare}><Share2/> Share profile</Button></Panel><Panel title="Learning record" tag={`${account?.xp ?? 0} XP`}><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Stat label="Quests" value="0"/><Stat label="Streak" value="0"/><Stat label="Badges" value="0"/><Stat label="Accuracy" value="-"/></div><h3 className="mt-6 font-serif text-2xl">Recent badges</h3><p className="mt-3 text-sm text-muted-foreground">No badges yet. Complete quests to earn them.</p></Panel></div>:<FriendsPanel tab={tab} />}</Frame>}
+  return <Frame eyebrow="Your circle" title="Community" actions={<Button onClick={()=>go("challenge")}><Trophy/> New challenge</Button>}><div className="mb-5 flex flex-wrap gap-2 max-sm:-mx-4 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">{["Profile","Friends","Requests","Find friends"].map(t=><Button key={t} className="shrink-0" variant={tab===t?"default":"outline"} onClick={()=>setTab(t)}>{t}</Button>)}</div>{tab==="Profile"?<CommunityProfile name={displayName} username={username} initial={initial} onShare={onShare}/>:<FriendsPanel tab={tab} />}</Frame>}
 
 function LeaderboardTab(){const[scope,setScope]=useState<"friends"|"global">("global");const{rows}=useLeaderboard();const friendIds=useFriendIds();const board=rows.filter(r=>scope==="global"||r.me||friendIds.includes(r.id));const you=board.findIndex(r=>r.me)+1;const levels=useLevels();return <Panel title="Leaderboard" tag={scope==="friends"?"Among friends":"All time"}>
   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -631,4 +631,27 @@ if (typeof document !== "undefined" && !document.getElementById("soft-style")) {
     + "[data-soft] .h-2.border-2,[data-soft] .h-3.border-2,[data-soft] .h-5.border-2,[data-soft] .h-2.border,[data-soft] .h-3.border{border-radius:999px!important;overflow:hidden}"
     + "}";
   document.head.appendChild(st);
+}
+
+/* Community → Profile: real level, XP, streak and badges */
+function CommunityProfile({ name, username, initial, onShare }: { name: string; username: string; initial: string; onShare: () => void }) {
+  const p = useMyRecord(); const levels = useLevels(); const lv = levelFor(p.stars, levels);
+  const earned = adultBadges.filter((b) => isEarned(b, p));
+  const stats: [string, string][] = [["Level", lv.name], ["XP", p.stars.toLocaleString()], ["Streak", `${p.streak} ${p.streak === 1 ? "day" : "days"}`], ["Badges", `${earned.length} of ${adultBadges.length}`]];
+  return <div className="grid gap-5 md:grid-cols-[1fr_2fr]">
+    <Panel>
+      <div className="grid size-24 place-items-center rounded-full border-[1.5px] border-foreground bg-primary font-serif text-5xl text-[#1c1a17]">{initial}</div>
+      <h2 className="mt-4 font-serif text-3xl">{name}</h2>
+      <p className="text-muted-foreground">@{username} · {lv.name}</p>
+      <Button className="mt-5" variant="outline" onClick={onShare}><Share2 /> Share profile</Button>
+    </Panel>
+    <Panel title="Learning record" tag={`${p.stars.toLocaleString()} XP`}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{stats.map(([l, v]) => <div key={l} className="rounded-xl border-[1.5px] border-foreground/20 bg-muted/40 p-3">
+        <p className="text-xs uppercase text-muted-foreground">{l}</p><p className="mt-1 font-serif text-2xl leading-tight">{v}</p></div>)}</div>
+      <h3 className="mt-6 font-serif text-2xl">Recent badges</h3>
+      {earned.length ? <div className="mt-4 flex flex-wrap gap-5">{earned.slice(-4).reverse().map((b) => <div key={b.id} className="flex w-20 flex-col items-center text-center">
+        <Medal b={b} got size={52} /><span className="mt-3 text-xs font-semibold leading-tight">{b.name}</span></div>)}</div>
+        : <p className="mt-3 text-sm text-muted-foreground">No badges yet. Keep learning to earn your first one.</p>}
+    </Panel>
+  </div>;
 }
