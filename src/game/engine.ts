@@ -19,6 +19,8 @@ import {
   type Billboard,
   type District,
   type Landmark,
+  DEFAULT_AREA,
+  hostelInfo,
 } from "./content";
 import { darkness, type Clock } from "./time";
 import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
@@ -73,7 +75,20 @@ import {
    Everything is built from simple low-poly shapes so the first load stays small. */
 
 export type InteriorKind =
-  "masjid" | "home" | "madrasah" | "restaurant" | "mall" | "upstairs" | "boutique";
+  | "masjid"
+  | "home"
+  | "madrasah"
+  | "restaurant"
+  | "mall"
+  | "upstairs"
+  | "boutique"
+  | "terminal"
+  | "cabin"
+  | "coach"
+  | "lecture"
+  | "corridor"
+  /** inside Al-Masjid An-Nabawi: the prayer hall, the Rawdah and the courtyard */
+  | "nabawi";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -114,6 +129,9 @@ type Walker = {
   seated?: boolean;
   /** a pilgrim in Makkah or Madinah: no name tag, does not stop to talk */
   pilgrim?: boolean;
+  /** a passer-by on the pavement (no name, no home): its place in the area's crowd, so the
+      crowd thins out as real players come */
+  crowd?: number;
 };
 
 const PALETTE = {
@@ -261,6 +279,11 @@ function part(geo: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0) {
   return m;
 }
 const capsule = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 4, 10);
+
+/** The size of the inside of Al-Masjid An-Nabawi. */
+const NABAWI_IN = { W: 72, D: 84 };
+/** Makkah and Madinah: date palms, Saudi flags, no overhead cables. */
+const saudiCity = (D: District) => ["madinah", "makkah"].includes(cityOf(D));
 
 /** A low-poly person with real arms and legs that swing when walking.
     Brothers wear a kaftan, trousers and kufi; sisters wear an abaya and hijab. */
@@ -584,6 +607,12 @@ export class IlmCityEngine {
     mall: [],
     upstairs: [],
     boutique: [],
+    terminal: [],
+    cabin: [],
+    coach: [],
+    lecture: [],
+    corridor: [],
+    nabawi: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -607,6 +636,12 @@ export class IlmCityEngine {
     mall: new THREE.Vector3(1420, 0, 0),
     upstairs: new THREE.Vector3(1100, 0, 60),
     boutique: new THREE.Vector3(1300, 0, 60),
+    terminal: new THREE.Vector3(1560, 0, 0),
+    cabin: new THREE.Vector3(1700, 0, 320),
+    coach: new THREE.Vector3(1850, 0, 320),
+    lecture: new THREE.Vector3(2000, 0, 320),
+    corridor: new THREE.Vector3(2150, 0, 320),
+    nabawi: new THREE.Vector3(2350, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -684,10 +719,15 @@ export class IlmCityEngine {
 
     this.buildCar();
     this.buildInteriors();
-    this.startId = start?.district ?? "lekki";
+    this.buildAirport();
+    this.buildCoach();
+    this.buildLecture();
+    this.buildCorridor();
+    this.buildNabawiInside();
+    this.startId = start?.district ?? DEFAULT_AREA;
     this.buildWorld();
     this.buildTraffic();
-    this.district = districtById(start?.district ?? "lekki");
+    this.district = districtById(start?.district ?? DEFAULT_AREA);
     const home = districtById("lekki").origin;
     if (start?.car) {
       this.car.position.set(start.car.x, 0, start.car.z);
@@ -890,7 +930,11 @@ export class IlmCityEngine {
     this.outPos.copy(this.player.position);
     this.where = kind;
     const o = this.interiorOrigin[kind];
-    this.player.position.set(o.x, 0, o.z + 5.5);
+    this.player.position.set(
+      o.x,
+      0,
+      o.z + (kind === "home" ? 8 : kind === "nabawi" ? NABAWI_IN.D / 2 - 3 : 5.5),
+    );
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -898,6 +942,14 @@ export class IlmCityEngine {
     this.snapCamera();
   }
   exitInterior() {
+    if (this.acting && this.where !== "cabin" && this.where !== "coach") {
+      this.acting = null;
+      releasePose(this.player);
+      this.player.rotation.set(0, this.player.rotation.y, 0);
+      if (this.sleepCover) this.sleepCover.visible = false;
+      if (this.cookSteam) this.cookSteam.visible = false;
+      if (this.eatPlate) this.eatPlate.visible = false;
+    }
     if (this.where === "out") return;
     this.where = "out";
     this.player.position.copy(this.outPos);
@@ -1159,6 +1211,7 @@ export class IlmCityEngine {
     if (D.campus) this.buildCampusWall(D);
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
     if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
+    if (D.campus) this.buildHostels(D, XR, rnd);
 
     // bus park
     this.buildBusPark(-72, 15, !!D.holy);
@@ -1352,12 +1405,23 @@ export class IlmCityEngine {
     this.reserved.push(...playHold);
     this.buildEatery(D);
     this.buildRestaurant(D);
-    if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
+    if (D.id === "ikeja" || D.id === "lekki" || D.id === "shuran" || D.id === "khalidiyyah") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
     if (
-      ["lekki", "ikeja", "akoka", "agege", "ikorodu", "fate", "ilorincentral", "tanke"].includes(
-        D.id,
-      )
+      [
+        "lekki",
+        "ikeja",
+        "akoka",
+        "agege",
+        "ikorodu",
+        "fate",
+        "ilorincentral",
+        "tanke",
+        "wuse",
+        "abujacentral",
+        "sabongari",
+        "nassarawa",
+      ].includes(D.id)
     )
       this.buildBoutique(D);
     this.reserved = this.reserved.filter((r) => !playHold.includes(r));
@@ -1369,7 +1433,9 @@ export class IlmCityEngine {
     // Manaar University College, going up at the end of Sheikh Habeeb Adewuyi Street
     if (D.id === "ikorodu") this.buildManaarSite(batch, -110);
     const wires = new THREE.Group();
-    if (!D.holy) zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
+    // Saudi cities have their cables underground
+    if (!D.holy && !["madinah", "makkah"].includes(cityOf(D)))
+      zs.forEach((sz) => powerLine(batch, -XR, XR, sz - 9.8, wires));
     // beautified streets: palms, flower beds and green-and-white flags along the pavements
     D.streets
       .filter((st) => st.decor)
@@ -1389,7 +1455,7 @@ export class IlmCityEngine {
               z + 0.45,
             );
             if (k % 2 === 0) {
-              if (D.holy) datePalmInto(batch, x, z, 0.75);
+              if (D.holy || saudiCity(D)) datePalmInto(batch, x, z, 0.75);
               else batch.addObject(palm(x, z, 0.85));
             } else {
               const bed = new THREE.Mesh(
@@ -1414,7 +1480,7 @@ export class IlmCityEngine {
               );
               pole.position.set(x + 1.6, 2.75, z);
               batch.addObject(pole);
-              if (D.holy) {
+              if (D.holy || saudiCity(D)) {
                 // the Saudi flag: green with the shahadah and a white sword
                 const fl = new THREE.Mesh(new THREE.PlaneGeometry(1.26, 0.8), MAT.plain(0x006c35));
                 fl.position.set(x + 1.6 + 0.63, 5.0, z);
@@ -1477,7 +1543,7 @@ export class IlmCityEngine {
       const isPalm = rnd() < 0.55,
         sc = isPalm ? 0.8 + rnd() * 0.3 : 0.9 + rnd() * 0.4;
       // date palms in Makkah and Madinah, neem trees on Arafat
-      if (D.holy) datePalmInto(batch, x, z, sc);
+      if (D.holy || saudiCity(D)) datePalmInto(batch, x, z, sc);
       else batch.addObject(isPalm ? palm(x, z, sc) : tree(x, z, sc));
       this.addCollider("out", x - 0.45, x + 0.45, z - 0.45, z + 0.45);
       n++;
@@ -1517,6 +1583,8 @@ export class IlmCityEngine {
 
     // Mina and Arafat are shown as in the days of Hajj: crowds of pilgrims
     if (D.id === "arafat" || D.id === "mina") this.buildPilgrims(D, S);
+    // everywhere else: people on the pavements and traders by the road, so streets feel alive
+    else this.buildStreetLife(D, S, batch);
     // Madinah: bicycles for hire by the street
     if (D.id === "nabawi" || D.id === "quba") this.buildBikeDock(D, S);
 
@@ -1654,6 +1722,176 @@ export class IlmCityEngine {
   /** Pilgrims in ihram filling the plain: in Arafat most stand facing the Ka'bah with their
       hands raised in du'a, many round Jabal ar-Rahmah; in Mina they walk between the tents and
       the Jamarat. Drawn as a few instanced meshes, so thousands cost little. */
+  /** Passers-by walking the pavements, people standing and chatting, and roadside traders
+      under umbrellas. They have no names and no homes: houses, flats and stalls are for real
+      players. As real players come into an area, the crowd thins out to make room. */
+  private buildStreetLife(D: District, S: THREE.Object3D, batch: Batch) {
+    let h = 17;
+    for (const ch of D.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = mulberry(h);
+    const XR = halfOf(D).x - 12;
+    const holy = !!D.holy || ["madinah", "makkah"].includes(cityOf(D));
+    const ANKARA = [
+      0xc8262a, 0x1f4f9a, 0xf2c230, 0x2d8a4a, 0x8a2f4f, 0xe07a2a, 0x5a3f6a, 0x1d6b6a, 0xb8573a,
+      0x2a2a2a, 0xf4f0e6, 0x7a4a2a, 0x3a6ab8, 0xd94f7a,
+    ];
+    const HIJABS = [0x1d1d26, 0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0xd8c8a8, 0x3d5a4a, 0x6a3a5a];
+    const MEN = ["thobe", "kaftan", "kaftan", "agbada", "thobe"] as const;
+    let idx = 0;
+    // far away, a passer-by is drawn as a simple figure (2 pieces instead of 19)
+    const farBody = new THREE.CylinderGeometry(0.2, 0.32, 1.45, 7);
+    farBody.translate(0, 0.73, 0);
+    const farHead = new THREE.SphereGeometry(0.17, 8, 6);
+    farHead.translate(0, 1.6, 0);
+    const withFar = (g: THREE.Group, robe: number, head: number) => {
+      const far = new THREE.Group();
+      far.add(new THREE.Mesh(farBody, mat(robe)));
+      far.add(new THREE.Mesh(farHead, mat(head)));
+      far.visible = false;
+      g.userData.near = [...g.children];
+      g.userData.far = far;
+      g.add(far);
+      return g;
+    };
+    const SKIN = [0x5a3a24, 0x6b4428, 0x4a2e1c, 0x7a5030];
+    const someone = () => withFar(...someone0());
+    const someone0 = (): [THREE.Group, number, number] => {
+      const roll = rnd();
+      const sister = D.only ? D.only === "sisters" : roll < 0.45;
+      const seed = Math.floor(rnd() * 1000);
+      const skin = SKIN[seed % SKIN.length];
+      if (holy)
+        return sister
+          ? [person(0x15151a, { hijab: 0x15151a, seed, outfit: "abaya" }), 0x15151a, 0x15151a]
+          : [
+              person(0xf7f7f2, { cap: rnd() < 0.5 ? null : 0xffffff, seed, outfit: "thobe" }),
+              0xf7f7f2,
+              skin,
+            ];
+      const robe = ANKARA[Math.floor(rnd() * ANKARA.length)];
+      if (sister) {
+        const hj = HIJABS[Math.floor(rnd() * HIJABS.length)];
+        return [
+          person(robe, { hijab: hj, seed, outfit: rnd() < 0.3 ? "lace" : "abaya" }),
+          robe,
+          hj,
+        ];
+      }
+      return [
+        person(robe, {
+          cap: rnd() < 0.15 ? null : ANKARA[Math.floor(rnd() * ANKARA.length)],
+          seed,
+          outfit: MEN[Math.floor(rnd() * MEN.length)],
+        }),
+        robe,
+        skin,
+      ];
+    };
+    D.streets.forEach((st, k) => {
+      for (const side of [-1, 1]) {
+        // walkers going up and down the pavement
+        const n = k === 0 ? 14 : 8;
+        for (let i = 0; i < n; i++) {
+          const z = st.z + side * (8.7 + rnd() * 0.8);
+          const a = (rnd() * 2 - 1) * XR,
+            b = Math.max(-XR, Math.min(XR, a + (rnd() < 0.5 ? -1 : 1) * (40 + rnd() * 70)));
+          const g = someone();
+          g.position.set(a, 0, z);
+          S.add(g);
+          this.walkers.push({
+            g,
+            route: [
+              [b, z],
+              [a, z],
+            ],
+            k: 0,
+            wait: rnd() * 4,
+            t: 0,
+            district: D.id,
+            crowd: idx++,
+          });
+        }
+        // two or three people standing together, talking
+        for (let grp = 0; grp < (k === 0 ? 3 : 1); grp++) {
+          const x = (rnd() * 2 - 1) * (XR - 10),
+            z = st.z + side * 9.6;
+          const m = 2 + Math.floor(rnd() * 2);
+          for (let j = 0; j < m; j++) {
+            const g = someone();
+            const ang = (j / m) * Math.PI * 2;
+            g.position.set(x + Math.cos(ang) * 0.75, 0, z + Math.sin(ang) * 0.75);
+            g.rotation.y = Math.atan2(-Math.cos(ang), -Math.sin(ang));
+            S.add(g);
+            this.walkers.push({
+              g,
+              route: [[g.position.x, g.position.z]],
+              k: 0,
+              wait: 0,
+              t: 0,
+              district: D.id,
+              seated: true,
+              crowd: idx++,
+            });
+          }
+        }
+      }
+      // roadside traders: an umbrella, a table of goods and the trader on a stool
+      if (holy) return;
+      const traders = k === 0 ? 6 : 2;
+      for (let i = 0; i < traders; i++) {
+        const side = rnd() < 0.5 ? -1 : 1;
+        const x = (rnd() * 2 - 1) * (XR - 8),
+          z = st.z + side * 10.6;
+        if (!this.free(this.ox + x, this.oz + z, 1.4)) continue;
+        const g = new THREE.Group();
+        g.position.set(x, 0, z);
+        const pole = cyl(0.05, 0.05, 2.4, 0x6a6a6a, 6);
+        pole.position.y = 1.2;
+        g.add(pole);
+        const top = new THREE.Mesh(
+          new THREE.ConeGeometry(1.5, 0.6, 8, 1, true),
+          mat([0xc8262a, 0xf2c230, 0x1f4f9a, 0x2d8a4a][Math.floor(rnd() * 4)], {
+            side: THREE.DoubleSide,
+          }),
+        );
+        top.position.y = 2.5;
+        g.add(top);
+        g.add(box(1.0, 0.75, 0.55, 0x6a4a2a, 0, 0, -side * 0.5));
+        g.add(box(1.2, 0.08, 0.7, 0x8a6a4a, 0, 0.75, -side * 0.5));
+        for (let q = 0; q < 5; q++)
+          g.add(
+            box(
+              0.2,
+              0.2,
+              0.2,
+              [0xe07a2a, 0xf2c230, 0x2d8a4a, 0xc8262a, 0xf4f0e6][q],
+              -0.45 + q * 0.22,
+              0.83,
+              -side * 0.5,
+            ),
+          );
+        S.add(g);
+        this.addCollider("out", x - 0.7, x + 0.7, z - 0.7, z + 0.7);
+        const t = someone();
+        t.position.set(x + 0.2, 0, z + side * 0.35);
+        t.rotation.y = side > 0 ? Math.PI : 0;
+        sitPerson(t);
+        S.add(t);
+        this.walkers.push({
+          g: t,
+          route: [[t.position.x, t.position.z]],
+          k: 0,
+          wait: 0,
+          t: 0,
+          district: D.id,
+          seated: true,
+          crowd: idx++,
+        });
+      }
+    });
+    void batch;
+  }
+
   private buildPilgrims(D: District, S: THREE.Object3D) {
     const arafat = D.id === "arafat";
     const H = halfOf(D);
@@ -2646,7 +2884,11 @@ export class IlmCityEngine {
       // the famous mosques of Madinah keep their own shape: minarets and white domes
       if (l.id === "masjid-quba") this.masjidCrown(l.x, sz - 23, 4, 6);
       if (l.id === "masjid-qiblatayn") this.masjidCrown(l.x, sz - 23, 2, 2);
-      if (l.id === "masjid-qiblatayn") this.mountUhud(D);
+      if (l.id === "masjid-sayyid-shuhada") this.buildUhudSite(D, l.x, sz);
+      // Abuja's National Mosque: a golden dome and four tall minarets; Kano's Central
+      // Mosque: two minarets and green domes
+      if (l.id === "abuja-national-mosque") this.masjidCrown(l.x, sz - 23, 4, 1, 0xd4a72c, 9);
+      if (l.id === "kano-central-mosque") this.masjidCrown(l.x, sz - 23, 2, 3, 0x2e8b57);
     } else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
     else if (l.kind === "home") this.buildHome(l.x, sz - 17);
     else if (l.kind === "souq") this.buildSouq(l.x, sz - 19, l);
@@ -5138,7 +5380,14 @@ export class IlmCityEngine {
   }
 
   /** Tall white minarets at the corners and a row of white domes on a mosque's roof. */
-  private masjidCrown(cx: number, cz: number, minarets: number, domes: number) {
+  private masjidCrown(
+    cx: number,
+    cz: number,
+    minarets: number,
+    domes: number,
+    domeColor = 0xf8f6f0,
+    bigDome = 3.6,
+  ) {
     const W = 34,
       D = 22,
       H = 7.6;
@@ -5168,10 +5417,10 @@ export class IlmCityEngine {
     }
     for (let i = 0; i < domes; i++) {
       const x = domes === 1 ? 0 : -W / 2 + 5 + (i * (W - 10)) / (domes - 1);
-      const r = i === Math.floor(domes / 2) ? 3.6 : 2.4;
+      const r = i === Math.floor(domes / 2) ? bigDome : 2.4;
       const d = new THREE.Mesh(
         new THREE.SphereGeometry(r, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2),
-        mat(0xf8f6f0, { roughness: 0.5 }),
+        mat(domeColor, { roughness: 0.5, metalness: domeColor === 0xd4a72c ? 0.4 : 0 }),
       );
       d.position.set(x, H + 0.6, -2);
       d.castShadow = true;
@@ -5201,6 +5450,162 @@ export class IlmCityEngine {
 
   /** Al-Masjid An-Nabawi: a great white mosque with many minarets, the Green Dome, and a
       courtyard of white umbrellas. */
+  /** A walled graveyard of plain stones, as the Sunnah is: Jannat Al-Baqi' by the Prophet's
+      Mosque ﷺ, and the graves of the martyrs at Uhud. Walking up to its gate lets you give
+      salam to the people of the graves. */
+  private graveyard(cx: number, cz: number, w: number, d: number, name: string, id: string) {
+    const b = new Batch();
+    const wallM = MAT.plaster(0xe6dccb);
+    const T = 0.5,
+      H = 2.4;
+    // the walls, with a gate in the middle of the south wall
+    b.box(w, H, T, wallM, cx, 0, cz - d / 2);
+    b.box(w / 2 - 3, H, T, wallM, cx - w / 4 - 1.5, 0, cz + d / 2);
+    b.box(w / 2 - 3, H, T, wallM, cx + w / 4 + 1.5, 0, cz + d / 2);
+    b.box(T, H, d, wallM, cx - w / 2, 0, cz);
+    b.box(T, H, d, wallM, cx + w / 2, 0, cz);
+    for (const [x0, x1, z0, z1] of [
+      [cx - w / 2, cx + w / 2, cz - d / 2 - T, cz - d / 2 + T],
+      [cx - w / 2, cx - 3, cz + d / 2 - T, cz + d / 2 + T],
+      [cx + 3, cx + w / 2, cz + d / 2 - T, cz + d / 2 + T],
+      [cx - w / 2 - T, cx - w / 2 + T, cz - d / 2, cz + d / 2],
+      [cx + w / 2 - T, cx + w / 2 + T, cz - d / 2, cz + d / 2],
+    ])
+      this.addCollider("out", x0, x1, z0, z1);
+    // the gate arch
+    b.box(7, 0.8, 0.9, MAT.plain(0x9a7a3a), cx, H + 0.6, cz + d / 2);
+    for (const sx of [-1, 1]) b.box(0.9, H + 1.4, 0.9, wallM, cx + sx * 3.4, 0, cz + d / 2);
+    // sandy ground, a paved path, and rows of plain low stones
+    b.add(groundGeo(w - 1, d - 1, 3), MAT.plain(0xd8c49a), cx, 0.04, cz, 0, false);
+    b.add(groundGeo(3, d - 1, 2), MAT.paving(), cx, 0.05, cz, 0, false);
+    const stoneM = MAT.plain(0xa89a82);
+    let k = 0;
+    for (let z = cz - d / 2 + 3; z < cz + d / 2 - 3; z += 2.6)
+      for (let x = cx - w / 2 + 2.5; x < cx + w / 2 - 2; x += 1.9) {
+        if (Math.abs(x - cx) < 2.6) continue;
+        k++;
+        const j = ((k * 2654435761) >>> 0) / 4294967296;
+        b.box(0.5, 0.18, 1.5, stoneM, x + (j - 0.5) * 0.4, 0, z);
+        b.box(0.22, 0.45 + j * 0.25, 0.12, stoneM, x, 0, z - 0.7);
+      }
+    this.addCollider("out", cx - w / 2 + 2, cx - 2.2, cz - d / 2 + 2, cz + d / 2 - 2);
+    this.addCollider("out", cx + 2.2, cx + w / 2 - 2, cz - d / 2 + 2, cz + d / 2 - 2);
+    for (const m of b.build()) this.dg.add(m);
+    const t = label(name, { size: 1.2, bg: "rgba(31,111,99,0.92)" });
+    t.position.set(cx, H + 3, cz + d / 2);
+    this.dg.add(t);
+    this.zones.push({
+      id: "graves:" + id,
+      label: "Give salam to the people of the graves",
+      x: cx + this.ox,
+      z: cz + d / 2 + 2.5 + this.oz,
+      r: 3.5,
+      scene: "out",
+    });
+  }
+
+  /** Uhud: the great red mountain on the north of the area, the Archers' Hill in front of
+      it, and the graves of the martyrs beside Masjid Sayyid Ash-Shuhada. */
+  private buildUhudSite(D: District, mx: number, sz: number) {
+    const H = halfOf(D);
+    const g = new THREE.Group();
+    const cols = [0x8a3f24, 0x7a3820, 0x9a4a2a, 0x6f331d];
+    // the mountain: a long ridge of big rocks, rising in the middle
+    for (let i = 0; i < 22; i++) {
+      const t = i / 21;
+      const r = 26 + Math.sin(t * Math.PI) * 26 + ((i * 7) % 9);
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 1), mat(cols[i % 4]));
+      m.scale.set(1.25, 1.0, 0.7);
+      m.position.set(-H.x - 40 + t * (H.x * 2 + 80), r * 0.4, -H.z - 12 - (i % 3) * 8);
+      m.castShadow = true;
+      g.add(m);
+    }
+    const tl = label("Mount Uhud · جبل أحد", { size: 2.4, bg: "rgba(46,139,87,0.92)" });
+    tl.position.set(0, 70, -H.z - 12);
+    g.add(tl);
+    // Jabal Ar-Rumah, the Archers' Hill
+    const hx = mx + 110,
+      hz = sz - 120;
+    const hill = new THREE.Mesh(new THREE.DodecahedronGeometry(16, 1), mat(0xa8784f));
+    hill.scale.set(1.4, 0.55, 1);
+    hill.position.set(hx, 2, hz);
+    hill.castShadow = true;
+    g.add(hill);
+    this.addCollider("out", hx - 20, hx + 20, hz - 14, hz + 14);
+    const th = label("Jabal Ar-Rumah · the Archers' Hill", {
+      size: 1.2,
+      bg: "rgba(31,111,99,0.92)",
+    });
+    th.position.set(hx, 14, hz);
+    g.add(th);
+    this.dg.add(g);
+    // the graves of the martyrs of Uhud, Hamzah among them
+    this.graveyard(
+      mx + 10,
+      sz - 72,
+      34,
+      26,
+      "The Martyrs of Uhud · Hamzah ibn Abdil-Muttalib",
+      "uhud",
+    );
+  }
+
+  /** Mount Uhud on Madinah's skyline: far beyond the fog, it is drawn as a backdrop that
+      keeps its place on the horizon to the north, the way you see it from anywhere in the city. */
+  private uhudSky: THREE.Group | null = null;
+  private updateUhudSky() {
+    const inMadinah = this.where === "out" && cityOf(this.district) === "madinah";
+    const U = DISTRICTS.find((d) => d.id === "uhud");
+    if (!U) return;
+    if (!this.uhudSky) {
+      if (!inMadinah) return;
+      const g = new THREE.Group();
+      // hazy with distance, like a real far mountain
+      const cols = [0xb58e7e, 0xab8574, 0xbc9483, 0xa47f70];
+      for (let i = 0; i < 26; i++) {
+        const t = i / 25;
+        const r = 50 + Math.sin(t * Math.PI) * 70 + ((i * 13) % 17);
+        const m = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(r, 1),
+          mat(cols[i % 4], { fog: false }),
+        );
+        m.scale.set(1.3, 0.75, 0.5);
+        m.position.set(-600 + t * 1200, r * 0.1 - 20, (i % 3) * 14);
+        g.add(m);
+      }
+      for (let i = 0; i < 18; i++) {
+        const r = 30 + ((i * 11) % 14);
+        const m = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(r, 0),
+          mat(0xc4a48f, { fog: false }),
+        );
+        m.scale.set(1.6, 0.35, 0.6);
+        m.position.set(-680 + i * 80, -4, -40);
+        g.add(m);
+      }
+      const t = label("Mount Uhud · جبل أحد", { size: 7, bg: "rgba(46,139,87,0.9)" });
+      t.position.set(0, 120, 0);
+      g.add(t);
+      g.renderOrder = -1;
+      this.scene.add(g);
+      this.uhudSky = g;
+    }
+    const g = this.uhudSky;
+    const tx = U.origin.x,
+      tz = U.origin.z - halfOf(U).z - 30;
+    const p = this.camera.position;
+    const dx = tx - p.x,
+      dz = tz - p.z,
+      dist = Math.hypot(dx, dz);
+    // close to Uhud you see the real mountain instead
+    g.visible = inMadinah && dist > 460;
+    if (!g.visible) return;
+    const k = Math.min(1, 520 / dist);
+    g.position.set(p.x + (dx / dist) * 520, 0, p.z + (dz / dist) * 520);
+    g.rotation.y = Math.atan2(dx, dz);
+    g.scale.set(Math.max(0.35, k * 1.6), Math.max(0.35, k * 1.6), 1);
+  }
+
   private buildNabawi(l: Landmark, D: District) {
     const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
     const C = { x: l.x, z: sz - 125 };
@@ -5209,121 +5614,219 @@ export class IlmCityEngine {
       H = 16;
     const g = new THREE.Group();
     g.position.set(C.x, 0, C.z);
-    const hall = box(W, H, Dd, 0xf3efe4, 0, 0, -10);
-    g.add(hall);
-    g.add(box(W + 1, 1.4, Dd + 1, 0xd9cfb8, 0, H, -10));
-    this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z - 10 - Dd / 2, C.z - 10 + Dd / 2);
-    // arches along the front
-    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
-    for (let i = 0; i < 26; i++) {
-      const x = -W / 2 + 3 + i * ((W - 6) / 25);
-      if (Math.abs(x) < 6) continue;
-      const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 6), archMat);
-      a.position.set(x, 3.5, -10 + Dd / 2 + 0.06);
-      g.add(a);
+    const b = new Batch();
+    const STONE = 0xeee4cf,
+      BAND = 0xc9b48f,
+      GOLD = 0xc9a227;
+    const stone = MAT.plaster(STONE);
+    const band = MAT.plain(BAND, 0.6);
+    const gold = MAT.plain(GOLD, 0.35);
+    const fz = -10 + Dd / 2; // the front (qibla) wall, facing the street
+    const bz = -10 - Dd / 2; // the back wall
+    // the great hall in cream stone, on a low marble plinth
+    b.box(W + 2, 0.6, Dd + 2, MAT.plain(0xf8f6f0, 0.4), 0, 0, -10);
+    b.box(W, H, Dd, stone, 0, 0.6, -10);
+    this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z + bz, C.z + fz);
+    // two rows of arched windows all round, and stone bands
+    const arch = MAT3.archWin(STONE, 0x6b5a3a);
+    for (const [len, along] of [
+      [W, true],
+      [Dd, false],
+    ] as [number, boolean][]) {
+      const n = Math.floor(len / 4.2);
+      for (let k = 0; k < n; k++) {
+        const t = -len / 2 + 2.1 + k * (len / n);
+        for (const y of [4.2, 10.6])
+          for (const sd of [1, -1]) {
+            if (along)
+              b.plane(2.2, 4.2, arch, t, y, (sd > 0 ? fz : bz) + sd * 0.04, sd > 0 ? 0 : Math.PI);
+            else b.plane(2.2, 4.2, arch, sd * (W / 2 + 0.04), y, -10 + t, (sd * Math.PI) / 2);
+          }
+      }
     }
-    g.add(box(10, 9, 1, 0xc9a227, 0, 0, -10 + Dd / 2 + 0.3)); // the main door
-    // the Green Dome over the resting place of the Prophet ﷺ, and a silver dome beside it
-    const dome = (x: number, z: number, r: number, color: number) => {
-      const drum = cyl(r * 0.9, r * 0.9, 3, 0xece6d6, 20);
-      drum.position.set(x, H + 1.5, z);
-      g.add(drum);
-      const d = new THREE.Mesh(
-        new THREE.SphereGeometry(r, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2),
-        mat(color, { roughness: 0.45 }),
+    for (const y of [7.6, H + 0.2]) {
+      b.box(W + 0.6, 0.5, 0.5, band, 0, y, fz);
+      b.box(W + 0.6, 0.5, 0.5, band, 0, y, bz);
+      b.box(0.5, 0.5, Dd + 0.6, band, -W / 2, y, -10);
+      b.box(0.5, 0.5, Dd + 0.6, band, W / 2, y, -10);
+    }
+    // a parapet with stepped merlons along the roof edge
+    for (let x = -W / 2 + 1; x < W / 2; x += 2.4)
+      for (const z of [fz, bz]) b.box(1.2, 1.1, 0.5, stone, x, H + 0.7, z);
+    for (let z = bz + 1; z < fz; z += 2.4)
+      for (const x of [-W / 2, W / 2]) b.box(0.5, 1.1, 1.2, stone, x, H + 0.7, z);
+    // the gates: tall arched entrances standing out from the walls, with gold doors
+    const gate = (x: number, z: number, ry: number) => {
+      const c = Math.cos(ry),
+        sn = Math.sin(ry);
+      const at = (lx: number, lz: number) => [x + lx * c + lz * sn, z - lx * sn + lz * c] as const;
+      const [px, pz] = at(0, 1.2);
+      b.box(
+        ry === 0 || ry === Math.PI ? 12 : 2.4,
+        H + 3,
+        ry === 0 || ry === Math.PI ? 2.4 : 12,
+        stone,
+        px,
+        0.6,
+        pz,
       );
-      d.scale.y = 1.35;
-      d.position.set(x, H + 3, z);
-      d.castShadow = true;
-      g.add(d);
-      const c = crescent();
-      c.position.set(x - 0.3, H + 3 + r * 1.35 + 1.4, z);
-      g.add(c);
-    };
-    dome(W / 2 - 22, Dd / 2 - 28, 7, 0x2e8b57);
-    dome(-10, -10, 6, 0xb8bec4);
-    // ten minarets
-    const minaret = (x: number, z: number, h: number) => {
-      const shaft = cyl(1.5, 1.9, h, 0xf3efe4, 8);
-      shaft.position.set(x, h / 2, z);
-      g.add(shaft);
-      for (const y of [h * 0.5, h * 0.78]) {
-        const bal = cyl(2.4, 2.4, 0.8, 0xd9cfb8, 8);
-        bal.position.set(x, y, z);
-        g.add(bal);
-      }
-      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0x2e8b57));
-      top.position.set(x, h + 3, z);
-      g.add(top);
-      const c = crescent();
-      c.position.set(x - 0.3, h + 6.8, z);
-      g.add(c);
-      this.addCollider("out", C.x + x - 2, C.x + x + 2, C.z + z - 2, C.z + z + 2);
-    };
-    for (const x of [-W / 2, -W / 4, 0, W / 4, W / 2]) minaret(x, -10 - Dd / 2, 52);
-    for (const x of [-W / 2, -12, 12, W / 2]) minaret(x, -10 + Dd / 2 + 2, 56);
-    // the courtyard with its white umbrellas
-    const court = new THREE.Mesh(new THREE.PlaneGeometry(W, 70), mat(0xf6f3ea));
-    court.rotation.x = -Math.PI / 2;
-    court.position.set(0, 0.03, -10 + Dd / 2 + 35);
-    court.receiveShadow = true;
-    g.add(court);
-    for (let i = 0; i < 6; i++)
-      for (const zz of [52, 72]) {
-        const x = -W / 2 + 16 + i * ((W - 32) / 5);
-        const pole = cyl(0.25, 0.3, 9, 0xd9d9d9, 8);
-        pole.position.set(x, 4.5, zz);
-        g.add(pole);
-        const canopy = new THREE.Mesh(
-          new THREE.ConeGeometry(8, 3, 4, 1, true),
-          mat(0xf8f8f4, { side: THREE.DoubleSide }),
-        );
-        canopy.rotation.y = Math.PI / 4;
-        canopy.position.set(x, 9.2, zz);
-        canopy.castShadow = true;
-        g.add(canopy);
-        this.addCollider("out", C.x + x - 0.4, C.x + x + 0.4, C.z + zz - 0.4, C.z + zz + 0.4);
-      }
-    // Jannat al-Baqi: the walled graveyard to the east, rows of plain stones in the sand
-    {
-      const bx = W / 2 + 48,
-        bz = -10,
-        BW = 64,
-        BD = 80;
-      const sand = new THREE.Mesh(groundGeo(BW, BD, 3), MAT.plain(0xd8c49a));
-      sand.position.set(bx, 0.04, bz);
-      g.add(sand);
-      for (const [w, d, x, z] of [
-        [BW, 0.6, 0, -BD / 2],
-        [BW, 0.6, 0, BD / 2],
-        [0.6, BD, -BW / 2, 0],
-        [0.6, BD, BW / 2, 0],
-      ] as [number, number, number, number][]) {
-        g.add(box(w, 2.4, d, 0xece6d6, bx + x, 0, bz + z));
-        this.addCollider(
-          "out",
-          C.x + bx + x - w / 2,
-          C.x + bx + x + w / 2,
-          C.z + bz + z - d / 2,
-          C.z + bz + z + d / 2,
+      const [dx, dz] = at(0, 2.45);
+      b.plane(6.5, 9, gold, dx, 5.2, dz, ry);
+      const [ax, az] = at(0, 2.47);
+      b.plane(8, 11.5, MAT3.archWin(STONE, 0x8a6a2a), ax, 6.4, az, ry);
+      // three small domes over the gate
+      for (const o of [-3.5, 0, 3.5]) {
+        const [qx, qz] = at(o, 1.2);
+        b.add(
+          new THREE.SphereGeometry(1.3, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+          stone,
+          qx,
+          H + 3.6,
+          qz,
         );
       }
-      for (let i = 0; i < 140; i++) {
-        const x = bx - BW / 2 + 3 + ((i * 7.3) % (BW - 6)),
-          z = bz - BD / 2 + 3 + Math.floor((i * 7.3) / (BW - 6)) * 5;
-        if (z > bz + BD / 2 - 3) break;
-        g.add(box(0.3, 0.5, 0.2, 0x8a8478, x, 0, z));
-      }
-      const t2 = label("Jannat al-Baqi · البقيع", { size: 1.4, bg: "rgba(46,139,87,0.92)" });
-      t2.position.set(bx, 5, bz + BD / 2 + 1);
-      g.add(t2);
-      this.reserved.push({
-        x0: this.ox + C.x + bx - BW / 2 - 4,
-        x1: this.ox + C.x + bx + BW / 2 + 4,
-        z0: this.oz + C.z + bz - BD / 2 - 4,
-        z1: this.oz + C.z + bz + BD / 2 + 4,
-      });
+    };
+    for (const x of [-56, -18, 18, 56]) gate(x, fz, 0);
+    for (const x of [-50, 0, 50]) gate(x, bz, Math.PI);
+    for (const z of [-34, 14]) {
+      gate(-W / 2, -10 + z, -Math.PI / 2);
+      gate(W / 2, -10 + z, Math.PI / 2);
     }
+    // the roof: rows of grey sliding domes over the King Fahd extension
+    const slide = MAT.plain(0xb7b9b2, 0.5);
+    for (let r = 0; r < 4; r++)
+      for (let k = 0; k < 10; k++) {
+        const x = -W / 2 + 14 + k * ((W - 28) / 9),
+          z = bz + 14 + r * ((Dd - 40) / 3);
+        if (x > W / 2 - 40 && z > fz - 36) continue; // round the Green Dome
+        b.box(6, 1, 6, stone, x, H + 0.6, z);
+        b.add(
+          new THREE.SphereGeometry(2.6, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+          slide,
+          x,
+          H + 1.6,
+          z,
+        );
+      }
+    // the Green Dome over the resting place of the Prophet ﷺ (south-east, by the qibla wall),
+    // and the white dome of the old mosque beside it
+    const domeAt = (x: number, z: number, r: number, color: number, tall: number) => {
+      b.box(r * 2.3, 2.4, r * 2.3, stone, x, H + 0.6, z);
+      b.add(new THREE.CylinderGeometry(r * 0.98, r, 2.2, 24), stone, x, H + 4.1, z);
+      const dg = new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+      dg.scale(1, tall, 1);
+      b.add(dg, MAT.plain(color, 0.45), x, H + 5.2, z);
+      // the pointed top
+      b.add(
+        new THREE.ConeGeometry(r * 0.22, r * 0.7, 12),
+        MAT.plain(color, 0.45),
+        x,
+        H + 5.2 + r * tall + r * 0.3,
+        z,
+      );
+      return H + 5.2 + r * tall + r * 0.7;
+    };
+    const gx = W / 2 - 24,
+      gz = fz - 20;
+    const top = domeAt(gx, gz, 6.5, 0x1f8a4c, 1.25);
+    const c0 = crescent();
+    c0.scale.setScalar(1.3);
+    c0.position.set(gx - 0.3, top + 1.4, gz);
+    g.add(c0);
+    domeAt(gx - 22, gz + 2, 4, 0xf4efe2, 1.1);
+    // ten minarets: a square base, an octagonal shaft, three balconies, a round top and a
+    // gold crescent
+    const minaret = (x: number, z: number, h: number) => {
+      b.box(4.6, h * 0.32, 4.6, stone, x, 0, z);
+      b.box(5.2, 0.6, 5.2, band, x, h * 0.32, z);
+      b.add(
+        new THREE.CylinderGeometry(1.9, 2.1, h * 0.34, 8),
+        stone,
+        x,
+        h * 0.32 + 0.6 + h * 0.17,
+        z,
+      );
+      b.add(new THREE.CylinderGeometry(2.9, 2.6, 0.9, 16), band, x, h * 0.66 + 0.9, z);
+      b.add(
+        new THREE.CylinderGeometry(1.6, 1.8, h * 0.18, 16),
+        stone,
+        x,
+        h * 0.67 + 1.3 + h * 0.09,
+        z,
+      );
+      b.add(new THREE.CylinderGeometry(2.4, 2.1, 0.8, 16), band, x, h * 0.85 + 1.6, z);
+      b.add(
+        new THREE.CylinderGeometry(1.2, 1.4, h * 0.08, 16),
+        stone,
+        x,
+        h * 0.86 + 2 + h * 0.04,
+        z,
+      );
+      b.add(new THREE.CylinderGeometry(1.8, 1.6, 0.6, 16), band, x, h * 0.94 + 2.2, z);
+      const cap = new THREE.SphereGeometry(1.35, 16, 10);
+      cap.scale(1, 1.6, 1);
+      b.add(cap, stone, x, h * 0.94 + 3.6, z);
+      b.add(new THREE.ConeGeometry(0.25, 3, 8), gold, x, h * 0.94 + 7, z);
+      const c = crescent();
+      c.position.set(x - 0.3, h * 0.94 + 9.2, z);
+      g.add(c);
+      this.addCollider("out", C.x + x - 2.4, C.x + x + 2.4, C.z + z - 2.4, C.z + z + 2.4);
+    };
+    for (const [x, z] of [
+      [-W / 2 - 3, bz - 3],
+      [W / 2 + 3, bz - 3],
+      [-W / 2 - 3, fz + 3],
+      [W / 2 + 3, fz + 3],
+      [-26, bz - 3],
+      [26, bz - 3],
+      [-W / 2 - 3, -10],
+      [W / 2 + 3, -10],
+      [W / 2 - 46, fz + 3],
+      [-37, fz + 3],
+    ] as [number, number][])
+      minaret(x, z, 62);
+    // the marble plaza in front, with rows of great white umbrellas that open in the day
+    const plaza = groundGeo(W + 40, 74, 3);
+    b.add(plaza, MAT.plain(0xf8f7f2, 0.35), 0, 0.04, fz + 38, 0, false);
+    for (const sx of [-1, 1])
+      b.add(
+        groundGeo(24, Dd + 6, 3),
+        MAT.plain(0xf8f7f2, 0.35),
+        sx * (W / 2 + 12),
+        0.04,
+        -10,
+        0,
+        false,
+      );
+    const canopyGeo = new THREE.ConeGeometry(7.2, 2.2, 4, 1, true);
+    canopyGeo.rotateY(Math.PI / 4);
+    const fabric = MAT3.fabric();
+    const poleM = MAT.plain(0xe8e8e4, 0.3);
+    const umbrella = (x: number, z: number) => {
+      b.add(new THREE.CylinderGeometry(0.28, 0.4, 10, 10), poleM, x, 5, z);
+      b.add(canopyGeo, fabric, x, 10.6, z);
+      b.add(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 10), poleM, x, 11.9, z);
+      this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
+    };
+    for (let r = 0; r < 4; r++)
+      for (let k = 0; k < 11; k++) umbrella(-W / 2 + 6 + k * ((W - 12) / 10), fz + 10 + r * 14.5);
+    for (const sx of [-1, 1])
+      for (let r = 0; r < 6; r++) umbrella(sx * (W / 2 + 12), bz + 8 + r * 16);
+    // marble lamp posts along the plaza edge
+    for (let k = 0; k < 12; k++) {
+      const x = -W / 2 - 14 + k * ((W + 28) / 11);
+      b.box(0.5, 6, 0.5, poleM, x, 0, fz + 70);
+      b.box(1.2, 0.7, 1.2, MAT.bulb(), x, 6, fz + 70);
+    }
+    for (const m of b.build()) g.add(m);
+    // Jannat Al-Baqi', east of the mosque
+    this.graveyard(C.x + W / 2 + 62, C.z - 10, 70, 96, "Jannat Al-Baqi' · جنة البقيع", "baqi");
+    this.reserved.push({
+      x0: this.ox + C.x + W / 2 + 20,
+      x1: this.ox + C.x + W / 2 + 104,
+      z0: this.oz + C.z - 10 - 56,
+      z1: this.oz + C.z - 10 + 56,
+    });
     this.dg.add(g);
     this.reserved.push({
       x0: this.ox + C.x - W / 2 - 10,
@@ -6325,6 +6828,69 @@ export class IlmCityEngine {
     }
   }
 
+  /** MSSN hostels: blocks of flats in the neighbourhood outside the campus wall, free for
+      the university's registered students (brothers' and sisters' blocks apart). */
+  private buildHostels(D: District, XR: number, rnd: () => number) {
+    const names = [0, 1, 2].map((k) => hostelInfo(D.id, k).name);
+    // the streets outside the campus wall (south of it), nearest the gate first
+    const streets = D.streets.filter((st) => st.z > (D.campus?.z ?? -34)).sort((a, b) => a.z - b.z);
+    let k = 0;
+    for (const st of streets)
+      for (const north of [false, true]) {
+        const xs: number[] = [];
+        for (let x = -(XR - 14); x <= XR - 14; x += 6) if (Math.abs(x) > 14) xs.push(x);
+        xs.sort((a, b) => Math.abs(a) - Math.abs(b));
+        for (const cx of xs) {
+          if (k >= names.length) return;
+          const cz = north ? st.z - 21.5 : st.z + 21.5;
+          if (cz - 10.5 < (D.campus?.z ?? -34)) continue;
+          if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
+          const c = compound(this.curBatch, {
+            x: cx,
+            z: cz,
+            turn: north ? 0 : Math.PI,
+            number: 1,
+            rnd,
+            floors: 3,
+            width: 24,
+            wall: hostelInfo(D.id, k).sisters ? 0xe9d6dc : 0xd9e6d2,
+            style: "storey",
+          });
+          for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+          this.reserved.push({
+            x0: this.ox + cx - 12,
+            x1: this.ox + cx + 12,
+            z0: this.oz + cz - 10.5,
+            z1: this.oz + cz + 10.5,
+          });
+          this.zones.push({
+            id: `hostel:${D.id}:${k}`,
+            label: names[k],
+            x: this.ox + c.door.x,
+            z: this.oz + c.door.z,
+            r: 3,
+            scene: "out",
+          });
+          const t = label(`🏠 ${names[k]} · free for students`, {
+            size: 1.05,
+            bg: hostelInfo(D.id, k).sisters ? "rgba(125,47,74,0.92)" : "rgba(31,111,99,0.92)",
+          });
+          t.position.set(c.gate.x, 5, c.gate.z);
+          this.dg.add(t);
+          k++;
+        }
+      }
+  }
+  /** Begin the day in your hostel room; walking out puts you at the hostel gate. */
+  startAtHostel(id: string, name: string) {
+    const z = this.zones.find((q) => q.id === id);
+    if (z) {
+      this.player.position.set(z.x, 0, z.z);
+      const area = id.split(":")[1];
+      if (area) this.district = districtById(area);
+    }
+    this.enterInterior("home", name);
+  }
   /** A block of flats near the market where new players live. */
   private buildEstate(D: District, XR: number, rnd: () => number) {
     const m = this.marketSpot.get(D.id);
@@ -6395,7 +6961,14 @@ export class IlmCityEngine {
       W = 18,
       Dp = 14,
       bz = -1.5;
-    const wall = tier === 1 ? 0xeef1f4 : D.city === "ilorin" ? 0xe7c49a : 0xe9dcc0;
+    const wall =
+      tier === 1
+        ? 0xeef1f4
+        : D.city === "ilorin"
+          ? 0xe7c49a
+          : D.city === "kano"
+            ? 0xd9a27a
+            : 0xe9dcc0;
     const trim = tier === 1 ? 0x2a4a7a : 0x1f6f63;
     const body = mat(wall, { roughness: 0.8 });
     const glass = MAT2.glass();
@@ -6560,6 +7133,7 @@ export class IlmCityEngine {
     if (!z) return false;
     const D = this.areaAt(z.x, z.z);
     if (D) this.district = D;
+    this.leaveCabin();
     if (this.where !== "out") this.exitInterior();
     this.driving = false;
     this.player.visible = true;
@@ -7189,6 +7763,21 @@ export class IlmCityEngine {
       moving: boolean;
     }
   >();
+  /** On the plane, the made-up passengers make room for real players in their seats. */
+  private seatRealPlayers() {
+    if (this.where === "lecture") {
+      // classmates take their seats: the made-up student there makes room
+      for (const r of this.remotes.values())
+        for (const p of this.lectureStudents)
+          if (Math.hypot(r.tx - p.position.x, r.tz - p.position.z) < 0.6) p.visible = false;
+      return;
+    }
+    if (this.where !== "cabin" && this.where !== "coach") return;
+    const taken = [...this.remotes.values()].map((r) => ({ x: r.tx, z: r.tz }));
+    if (this.mySeat) taken.push({ x: this.mySeat.x, z: this.mySeat.z });
+    for (const p of this.where === "coach" ? this.coachPeople : this.cabinPeople)
+      p.visible = !taken.some((t) => Math.hypot(t.x - p.position.x, t.z - p.position.z) < 0.6);
+  }
   /** Show the real players near you; they glide to where they last were seen. */
   setRemotePlayers(
     list: {
@@ -7211,7 +7800,7 @@ export class IlmCityEngine {
     const seen = new Set<string>();
     for (const p of list) {
       seen.add(p.uid);
-      const key = JSON.stringify(p.look) + (p.badge ?? "");
+      const key = JSON.stringify(p.look) + (p.badge ?? "") + "|" + p.name;
       let r = this.remotes.get(p.uid);
       if (r && r.look !== key) {
         r.g.removeFromParent();
@@ -7250,7 +7839,8 @@ export class IlmCityEngine {
           },
         );
         tag.position.y = 2.65;
-        g.add(tag);
+        // a player who hides their name shows none
+        if (p.name) g.add(tag);
         g.position.set(p.x, 0, p.z);
         this.scene.add(g);
         r = { g, name: p.name, look: key, tx: p.x, tz: p.z, th: p.h, moving: p.moving };
@@ -7268,12 +7858,38 @@ export class IlmCityEngine {
         r.g.traverse((c) => forgetHuman(c));
         this.remotes.delete(uid);
       }
+    this.seatRealPlayers();
   }
   private stepRemotes(dt: number) {
     for (const [uid, r] of this.remotes) {
       const dx = r.tx - r.g.position.x,
         dz = r.tz - r.g.position.z,
         d = Math.hypot(dx, dz);
+      const seated = !!r.g.userData.seated;
+      if (this.where === "cabin" || this.where === "coach" || this.where === "lecture") {
+        // a real player on your flight, bus or in your class: sitting in their own seat
+        let y = 0;
+        if (this.where === "lecture") {
+          const o = this.interiorOrigin.lecture;
+          const s = this.lectureSeats.find(
+            (q) => Math.hypot(o.x + q.x - r.tx, o.z + q.z - r.tz) < 0.6,
+          );
+          y = s?.y ?? 0;
+        }
+        r.g.position.set(r.tx, y, r.tz);
+        if (!seated) {
+          r.g.rotation.y = 0;
+          if (poseHuman(r.g, this.where === "lecture" ? "desk" : "chair"))
+            r.g.userData.seated = true;
+        }
+        r.g.rotation.y = Math.PI;
+        r.g.visible = !this.hiddenRemotes.has(uid);
+        continue;
+      }
+      if (seated) {
+        releasePose(r.g);
+        r.g.userData.seated = false;
+      }
       if (d > 40) r.g.position.set(r.tx, 0, r.tz);
       else if (d > 0.05) {
         const step = Math.min(d, Math.max(2.5, d * 2) * dt);
@@ -7807,7 +8423,12 @@ export class IlmCityEngine {
       this.addCollider(kind, o.x - W / 2 - 5, o.x + W / 2 + 5, o.z + D / 2 - 0.4, o.z + D / 2 + 5);
     return { g, o };
   }
-  private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zone?: Zone }>();
+  private homeItems = new Map<string, { obj: THREE.Object3D; boxes: Box[]; zones: Zone[] }>();
+  private sleepCover: THREE.Object3D | null = null;
+  private cookSteam: THREE.Object3D | null = null;
+  private eatPlate: THREE.Object3D | null = null;
+  /** doing something at home (sleeping, sitting, cooking): you stay where you are */
+  private acting: { x: number; z: number; rot: number; scene?: InteriorKind | "out" } | null = null;
   private homeWall: THREE.MeshStandardMaterial | null = null;
   private homeFloor: THREE.MeshStandardMaterial | null = null;
   private stairs: THREE.Object3D | null = null;
@@ -7901,7 +8522,8 @@ export class IlmCityEngine {
     const kind: InteriorKind = up ? "upstairs" : "home";
     const o = this.interiorOrigin[kind];
     this.where = kind;
-    this.player.position.set(o.x + 7.2, 0, o.z + (up ? 4.6 : 4.4));
+    if (up) this.player.position.set(o.x + 7.2, 0, o.z + 4.6);
+    else this.player.position.set(o.x + 10.4, 0, o.z + 7.6);
     this.player.rotation.y = up ? Math.PI : 0;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -7916,7 +8538,7 @@ export class IlmCityEngine {
     for (const [id, it] of this.homeItems) {
       const has = owned.includes(id);
       it.obj.visible = has;
-      if (it.zone) it.zone.off = !has;
+      for (const z of it.zones) z.off = !has;
       if (has) boxes.push(...it.boxes);
     }
     this.colliders.home = boxes;
@@ -8302,9 +8924,11 @@ export class IlmCityEngine {
         g.add(p);
       });
     }
-    // Home: a flat with a bed and a bathroom. Everything else is bought.
+    // Home: a proper house in cut-away view. A parlour at the front, a dining area, a kitchen
+    // along the back, a bedroom and a bathroom behind their own walls. The bed and bathroom
+    // are always there; everything else is bought.
     {
-      const { g, o } = this.room("home", 20, 14, 0xe9dcc4, 0xb98d5e);
+      const { g, o } = this.room("home", 28, 20, 0xe9dcc4, 0xb98d5e);
       // your own paint: the walls and floor get their own materials
       this.homeFloor = new THREE.MeshStandardMaterial({ color: 0xb98d5e, roughness: 0.85 });
       this.homeWall = new THREE.MeshStandardMaterial({ color: 0xe9dcc4, roughness: 0.95 });
@@ -8312,52 +8936,97 @@ export class IlmCityEngine {
       for (const c of g.children.slice(2, 7))
         if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = this.homeWall;
       this.homeBackWall = g.children[2];
-      this.glassView = this.buildGlassView(20, 14);
+      this.glassView = this.buildGlassView(28, 20);
       g.add(this.glassView);
       const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
         box(w, h, d, c, x, y, z);
-      // bed (always there)
+      // inner walls (lower than the outer ones, so the camera sees into every room); they
+      // take your wall paint too
+      const inner = (x0: number, x1: number, z0: number, z1: number) => {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 2.8, z1 - z0), this.homeWall!);
+        w.position.set((x0 + x1) / 2, 1.4, (z0 + z1) / 2);
+        w.castShadow = w.receiveShadow = true;
+        g.add(w);
+        this.addCollider("home", o.x + x0, o.x + x1, o.z + z0, o.z + z1);
+      };
+      // the bedroom (back left), its door on the parlour side
+      inner(-14, -7.6, -1.65, -1.35);
+      inner(-5.4, -3.85, -1.65, -1.35);
+      inner(-4.15, -3.85, -10, -1.35);
+      // the bathroom (back right), its door facing the dining area
+      inner(7.85, 8.15, -10, -4);
+      inner(7.85, 9.4, -4.15, -3.85);
+      inner(11.6, 14, -4.15, -3.85);
+      // windows in the back wall: the bedroom and the kitchen
+      for (const wx of [-9.5, 1.5]) {
+        g.add(B(3.2, 2, 0.12, 0x6d4a2b, wx, 1.6, -9.82));
+        g.add(B(2.9, 1.7, 0.1, 0xa9d3e6, wx, 1.75, -9.78));
+      }
+      // bed (always there): frame, headboard, mattress, pillows and a folded wrapper
       const bed = new THREE.Group();
-      bed.add(B(3.2, 0.6, 4.2, 0x6d4a2b, 0, 0, 0));
-      bed.add(B(3, 0.4, 4, 0xf4efe4, 0, 0.6, 0));
+      bed.add(B(3.4, 0.6, 4.4, 0x6d4a2b, 0, 0, 0));
+      bed.add(B(3.4, 1.9, 0.25, 0x5a3a22, 0, 0, -2.2));
+      bed.add(B(3.2, 0.4, 4.2, 0xf4efe4, 0, 0.6, 0));
       bed.add(B(1, 0.3, 0.6, 0xe0d4c0, -0.8, 1, -1.6));
       bed.add(B(1, 0.3, 0.6, 0xe0d4c0, 0.8, 1, -1.6));
-      bed.add(B(3.1, 0.15, 2.4, 0x1f6f63, 0, 1, 0.7));
-      bed.position.set(-7, 0, -4);
-      this.solid("home", g, bed, 3.4, 4.4);
-      // bathroom corner (always there): partition walls, toilet, tap and bucket for wudu
-      g.add(B(0.25, 3, 4.2, 0xdfe6e2, 5, 0, -4.9));
-      g.add(B(2.2, 3, 0.25, 0xdfe6e2, 8.9, 0, -2.8));
-      this.addCollider("home", o.x + 4.85, o.x + 5.15, o.z - 7, o.z - 2.8);
-      this.addCollider("home", o.x + 7.8, o.x + 10, o.z - 2.95, o.z - 2.65);
-      const tiles = new THREE.Mesh(new THREE.PlaneGeometry(5, 4.2), mat(0xcfe0e6));
+      bed.add(B(3.3, 0.15, 2.4, 0x1f6f63, 0, 1, 0.8));
+      bed.position.set(-9.5, 0, -7.6);
+      this.solid("home", g, bed, 3.6, 4.6);
+      // the cover over you while you sleep
+      const cover = B(3.3, 0.4, 2.8, 0x1f6f63, -9.5, 1.02, -6.75);
+      cover.visible = false;
+      g.add(cover);
+      this.sleepCover = cover;
+      // bedside table and lamp
+      const bt = new THREE.Group();
+      bt.add(B(0.8, 0.8, 0.7, 0x8a5a3a, 0, 0, 0));
+      const btShade = cyl(0.18, 0.28, 0.35, 0xf2e3c0, 10);
+      btShade.position.y = 1.15;
+      const btBase = cyl(0.06, 0.1, 0.3, 0x3a2a1c, 8);
+      btBase.position.y = 0.95;
+      bt.add(btBase, btShade);
+      bt.position.set(-12.2, 0, -9.2);
+      this.solid("home", g, bt, 0.8, 0.7);
+      // the bathroom (always there): tiles, toilet, wash-hand basin and tap, shower, bucket
+      const tiles = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), mat(0xcfe0e6));
       tiles.rotation.x = -Math.PI / 2;
-      tiles.position.set(7.5, 0.02, -4.9);
+      tiles.position.set(11, 0.02, -7);
       g.add(tiles);
+      g.add(B(5.8, 1.6, 0.06, 0xdfeef2, 11, 0, -9.94));
       const wc = new THREE.Group();
       wc.add(B(0.7, 0.45, 0.9, 0xf7f7f4, 0, 0, 0), B(0.8, 0.9, 0.3, 0xf7f7f4, 0, 0.2, -0.5));
-      wc.position.set(8.9, 0, -6.2);
+      wc.position.set(13, 0, -9.2);
       this.solid("home", g, wc, 0.9, 1.2);
       const tap = new THREE.Group();
-      tap.add(B(1, 0.9, 0.5, 0xf7f7f4, 0, 0, 0), B(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.9, -0.1));
+      tap.add(B(1.1, 0.95, 0.55, 0xf7f7f4, 0, 0, 0), B(0.1, 0.4, 0.1, 0xb8bcc2, 0, 0.95, -0.15));
+      tap.add(B(0.8, 1, 0.05, 0xcfe6ef, 0, 1.6, -0.27));
       const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.25, 0.5, 12), mat(0x2f6fb0));
-      bucket.position.set(0.9, 0.25, 0.2);
+      bucket.position.set(1, 0.25, 0.2);
       tap.add(bucket);
-      tap.position.set(6.3, 0, -6.4);
-      this.solid("home", g, tap, 1.2, 0.6);
+      tap.position.set(9.4, 0, -9.6);
+      this.solid("home", g, tap, 1.3, 0.7);
+      const shower = new THREE.Group();
+      shower.add(B(2, 0.12, 2, 0xe9eef0, 0, 0, 0));
+      const pipe = cyl(0.04, 0.04, 2.6, 0xb8bcc2, 6);
+      pipe.position.set(0.8, 1.3, -0.9);
+      const rose = cyl(0.22, 0.1, 0.1, 0xb8bcc2, 10);
+      rose.position.set(0.6, 2.55, -0.7);
+      shower.add(pipe, rose, B(0.04, 2.2, 2, 0x8fc3d6, -1, 0.4, 0));
+      shower.position.set(12.8, 0, -5.6);
+      this.solid("home", g, shower, 2, 2);
       this.zones.push({
         id: "sleep",
         label: "Sleep / rest",
-        x: o.x - 7,
-        z: o.z - 1.2,
+        x: o.x - 9.5,
+        z: o.z - 4.3,
         r: 2,
         scene: "home",
       });
       this.zones.push({
         id: "bath",
         label: "Bathroom · wudu",
-        x: o.x + 7.2,
-        z: o.z - 4.6,
+        x: o.x + 10.6,
+        z: o.z - 7.4,
         r: 1.8,
         scene: "home",
       });
@@ -8369,6 +9038,7 @@ export class IlmCityEngine {
         w = 0,
         d = 0,
         zone?: Omit<Zone, "scene" | "x" | "z"> & { dx?: number; dz?: number },
+        more: (Omit<Zone, "scene" | "x" | "z"> & { x: number; z: number })[] = [],
       ) => {
         m.visible = false;
         g.add(m);
@@ -8395,47 +9065,176 @@ export class IlmCityEngine {
           };
           this.zones.push(zz);
         }
-        this.homeItems.set(id, { obj: m, boxes, zone: zz });
+        const zones = zz ? [zz] : [];
+        for (const z of more) {
+          const extra: Zone = { ...z, scene: "home", x: o.x + z.x, z: o.z + z.z, off: true };
+          this.zones.push(extra);
+          zones.push(extra);
+        }
+        this.homeItems.set(id, { obj: m, boxes, zones });
       };
       {
+        // the kitchen: worktop along the back wall, a cooker with a pot, a sink, wall cupboards
         const k = new THREE.Group();
-        k.add(
-          B(5, 1.8, 1.2, 0xf1ece0, 0, 0, 0),
-          B(5, 0.12, 1.3, 0x3a3f46, 0, 1.8, 0),
-          B(1.4, 0.15, 0.9, 0x1d1f22, 1.2, 1.92, 0),
+        k.add(B(9, 1.15, 1.3, 0xf1ece0, 0, 0, 0), B(9.1, 0.1, 1.4, 0x3a3f46, 0, 1.15, 0));
+        for (let d = -4; d <= 4; d += 1.5) k.add(B(0.04, 0.9, 0.02, 0xb8a888, d, 0.12, 0.66));
+        k.add(B(1.6, 0.08, 1, 0x1d1f22, -2.5, 1.25, 0));
+        for (const [bx, bz] of [
+          [-2.9, -0.2],
+          [-2.1, -0.2],
+          [-2.9, 0.25],
+          [-2.1, 0.25],
+        ])
+          k.add(B(0.3, 0.02, 0.3, 0x55585c, bx, 1.33, bz));
+        const pot = cyl(0.32, 0.3, 0.42, 0xb8bcc2, 14);
+        pot.position.set(-2.9, 1.55, -0.2);
+        k.add(pot);
+        k.add(B(1.3, 0.06, 0.8, 0x9aa3a8, 1.8, 1.24, 0));
+        const faucet = cyl(0.04, 0.04, 0.5, 0xb8bcc2, 6);
+        faucet.position.set(1.8, 1.5, -0.35);
+        k.add(faucet);
+        k.add(B(9, 0.9, 0.7, 0xe8e0cf, 0, 2.7, -0.3));
+        k.add(B(1.8, 0.5, 0.9, 0x55585c, -2.5, 2.9, -0.2));
+        const steam = new THREE.Group();
+        for (let q = 0; q < 3; q++) {
+          const puff = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 8, 6),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }),
+          );
+          puff.position.set(-2.9 + (q - 1) * 0.12, 2 + q * 0.35, -0.2);
+          steam.add(puff);
+        }
+        steam.visible = false;
+        k.add(steam);
+        this.cookSteam = steam;
+        k.position.set(0.5, 0, -9.3);
+        item(
+          "kitchen",
+          k,
+          9,
+          1.4,
+          { id: "cook", label: "Cook a meal", r: 1.6, dx: -2.5, dz: 1.8 },
+          [{ id: "eat", label: "Eat at the table", r: 1.7, x: 1.7, z: -0.4 }],
         );
-        k.position.set(0, 0, -6.2);
-        item("kitchen", k, 5, 1.4, { id: "eat", label: "Eat at the table", r: 2, dz: 1.6 });
       }
       {
         const f = new THREE.Group();
         f.add(B(1.1, 3.2, 1, 0xd9dde0, 0, 0, 0), B(0.05, 0.6, 0.05, 0x9a9fa6, 0.4, 1.8, 0.52));
-        f.position.set(3.4, 0, -6.3);
+        f.position.set(6.6, 0, -9.3);
         item("fridge", f, 1.2, 1.1);
       }
       {
+        // dining table with four chairs
         const t = new THREE.Group();
-        t.add(B(2.4, 0.9, 1.4, 0x8a5a3a, 0, 0, 0));
-        for (const [cx, cz] of [
-          [-0.8, 1.1],
-          [0.8, 1.1],
-          [-0.8, -1.1],
-          [0.8, -1.1],
+        t.add(B(3, 0.08, 1.6, 0x8a5a3a, 0, 1.0, 0));
+        for (const [lx, lz] of [
+          [-1.35, -0.65],
+          [1.35, -0.65],
+          [-1.35, 0.65],
+          [1.35, 0.65],
         ])
-          t.add(B(0.6, 0.55, 0.6, 0x6d4a2b, cx, 0, cz));
-        t.position.set(0, 0, -2.6);
-        item("table", t, 2.6, 3.4);
+          t.add(B(0.12, 1, 0.12, 0x6d4a2b, lx, 0, lz));
+        for (const cx of [-0.8, 0.8])
+          for (const side of [-1, 1]) {
+            const ch = new THREE.Group();
+            ch.add(
+              B(0.7, 0.08, 0.7, 0x6d4a2b, 0, 0.6, 0),
+              B(0.7, 0.9, 0.08, 0x6d4a2b, 0, 0.68, 0.32),
+            );
+            for (const [lx, lz] of [
+              [-0.3, -0.3],
+              [0.3, -0.3],
+              [-0.3, 0.3],
+              [0.3, 0.3],
+            ])
+              ch.add(B(0.07, 0.6, 0.07, 0x5a3a22, lx, 0, lz));
+            ch.position.set(cx, 0, side * 1.15);
+            ch.rotation.y = side > 0 ? 0 : Math.PI;
+            t.add(ch);
+          }
+        t.position.set(2.5, 0, -2.4);
+        item("table", t, 3.2, 1.8);
+        // your plate and a cup of water, while you eat
+        const plate = new THREE.Group();
+        const dish = cyl(0.32, 0.26, 0.05, 0xfdf8ec, 16);
+        const food = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 6), mat(0xd9822b));
+        food.scale.y = 0.4;
+        food.position.y = 0.06;
+        const cup = cyl(0.08, 0.07, 0.22, 0xcfe8f2, 10);
+        cup.position.set(0.5, 0.1, 0.1);
+        plate.add(dish, food, cup);
+        plate.position.set(1.7, 1.1, -2.85);
+        plate.visible = false;
+        g.add(plate);
+        this.eatPlate = plate;
       }
       {
+        // a parlour set: a three-seater facing the TV, and an armchair either side
         const s = new THREE.Group();
-        s.add(
-          B(3.6, 0.6, 1.2, 0x1f6f63, 0, 0, 0),
-          B(3.6, 0.9, 0.3, 0x1f6f63, 0, 0.6, 0.45),
-          B(0.3, 0.8, 1.2, 0x1f6f63, -1.8, 0.3, 0),
-          B(0.3, 0.8, 1.2, 0x1f6f63, 1.8, 0.3, 0),
-        );
-        s.position.set(-2, 0, 4.4);
-        item("sofa", s, 3.9, 1.3, { id: "sofa", label: "Sit and rest", r: 1.8, dz: -1.4 });
+        const seat = (w: number) => {
+          const q = new THREE.Group();
+          q.add(
+            B(w, 0.55, 1.2, 0x1f6f63, 0, 0, 0),
+            B(w, 1.0, 0.3, 0x1f6f63, 0, 0.5, -0.45),
+            B(0.3, 0.85, 1.2, 0x1a5c52, -w / 2, 0, 0),
+            B(0.3, 0.85, 1.2, 0x1a5c52, w / 2, 0, 0),
+          );
+          for (let c = 0; c < Math.round(w / 1.1); c++)
+            q.add(
+              B(
+                w / Math.round(w / 1.1) - 0.1,
+                0.12,
+                0.9,
+                0x24806f,
+                -w / 2 + (c + 0.5) * (w / Math.round(w / 1.1)),
+                0.55,
+                0.1,
+              ),
+            );
+          return q;
+        };
+        s.add(seat(3.6));
+        const a1 = seat(1.3);
+        a1.position.set(-3.6, 0, 2.4);
+        a1.rotation.y = Math.PI / 2;
+        const a2 = seat(1.3);
+        a2.position.set(3.6, 0, 2.4);
+        a2.rotation.y = -Math.PI / 2;
+        s.add(a1, a2);
+        s.position.set(-7, 0, 3.4);
+        item("sofa", s, 3.9, 1.3, { id: "sofa", label: "Sit on the sofa", r: 1.8, dz: 1.5 });
+        this.addCollider("home", o.x - 11.2, o.x - 10, o.z + 5.1, o.z + 6.5);
+        this.addCollider("home", o.x - 4, o.x - 2.8, o.z + 5.1, o.z + 6.5);
+      }
+      {
+        // a television on its stand, facing the sofa
+        const tv = new THREE.Group();
+        tv.add(B(3, 0.6, 0.7, 0x3a2a1c, 0, 0, 0), B(2.6, 1.5, 0.1, 0x111317, 0, 0.75, 0));
+        const screen = canvasPlane(
+          2.45,
+          1.35,
+          (c, CW, CH) => {
+            const gr = c.createLinearGradient(0, 0, 0, CH);
+            gr.addColorStop(0, "#1f6f63");
+            gr.addColorStop(1, "#10201e");
+            c.fillStyle = gr;
+            c.fillRect(0, 0, CW, CH);
+            c.fillStyle = "#e6b84a";
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.font = `800 ${Math.round(CH * 0.26)}px "Work Sans", sans-serif`;
+            c.fillText("IlmTV", CW / 2, CH * 0.42);
+            c.fillStyle = "#fdf8ec";
+            c.font = `500 ${Math.round(CH * 0.1)}px "Work Sans", sans-serif`;
+            c.fillText("Lectures · Qur'an · Kids", CW / 2, CH * 0.72);
+          },
+          256,
+        ).mesh;
+        screen.rotation.y = Math.PI;
+        screen.position.set(0, 1.5, -0.06);
+        tv.add(screen);
+        tv.position.set(-7, 0, 9.1);
+        item("tv", tv, 3, 0.8, { id: "tv", label: "Watch IlmTV", r: 1.6, dz: -1.6 });
       }
       {
         const r = new THREE.Group();
@@ -8449,13 +9248,14 @@ export class IlmCityEngine {
           m.position.y = y;
           r.add(m);
         }
-        r.position.set(0, 0, 2.2);
+        r.position.set(-7, 0, 6.3);
         item("rug", r);
       }
       {
         const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), mat(0x2f8f83));
         pm.rotation.x = -Math.PI / 2;
-        pm.position.set(-7.6, 0.03, 3.6);
+        pm.rotation.z = Math.PI / 2;
+        pm.position.set(11.4, 0.03, 1.6);
         item("prayermat", pm, 0, 0, { id: "prayermat", label: "Prayer mat", r: 1.6 });
       }
       {
@@ -8473,29 +9273,30 @@ export class IlmCityEngine {
               -0.75 + i * 0.5,
             ),
           );
-        sh.position.set(-9.6, 0, 0.4);
+        sh.rotation.y = Math.PI;
+        sh.position.set(13.5, 0, -1.6);
         item("bookshelf", sh, 0.6, 2.3, {
           id: "quranhome",
           label: "Read the Qur'an",
           r: 1.8,
-          dx: 1.4,
+          dx: -1.4,
         });
       }
       {
         const rd = new THREE.Group();
         rd.add(B(0.8, 0.7, 0.8, 0x8a5a3a, 0, 0, 0), B(0.6, 0.35, 0.25, 0x2a2c30, 0, 0.7, 0));
-        rd.position.set(2.6, 0, 5.4);
+        rd.position.set(8.6, 0, 9.2);
         item("radio", rd, 0.9, 0.9, {
           id: "radio",
           label: "Listen to a lecture",
           r: 1.6,
-          dz: -1.2,
+          dz: -1.3,
         });
       }
       {
         const wd = new THREE.Group();
         wd.add(B(0.7, 3.2, 2.4, 0xb98d5e, 0, 0, 0), B(0.05, 2.8, 0.05, 0x6d4a2b, -0.36, 0.2, 0));
-        wd.position.set(9.6, 0, 1.4);
+        wd.position.set(-13.5, 0, -4.4);
         item("wardrobe", wd, 0.8, 2.5);
       }
       {
@@ -8511,19 +9312,19 @@ export class IlmCityEngine {
         head.rotation.x = Math.PI / 2;
         head.position.y = 1.7;
         fn.add(head);
-        fn.position.set(5.2, 0, 6.0);
+        fn.position.set(-12.9, 0, 8.6);
         item("fan", fn, 0.6, 0.6);
       }
       {
         const cu = new THREE.Group();
         for (const x of [-4.6, -3.4, 3.4, 4.6]) cu.add(B(1, 2.6, 0.08, 0x2f8f83, x, 0.8, 0));
-        cu.position.set(-2, 0, -6.8);
+        cu.position.set(-7.5, 0, -9.7);
         item("curtains", cu);
       }
       {
         const cl = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.08, 20), mat(0xfdf8ec));
         cl.rotation.x = Math.PI / 2;
-        cl.position.set(-2, 3.6, -6.85);
+        cl.position.set(-2.5, 4.1, -9.85);
         item("clock", cl);
       }
       // ---- decorations ----
@@ -8567,7 +9368,7 @@ export class IlmCityEngine {
           "#1f3d37",
           "#e6b84a",
         );
-        m.position.set(-6.5, 3.3, -6.78);
+        m.position.set(-9.5, 3.6, -9.78);
         item("calligraphy", m);
       }
       {
@@ -8589,16 +9390,16 @@ export class IlmCityEngine {
           },
           256,
         ).mesh;
-        k.rotation.y = Math.PI / 2;
-        k.position.set(-9.78, 2.8, 3.6);
+        k.rotation.y = -Math.PI / 2;
+        k.position.set(13.78, 2.8, 1.6);
         item("kaabaframe", k);
       }
       {
         const pl = new THREE.Group();
         for (const [px, pz, h] of [
-          [-9.2, 6.3, 1.2],
-          [4.3, 6.4, 0.9],
-          [6.2, -2.1, 1.1],
+          [-13.2, 3.2, 1.2],
+          [4.4, 9.2, 0.9],
+          [7.2, -3.2, 1.1],
         ] as [number, number, number][]) {
           const pot = cyl(0.3, 0.22, 0.5, 0xb8573a, 10);
           pot.position.set(px, 0.25, pz);
@@ -8619,7 +9420,7 @@ export class IlmCityEngine {
         const glow = new THREE.PointLight(0xffd9a0, 6, 6, 2);
         glow.position.y = 1.8;
         lp.add(pole, shade, glow);
-        lp.position.set(-4.4, 0, 5.4);
+        lp.position.set(-10.6, 0, 2.6);
         item("lamp", lp, 0.6, 0.6);
       }
       {
@@ -8642,7 +9443,7 @@ export class IlmCityEngine {
         const chain = cyl(0.02, 0.02, 0.8, 0xe6b84a, 4);
         chain.position.y = 0.4;
         ch.add(chain);
-        ch.position.set(0, 4.1, -2.6);
+        ch.position.set(2.5, 4.1, -2.4);
         item("chandelier", ch);
       }
       {
@@ -8653,7 +9454,7 @@ export class IlmCityEngine {
         const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), mat(0xd23b6a));
         fl.position.y = 1.15;
         st.add(vase, fl);
-        st.position.set(0.6, 0, 5.6);
+        st.position.set(-3.4, 0, 2.7);
         item("sidetables", st, 0.7, 0.7);
       }
       {
@@ -8674,8 +9475,9 @@ export class IlmCityEngine {
           fish.position.set(fx, 1.2, fz);
           aq.add(fish);
         }
-        aq.position.set(9.4, 0, -1.4);
-        item("aquarium", aq, 0.8, 1.9);
+        aq.rotation.y = Math.PI / 2;
+        aq.position.set(5.6, 0, 9.2);
+        item("aquarium", aq, 1.9, 0.8);
       }
       {
         const ts = new THREE.Group();
@@ -8695,7 +9497,7 @@ export class IlmCityEngine {
         const pot = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), mat(0xb8bcc2));
         pot.position.set(0.25, 0.48, -0.15);
         ts.add(pot);
-        ts.position.set(0, 0, 2.2);
+        ts.position.set(-7, 0, 6.3);
         item("teaset", ts, 1.3, 0.8);
       }
       {
@@ -8710,7 +9512,7 @@ export class IlmCityEngine {
           m.position.y = y;
           cp.add(m);
         }
-        cp.position.set(0, 0, 2.2);
+        cp.position.set(-7, 0, 6.3);
         item("persian", cp);
       }
       {
@@ -8722,7 +9524,7 @@ export class IlmCityEngine {
           [0.4, 0x2a4a6a],
         ] as [number, number][])
           sr.add(B(0.25, 0.1, 0.35, c, sx, 0.5, 0));
-        sr.position.set(-3.4, 0, 6.5);
+        sr.position.set(-2.6, 0, 9.4);
         item("shoerack", sr, 1.4, 0.4);
       }
       {
@@ -8738,7 +9540,7 @@ export class IlmCityEngine {
         smoke.position.y = 1.35;
         smoke.scale.y = 1.8;
         bk.add(smoke);
-        bk.position.set(-8.9, 0, -1.5);
+        bk.position.set(7.4, 0, 3.4);
         item("bakhoor", bk, 0.4, 0.4);
       }
       {
@@ -8761,11 +9563,48 @@ export class IlmCityEngine {
             },
             128,
           ).mesh;
-          f.rotation.y = -Math.PI / 2;
-          f.position.set(9.78, 2.6 + (k % 2) * 0.75, 3.4 + Math.floor(k / 2) * 0.95);
+          f.rotation.y = Math.PI / 2;
+          f.position.set(-13.78, 2.6 + (k % 2) * 0.75, 4.6 + Math.floor(k / 2) * 0.95);
           pw.add(f);
         });
         item("photowall", pw);
+      }
+      {
+        // a desk with a laptop, in the bedroom: plan trips and look round the city
+        const dk = new THREE.Group();
+        dk.add(B(1, 0.08, 2.2, 0x8a5a3a, 0, 1.0, 0));
+        for (const [lx, lz] of [
+          [-0.4, -1],
+          [0.4, -1],
+          [-0.4, 1],
+          [0.4, 1],
+        ])
+          dk.add(B(0.08, 1, 0.08, 0x6d4a2b, lx, 0, lz));
+        dk.add(B(0.6, 0.04, 0.85, 0x2a2c30, -0.05, 1.08, 0));
+        const lid = B(0.04, 0.55, 0.85, 0x2a2c30, 0.25, 1.08, 0);
+        lid.rotation.z = 0.25;
+        dk.add(lid);
+        const scr = B(0.02, 0.48, 0.78, 0x6fb3c9, 0.21, 1.12, 0);
+        scr.rotation.z = 0.25;
+        dk.add(scr);
+        const chair = new THREE.Group();
+        chair.add(
+          B(0.75, 0.08, 0.75, 0x2a2c30, 0, 0.6, 0),
+          B(0.08, 1, 0.75, 0x2a2c30, -0.36, 0.68, 0),
+        );
+        const leg = cyl(0.05, 0.05, 0.6, 0x55585c, 6);
+        leg.position.y = 0.3;
+        chair.add(leg);
+        chair.position.set(-1.1, 0, 0);
+        dk.add(chair);
+        dk.position.set(-4.8, 0, -6.4);
+        item("laptop", dk, 1, 2.2, {
+          id: "laptop",
+          label: "Use the laptop",
+          r: 1.5,
+          dx: -1.2,
+          dz: 1.8,
+        });
       }
       // stairs up (only in a duplex)
       {
@@ -8773,15 +9612,15 @@ export class IlmCityEngine {
         for (let k = 0; k < 7; k++)
           stairs.add(B(2.2, 0.35 * (k + 1), 0.45, 0x8a5a3a, 0, 0, -k * 0.45));
         stairs.add(B(0.08, 1, 3.2, 0x3a2a1c, -1.1, 2.1, -1.35));
-        stairs.position.set(8.6, 0, 6.4);
+        stairs.position.set(12.6, 0, 9.4);
         stairs.visible = false;
         g.add(stairs);
         this.stairs = stairs;
         const z: Zone = {
           id: "stairs:up",
           label: "Go upstairs",
-          x: o.x + 8.6,
-          z: o.z + 5.2,
+          x: o.x + 12.6,
+          z: o.z + 7.8,
           r: 1.6,
           scene: "home",
           off: true,
@@ -8831,6 +9670,1035 @@ export class IlmCityEngine {
     }
   }
 
+  /* ---------------- the airport terminal and the plane ---------------- */
+  private cabinSeats: { x: number; z: number; business: boolean }[] = [];
+  private cabinPeople: THREE.Object3D[] = [];
+  private cabinCrew: THREE.Object3D[] = [];
+  private trolley: THREE.Object3D | null = null;
+  private trayMeal: THREE.Object3D | null = null;
+  private mySeat: { x: number; z: number } | null = null;
+  private terminalStaff: THREE.Object3D[] = [];
+  private departures: { set: (lines: string[]) => void } | null = null;
+
+  private buildAirport() {
+    // The terminal: check-in desks at the back, a security arch, seats, and the gate
+    {
+      const { g, o } = this.room("terminal", 40, 26, 0xf2f2ee, 0xd9d6cf);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      // the airline's wall: IlmAir in big letters over the check-in desks
+      const sign = canvasPlane(14, 2.2, (c, W, H) => {
+        c.fillStyle = "#1f3d5a";
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = "#e6b84a";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `800 ${Math.round(H * 0.5)}px "Work Sans", sans-serif`;
+        c.fillText("✈ IlmAir · Check-in", W / 2, H / 2);
+      }).mesh;
+      sign.position.set(-6, 3.9, -12.75);
+      g.add(sign);
+      // three desks with a scale for bags, a screen and the agent behind
+      for (let i = 0; i < 3; i++) {
+        const x = -12 + i * 6;
+        const desk = new THREE.Group();
+        desk.add(B(3.6, 1.2, 1.1, 0x1f3d5a, 0, 0, 0), B(3.7, 0.08, 1.2, 0xe9e6de, 0, 1.2, 0));
+        desk.add(
+          B(1.2, 0.35, 1, 0x55585c, 2.4, 0, 0.2),
+          B(0.5, 0.4, 0.06, 0x111317, -0.8, 1.28, -0.2),
+        );
+        const belt = B(1.1, 0.05, 0.9, 0x2a2c30, 2.4, 0.35, 0.2);
+        desk.add(belt);
+        desk.position.set(x, 0, -9.2);
+        this.solid("terminal", g, desk, 4.8, 1.3);
+        const agent = person(
+          0x1f3d5a,
+          i === 1 ? { cap: null, seed: 4 } : { hijab: 0x7d2f3a, seed: i },
+        );
+        agent.position.set(x, 0, -10.6);
+        g.add(agent);
+        this.terminalStaff.push(agent);
+        // queue posts with a ribbon
+        for (const qx of [-1.8, 1.8]) {
+          const post = cyl(0.06, 0.08, 1, 0xb8bcc2, 8);
+          post.position.set(x + qx, 0.5, -6.6);
+          g.add(post);
+        }
+        g.add(B(3.6, 0.08, 0.04, 0x2f6fb0, x, 0.92, -6.6));
+      }
+      this.zones.push({
+        id: "checkin",
+        label: "Check in",
+        x: o.x - 6,
+        z: o.z - 7.4,
+        r: 2.4,
+        scene: "terminal",
+      });
+      // departures board
+      const board = canvasPlane(9, 3.4, () => {}, 512);
+      board.mesh.position.set(10, 3.3, -12.75);
+      g.add(board.mesh);
+      const drawBoard = (lines: string[]) => {
+        const c = board.canvas.getContext("2d")!;
+        const W = board.canvas.width,
+          H = board.canvas.height;
+        c.fillStyle = "#0f1a24";
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = "#e6b84a";
+        c.font = `800 ${Math.round(H * 0.12)}px "Work Sans", sans-serif`;
+        c.textBaseline = "middle";
+        c.fillText("DEPARTURES", W * 0.04, H * 0.11);
+        c.font = `600 ${Math.round(H * 0.095)}px "Work Sans", sans-serif`;
+        lines.slice(0, 6).forEach((l, k) => {
+          c.fillStyle = k % 2 ? "#cfe3ef" : "#fdf8ec";
+          c.fillText(l, W * 0.04, H * (0.27 + k * 0.13));
+        });
+        board.tex.needsUpdate = true;
+      };
+      drawBoard([
+        "IA 101  Abuja       Gate 2  On time",
+        "IA 214  Kano        Gate 1  On time",
+        "IA 330  Ilorin      Gate 3  Boarding",
+        "IA 777  Jeddah      Gate 4  On time",
+        "IA 778  Madinah     Gate 4  On time",
+      ]);
+      this.departures = { set: drawBoard };
+      // security: a walk-through arch and an X-ray belt
+      const arch = new THREE.Group();
+      arch.add(B(0.3, 2.8, 0.5, 0xb8bcc2, -1.1, 0, 0), B(0.3, 2.8, 0.5, 0xb8bcc2, 1.1, 0, 0));
+      arch.add(B(2.5, 0.4, 0.5, 0xb8bcc2, 0, 2.8, 0));
+      arch.add(B(0.5, 0.12, 0.06, 0x2fbf6a, 0, 3.0, 0.26));
+      arch.position.set(4, 0, 0);
+      g.add(arch);
+      this.addCollider("terminal", o.x + 2.6, o.x + 3.1, o.z - 0.4, o.z + 0.4);
+      this.addCollider("terminal", o.x + 4.9, o.x + 5.4, o.z - 0.4, o.z + 0.4);
+      const xray = new THREE.Group();
+      xray.add(B(4.5, 0.8, 1, 0x2a2c30, 0, 0, 0), B(1.6, 1.4, 1.2, 0xd9dde0, 0, 0.8, 0));
+      xray.position.set(8.2, 0, 0);
+      this.solid("terminal", g, xray, 4.6, 1.1);
+      const officer = person(0x2f4a3a, { cap: 0x2f4a3a, seed: 2 });
+      officer.position.set(4, 0, -1.6);
+      g.add(officer);
+      this.terminalStaff.push(officer);
+      // a rail between landside and airside, with the arch the only way through
+      g.add(B(0.1, 1, 12, 0xb8bcc2, 1.4, 0, -6.6));
+      this.addCollider("terminal", o.x + 1.3, o.x + 1.5, o.z - 12.6, o.z - 0.6);
+      this.zones.push({
+        id: "security",
+        label: "Security check",
+        x: o.x + 4,
+        z: o.z + 1.4,
+        r: 2,
+        scene: "terminal",
+      });
+      // the prayer room (front left): mats facing the qibla; pilgrims put on ihram here
+      g.add(B(0.25, 2.8, 6, 0xe8e2d6, -12, 0, 9.4), B(4, 2.8, 0.25, 0xe8e2d6, -17.9, 0, 6.5));
+      this.addCollider("terminal", o.x - 12.15, o.x - 11.85, o.z + 6.4, o.z + 12.4);
+      this.addCollider("terminal", o.x - 20, o.x - 15.9, o.z + 6.35, o.z + 6.65);
+      for (let k = 0; k < 3; k++) {
+        const pm = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2), mat(0x2f8f83));
+        pm.rotation.x = -Math.PI / 2;
+        pm.position.set(-18.6 + k * 1.6, 0.03, 9.6);
+        g.add(pm);
+      }
+      const pr = label("🕌 Prayer room · Ihram", { size: 0.55, bg: "rgba(29,107,58,0.92)" });
+      pr.position.set(-16, 3.6, 7.6);
+      g.add(pr);
+      this.zones.push({
+        id: "ihramroom",
+        label: "Prayer room",
+        x: o.x - 13.6,
+        z: o.z + 8,
+        r: 2,
+        scene: "terminal",
+      });
+      // waiting seats in rows
+      for (let r = 0; r < 2; r++)
+        for (let k = 0; k < 6; k++) {
+          const st = new THREE.Group();
+          st.add(B(0.8, 0.5, 0.8, 0x2f6fb0, 0, 0, 0), B(0.8, 0.7, 0.12, 0x2f6fb0, 0, 0.5, -0.35));
+          st.position.set(-14 + k * 1, 0, 3 + r * 3);
+          g.add(st);
+        }
+      this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 2.6, o.z + 3.4);
+      this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 5.6, o.z + 6.4);
+      // the gate: a glass wall with the plane outside, and the boarding desk
+      const glass = new THREE.Mesh(
+        new THREE.PlaneGeometry(12, 4.4),
+        new THREE.MeshStandardMaterial({ color: 0xa9d3e6, transparent: true, opacity: 0.45 }),
+      );
+      glass.rotation.y = -Math.PI / 2;
+      glass.position.set(19.75, 2.4, 4);
+      g.add(glass);
+      const outsidePlane = planeMesh(0x1f3d5a);
+      outsidePlane.scale.setScalar(0.55);
+      outsidePlane.position.set(26, 0, 4);
+      g.add(outsidePlane);
+      const gd = new THREE.Group();
+      gd.add(B(2.4, 1.1, 0.9, 0x1f3d5a, 0, 0, 0));
+      gd.position.set(15.5, 0, 8.5);
+      this.solid("terminal", g, gd, 2.4, 0.9);
+      const gateSign = label("Gate 3 · Board the plane", { size: 0.6, bg: "rgba(31,61,90,0.92)" });
+      gateSign.position.set(17, 4.2, 4);
+      g.add(gateSign);
+      const crew = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 1 });
+      crew.position.set(15.5, 0, 7.4);
+      g.add(crew);
+      this.terminalStaff.push(crew);
+      this.zones.push({
+        id: "gate",
+        label: "Board the plane",
+        x: o.x + 17.4,
+        z: o.z + 4,
+        r: 2.2,
+        scene: "terminal",
+      });
+    }
+    // The cabin: a long aisle between rows of seats, windows on both sides, the galley at
+    // the front. Business class is the first four rows.
+    {
+      const W = 8,
+        D = 46;
+      const { g, o } = this.room("cabin", W, D, 0xf4f4f0, 0x2f4a7a, false);
+      const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+        box(w, h, d, c, x, y, z);
+      g.add(B(1.2, 0.02, D - 2, 0x8a2f3a, 0, 0.01, 0)); // the aisle carpet
+      // windows: sky and clouds
+      const sky = canvasPlane(
+        D - 6,
+        1.2,
+        (c, CW, CH) => {
+          for (let k = 0; k < 18; k++) {
+            const x = (k + 0.5) * (CW / 18);
+            c.fillStyle = "#e9eef0";
+            c.fillRect(x - CW / 40, 0, CW / 20, CH);
+            const gr = c.createLinearGradient(0, CH * 0.1, 0, CH * 0.9);
+            gr.addColorStop(0, "#5fa3d8");
+            gr.addColorStop(0.7, "#cfe6f5");
+            gr.addColorStop(1, "#ffffff");
+            c.fillStyle = gr;
+            c.beginPath();
+            c.ellipse(x, CH / 2, CW / 52, CH * 0.36, 0, 0, Math.PI * 2);
+            c.fill();
+          }
+        },
+        1024,
+      );
+      for (const side of [-1, 1]) {
+        const m = sky.mesh.clone();
+        m.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+        m.position.set(side * (W / 2 - 0.22), 2.1, 2);
+        g.add(m);
+        // overhead lockers
+        g.add(B(0.7, 0.7, D - 8, 0xe9e9e4, side * (W / 2 - 0.55), 3.3, 2));
+      }
+      // rows of seats: business (2 wide seats a side) at the front, economy behind
+      const seatMesh = (wide: boolean, colour: number) => {
+        const q = new THREE.Group();
+        const w = wide ? 1.3 : 0.9;
+        q.add(B(w, 0.55, 0.9, colour, 0, 0, 0), B(w, 1.3, 0.25, colour, 0, 0.4, 0.42));
+        q.add(
+          B(0.12, 0.75, 0.9, 0x55585c, -w / 2, 0, 0),
+          B(0.12, 0.75, 0.9, 0x55585c, w / 2, 0, 0),
+        );
+        return q;
+      };
+      let z = -D / 2 + 6;
+      for (let r = 0; r < 14; r++) {
+        const business = r < 4;
+        const xs = business ? [-2.8, -1.4, 1.4, 2.8] : [-3, -2.1, -1.2, 1.2, 2.1, 3];
+        for (const x of xs) {
+          const st = seatMesh(business, business ? 0x7d2f3a : 0x1f3d5a);
+          st.position.set(x, 0, z);
+          g.add(st);
+          this.cabinSeats.push({ x, z, business });
+        }
+        this.addCollider("cabin", o.x - W / 2, o.x - 0.7, o.z + z - 0.45, o.z + z + 0.55);
+        this.addCollider("cabin", o.x + 0.7, o.x + W / 2, o.z + z - 0.45, o.z + z + 0.55);
+        z += business ? 2 : 1.45;
+        if (r === 3) {
+          // a curtain between business and economy
+          g.add(
+            B(2.2, 2.6, 0.06, 0x8a2f3a, -2.8, 0, z - 0.6),
+            B(2.2, 2.6, 0.06, 0x8a2f3a, 2.8, 0, z - 0.6),
+          );
+          z += 0.6;
+        }
+      }
+      // the galley at the front
+      g.add(B(W - 0.6, 1.2, 1.4, 0xd9dde0, 0, 0, -D / 2 + 1.2));
+      const tag = label("IlmAir", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
+      tag.position.set(0, 3.6, -D / 2 + 1);
+      g.add(tag);
+      // a trolley the crew push down the aisle
+      const tr = new THREE.Group();
+      tr.add(B(0.7, 1.1, 1.1, 0xb8bcc2, 0, 0.08, 0), B(0.72, 0.05, 1.12, 0x1f3d5a, 0, 1.18, 0));
+      tr.position.set(0, 0, -D / 2 + 3);
+      g.add(tr);
+      this.trolley = tr;
+      // your meal on the seat-back tray
+      const meal = new THREE.Group();
+      meal.add(B(0.8, 0.05, 0.5, 0x55585c, 0, 0, 0));
+      const plate = cyl(0.2, 0.17, 0.04, 0xfdf8ec, 14);
+      plate.position.set(-0.12, 0.07, 0);
+      const food = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 6), mat(0xd9822b));
+      food.scale.y = 0.45;
+      food.position.set(-0.12, 0.12, 0);
+      const cup = cyl(0.06, 0.05, 0.16, 0xcfe8f2, 8);
+      cup.position.set(0.25, 0.1, 0);
+      meal.add(plate, food, cup);
+      meal.visible = false;
+      g.add(meal);
+      this.trayMeal = meal;
+    }
+  }
+  private coachSeats: { x: number; z: number; business: boolean }[] = [];
+  private coachPeople: THREE.Object3D[] = [];
+  private coachViews: THREE.Texture[] = [];
+  private buildCoach() {
+    const W = 6.4,
+      D = 22;
+    const { g, o } = this.room("coach", W, D, 0xe9e6de, 0x3a3f46, false);
+    const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+      box(w, h, d, c, x, y, z);
+    g.add(B(1, 0.02, D - 2, 0x55585c, 0, 0.01, 0));
+    // the view: bush, palm trees and houses going by
+    const view = (seed: number) => {
+      const v = canvasPlane(
+        D - 4,
+        1.4,
+        (c, CW, CH) => {
+          const gr = c.createLinearGradient(0, 0, 0, CH);
+          gr.addColorStop(0, "#9fd0ee");
+          gr.addColorStop(0.62, "#d9eef8");
+          gr.addColorStop(0.63, "#6f9a4a");
+          gr.addColorStop(1, "#4f7a34");
+          c.fillStyle = gr;
+          c.fillRect(0, 0, CW, CH);
+          let r = seed;
+          const rnd = () => (r = (r * 9301 + 49297) % 233280) / 233280;
+          for (let k = 0; k < 26; k++) {
+            const x = rnd() * CW;
+            if (rnd() < 0.45) {
+              c.fillStyle = "#6b4a2b";
+              c.fillRect(x, CH * 0.3, CW / 260, CH * 0.35);
+              c.fillStyle = "#2f6f3a";
+              c.beginPath();
+              c.ellipse(x, CH * 0.3, CW / 70, CH * 0.1, 0, 0, Math.PI * 2);
+              c.fill();
+            } else {
+              c.fillStyle = ["#e9dcc4", "#d8c3a0", "#f2efe8"][Math.floor(rnd() * 3)];
+              c.fillRect(x, CH * 0.42, CW / 45, CH * 0.22);
+              c.fillStyle = ["#8a3a2a", "#5a5f66", "#2f6f63"][Math.floor(rnd() * 3)];
+              c.fillRect(x - CW / 400, CH * 0.38, CW / 45 + CW / 200, CH * 0.05);
+            }
+          }
+          // windows frames
+          for (let k = 0; k < 9; k++) {
+            c.fillStyle = "#e9e6de";
+            c.fillRect((k / 9) * CW - CW / 160, 0, CW / 80, CH);
+          }
+        },
+        1024,
+      );
+      v.tex.wrapS = THREE.RepeatWrapping;
+      this.coachViews.push(v.tex);
+      return v.mesh;
+    };
+    for (const side of [-1, 1]) {
+      const m = view(side < 0 ? 11 : 37);
+      m.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      m.position.set(side * (W / 2 - 0.22), 2.0, 1);
+      g.add(m);
+      g.add(B(0.6, 0.5, D - 6, 0xd9d6cf, side * (W / 2 - 0.5), 3.0, 1));
+    }
+    // seats: two and two, with an aisle
+    let z = -6.5;
+    for (let r = 0; r < 10; r++) {
+      for (const x of [-2.2, -1.3, 1.3, 2.2]) {
+        const q = new THREE.Group();
+        q.add(B(0.85, 0.55, 0.85, 0x2f4a7a, 0, 0, 0), B(0.85, 1.25, 0.2, 0x2f4a7a, 0, 0.4, 0.4));
+        q.add(B(0.85, 0.3, 0.06, 0xe8e2d6, 0, 1.4, 0.48));
+        q.position.set(x, 0, z);
+        g.add(q);
+        this.coachSeats.push({ x, z, business: false });
+      }
+      this.addCollider("coach", o.x - W / 2, o.x - 0.6, o.z + z - 0.45, o.z + z + 0.5);
+      this.addCollider("coach", o.x + 0.6, o.x + W / 2, o.z + z - 0.45, o.z + z + 0.5);
+      z += 1.45;
+    }
+    // the driver's seat, the wheel and the windscreen with the road ahead
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.05, 6, 18), mat(0x1d1f22));
+    wheel.rotation.x = -1.1;
+    wheel.position.set(-1.8, 1.45, -9.2);
+    g.add(
+      wheel,
+      B(1, 0.55, 0.9, 0x1d1f22, -1.8, 0, -8.4),
+      B(W - 0.6, 1, 0.8, 0x3a3f46, 0, 0, -10.3),
+    );
+    const road = canvasPlane(W - 0.6, 2, (c, CW, CH) => {
+      const gr = c.createLinearGradient(0, 0, 0, CH);
+      gr.addColorStop(0, "#9fd0ee");
+      gr.addColorStop(0.5, "#d9eef8");
+      gr.addColorStop(0.51, "#6f9a4a");
+      gr.addColorStop(1, "#4f7a34");
+      c.fillStyle = gr;
+      c.fillRect(0, 0, CW, CH);
+      c.fillStyle = "#3b3f44";
+      c.beginPath();
+      c.moveTo(CW * 0.47, CH * 0.5);
+      c.lineTo(CW * 0.53, CH * 0.5);
+      c.lineTo(CW * 0.95, CH);
+      c.lineTo(CW * 0.05, CH);
+      c.fill();
+      c.fillStyle = "#f4efd6";
+      for (let k = 0; k < 5; k++)
+        c.fillRect(CW * 0.495, CH * (0.55 + k * 0.09), CW * 0.01, CH * 0.05);
+    }).mesh;
+    road.position.set(0, 2.2, -10.75);
+    g.add(road);
+    const tag = label("🚌 IlmTransit", { size: 0.55, bg: "rgba(31,111,99,0.92)" });
+    tag.position.set(0, 3.9, -10.5);
+    g.add(tag);
+    void o;
+  }
+  /** Get on the bus: your seat among the other passengers, the driver at the wheel. */
+  enterCoach(n = 0) {
+    const o = this.interiorOrigin.coach;
+    if (!this.coachPeople.length) {
+      let k = 0;
+      for (const s of this.coachSeats) {
+        k++;
+        if (k % 4 === 1) continue;
+        const female = k % 3 === 0;
+        const p = person([0x2f4a7a, 0x6d4a2b, 0x2f6f4f, 0xf4f1ea, 0x7d2f3a, 0xc9b28a][k % 6], {
+          seed: k + 7,
+          ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a][k % 4] } : {}),
+        });
+        p.position.set(o.x + s.x, 0, o.z + s.z - 0.1);
+        p.userData.indoors = true;
+        this.scene.add(p);
+        poseHuman(p, "chair");
+        p.rotation.y = Math.PI;
+        this.coachPeople.push(p);
+      }
+      const driver = person(0x3a3f46, { cap: 0x1d1f22, seed: 9 });
+      driver.position.set(o.x - 1.8, 0, o.z - 8.4);
+      driver.userData.indoors = true;
+      this.scene.add(driver);
+      poseHuman(driver, "desk");
+      driver.rotation.y = Math.PI;
+    }
+    const seat = this.coachSeats[Math.abs(n) % this.coachSeats.length];
+    this.outPos.copy(this.player.position);
+    this.where = "coach";
+    this.mySeat = { x: o.x + seat.x, z: o.z + seat.z };
+    this.seatRealPlayers();
+    this.player.position.set(o.x + seat.x, 0, o.z + seat.z - 0.1);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "chair");
+    this.player.rotation.set(0, Math.PI, 0);
+    this.acting = { x: o.x, z: o.z + seat.z - 0.6, rot: Math.PI };
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+    const rows = [...new Set(this.coachSeats.map((q) => q.z))];
+    return `${rows.indexOf(seat.z) + 1}${"ABCD"[[-2.2, -1.3, 1.3, 2.2].indexOf(seat.x)]}`;
+  }
+  /* ---------------- a lecture theatre, full of students ---------------- */
+  private lectureSeats: { x: number; y: number; z: number }[] = [];
+  private lectureStudents: THREE.Object3D[] = [];
+  private lectureScreen: { set: (a: string, b: string, c: string) => void } | null = null;
+  private buildLecture() {
+    const W = 30,
+      D = 24;
+    const { g, o } = this.room("lecture", W, D, 0xf2ece0, 0x8a6a4a);
+    const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+      box(w, h, d, c, x, y, z);
+    // the screen at the front, with the course and topic on it
+    const scr = canvasPlane(12, 4.2, () => {}, 512);
+    scr.mesh.position.set(0, 3.4, -11.75);
+    g.add(scr.mesh, B(12.4, 4.6, 0.1, 0x1d1f22, 0, 1.1, -11.85));
+    const draw = (a: string, b: string, c: string) => {
+      const cx = scr.canvas.getContext("2d")!;
+      const CW = scr.canvas.width,
+        CH = scr.canvas.height;
+      cx.fillStyle = "#fdf8ec";
+      cx.fillRect(0, 0, CW, CH);
+      cx.fillStyle = "#1f6f63";
+      cx.fillRect(0, 0, CW, CH * 0.2);
+      cx.fillStyle = "#fdf8ec";
+      cx.textBaseline = "middle";
+      cx.font = `700 ${Math.round(CH * 0.09)}px "Work Sans", sans-serif`;
+      cx.fillText(a.slice(0, 48), CW * 0.04, CH * 0.1);
+      cx.fillStyle = "#10201e";
+      cx.font = `800 ${Math.round(CH * 0.13)}px "Work Sans", sans-serif`;
+      cx.fillText(b.slice(0, 32), CW * 0.04, CH * 0.42);
+      cx.fillStyle = "#3a4a46";
+      cx.font = `500 ${Math.round(CH * 0.09)}px "Work Sans", sans-serif`;
+      cx.fillText(c.slice(0, 50), CW * 0.04, CH * 0.64);
+      cx.fillStyle = "#c9a227";
+      cx.fillRect(CW * 0.04, CH * 0.82, CW * 0.3, CH * 0.02);
+      scr.tex.needsUpdate = true;
+    };
+    draw("Lecture Theatre", "Welcome to class", "Bismillah: choose your department and course");
+    this.lectureScreen = { set: draw };
+    // the lecturer's desk and podium
+    g.add(B(4, 1.1, 1.2, 0x6d4a2b, -5, 0, -8.6), B(1.2, 1.4, 0.9, 0x5a3a22, 4, 0, -9));
+    this.addCollider("lecture", o.x - 7, o.x - 3, o.z - 9.2, o.z - 8);
+    const lecturer = person(0x2f4a7a, { cap: 0xf4f1ea, seed: 11 });
+    lecturer.position.set(4, 0, -9.9);
+    g.add(lecturer);
+    const lt = label("Lecturer", { size: 0.6, bold: false });
+    lt.position.set(4, 2.6, -9.9);
+    g.add(lt);
+    // tiers of desks rising to the back, an aisle down the middle
+    for (let r = 0; r < 6; r++) {
+      const y = r * 0.45,
+        z = -4.5 + r * 2.4;
+      g.add(B(W - 2, y + 0.02, 2.4, 0x7a5a3a, 0, 0, z + 0.4));
+      for (const side of [-1, 1]) {
+        g.add(B(10.5, 0.08, 0.7, 0xc9a77a, side * 7.6, y + 1.05, z - 0.55));
+        g.add(B(10.5, 1.05, 0.08, 0x8a6a4a, side * 7.6, y, z - 0.85));
+        for (let k = 0; k < 6; k++) {
+          const x = side * (2.8 + k * 1.75);
+          g.add(
+            B(0.8, 0.5, 0.7, 0x2f4a7a, x, y, z + 0.2),
+            B(0.8, 0.9, 0.1, 0x2f4a7a, x, y + 0.5, z + 0.55),
+          );
+          this.lectureSeats.push({ x, y, z: z + 0.15 });
+        }
+      }
+      this.addCollider("lecture", o.x - W / 2, o.x - 2, o.z + z - 0.9, o.z + z + 1.6);
+      this.addCollider("lecture", o.x + 2, o.x + W / 2, o.z + z - 0.9, o.z + z + 1.6);
+    }
+    this.zones.push({
+      id: "lectureseat",
+      label: "Take a seat for the class",
+      x: o.x,
+      z: o.z - 6,
+      r: 2.4,
+      scene: "lecture",
+    });
+  }
+  /* ---------------- inside Al-Masjid An-Nabawi ---------------- */
+  /** The prayer hall on red carpet between rows of white columns and arches; the Rawdah on
+      green carpet between the minbar and the Prophet's house ﷺ; the gold grille where you
+      give salam; the mihrab, the minbar, Qur'an shelves, Zamzam coolers, chandeliers, an open
+      courtyard with umbrellas, and worshippers sitting in rows. */
+  private buildNabawiInside() {
+    const { W, D } = NABAWI_IN;
+    const { g, o } = this.room("nabawi", W, D, 0xeee4cf, 0x9b2a2a);
+    const b = new Batch();
+    const marble = MAT.plain(0xf6f2ea, 0.35);
+    const gold = MAT.plain(0xc9a227, 0.35);
+    const green = MAT.plain(0x2e7d4f, 0.8);
+    const wall = MAT.plaster(0xeee4cf);
+    const Q = -D / 2; // the qibla wall
+    // taller walls with arches, above the room's own walls
+    b.box(W, 4, 0.4, wall, 0, 5, Q);
+    b.box(0.4, 4, D, wall, -W / 2, 5, 0);
+    b.box(0.4, 4, D, wall, W / 2, 5, 0);
+    for (let x = -W / 2 + 3; x < W / 2; x += 6)
+      b.plane(2.6, 3.8, MAT3.archWin(0xeee4cf, 0x6b5a3a), x, 4.2, Q + 0.22);
+    // carpet rows: a gold line every 1.6 m across the hall
+    for (let z = Q + 3; z < D / 2 - 6; z += 1.6) b.box(W - 1, 0.012, 0.06, gold, 0, 0.01, z);
+    // the courtyard, open to the sky, with four umbrellas
+    const cx = -18,
+      cz = 14,
+      CW = 26,
+      CD = 22;
+    b.add(groundGeo(CW, CD, 2), marble, cx, 0.02, cz, 0, false);
+    const canopy = new THREE.ConeGeometry(3.8, 1.4, 4, 1, true);
+    canopy.rotateY(Math.PI / 4);
+    for (const [ux, uz] of [
+      [-6, -5],
+      [6, -5],
+      [-6, 5],
+      [6, 5],
+    ]) {
+      b.add(new THREE.CylinderGeometry(0.22, 0.32, 7.5, 10), marble, cx + ux, 3.75, cz + uz);
+      b.add(canopy, MAT3.fabric(), cx + ux, 8, cz + uz);
+    }
+    // the Rawdah: green carpet between the minbar and the Prophet's house ﷺ
+    const rx0 = 10,
+      rx1 = 28,
+      rz0 = Q + 1,
+      rz1 = Q + 16;
+    b.add(
+      groundGeo(rx1 - rx0, rz1 - rz0, 2),
+      green,
+      (rx0 + rx1) / 2,
+      0.02,
+      (rz0 + rz1) / 2,
+      0,
+      false,
+    );
+    // white columns all through the hall, with gold capitals and arches between them;
+    // the Rawdah's columns are wrapped in green and white
+    for (let x = -W / 2 + 6; x < W / 2 - 2; x += 6)
+      for (let z = Q + 6; z < D / 2 - 6; z += 6) {
+        if (
+          x > cx - CW / 2 - 1 &&
+          x < cx + CW / 2 + 1 &&
+          z > cz - CD / 2 - 1 &&
+          z < cz + CD / 2 + 1
+        )
+          continue;
+        if (Math.abs(x) < 2.5) continue; // the aisle from the door to the mihrab
+        const inRawdah = x > rx0 && x < rx1 && z < rz1;
+        b.add(
+          new THREE.CylinderGeometry(0.42, 0.48, 6.6, 12),
+          inRawdah ? MAT.plain(0xf8f6f0, 0.3) : marble,
+          x,
+          3.3,
+          z,
+        );
+        if (inRawdah) b.add(new THREE.CylinderGeometry(0.5, 0.5, 1.4, 12), green, x, 2.2, z);
+        b.add(new THREE.CylinderGeometry(0.62, 0.42, 0.6, 12), gold, x, 6.9, z);
+        this.addCollider("nabawi", o.x + x - 0.5, o.x + x + 0.5, o.z + z - 0.5, o.z + z + 0.5);
+      }
+    // the mihrab in the middle of the qibla wall, and the Prophet's mihrab ﷺ in the Rawdah
+    const mihrab = (x: number, w: number) => {
+      b.box(w + 1.2, 5, 0.6, gold, x, 0, Q + 0.4);
+      b.box(w, 4, 0.3, MAT.plain(0x1f5a3e, 0.6), x, 0.2, Q + 0.75);
+      b.plane(w - 0.6, 3.2, MAT3.archWin(0x1f5a3e, 0xc9a227), x, 2.2, Q + 0.92);
+    };
+    mihrab(0, 3);
+    mihrab(19, 2.2);
+    // the minbar of white marble with gold trim, its steps rising towards the qibla wall
+    for (let k = 0; k < 9; k++)
+      b.box(1.6, 0.4 * (k + 1), 0.6, marble, rx0 + 1.2, 0, Q + 9 - k * 0.6);
+    b.box(1.8, 0.2, 5.6, gold, rx0 + 1.2, 3.6, Q + 6.5);
+    b.add(new THREE.ConeGeometry(0.9, 1.8, 8), gold, rx0 + 1.2, 6, Q + 3.6);
+    this.addCollider("nabawi", o.x + rx0 + 0.3, o.x + rx0 + 2.1, o.z + Q, o.z + Q + 9.5);
+    // the house of the Prophet ﷺ, where he rests with Abu Bakr and Umar: a green wall behind a
+    // gold grille, on the east side of the Rawdah
+    const hx = rx1 + 4.2;
+    b.box(7, 6, 18, MAT.plain(0x1f6a3a, 0.6), hx, 0, Q + 10);
+    b.plane(16, 5.2, MAT3.lattice(), hx - 3.52, 3, Q + 10, -Math.PI / 2);
+    b.box(0.2, 0.3, 18, gold, hx - 3.55, 5.6, Q + 10);
+    this.addCollider("nabawi", o.x + hx - 3.6, o.x + W / 2, o.z + Q, o.z + Q + 19.5);
+    // Qur'an shelves round two columns, and Zamzam coolers
+    for (const [x, z] of [
+      [-24, Q + 8],
+      [-12, Q + 8],
+      [6, Q + 26],
+    ]) {
+      b.box(2.4, 1.8, 0.6, MAT.plain(0x6d4a2b), x, 0, z);
+      for (let k = 0; k < 6; k++)
+        b.box(
+          0.32,
+          0.5,
+          0.3,
+          MAT.plain([0x1f6f63, 0x7d2f3a, 0x2f4a7a][k % 3]),
+          x - 0.9 + k * 0.36,
+          1.85,
+          z,
+        );
+      this.addCollider("nabawi", o.x + x - 1.3, o.x + x + 1.3, o.z + z - 0.4, o.z + z + 0.4);
+      this.zones.push({
+        id: "quran",
+        label: "Read Qur'an",
+        x: o.x + x,
+        z: o.z + z + 1.4,
+        r: 1.8,
+        scene: "nabawi",
+      });
+    }
+    for (const [x, z] of [
+      [-30, Q + 30],
+      [30, Q + 34],
+    ]) {
+      b.add(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 14), MAT.plain(0xf4f4f0, 0.3), x, 0.6, z);
+      b.add(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 14), MAT.plain(0x2e7d4f), x, 1.35, z);
+      this.addCollider("nabawi", o.x + x - 0.6, o.x + x + 0.6, o.z + z - 0.6, o.z + z + 0.6);
+      this.zones.push({
+        id: "zamzam",
+        label: "Drink Zamzam",
+        x: o.x + x + (x < 0 ? 1.6 : -1.6),
+        z: o.z + z,
+        r: 1.8,
+        scene: "nabawi",
+      });
+    }
+    // gold chandeliers
+    for (const [x, z] of [
+      [-15, -16],
+      [0, -16],
+      [-6, 30],
+      [12, 10],
+    ]) {
+      b.add(new THREE.TorusGeometry(1.5, 0.12, 6, 20).rotateX(Math.PI / 2), gold, x, 7.6, z);
+      for (let k = 0; k < 8; k++)
+        b.box(
+          0.18,
+          0.3,
+          0.18,
+          MAT.bulb(),
+          x + Math.cos((k / 8) * 6.283) * 1.5,
+          7.7,
+          z + Math.sin((k / 8) * 6.283) * 1.5,
+        );
+    }
+    for (const m of b.build()) g.add(m);
+    // words over the qibla wall and the Rawdah
+    const t1 = label("Al-Masjid An-Nabawi · المسجد النبوي", {
+      bg: "rgba(0,0,0,0)",
+      fg: "#c9a227",
+      size: 2,
+    });
+    t1.position.set(0, 8.4, Q + 0.6);
+    g.add(t1);
+    const t2 = label("Ar-Rawdah Ash-Sharifah · الروضة الشريفة", {
+      size: 0.9,
+      bg: "rgba(46,125,79,0.92)",
+    });
+    t2.position.set((rx0 + rx1) / 2, 4.2, rz1);
+    g.add(t2);
+    // worshippers sitting in rows, reading or remembering Allah
+    const robes = [0xf7f7f2, 0xf2efe6, 0xe9e4d8, 0x2a3a4a, 0x6b5a3a];
+    let k = 0;
+    for (let row = 0; row < 3; row++)
+      for (let i = 0; i < 9; i++) {
+        const x = -30 + i * 3.4 + (row % 2) * 1.2,
+          z = Q + 4 + row * 3.2;
+        if (x > rx0 - 1) continue;
+        const p = person(robes[k % robes.length], {
+          cap: k % 3 ? 0xffffff : null,
+          seed: 70 + k,
+          outfit: "thobe",
+        });
+        p.position.set(x, 0, z);
+        sitPerson(p);
+        p.userData.indoors = true;
+        g.add(p);
+        k++;
+      }
+    this.zones.push({
+      id: "pray",
+      label: "Join the prayer rows",
+      x: o.x - 4,
+      z: o.z + Q + 13,
+      r: 3.2,
+      scene: "nabawi",
+    });
+    this.zones.push({
+      id: "rawdah",
+      label: "Enter the Rawdah",
+      x: o.x + (rx0 + rx1) / 2,
+      z: o.z + rz1 - 2,
+      r: 3,
+      scene: "nabawi",
+    });
+    this.zones.push({
+      id: "muwajaha",
+      label: "Give salam to the Prophet ﷺ",
+      x: o.x + hx - 5.4,
+      z: o.z + Q + 18,
+      r: 2.4,
+      scene: "nabawi",
+    });
+    this.zones.push({
+      id: "masjid-rest",
+      label: "Rest a little (free)",
+      x: o.x - 18,
+      z: o.z + 32,
+      r: 2.4,
+      scene: "nabawi",
+    });
+  }
+
+  /* ---------------- a faculty's corridor: a classroom for each department and level ---- */
+  private corridorDoors: {
+    zone: Zone;
+    sign: { set: (a: string, b: string) => void };
+    g: THREE.Object3D;
+    tag?: THREE.Object3D;
+  }[] = [];
+  private corridorTitle: { set: (a: string, b: string) => void } | null = null;
+  private corridorOut = new THREE.Vector3();
+  private corridorName = "";
+  private buildCorridor() {
+    const W = 12,
+      D = 56;
+    const { g, o } = this.room("corridor", W, D, 0xf1ece2, 0xc9c2b4);
+    const B = (w: number, h: number, d: number, c: number, x: number, y: number, z: number) =>
+      box(w, h, d, c, x, y, z);
+    g.add(B(3, 0.02, D - 2, 0x9a8f7a, 0, 0.01, 0));
+    const sign = (w: number, h: number) => {
+      const cp = canvasPlane(w, h, () => {}, 256);
+      const set = (a: string, b: string) => {
+        const c = cp.canvas.getContext("2d")!;
+        const CW = cp.canvas.width,
+          CH = cp.canvas.height;
+        c.fillStyle = "#1f3d5a";
+        c.fillRect(0, 0, CW, CH);
+        c.fillStyle = "#fdf8ec";
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `700 ${Math.round(CH * 0.26)}px "Work Sans", sans-serif`;
+        c.fillText(a.slice(0, 30), CW / 2, CH * 0.36);
+        c.fillStyle = "#e6b84a";
+        c.font = `800 ${Math.round(CH * 0.28)}px "Work Sans", sans-serif`;
+        c.fillText(b.slice(0, 26), CW / 2, CH * 0.72);
+        cp.tex.needsUpdate = true;
+      };
+      return { mesh: cp.mesh, set };
+    };
+    // the floor's name on the back wall
+    const head = sign(8, 1.6);
+    head.mesh.position.set(0, 3.6, -D / 2 + 0.06);
+    g.add(head.mesh);
+    this.corridorTitle = { set: head.set };
+    // classroom doors along both walls, six a side
+    for (const side of [-1, 1])
+      for (let i = 0; i < 6; i++) {
+        const z = -D / 2 + 8 + i * 7.6;
+        const x = side * (W / 2 - 0.08);
+        const door = new THREE.Group();
+        door.add(
+          B(0.16, 3.1, 2.2, 0x7a4a26, -side * 0.18, 0, 0),
+          B(0.2, 0.25, 2.8, 0xe6b84a, -side * 0.18, 3.1, 0),
+          B(0.2, 3.35, 0.2, 0xe6b84a, -side * 0.18, 0, 1.3),
+          B(0.2, 3.35, 0.2, 0xe6b84a, -side * 0.18, 0, -1.3),
+          B(0.06, 0.15, 0.3, 0xd9d1bd, -side * 0.3, 1.4, 0.7),
+          B(1.3, 0.03, 2.2, 0x1f6f63, -side * 0.9, 0.02, 0),
+        );
+        const sg = sign(2.6, 0.9);
+        sg.mesh.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+        sg.mesh.position.set(-side * 0.12, 3.75, 0);
+        door.userData.side = side;
+        door.position.set(x, 0, z);
+        g.add(door);
+        const zone: Zone = {
+          id: `classroom:${this.corridorDoors.length}`,
+          label: "Enter the classroom",
+          x: o.x + side * (W / 2 - 1.6),
+          z: o.z + z,
+          r: 1.6,
+          scene: "corridor",
+        };
+        this.zones.push(zone);
+        this.corridorDoors.push({ zone, sign: sg, g: door });
+      }
+    // stairs at the far end, up to the next floor
+    const stairs = new THREE.Group();
+    for (let k = 0; k < 8; k++) stairs.add(B(3, 0.3 * (k + 1), 0.45, 0xd9d1bd, 0, 0, -k * 0.45));
+    stairs.position.set(-W / 2 + 2, 0, -D / 2 + 5);
+    this.solid("corridor", g, stairs, 3, 3.6);
+    this.zones.push({
+      id: "corridorstairs",
+      label: "Take the stairs",
+      x: o.x - W / 2 + 2,
+      z: o.z - D / 2 + 7.4,
+      r: 1.8,
+      scene: "corridor",
+    });
+    // notice board and benches
+    g.add(B(0.1, 1.6, 3, 0x8a6a4a, W / 2 - 0.1, 1.2, D / 2 - 6));
+    for (const z of [D / 2 - 12, -D / 2 + 14])
+      g.add(B(0.8, 0.5, 2.6, 0x6d4a2b, -W / 2 + 0.9, 0, z));
+  }
+  /** Into the faculty's corridor; rooms is what each classroom door says (up to 12). */
+  enterCorridor(name: string, floor: string, rooms: { a: string; b: string }[]) {
+    this.enterInterior("corridor", name);
+    this.corridorName = name;
+    this.corridorOut.copy(this.outPos);
+    this.setCorridor(floor, rooms);
+  }
+  setCorridor(floor: string, rooms: { a: string; b: string }[]) {
+    this.corridorTitle?.set(this.corridorName.split(" · ")[0], floor);
+    this.corridorDoors.forEach((d, k) => {
+      const r = rooms[k];
+      d.g.visible = !!r;
+      d.zone.off = !r;
+      if (d.tag) d.g.remove(d.tag);
+      d.tag = undefined;
+      if (r) {
+        d.sign.set(r.a, r.b);
+        d.zone.label = `${r.a.replace("Department of ", "")} · ${r.b}`;
+        // a sign you can read from anywhere in the corridor
+        const t = label(`${r.a.replace("Department of ", "")} · ${r.b.replace(" Level", "L")}`, {
+          size: 0.55,
+          bg: "rgba(31,61,90,0.92)",
+        });
+        t.position.set(-(d.g.userData.side ?? 1) * 2.3, 3.9, 0);
+        d.g.add(t);
+        d.tag = t;
+      }
+    });
+  }
+  /** Back out of a classroom into the corridor, by its door. */
+  backToCorridor(slot: number) {
+    this.enterInterior("corridor", this.corridorName);
+    this.outPos.copy(this.corridorOut);
+    const z = this.corridorDoors[slot]?.zone;
+    if (z) this.player.position.set(z.x, 0, z.z);
+    this.snapCamera();
+  }
+  /** What the screen in the lecture theatre shows. */
+  setLecture(top: string, title: string, sub: string) {
+    this.lectureScreen?.set(top, title, sub);
+  }
+  /** Into a lecture theatre: students fill the seats (a different crowd each time). */
+  enterLecture(name: string, seed = 0) {
+    const o = this.interiorOrigin.lecture;
+    if (!this.lectureStudents.length)
+      for (let k = 0; k < this.lectureSeats.length; k++) {
+        const s = this.lectureSeats[k];
+        // brothers on the left of the aisle, sisters on the right
+        const female = s.x > 0;
+        const p = person(
+          [0x2f4a7a, 0xf4f1ea, 0x6d4a2b, 0x2f6f4f, 0x7d2f3a, 0x3a3f46, 0xc9b28a][k % 7],
+          {
+            seed: k + 3,
+            ...(female
+              ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a, 0xe8e2d6][k % 5] }
+              : k % 2
+                ? { cap: 0xf4f1ea }
+                : {}),
+          },
+        );
+        p.position.set(o.x + s.x, s.y, o.z + s.z);
+        p.userData.indoors = true;
+        this.scene.add(p);
+        poseHuman(p, "desk");
+        p.rotation.y = Math.PI;
+        this.lectureStudents.push(p);
+      }
+    // who is in class today: about two in three seats
+    let r = (seed * 9301 + 49297) % 233280;
+    const free: number[] = [];
+    this.lectureStudents.forEach((p, k) => {
+      r = (r * 9301 + 49297) % 233280;
+      p.visible = r / 233280 < 0.66;
+      if (!p.visible && Math.abs(this.lectureSeats[k].x) < 5) free.push(k);
+    });
+    this.lectureFree = free;
+    this.enterInterior("lecture", name);
+  }
+  private lectureFree: number[] = [];
+  /** Sit down in a free seat near the aisle. */
+  sitInLecture(female = false) {
+    if (this.where !== "lecture") return;
+    const o = this.interiorOrigin.lecture;
+    // a free seat near the aisle (a different one for each player, so friends sit apart)
+    // brothers on the left of the aisle, sisters on the right
+    const mine = this.lectureFree.filter((q) => this.lectureSeats[q].x > 0 === female);
+    const pool = mine.length ? mine : this.lectureFree;
+    const k = pool[Math.floor(Math.random() * pool.length)] ?? 0;
+    const s = this.lectureSeats[k];
+    this.lectureStudents[k].visible = false;
+    const back = {
+      x: this.player.position.x,
+      z: this.player.position.z,
+      rot: this.player.rotation.y,
+    };
+    this.player.position.set(o.x + s.x, s.y, o.z + s.z);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "desk");
+    this.player.rotation.set(0, Math.PI, 0);
+    this.acting = { ...back, scene: this.where };
+  }
+  /** The departures board in the terminal. */
+  setDepartures(lines: string[]) {
+    this.departures?.set(lines);
+  }
+  /** Your seat on the plane: the n-th seat of your class, and its row and letter. */
+  seatFor(business: boolean, n: number) {
+    const all = this.cabinSeats.filter((s) => s.business === business);
+    const s = all[Math.abs(n) % all.length];
+    const rows = [...new Set(this.cabinSeats.map((q) => q.z))];
+    const row = rows.indexOf(s.z) + 1;
+    const xs = [...new Set(this.cabinSeats.filter((q) => q.z === s.z).map((q) => q.x))].sort(
+      (a, b) => a - b,
+    );
+    return { seat: s, label: `${row}${"ABCDEF"[xs.indexOf(s.x)]}` };
+  }
+  /** Board: your seat, the other passengers, the crew in the aisle. */
+  enterCabin(business: boolean, n = 0) {
+    const o = this.interiorOrigin.cabin;
+    if (!this.cabinPeople.length) {
+      let k = 0;
+      for (const s of this.cabinSeats) {
+        k++;
+        if (k % 5 === 2) continue; // a few empty seats
+        const female = k % 3 === 0;
+        const p = person([0x2f4a7a, 0x6d4a2b, 0x2f6f4f, 0xf4f1ea, 0x7d2f3a, 0x3a3f46][k % 6], {
+          seed: k,
+          ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0x2a4a6a][k % 4] } : {}),
+        });
+        p.position.set(s.x, 0, s.z - 0.1);
+        this.cabinPeople.push(p);
+        (p.userData.seat as unknown) = s;
+        p.userData.indoors = true;
+        this.scene.add(p);
+        p.position.add(o);
+        // pose facing the default way, then turn to face the front of the plane
+        poseHuman(p, "chair");
+        p.rotation.y = Math.PI;
+      }
+      const crewA = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 1 });
+      const crewB = person(0x1f3d5a, { hijab: 0x7d2f3a, seed: 3 });
+      crewA.position.set(o.x, 0, o.z - 18);
+      crewB.position.set(o.x - 0.2, 0, o.z + 10);
+      crewA.rotation.y = 0;
+      crewB.rotation.y = Math.PI;
+      crewA.userData.indoors = crewB.userData.indoors = true;
+      this.scene.add(crewA, crewB);
+      this.cabinCrew.push(crewA, crewB);
+    }
+    const seat = this.seatFor(business, n).seat;
+    this.outPos.copy(this.player.position);
+    this.where = "cabin";
+    this.mySeat = { x: o.x + seat.x, z: o.z + seat.z };
+    this.seatRealPlayers();
+    this.player.position.set(o.x + seat.x, 0, o.z + seat.z - 0.1);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "chair");
+    this.player.rotation.set(0, Math.PI, 0);
+    this.acting = { x: o.x - 0.2, z: o.z + seat.z - 0.6, rot: Math.PI };
+    if (this.trayMeal) {
+      this.trayMeal.position.set(seat.x, 1.05, seat.z - 0.75);
+      this.trayMeal.visible = false;
+    }
+    if (this.trolley) this.trolley.position.set(0, 0, -20);
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+  }
+  /** The crew bring the trolley to your row (and serve your meal, when you earned it). */
+  cabinServe(stage: "coming" | "served" | "away", meal = true) {
+    if (!this.mySeat || !this.trolley) return;
+    const o = this.interiorOrigin.cabin;
+    const z = this.mySeat.z - o.z;
+    const crew = this.cabinCrew[0];
+    if (stage === "away") {
+      this.trolley.position.set(0, 0, -20);
+      crew?.position.set(o.x, 0, o.z - 18);
+      return;
+    }
+    this.trolley.position.set(0.2, 0, z - 1.6);
+    if (crew) {
+      crew.position.set(o.x + 0.3, 0, o.z + z - 0.4);
+      crew.rotation.y = -Math.PI / 2 - 0.4;
+    }
+    if (stage === "served" && this.trayMeal) this.trayMeal.visible = meal;
+  }
+  /** Off the plane or the bus. */
+  leaveCabin() {
+    if (this.where !== "cabin" && this.where !== "coach") return;
+    this.acting = null;
+    releasePose(this.player);
+    this.player.rotation.set(0, 0, 0);
+    if (this.trayMeal) this.trayMeal.visible = false;
+    this.cabinServe("away");
+    this.mySeat = null;
+  }
+
   /* ---------------- loop ---------------- */
   private resize() {
     const w = this.host.clientWidth || 1,
@@ -8857,8 +10725,15 @@ export class IlmCityEngine {
   }
   private camOffset() {
     const portrait = this.camera.aspect < 0.8;
+    if (this.where === "coach" || this.where === "cabin") {
+      // look down the aisle from just behind your row
+      const ax = -(this.player.position.x - this.interiorOrigin[this.where].x) * 0.8;
+      return this.where === "coach"
+        ? new THREE.Vector3(ax, portrait ? 7 : 5.5, portrait ? 7.5 : 6.5)
+        : new THREE.Vector3(ax, portrait ? 8 : 6, portrait ? 9 : 7.5);
+    }
     if (this.where !== "out" && !this.cine)
-      return portrait ? new THREE.Vector3(0, 22, 19) : new THREE.Vector3(0, 13, 13);
+      return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
     return new THREE.Vector3(Math.sin(this.camYaw) * d, h, Math.cos(this.camYaw) * d);
   }
@@ -9350,6 +11225,73 @@ export class IlmCityEngine {
   standUp() {
     releasePose(this.player);
   }
+  /** Do something at home that you can see: lie in bed, sit on the sofa or at the table, cook,
+      or use the laptop. Returns false when you aren't at home. */
+  homeAct(what: "sleep" | "sofa" | "eat" | "cook" | "laptop" | "tv") {
+    if (this.where !== "home") return false;
+    const o = this.interiorOrigin.home;
+    this.homeActEnd();
+    const back = {
+      x: this.player.position.x,
+      z: this.player.position.z,
+      rot: this.player.rotation.y,
+    };
+    this.tapTarget = null;
+    this.marker.visible = false;
+    const at = (x: number, y: number, z: number, rot: number) => {
+      this.player.position.set(o.x + x, y, o.z + z);
+      this.player.rotation.set(0, rot, 0);
+    };
+    if (what === "sleep") {
+      // on your back, head on the pillow, the cover over you
+      at(-9.5, 1.1, -6.7, 0);
+      this.player.rotation.set(-Math.PI / 2, 0, 0);
+      if (this.sleepCover) this.sleepCover.visible = true;
+    } else if (what === "sofa" || what === "tv") {
+      at(-7, 0, 3.55, 0);
+      poseHuman(this.player, "chair");
+    } else if (what === "eat") {
+      at(1.7, 0, -3.6, 0);
+      poseHuman(this.player, "desk");
+      if (this.eatPlate) this.eatPlate.visible = true;
+    } else if (what === "laptop") {
+      at(-5.9, 0, -6.4, Math.PI / 2);
+      poseHuman(this.player, "desk");
+    } else {
+      at(-2, 0, -7.9, Math.PI);
+      poseHuman(this.player, "cook");
+      if (this.cookSteam) this.cookSteam.visible = true;
+    }
+    this.acting = { ...back, scene: this.where };
+    return true;
+  }
+  /** Get up and carry on. */
+  homeActEnd() {
+    if (!this.acting || this.where === "cabin" || this.where === "coach") return;
+    const b = this.acting;
+    this.acting = null;
+    releasePose(this.player);
+    this.player.position.y = 0;
+    if (this.player.rotation.x) this.player.rotation.x = 0;
+    // left the room already (the class ended by walking out): just stand up where you are
+    if (b.scene && b.scene !== this.where) return;
+    this.player.rotation.set(0, b.rot, 0);
+    this.player.position.set(b.x, 0, b.z);
+    if (this.sleepCover) this.sleepCover.visible = false;
+    if (this.cookSteam) this.cookSteam.visible = false;
+    if (this.eatPlate) this.eatPlate.visible = false;
+  }
+  private stepActing(t: number) {
+    // the road going by outside the bus windows
+    if (this.where === "coach") for (const tx of this.coachViews) tx.offset.x = (t * 0.12) % 1;
+    // the steam over the pot drifts up while you cook
+    if (this.cookSteam?.visible)
+      this.cookSteam.children.forEach((p, k) => {
+        p.position.y = 2 + ((t * 0.6 + k * 0.33) % 1) * 1.1;
+        ((p as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity =
+          0.45 * (1 - ((t * 0.6 + k * 0.33) % 1));
+      });
+  }
   prayPose(p: Pose | null) {
     if (p) poseHuman(this.player, p);
     else releasePose(this.player);
@@ -9490,7 +11432,7 @@ export class IlmCityEngine {
       b.addObject(g);
       this.zones.push({
         id: "busstop:" + st.id,
-        label: st.x < -3000 ? "Wait for the bus" : "Wait for a danfo",
+        label: st.x < -3000 ? "Wait for the bus" : "Wait for a bus",
         x: st.x,
         z: st.z,
         r: 3.6,
@@ -9608,6 +11550,7 @@ export class IlmCityEngine {
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (this.pathWalk) this.stepPath(dt);
+    else if (this.acting) this.stepActing(t);
     else if (!this.riding) this.walk(v, dt, t);
 
     if (this.match && this.spectating) this.match.step(dt, null);
@@ -9636,8 +11579,31 @@ export class IlmCityEngine {
         else if (a.onGpu && d > this.viewDist + 400) this.freeArea(a);
       }
 
-    // neighbours
+    this.updateUhudSky();
+    // neighbours (passers-by far from the camera are hidden and stand still)
+    const camP = this.camera.position;
+    const crowdCap = Math.max(20, 120 - this.remotes.size * 4);
     for (const w of this.walkers) {
+      if (w.crowd !== undefined) {
+        const par = w.g.parent;
+        if (!par?.visible) continue;
+        const dx = Math.abs(w.g.position.x + par.position.x - camP.x),
+          dz = Math.abs(w.g.position.z + par.position.z - camP.z);
+        w.g.visible = w.crowd < crowdCap && dx < 120 && dz < 120 && this.where === "out";
+        if (!w.g.visible) continue;
+        // full detail close to you, a simple figure further away
+        const close = dx < 40 && dz < 40;
+        const ud = w.g.userData as {
+          near?: THREE.Object3D[];
+          far?: THREE.Object3D;
+          close?: boolean;
+        };
+        if (ud.far && ud.close !== close) {
+          ud.close = close;
+          ud.far.visible = !close;
+          for (const c of ud.near ?? []) c.visible = close;
+        }
+      }
       if (w.seated) continue;
       if (w.talking) {
         const px = this.player.position.x - (w.g.parent?.position.x ?? 0),
@@ -9772,7 +11738,7 @@ export class IlmCityEngine {
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = {
         id: "board",
-        label: this.district.holy ? "Board the bus" : "Board the danfo",
+        label: this.district.holy ? "Board the bus" : "Board the bus",
         x: 0,
         z: 0,
         r: 0,
@@ -9825,7 +11791,7 @@ export class IlmCityEngine {
       if (kk)
         best = {
           id: "keke",
-          label: this.district.holy ? "Take a taxi" : "Take a keke",
+          label: this.district.holy ? "Take a taxi" : "Take a taxi",
           x: 0,
           z: 0,
           r: 0,

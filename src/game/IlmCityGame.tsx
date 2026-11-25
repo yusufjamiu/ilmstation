@@ -9,6 +9,8 @@ import { connectRope, connectRopeLocal } from "./ropenet";
 import { VEHICLE_INFO } from "./vehicles";
 import { connectHomes, connectHomesLocal, type Homes, type Knock, type ShownHome } from "./homes";
 import { connectRooms, connectRoomsLocal, roomId, type RoomAd, type RoomsNet } from "./rooms";
+import { useWorldLanguage, WORLD_I18N_CSS } from "./i18n";
+import { useLanguage as useAppLanguage, useLiveLanguages as useLiveAppLanguages } from "@/components/language";
 import {
   cleanNumber,
   connectCalls,
@@ -62,6 +64,7 @@ import {
 } from "./pitchnet";
 import {
   complexFaculties,
+  departmentsOf,
   courseTopics,
   coursesLive,
   departmentsLive,
@@ -108,6 +111,9 @@ import {
   BILLBOARDS,
   BUS_FARE,
   WORLD_CITIES,
+  DEFAULT_AREA,
+  cityLive,
+  hostelInfo,
   INTERCITY,
   TRAIN_LOCAL,
   TRAIN_STATIONS,
@@ -220,6 +226,10 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** in class, other students don't see your name */
+  classHidden?: boolean;
+  /** your room in an MSSN hostel (free while you're a student there): its door's id */
+  hostel?: string;
   /** when the bought Rich family pack's house was handed over */
   richApplied?: number;
   /** litres of petrol in your car's tank (filled at a filling station) */
@@ -455,7 +465,7 @@ function bikeHere(s: Save, area: string): { kind: BikeKind; color: number; hired
   if (city === "madinah")
     return (s.hire ?? 0) > Date.now() ? { kind: "city", color: HIRE_COLOR, hired: true } : null;
   if (d.holy || !s.bike) return null;
-  if (city !== cityOf(districtById(s.homeArea ?? "lekki"))) return null;
+  if (city !== cityOf(districtById(s.homeArea ?? DEFAULT_AREA))) return null;
   return { ...s.bike, hired: false };
 }
 /** The landlord can claim at most this many unpaid weeks. */
@@ -480,7 +490,7 @@ function collectRent(before: Save, after: Save): Save {
   const now = Date.now();
   let until = Math.max(after.lease.until, now - ARREARS_WEEKS * 7 * 86400000);
   if (until >= now) return after;
-  const rent = flatRent(after.homeArea ?? "lekki");
+  const rent = flatRent(after.homeArea ?? DEFAULT_AREA);
   const took = Math.floor(earned / 2);
   let pot = (after.rentPot ?? 0) + took;
   while (pot >= rent && until < now) {
@@ -641,6 +651,12 @@ function useAccountSave(uid: string | null) {
 function loadSave(): Save {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? "null") as Save | null;
+    // IlmWorld is Madinah now: a game saved in a city that is switched off starts again from nothing
+    const offCity = (id?: string) => !!id && !cityLive(cityOf(districtById(id)));
+    if (s && (offCity(s.district) || offCity(s.homeArea))) {
+      try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+      return { coins: POINTS.start, ilm: 0, day: "", prayed: {}, asked: [], world: true };
+    }
     if (s && typeof s.coins === "number") {
       if (!s.world) return { ...s, pos: undefined, car: undefined, world: true };
       return s;
@@ -1000,6 +1016,8 @@ function CityGame({
   adult: boolean;
 }) {
   useAccountSave(uid);
+  const worldRoot = useRef<HTMLDivElement>(null);
+  const worldLang = useWorldLanguage(worldRoot);
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<IlmCityEngine | null>(null);
   const [save, setSave] = useState<Save>(() => {
@@ -1016,7 +1034,7 @@ function CityGame({
     if (save.profile && !save.homeArea)
       setSave((x) => ({
         ...x,
-        homeArea: x.district ?? "lekki",
+        homeArea: x.district ?? DEFAULT_AREA,
         items: x.items ?? [],
         needs: x.needs ?? freshNeeds(),
       }));
@@ -1032,10 +1050,14 @@ function CityGame({
   clockRef.current = clock;
   const [ctx, setCtx] = useState<Context>(null);
   const [place, setPlace] = useState(() => {
-    const d = districtById(save.district ?? "lekki");
+    const d = districtById(save.district ?? DEFAULT_AREA);
     return `${d.name}, ${d.state}`;
   });
   const [panel, setPanel] = useState<Panel | null>(null);
+  // whatever you were doing at home (sleeping, sitting, cooking) ends when its window closes
+  useEffect(() => {
+    if (!panel) engine.current?.homeActEnd();
+  }, [panel]);
   const [bigClock, setBigClock] = useState(false);
   const panelRef = useRef<Panel | null>(null);
   panelRef.current = panel;
@@ -1059,6 +1081,14 @@ function CityGame({
     kmh: number;
   } | null>(null);
   const arriveRef = useRef<(() => void) | null>(null);
+  const lastLectureRef = useRef<string | null>(null);
+  const corridorRef = useRef<CorridorState | null>(null);
+  const classRef = useRef<{ slot: number } | null>(null);
+  /** your plane ticket, from buying it to landing: check in, security, board */
+  const ticketRef = useRef<Ticket | null>(null);
+  const [flight, setFlight] = useState<Ticket | null>(null);
+  const busRef = useRef<BusTrip | null>(null);
+  const [busTrip, setBusTrip] = useState<BusTrip | null>(null);
   const talkingRef = useRef<number | null>(null);
   const workSkip = useRef(false);
   const hajjDone = useRef(new Set<string>());
@@ -1478,7 +1508,7 @@ function CityGame({
   /* ---------- food: order on the phone or eat at the eatery ---------- */
   const openPlacesRef = useRef<(area: string, phone?: boolean) => void>(() => {});
   const openPhoneRef = useRef<() => void>(() => {});
-  const openHotelRef = useRef<() => void>(() => {});
+  const openHotelRef = useRef<(atHotel?: boolean) => void>(() => {});
   const openQuranRef = useRef<(night: boolean) => void>(() => {});
   /** you set off to the masjid to read the Qur'an: it opens when you walk in */
   const quranNext = useRef(false);
@@ -1584,7 +1614,7 @@ function CityGame({
           setDelivery(null);
           update((x) => ({ ...x, meal: d.id }));
           toast(
-            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! ${engine.current?.districtId() !== (saveRef.current.homeArea ?? "lekki") ? "Sit down here, wash your hands and eat." : "Go inside, wash your hands, then eat."}`,
+            `You collected your ${d.name.toLowerCase()}. JazakAllahu khairan! ${engine.current?.districtId() !== (saveRef.current.homeArea ?? DEFAULT_AREA) ? "Sit down here, wash your hands and eat." : "Go inside, wash your hands, then eat."}`,
             "good",
           );
         },
@@ -1631,7 +1661,7 @@ function CityGame({
           onFood={() => openFood("order", true)}
           onOutings={() => openOutingsRef.current(true)}
           onTravel={() => openOutingsRef.current(true, "travel")}
-          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? "lekki", true)}
+          onPlaces={() => openPlacesRef.current(engine.current?.districtId() ?? DEFAULT_AREA, true)}
           onHotel={() => openHotelRef.current()}
         />
       ),
@@ -2204,7 +2234,7 @@ function CityGame({
     const e = engine.current;
     if (!e) return;
     const where = e.scenePlace();
-    radio.hushIf("place", where === "masjid" || where === "madrasah");
+    radio.hushIf("place", where === "masjid" || where === "nabawi" || where === "madrasah");
     const kind = e.rideKind();
     if (!kind) vehicleMute.current = null;
     const cfg = radioCfgRef.current;
@@ -2394,12 +2424,12 @@ function CityGame({
               toast(
                 bikeNow.hired
                   ? "You returned the hire bicycle before leaving."
-                  : `Your bicycle stays at home in ${cityOf(districtById(saveRef.current.homeArea ?? "lekki"))[0].toUpperCase() + cityOf(districtById(saveRef.current.homeArea ?? "lekki")).slice(1)}.`,
+                  : `Your bicycle stays at home in ${cityOf(districtById(saveRef.current.homeArea ?? DEFAULT_AREA))[0].toUpperCase() + cityOf(districtById(saveRef.current.homeArea ?? DEFAULT_AREA)).slice(1)}.`,
               ),
             2500,
           );
         } else if (bikeAlong && !byCar)
-          setTimeout(() => toast(`Your bicycle came on the danfo: +${N(BIKE_ON_BUS)}.`), 2500);
+          setTimeout(() => toast(`Your bicycle came on the bus: +${N(BIKE_ON_BUS)}.`), 2500);
         update((x) => ({
           ...x,
           coins: x.coins - fare,
@@ -2417,16 +2447,74 @@ function CityGame({
         setArriving(d.name);
         if (then) setTimeout(() => engine.current?.goToZone(then), 1500);
       };
-      setTravelling({ from: here, to, byCar, train: train && !byCar });
+      const go = () => {
+        // by bus you sit inside it, with the other passengers, while the road goes by
+        if (!byCar && !train) {
+          const seat = e.enterCoach(Math.floor(Math.random() * 1000));
+          setInside(true);
+          const bt = { from: here, to, toName: districtById(to).name, seat, far };
+          busRef.current = bt;
+          setBusTrip(bt);
+          return;
+        }
+        setTravelling({ from: here, to, byCar, train: train && !byCar });
+      };
+      // Madinah to Makkah passes Dhul Hulayfah (Masjid Abyar Ali), the miqat of Madinah
+      const sv2 = saveRef.current;
+      if (
+        cityOf(districtById(here)) === "madinah" &&
+        cityOf(districtById(to)) === "makkah" &&
+        !sv2.umrah?.stage &&
+        !hajjIhram(sv2.hajj?.stage)
+      ) {
+        setPanel({
+          kind: "info",
+          title: "The miqat of Madinah",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                On the way to Makkah you pass <b>Dhul Hulayfah</b> (Masjid Abyar Ali), the miqat of
+                Madinah. Are you going for Umrah?
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  const p = saveRef.current.profile;
+                  if (p) e.setPlayerLook({ ...p, ihram: !p.female });
+                  update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "enter" } }));
+                  sayDhikr("niyyahUmrah", () => sayDhikr("talbiyah", go));
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                🤍 Yes: stop at the miqat, put on ihram and make the intention
+              </button>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  go();
+                }}
+                className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+              >
+                No, just visiting
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      go();
     },
-    [toast, advance, update],
+    [toast, advance, update, sayDhikr],
   );
   const tripRef = useRef(startTrip);
   tripRef.current = startTrip;
+  // for testing in development: start a trip from the browser console
+  if (import.meta.env.DEV && typeof window !== "undefined")
+    (window as unknown as { __trip?: typeof startTrip }).__trip = startTrip;
   const openOutings = useCallback(
     (phone = false, tab = "now") => {
       const e = engine.current;
-      const here = e?.districtId() ?? "lekki";
+      const here = e?.districtId() ?? DEFAULT_AREA;
       setPanel({
         kind: "info",
         phone: phone ? { home: () => openPhoneRef.current() } : undefined,
@@ -3725,7 +3813,9 @@ function CityGame({
   useEffect(() => {
     // Jeddah counts as its own place: you are asked when you reach Makkah itself
     const c =
-      save.district === "jeddahairport" ? "jeddah" : cityOf(districtById(save.district ?? "lekki"));
+      save.district === "jeddahairport"
+        ? "jeddah"
+        : cityOf(districtById(save.district ?? DEFAULT_AREA));
     const prev = lastCity.current;
     lastCity.current = c;
     if (prev && prev !== c && c === "makkah" && !save.umrah?.stage && !save.hajj?.stage) {
@@ -3971,7 +4061,7 @@ function CityGame({
   visitingRef.current = visiting;
   const myPlace = () => {
     const s = saveRef.current;
-    const a = districtById(s.homeArea ?? "lekki").name;
+    const a = districtById(s.homeArea ?? DEFAULT_AREA).name;
     return s.homePlot ? `Family house · ${a}` : `Flat · ${a}`;
   };
   const publishHome = useCallback(() => {
@@ -5022,7 +5112,7 @@ function CityGame({
   }, []);
   const payRent = useCallback(() => {
     const sv = saveRef.current;
-    const area = sv.homeArea ?? "lekki";
+    const area = sv.homeArea ?? DEFAULT_AREA;
     const rent = flatRent(area);
     if (sv.coins < rent) {
       setPanel({
@@ -5103,7 +5193,7 @@ function CityGame({
               setPanel(null);
               if (!engine.current?.goToZone("door:boutique:"))
                 toast(
-                  "IlmWorld Fashion is in Lekki, Ikeja, Akoka, Agege, Igbe Laara, Fate, Ilorin Central and Tanke.",
+                  "IlmWorld Fashion is in the big shopping streets of Madinah.",
                 );
             }}
             look={look}
@@ -5136,7 +5226,7 @@ function CityGame({
   openWardrobeRef.current = openWardrobe;
   /** Rent due: what the landlord says when you come home. */
   const rentDue = useCallback((then?: () => void) => {
-    const area = saveRef.current.homeArea ?? "lekki";
+    const area = saveRef.current.homeArea ?? DEFAULT_AREA;
     const rent = flatRent(area);
     setPanel({
       kind: "info",
@@ -5601,7 +5691,7 @@ function CityGame({
               setPanel(null);
               if (j.area && engine.current?.districtId() !== j.area) {
                 toast(
-                  `Your work is in ${fullName(districtById(j.area))}. Take a danfo there (📱 Phone → Travel).`,
+                  `Your work is in ${fullName(districtById(j.area))}. Take a bus there (📱 Phone → Travel).`,
                 );
                 return;
               }
@@ -5632,6 +5722,7 @@ function CityGame({
         id.startsWith("seat:") ||
         id === "exit" ||
         id === "eat" ||
+        id === "cook" ||
         id === "pray" ||
         id === "masjid-rest" ||
         id === "prayermat" ||
@@ -5798,16 +5889,166 @@ function CityGame({
         }
         return;
       }
+      // a faculty building: a corridor with a classroom for each department and level, the
+      // higher levels upstairs
+      const fac0 = id.startsWith("faculty:") ? landmarkById(id.slice(8)) : null;
+      // the Islamic University of Madinah has a brothers' campus and a sisters' campus
+      if (fac0?.d.only && (fac0.d.only === "sisters") !== !!saveRef.current.profile?.female) {
+        toast(
+          fac0.d.only === "sisters"
+            ? "This is the sisters' campus. The brothers' campus is in Sultanah, take the bus there."
+            : "This is the brothers' campus. The sisters' campus is in Shuran, take the bus there.",
+          "warn",
+        );
+        return;
+      }
+      if (
+        fac0 &&
+        !fac0.l.id.endsWith("-library") &&
+        !fac0.l.id.endsWith("-complex") &&
+        !corridorRef.current?.entering
+      ) {
+        const L = fac0;
+        const [room, uni] = L.l.name.split(" · ");
+        const make = (depts: Dept[]) => {
+          const pairs: CorridorRoom[] = [];
+          for (const lv of LEVELS) for (const d of depts) pairs.push({ dept: d, level: lv });
+          return pairs;
+        };
+        const c: CorridorState = {
+          id,
+          faculty: L.l.name,
+          top: `${uni ?? ""} · ${room}`,
+          pairs: make(departmentsOf(L.l.name)),
+          floor: 0,
+        };
+        corridorRef.current = c;
+        sayDhikr("study", () => {
+          e.enterCorridor(L.l.name, corridorFloorName(c), corridorRooms(c));
+          setInside(true);
+          tuneRef.current();
+          toast(`${room}: find your department's classroom. Higher levels are upstairs.`);
+          // departments the team added in the admin page
+          void departmentsLive(L.l.name).then((ds) => {
+            if (corridorRef.current !== c) return;
+            c.pairs = make(ds);
+            if (e.scenePlace() === "corridor")
+              e.setCorridor(corridorFloorName(c), corridorRooms(c));
+          });
+        });
+        return;
+      }
+      if (id === "corridorstairs") {
+        const c = corridorRef.current;
+        if (!c) return;
+        const floors = Math.max(1, Math.ceil(c.pairs.length / 12));
+        c.floor = (c.floor + 1) % floors;
+        e.setCorridor(corridorFloorName(c), corridorRooms(c));
+        toast(
+          floors > 1
+            ? `You're on the ${corridorFloorName(c).split(" · ")[0].toLowerCase()}.`
+            : "This is the only floor.",
+        );
+        return;
+      }
+      if (id.startsWith("classroom:") || (id === "lectureseat" && classRef.current)) {
+        const c = corridorRef.current;
+        const slot = id === "lectureseat" ? classRef.current!.slot : Number(id.slice(10));
+        const pair = c?.pairs[c.floor * 12 + slot];
+        if (!c || !pair) return;
+        const again2 = id === "lectureseat";
+        classRef.current = { slot };
+        if (!again2) {
+          let seed = 0;
+          for (const ch of c.id + pair.dept.code + pair.level + clockRef.current.key)
+            seed = (seed * 31 + ch.charCodeAt(0)) % 9973;
+          e.enterLecture(`${pair.dept.name} · ${pair.level} Level`, seed);
+          e.setLecture(c.top, pair.dept.name, `${pair.level} Level · choose your course`);
+          setInside(true);
+        }
+        e.sitInLecture(!!saveRef.current.profile?.female);
+        const today = clockRef.current.key;
+        const s0 = saveRef.current.said;
+        const ids = s0?.day === today ? s0.ids : [];
+        if (!ids.includes("class")) {
+          update((x) => ({ ...x, ilm: x.ilm + 2, said: { day: today, ids: [...ids, "class"] } }));
+          need({ iman: 4, social: 5 });
+        }
+        setPanel({
+          kind: "info",
+          title: `${pair.dept.name} · ${pair.level} Level`,
+          body: (
+            <>
+              <Classmates
+                list={() => areaPlayers.current.filter((x) => x.uid !== onlineRef.current?.uid)}
+                hidden={() => !!saveRef.current.classHidden}
+                onHide={(h) => {
+                  update((x) => ({ ...x, classHidden: h }));
+                  saveRef.current = { ...saveRef.current, classHidden: h };
+                  presenceAt.current = 0;
+                  lastSent.current = { ...lastSent.current, area: "" };
+                  toast(h ? "Your name is hidden in class." : "Classmates can see your name.");
+                }}
+                onChat={(m) => {
+                  setPanel(null);
+                  openChatRef.current(m);
+                }}
+              />
+              <InClassView
+                library={false}
+                about=""
+                faculty={c.faculty}
+                dept0={pair.dept}
+                level0={pair.level}
+                onScreen={(a, b) => e.setLecture(c.top, a, b)}
+                onCorrect={() => {
+                  if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
+                  update((x) => ({
+                    ...x,
+                    coins: x.coins + SCHOOL_POINTS.perCorrect,
+                    ilm: x.ilm + 2,
+                    schoolPts: (x.schoolPts ?? 0) + SCHOOL_POINTS.perCorrect,
+                  }));
+                  return true;
+                }}
+                onLeave={() => {
+                  setPanel(null);
+                  onActionRef.current("exit");
+                }}
+              />
+            </>
+          ),
+        });
+        return;
+      }
+      // back in your seat in the lecture theatre: the class carries on
+      const again = id === "lectureseat";
+      if (again) id = lastLectureRef.current ?? "";
       if (id.startsWith("faculty:")) {
         const L = landmarkById(id.slice(8));
         if (!L) return;
         const library = L.l.id.endsWith("-library");
         const [room, uni] = L.l.name.split(" · ");
-        sayDhikr("study", () => {
-          e.enterInterior("madrasah", L.l.name);
-          e.setTeacher(L.l.id.endsWith("-library") ? "Librarian" : "Lecturer");
-          setInside(true);
-          tuneRef.current();
+        lastLectureRef.current = id;
+        const lecture = !library;
+        const top = `${uni ?? ""} · ${room}`;
+        const go = (f: () => void) => (again ? f() : sayDhikr("study", f));
+        go(() => {
+          if (!again) {
+            if (lecture) {
+              let seed = 0;
+              for (const ch of id + clockRef.current.key)
+                seed = (seed * 31 + ch.charCodeAt(0)) % 9973;
+              e.enterLecture(`Lecture Theatre · ${L.l.name}`, seed);
+              e.setLecture(top, "Welcome to class", "Choose your department, level and course");
+            } else {
+              e.enterInterior("madrasah", L.l.name);
+              e.setTeacher("Librarian");
+            }
+            setInside(true);
+            tuneRef.current();
+          }
+          if (lecture) e.sitInLecture(!!saveRef.current.profile?.female);
           const today = clockRef.current.key;
           const s0 = saveRef.current.said;
           const ids = s0?.day === today ? s0.ids : [];
@@ -5824,6 +6065,7 @@ function CityGame({
                 about={L.l.about ?? ""}
                 faculty={library ? undefined : L.l.name}
                 complexArea={L.l.id.endsWith("-complex") ? L.d.id : undefined}
+                onScreen={lecture ? (a, b) => e.setLecture(top, a, b) : undefined}
                 onCorrect={() => {
                   if ((saveRef.current.schoolPts ?? 0) >= SCHOOL_POINTS.dailyCap) return false;
                   update((x) => ({
@@ -6458,10 +6700,267 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("hostel:")) {
+        const [, area, kk] = id.split(":");
+        const D = districtById(area);
+        const uni = D.campus?.gate ?? D.name;
+        const { name, sisters } = hostelInfo(area, Number(kk));
+        const sv = saveRef.current;
+        if (!!sv.profile?.female !== sisters) {
+          toast(
+            `This hostel is for ${sisters ? "sisters" : "brothers"}. Yours is next door.`,
+            "warn",
+          );
+          return;
+        }
+        if (sv.hostel === id) {
+          e.enterInterior("home", `${name} · your room`);
+          e.setHomeItems(sv.items ?? []);
+          setInside(true);
+          tuneRef.current();
+          return;
+        }
+        if (sv.student?.area !== area) {
+          setPanel({
+            kind: "info",
+            title: `🏠 ${name}`,
+            body: (
+              <div className="space-y-2 text-[14px]">
+                <p>
+                  {D.club ? "Student residences" : "MSSN hostel rooms"} near {uni} are <b>free</b>{" "}
+                  for its registered students: prayers together, tafsir circles and quiet study
+                  time.
+                </p>
+                <p className="text-[13px] opacity-75">
+                  Register as a student at the {D.club ? `${D.club} Office` : "MSSN Secretariat"} on
+                  campus, then come back to move in.
+                </p>
+              </div>
+            ),
+          });
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: `🏠 ${name}`,
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                As a student of {uni}, your room here is <b>free</b>. Your furniture comes with you,
+                and you wake up here each day.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  update((x) => ({
+                    ...x,
+                    hostel: id,
+                    homeArea: area,
+                    lease: { until: Math.max(x.lease?.until ?? 0, Date.now() + 120 * 86400000) },
+                  }));
+                  e.enterInterior("home", `${name} · your room`);
+                  e.setHomeItems(saveRef.current.items ?? []);
+                  setInside(true);
+                  tuneRef.current();
+                  toast(
+                    `Alhamdulillah! You've moved into ${name}. Rent-free while you study.`,
+                    "good",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                Move in (free)
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      // the Rawdah: between the Prophet's house ﷺ and his minbar
+      if (id === "rawdah") {
+        setPanel({
+          kind: "info",
+          title: "Ar-Rawdah Ash-Sharifah",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                The Prophet ﷺ said:{" "}
+                <i>
+                  "What is between my house and my minbar is a garden from the gardens of Paradise."
+                </i>{" "}
+                (Al-Bukhari and Muslim)
+              </p>
+              <p className="text-[13px] opacity-80">
+                You can tell it by its green carpet. Pray here calmly, make du'a, and leave room for
+                others. In real life you book a time for the Rawdah in the Nusuk app.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  afterPrayerRef.current = () => {
+                    need({ iman: 20 });
+                    toast(
+                      "You prayed in the Rawdah, a garden of Paradise. May Allah accept it.",
+                      "good",
+                    );
+                  };
+                  startPrayerRef.current(true, "Two rak'ahs in the Rawdah");
+                }}
+                className="w-full rounded-xl bg-[#2e7d4f] px-4 py-3 font-bold text-white"
+              >
+                🤲 Pray two rak'ahs in the Rawdah
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      // the gold grille before the Prophet's house ﷺ, where he rests with Abu Bakr and Umar
+      if (id === "muwajaha") {
+        setPanel({
+          kind: "info",
+          title: "Salam to the Prophet ﷺ",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p className="text-[13px] opacity-80">
+                Stand calmly, lower your voice, and give salam. Then step to the right to greet Abu
+                Bakr, and again for Umar, may Allah be pleased with them. For your own du'a, face
+                the qiblah and ask Allah alone.
+              </p>
+              <p dir="rtl" className="font-serif text-[19px] leading-loose">
+                السَّلَامُ عَلَيْكَ يَا رَسُولَ اللَّهِ وَرَحْمَةُ اللَّهِ وَبَرَكَاتُهُ
+              </p>
+              <p className="text-[13px] italic">
+                "Peace be upon you, O Messenger of Allah, and the mercy of Allah and His blessings."
+              </p>
+              <p dir="rtl" className="font-serif text-[17px] leading-loose">
+                السَّلَامُ عَلَيْكَ يَا أَبَا بَكْرٍ · السَّلَامُ عَلَيْكَ يَا عُمَرُ
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  need({ iman: 15 });
+                  update((x) => ({ ...x, ilm: x.ilm + 2 }));
+                  toast(
+                    "You gave salam to the Prophet ﷺ and his two Companions. Send salawat on him often. +2 Ilm",
+                    "good",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                Give salam
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      // the hotels round Al-Masjid An-Nabawi
+      if (id.startsWith("office:hotel-")) {
+        openHotelRef.current(true);
+        return;
+      }
+      // Jannat Al-Baqi' and the martyrs of Uhud: give salam to the people of the graves
+      if (id.startsWith("graves:")) {
+        const uhud = id === "graves:uhud";
+        setPanel({
+          kind: "info",
+          title: uhud ? "The Martyrs of Uhud" : "Jannat Al-Baqi'",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                {uhud
+                  ? "Here lie the seventy martyrs of Uhud, among them Hamzah ibn Abdil-Muttalib, the uncle of the Prophet ﷺ and the Master of the Martyrs."
+                  : "The graveyard of Madinah, beside the Prophet's Mosque ﷺ. Here lie thousands of the Companions, the wives of the Prophet ﷺ (except Khadijah and Maymunah), his daughters, his son Ibrahim, and Uthman ibn Affan."}
+              </p>
+              <p className="text-[13px] opacity-80">
+                The Prophet ﷺ taught us to say when visiting the graves:
+              </p>
+              <p dir="rtl" className="font-serif text-[20px] leading-loose">
+                السَّلَامُ عَلَيْكُمْ أَهْلَ الدِّيَارِ مِنَ الْمُؤْمِنِينَ وَالْمُسْلِمِينَ،
+                وَإِنَّا إِنْ شَاءَ اللَّهُ بِكُمْ لَلَاحِقُونَ، نَسْأَلُ اللَّهَ لَنَا وَلَكُمُ
+                الْعَافِيَةَ
+              </p>
+              <p className="text-[13px] italic">
+                "Peace be upon you, O people of the dwellings, of the believers and the Muslims. We
+                will join you, if Allah wills. We ask Allah for well-being for us and for you."
+                (Sahih Muslim)
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  need({ iman: 10 });
+                  update((x) => ({ ...x, ilm: x.ilm + 1 }));
+                  toast(
+                    "You gave salam to the people of the graves and remembered the Hereafter.",
+                    "good",
+                  );
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                🤲 Say the salam and make du'a for them
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
+      // the miqat of Madinah: put on ihram here and make the intention for Umrah
+      if (id === "office:miqat-ihram") {
+        const sv = saveRef.current;
+        if (sv.umrah?.stage || hajjIhram(sv.hajj?.stage)) {
+          toast("You're in ihram. Take the bus to Makkah from the bus stop, saying the talbiyah.");
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "Dhul Hulayfah · the miqat",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                This is <b>Dhul Hulayfah</b> (Abyar Ali), the miqat the Prophet ﷺ set for the people
+                of Madinah. Pilgrims going to Makkah for Umrah or Hajj put on ihram here.
+              </p>
+              <button
+                onClick={() =>
+                  setPanel({
+                    kind: "busy",
+                    title: female()
+                      ? "Making ghusl and getting ready"
+                      : "Making ghusl and putting on ihram",
+                    ms: 3500,
+                    done: () => {
+                      const p = saveRef.current.profile;
+                      if (p) e.setPlayerLook({ ...p, ihram: !p.female });
+                      update((x) => ({
+                        ...x,
+                        umrah: { done: x.umrah?.done ?? 0, stage: "enter" },
+                      }));
+                      sayDhikr("niyyahUmrah", () =>
+                        sayDhikr("talbiyah", () =>
+                          toast(
+                            "You're in ihram for Umrah. Take the bus to Makkah from the bus stop, or fly from the airport.",
+                            "good",
+                          ),
+                        ),
+                      );
+                    },
+                  })
+                }
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                🤍 Put on ihram and make the intention for Umrah
+              </button>
+            </div>
+          ),
+        });
+        return;
+      }
       if (id.startsWith("office:") && id.endsWith("-mssn")) {
         const L = landmarkById(id.slice(7));
         if (!L) return;
         const area = L.d.id;
+        const club = L.d.club ?? "MSSN";
         setPanel({
           kind: "info",
           title: L.l.name,
@@ -6474,18 +6973,23 @@ function CityGame({
               onQuiz={() => {
                 setPanel(null);
                 quizPlace.current = keyOf("mssn", L.l.id);
-                quizHost.current = "The MSSN";
+                quizHost.current = club === "MSSN" ? "The MSSN" : club;
                 setTimeout(() => onActionRef.current("quiz"), 50);
               }}
               onRegister={(faculty) => {
                 update((x) => ({ ...x, student: { area, faculty } }));
-                toast("You're registered as a student here. Welcome to MSSN!", "good");
+                toast(
+                  club === "MSSN"
+                    ? "You're registered as a student here. Welcome to MSSN!"
+                    : "You're registered as a student here. Welcome!",
+                  "good",
+                );
                 setPanel(null);
               }}
               onAsk={async (text) => {
                 const o = onlineRef.current;
                 if (!o) {
-                  toast("Log in to IlmStation to send your question to the MSSN.", "warn");
+                  toast(`Log in to IlmStation to send your question to ${club}.`, "warn");
                   return false;
                 }
                 try {
@@ -6494,7 +6998,7 @@ function CityGame({
                     name: shownName(saveRef.current) ?? "Player",
                     text: cleanText(text),
                   });
-                  toast("Sent! The MSSN team will reply, in shaa Allah.", "good");
+                  toast(`Sent! ${club} will reply, in shaa Allah.`, "good");
                   return true;
                 } catch {
                   toast("Could not send. Try again.", "warn");
@@ -6678,7 +7182,7 @@ function CityGame({
         const kfare = districtById(area).holy ? 10 : 3;
         setPanel({
           kind: "info",
-          title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Keke",
+          title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Taxi",
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
@@ -6716,7 +7220,7 @@ function CityGame({
         toast(
           districtById(e.districtId()).holy
             ? 'Taxi driver: "Wasalna, alhamdulillah! Ma\'a salamah."'
-            : 'Keke driver: "We don reach! Safe journey."',
+            : 'Taxi driver: "Here we are. Safe journey, in sha Allah."',
           "good",
         );
         return;
@@ -6756,7 +7260,7 @@ function CityGame({
         toast(
           districtById(e.districtId()).holy
             ? "Waiting for the bus… it's coming down the road."
-            : "Waiting for a danfo… it's coming down the road.",
+            : "Waiting for a bus… it's coming down the road.",
         );
         return;
       }
@@ -6792,8 +7296,18 @@ function CityGame({
         quizPlace.current = keyOf("mosque", lid);
         const name = landmarkName(lid);
         // the two Holy Mosques: you walk into the real courtyard, not a small prayer hall
-        const holyMosque = lid === "masjid-al-haram" || lid === "masjid-an-nabawi";
-        if (holyMosque && e.enterHolyCourt(lid)) {
+        const holyMosque = lid === "masjid-al-haram";
+        if (lid === "masjid-an-nabawi") {
+          // inside the Prophet's Mosque ﷺ: the prayer hall, the Rawdah and the courtyard
+          e.enterInterior("nabawi", name);
+          setInside(true);
+          sayDhikr("enterMasjid", () =>
+            toast(
+              "Welcome to the Prophet's Mosque ﷺ. Pray two rak'ahs, visit the Rawdah, and give salam to the Prophet ﷺ by the gold grille.",
+              "good",
+            ),
+          );
+        } else if (holyMosque && e.enterHolyCourt(lid)) {
           if (lid === "masjid-al-haram") {
             const st = saveRef.current.umrah?.stage;
             if (st === "enter" || st === "ihram") {
@@ -6925,9 +7439,9 @@ function CityGame({
       }
       if (id.startsWith("door:home:")) {
         const which = id.slice(10) === "home" ? "lekki" : id.slice(10);
-        const mine = saveRef.current.homeArea ?? "lekki";
+        const mine = saveRef.current.homeArea ?? DEFAULT_AREA;
         if (which !== mine) {
-          toast(`Your flat is in ${estateName(mine)}. Take a danfo or keke there.`);
+          toast(`Your flat is in ${estateName(mine)}. Take a bus or taxi there.`);
           return;
         }
         const go = () => {
@@ -7129,6 +7643,16 @@ function CityGame({
       }
       if (id === "exit") {
         const was = e.scenePlace();
+        if (was === "lecture" && corridorRef.current && classRef.current) {
+          setPanel(null);
+          e.backToCorridor(classRef.current.slot);
+          classRef.current = null;
+          return;
+        }
+        if (was === "corridor" || was === "lecture") {
+          corridorRef.current = null;
+          classRef.current = null;
+        }
         endVisit();
         e.exitInterior();
         setInside(false);
@@ -7141,7 +7665,7 @@ function CityGame({
             update((x) => ({ ...x, cycling: false }));
           }
           sayDhikr("leaveHome", () => askRideRef.current());
-        } else if (was === "masjid") sayDhikr("leaveMasjid");
+        } else if (was === "masjid" || was === "nabawi") sayDhikr("leaveMasjid");
         return;
       }
       if (id === "car") {
@@ -7160,9 +7684,107 @@ function CityGame({
         setDriving(false);
         return;
       }
+      if (id === "ihramroom") {
+        const t = ticketRef.current;
+        if (!t?.umrah) {
+          toast("The prayer room: a quiet place to pray while you wait for your flight.");
+          return;
+        }
+        if (t.dressed) {
+          toast("You're dressed in ihram. Now check in at the IlmAir desk.");
+          e.guideTo("checkin");
+          return;
+        }
+        setPanel({
+          kind: "busy",
+          title: female() ? "Making ghusl and getting ready" : "Making ghusl and putting on ihram",
+          ms: 3500,
+          done: () => {
+            t.dressed = true;
+            wearIhram(true);
+            e.guideTo("checkin");
+            toast(
+              "Ready for ihram. Don't make the intention yet: you'll make it on the plane at the miqat. Now check in.",
+              "good",
+            );
+          },
+        });
+        return;
+      }
+      if (id === "checkin" || id === "security" || id === "gate") {
+        const t = ticketRef.current;
+        if (!t) {
+          toast("Buy your ticket first: go back out to the airport entrance.");
+          return;
+        }
+        if (id === "checkin") {
+          if (t.umrah && !t.dressed) {
+            toast("First put on your ihram in the prayer room.");
+            e.guideTo("ihramroom");
+            return;
+          }
+          if (t.step !== "checkin") {
+            toast("You've checked in. Go through security.");
+            e.guideTo(t.step === "security" ? "security" : "gate");
+            return;
+          }
+          setPanel({
+            kind: "info",
+            title: "Your boarding pass",
+            body: (
+              <BoardingPass
+                t={t}
+                name={saveRef.current.profile?.name ?? firstName}
+                onGo={() => {
+                  t.step = "security";
+                  setPanel(null);
+                  e.guideTo("security");
+                  toast("Checked in. Now go through security.", "good");
+                }}
+              />
+            ),
+          });
+          return;
+        }
+        if (id === "security") {
+          if (t.step === "checkin") {
+            toast("Check in at the IlmAir desk first.");
+            e.guideTo("checkin");
+            return;
+          }
+          setPanel({
+            kind: "busy",
+            title: "Security check: your bag goes through the scanner",
+            ms: 2600,
+            done: () => {
+              t.step = "board";
+              e.guideTo("gate");
+              toast(`All clear. Go to Gate ${t.gate}, your plane is boarding.`, "good");
+            },
+          });
+          return;
+        }
+        if (t.step !== "board") {
+          toast(t.step === "checkin" ? "Check in first." : "Go through security first.");
+          e.guideTo(t.step);
+          return;
+        }
+        e.enterCabin(t.business, t.seatN);
+        setInside(true);
+        setFlight(t);
+        return;
+      }
       if (id.startsWith("airport:")) {
         const city = id.slice(8);
         const here = e.districtId();
+        if (ticketRef.current) {
+          const t = ticketRef.current;
+          e.enterInterior("terminal", `${t.fromName} Airport`);
+          setInside(true);
+          e.guideTo(t.step === "checkin" ? "checkin" : t.step === "security" ? "security" : "gate");
+          toast(`Your flight to ${t.destName} is waiting. Follow the arrow.`);
+          return;
+        }
         const homeCountry = WORLD_CITIES.find((w) => w.id === city)?.country ?? "Nigeria";
         const priceTo = (dest: string, business: boolean) => {
           const abroad =
@@ -7197,12 +7819,7 @@ function CityGame({
           if (!port) return;
           setPanel(null);
           update((x) => ({ ...x, coins: x.coins - price }));
-          toast(
-            `${business ? "Business class" : "Economy"} ticket: −${N(price)}. Say the du'a for travelling. Bismillah!`,
-            "good",
-          );
-          sayDhikr("ride");
-          arriveRef.current = () => {
+          const arrive = () => {
             engine.current?.arriveAt("airport:" + dest);
             setTravelling(null);
             setDriving(false);
@@ -7213,7 +7830,87 @@ function CityGame({
             );
             setTimeout(() => setArriving(null), 4500);
           };
-          setTravelling({ from: here, to: port.id, byCar: false, plane: true });
+          // into the terminal: check in, go through security, board at the gate. Everyone on
+          // the same route has the same flight number, so players flying together meet.
+          const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
+          const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
+          let hsh = 7;
+          for (const ch of city + ">" + dest) hsh = (hsh * 31 + ch.charCodeAt(0)) % 100003;
+          const no = 100 + (hsh % 800);
+          const seatN = Math.floor(Math.random() * 1000);
+          const open = (umrah: boolean) => {
+            setPanel(null);
+            ticketRef.current = {
+              dest,
+              destName,
+              fromName,
+              business,
+              flight: `IA ${no}`,
+              seat: e.seatFor(business, seatN).label,
+              seatN,
+              gate: "3",
+              step: "checkin",
+              umrah,
+              arrive: () => {
+                arrive();
+                if (umrah) {
+                  wearIhram(true);
+                  setTimeout(
+                    () =>
+                      toast(
+                        "Welcome to the Hajj Terminal! You are in ihram: go to Al-Masjid Al-Haram for tawaf.",
+                        "good",
+                      ),
+                    2500,
+                  );
+                }
+              },
+            };
+            e.enterInterior("terminal", `${fromName} Airport`);
+            setInside(true);
+            tuneRef.current();
+            e.setDepartures([
+              `IA ${no}  ${destName.padEnd(10).slice(0, 10)} Gate 3  Check-in`,
+              "IA 214  Kano       Gate 1  On time",
+              "IA 101  Abuja      Gate 2  On time",
+              "IA 777  Jeddah     Gate 4  On time",
+              "IA 778  Madinah    Gate 4  On time",
+            ]);
+            e.guideTo(umrah ? "ihramroom" : "checkin");
+            toast(
+              umrah
+                ? `Ticket to ${destName}: −${N(price)}. First, put on your ihram in the prayer room.`
+                : `${business ? "Business class" : "Economy"} ticket to ${destName}: −${N(price)}. Check in at the IlmAir desk.`,
+              "good",
+            );
+          };
+          const sv = saveRef.current;
+          if (dest === "makkah" && !sv.umrah?.stage && !hajjIhram(sv.hajj?.stage))
+            setPanel({
+              kind: "info",
+              title: "Going to Makkah",
+              body: (
+                <div className="space-y-3 text-[14px]">
+                  <p>
+                    Are you going for Umrah? The plane passes the miqat before Jeddah, so you put on
+                    ihram here at the airport and make the intention on the plane.
+                  </p>
+                  <button
+                    onClick={() => open(true)}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                  >
+                    🤍 Yes, for Umrah
+                  </button>
+                  <button
+                    onClick={() => open(false)}
+                    className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+                  >
+                    No, just visiting
+                  </button>
+                </div>
+              ),
+            });
+          else open(false);
         };
         setPanel({
           kind: "info",
@@ -7384,11 +8081,70 @@ function CityGame({
         });
         return;
       }
+      if (id === "tv") {
+        e.homeAct("tv");
+        onActionRef.current("radio");
+        return;
+      }
+      if (id === "laptop") {
+        e.homeAct("laptop");
+        openPlacesRef.current(e.districtId(), false);
+        return;
+      }
+      if (id === "cook") {
+        const cookPrice = (d: (typeof MENU)[number]) => Math.ceil(d.points * 0.6);
+        setPanel({
+          kind: "info",
+          title: "Cook at home",
+          body: (
+            <div className="space-y-2">
+              <p className="text-[13px] opacity-75">
+                Cooking costs less than buying food. Pick what to cook; the ingredients are paid
+                from your wallet.
+              </p>
+              {MENU.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => {
+                    const price = cookPrice(d);
+                    if (saveRef.current.coins < price) {
+                      toast(`You need ${N(price)} for the ingredients.`, "warn");
+                      return;
+                    }
+                    update((x) => ({ ...x, coins: x.coins - price }));
+                    engine.current?.homeAct("cook");
+                    setPanel({
+                      kind: "busy",
+                      title: `Cooking ${d.name.toLowerCase()}`,
+                      ms: 5000,
+                      done: () => {
+                        update((x) => ({ ...x, meal: d.id }));
+                        engine.current?.guideTo("eat");
+                        toast(
+                          `Your ${d.name.toLowerCase()} is ready! Sit at the table to eat.`,
+                          "good",
+                        );
+                      },
+                    });
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left"
+                >
+                  <span className="text-2xl">{d.icon}</span>
+                  <span className="flex-1 font-bold">{d.name}</span>
+                  <span className="text-[13px] font-semibold">{N(cookPrice(d))}</span>
+                </button>
+              ))}
+            </div>
+          ),
+        });
+        return;
+      }
       if (id === "sofa") {
+        e.homeAct("sofa");
         setPanel({
           kind: "busy",
           title: "Resting on the sofa",
-          ms: 2500,
+          ms: 3500,
           done: () => {
             need({ energy: 15 });
             toast("A short rest. SubhanAllah.", "good");
@@ -7432,11 +8188,12 @@ function CityGame({
           body: (
             <AdhkarView
               kind="sleep"
-              onDone={() =>
+              onDone={() => (
+                engine.current?.homeAct("sleep"),
                 setPanel({
                   kind: "busy",
                   title: "Sleeping",
-                  ms: 3500,
+                  ms: 5000,
                   done: () => {
                     const late = c.min >= c.times.isha || c.min < c.times.fajr;
                     update((x) => ({
@@ -7451,7 +8208,7 @@ function CityGame({
                     );
                   },
                 })
-              }
+              )}
             />
           ),
         });
@@ -7460,8 +8217,10 @@ function CityGame({
       if (id === "eat") {
         // the dining table: eat the food you collected, or order some
         const m = saveRef.current.meal && MENU.find((x) => x.id === saveRef.current.meal);
-        if (m) openMealRef.current(m);
-        else openFood("order");
+        if (m) {
+          e.homeAct("eat");
+          openMealRef.current(m);
+        } else openFood("order");
         return;
       }
       if (id === "prayermat") {
@@ -7655,7 +8414,7 @@ function CityGame({
     {
       const b = bikeHere(
         saveRef.current,
-        saveRef.current.district ?? saveRef.current.homeArea ?? "lekki",
+        saveRef.current.district ?? saveRef.current.homeArea ?? DEFAULT_AREA,
       );
       if (b && saveRef.current.cycling) e.setBike(b.kind, b.color);
     }
@@ -7680,14 +8439,18 @@ function CityGame({
           2500,
         );
       } else if (sv.profile) {
-        const home = sv.homeArea ?? sv.district ?? "lekki";
+        const home = sv.homeArea ?? sv.district ?? DEFAULT_AREA;
         const nm = districtById(home).name;
         // a house counts as home only while it is yours: bought, built, or rent still paid
         const house = houseOf(sv);
         const left = (sv.lease?.until ?? (sv.homePlot ? 0 : Infinity)) - Date.now();
         if (house && e.plotInfo(house))
           e.startAtPlot(house, house === sv.homePlot ? `Family house · ${nm}` : "Your house");
-        else if (left < 0) {
+        else if (sv.hostel && sv.student?.area === sv.hostel.split(":")[1]) {
+          e.startAtHostel(sv.hostel, "MSSN Hostel · your room");
+          // rent-free while you study: the room stays yours
+          update((x) => ({ ...x, lease: { until: Date.now() + 120 * 86400000 } }));
+        } else if (left < 0) {
           // rent unpaid: you wake up outside the estate gate, not in the flat
           e.startAtHome(home, flatName(home));
           e.exitInterior();
@@ -7801,7 +8564,21 @@ function CityGame({
       const o = onlineRef.current;
       const prof = saveRef.current.profile;
       const pr = e.presence();
-      const ar = pr.out ? (e.areaAt(pr.x, pr.z)?.id ?? "") : "";
+      const onPlane = e.scenePlace() === "cabin" && ticketRef.current;
+      const onBus = e.scenePlace() === "coach" && busRef.current;
+      const cls = e.scenePlace() === "lecture" && classRef.current && corridorRef.current;
+      const clsPair = cls
+        ? corridorRef.current!.pairs[corridorRef.current!.floor * 12 + classRef.current!.slot]
+        : null;
+      const ar = pr.out
+        ? (e.areaAt(pr.x, pr.z)?.id ?? "")
+        : onPlane
+          ? "flight:" + ticketRef.current!.flight.replace(" ", "")
+          : onBus
+            ? `bus:${busRef.current!.from}>${busRef.current!.to}`
+            : clsPair
+              ? `class:${corridorRef.current!.id.slice(8)}:${clsPair.dept.code}:${clsPair.level}`
+              : "";
       const moved =
         Math.hypot(pr.x - lastSent.current.x, pr.z - lastSent.current.z) > 0.5 ||
         ar !== lastSent.current.area;
@@ -7816,7 +8593,8 @@ function CityGame({
         lastSent.current = { x: pr.x, z: pr.z, area: ar };
         e.presenceSent();
         o.setPresence({
-          name: prof.name,
+          // in class, a student can hide their name from the others
+          name: clsPair && saveRef.current.classHidden ? "" : prof.name,
           look: prof,
           badge: badgeOf(saveRef.current),
           x: pr.x,
@@ -7961,7 +8739,7 @@ function CityGame({
   const cur = currentPrayer(clock),
     nxt = nextPrayer(clock),
     ms = masjidStatus(clock);
-  const areaLecture = districtById(save.district ?? "lekki")
+  const areaLecture = districtById(save.district ?? DEFAULT_AREA)
     .landmarks.filter((l) => l.kind === "masjid")
     .map((l) => lectureNow(l.id, clock))
     .find(Boolean);
@@ -7969,7 +8747,7 @@ function CityGame({
   openChatRef.current = (o) => void openChatWith(o);
   const goal =
     save.profile && (save.guide ?? 99) > GUIDE.length && !panel && !ride && !delivery && !meal
-      ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? "lekki")
+      ? nextGoal(save, clock, inside, engine.current?.districtId() ?? save.homeArea ?? DEFAULT_AREA)
       : null;
   const runGoal = (g: Goal) => {
     if (g.act === "jobs") return openJobs();
@@ -7977,7 +8755,11 @@ function CityGame({
     if (g.act === "rest") return openHotel();
     if (g.act === "quran") {
       const pl = engine.current?.scenePlace();
-      if (pl === "masjid" || (pl === "home" && (saveRef.current.items ?? []).includes("bookshelf")))
+      if (
+        pl === "masjid" ||
+        pl === "nabawi" ||
+        (pl === "home" && (saveRef.current.items ?? []).includes("bookshelf"))
+      )
         return openQuran(false);
       if (inside) return toast("Go outside first, then walk to the masjid to read the Qur'an.");
       quranNext.current = true;
@@ -8085,12 +8867,11 @@ function CityGame({
   };
   openQuranRef.current = openQuran;
   /** Away from your home city: a night in a hotel, or the way home. */
-  const openHotel = () => {
-    const here = engine.current?.districtId() ?? save.district ?? "lekki";
+  const openHotel = (atHotel = false) => {
+    const here = engine.current?.districtId() ?? save.district ?? DEFAULT_AREA;
     const D = districtById(here);
-    const home = save.homeArea ?? "lekki";
-    const price = hotelPrice(here);
-    const atHome = cityOf(D) === cityOf(districtById(home));
+    const home = save.homeArea ?? DEFAULT_AREA;
+    const atHome = !atHotel && cityOf(D) === cityOf(districtById(home));
     setPanel({
       kind: "info",
       title: "🏨 Rest for the night",
@@ -8100,34 +8881,45 @@ function CityGame({
             <p>You are in your home city: go home to sleep, it's free.</p>
           ) : (
             <p>
-              You are in {D.name}, {D.state}, far from home. Book a hotel room here to sleep, or
-              travel back home.
+              {atHotel
+                ? `Welcome! Choose your room for the night in ${D.name}.`
+                : `You are in ${D.name}, ${D.state}, far from home. Book a hotel room here to sleep, or travel back home.`}
             </p>
           )}
-          <div className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
-            <div className="font-bold">
-              {D.holy ? "Pilgrims' hotel" : "Guest house"} · {D.name}
-            </div>
-            <div className="text-[13px] opacity-75">
-              A clean room for one night: sleep, wake fully rested.
-            </div>
-            <button
-              disabled={saveRef.current.coins < price}
-              onClick={() => {
-                if (saveRef.current.coins < price) return;
-                update((x) => ({ ...x, coins: x.coins - price }));
-                saveRef.current = { ...saveRef.current, coins: saveRef.current.coins - price };
-                toast(`Room booked: ${N(price)}.`, "good");
-                onActionRef.current("sleep");
-              }}
-              className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
-            >
-              Book a room · {N(price)}
-            </button>
-            {saveRef.current.coins < price && (
-              <p className="mt-1 text-[12px] text-[#b8573a]">Not enough money for a room.</p>
-            )}
-          </div>
+          {hotelsFor(here).map((h) => {
+            const short = saveRef.current.coins < h.price;
+            return (
+              <div key={h.name} className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold">
+                    {h.icon} {h.name}
+                  </div>
+                  <span className="text-[12px] font-bold text-[#7a5a2a]">{h.tier}</span>
+                </div>
+                <div className="text-[13px] opacity-75">{h.about}</div>
+                <button
+                  disabled={short}
+                  onClick={() => {
+                    if (saveRef.current.coins < h.price) return;
+                    update((x) => ({ ...x, coins: x.coins - h.price }));
+                    saveRef.current = {
+                      ...saveRef.current,
+                      coins: saveRef.current.coins - h.price,
+                    };
+                    toast(`${h.name}: room booked, ${N(h.price)}.`, "good");
+                    if (h.perks) need(h.perks);
+                    onActionRef.current("sleep");
+                  }}
+                  className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
+                >
+                  Book a night · {N(h.price)}
+                </button>
+                {short && (
+                  <p className="mt-1 text-[12px] text-[#b8573a]">Not enough money for this one.</p>
+                )}
+              </div>
+            );
+          })}
           {!atHome && (
             <button
               onClick={() => {
@@ -8233,7 +9025,14 @@ function CityGame({
     );
 
   return (
-    <div className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]">
+    <div
+      ref={worldRoot}
+      data-no-translate
+      dir="ltr"
+      data-lang={worldLang}
+      className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]"
+    >
+      <style>{WORLD_I18N_CSS}</style>
       <div ref={host} className="absolute inset-0" />
       {!shown && (
         <div className="absolute inset-0 z-[100] grid place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
@@ -8347,16 +9146,19 @@ function CityGame({
                     badge={badgeOf(saveRef.current)}
                     home={
                       saveRef.current.homePlot
-                        ? `Family house · ${districtById(saveRef.current.homeArea ?? "lekki").name}`
-                        : flatName(saveRef.current.homeArea ?? "lekki").replace("Your flat · ", "")
+                        ? `Family house · ${districtById(saveRef.current.homeArea ?? DEFAULT_AREA).name}`
+                        : flatName(saveRef.current.homeArea ?? DEFAULT_AREA).replace(
+                            "Your flat · ",
+                            "",
+                          )
                     }
                     rent={
                       saveRef.current.homePlot
                         ? null
                         : {
-                            area: saveRef.current.homeArea ?? "lekki",
+                            area: saveRef.current.homeArea ?? DEFAULT_AREA,
                             until: saveRef.current.lease?.until ?? 0,
-                            weekly: flatRent(saveRef.current.homeArea ?? "lekki"),
+                            weekly: flatRent(saveRef.current.homeArea ?? DEFAULT_AREA),
                           }
                     }
                     items={[
@@ -8459,7 +9261,7 @@ function CityGame({
               📱 Phone
             </button>
           )}
-          {!!bikeHere(save, areaNow ?? save.district ?? "lekki") && !driving && !inside && (
+          {!!bikeHere(save, areaNow ?? save.district ?? DEFAULT_AREA) && !driving && !inside && (
             <button
               onClick={() => toggleBike()}
               className="pointer-events-auto rounded-xl bg-[#fdf8ec] px-3 py-1.5 text-[12px] font-bold text-[#1f6f63] shadow"
@@ -8737,7 +9539,7 @@ function CityGame({
                 }
                 if (e?.scenePlace() === "out") {
                   // away from home: sit down where you are and eat, like at a park
-                  if (e.districtId() !== (saveRef.current.homeArea ?? "lekki")) openMeal(meal);
+                  if (e.districtId() !== (saveRef.current.homeArea ?? DEFAULT_AREA)) openMeal(meal);
                   else if (!e.goToZone("door:home:")) toast("Go into a house to eat.");
                 } else openMeal(meal);
                 return;
@@ -8759,7 +9561,7 @@ function CityGame({
                   ? `${meal.icon} Sit at a table to eat · tap for the way`
                   : inside
                     ? `${meal.icon} Tap here: wash your hands, then eat`
-                    : engine.current?.districtId() !== (save.homeArea ?? "lekki")
+                    : engine.current?.districtId() !== (save.homeArea ?? DEFAULT_AREA)
                       ? `${meal.icon} Sit down here, wash your hands and eat · tap`
                       : `${meal.icon} Go inside, wash your hands, then eat · tap to walk home`
                 : "😩 I'm hungry · tap to order food"}
@@ -8805,7 +9607,9 @@ function CityGame({
         )}
         {!inside &&
           !driving &&
-          districtById(save.district ?? "lekki").landmarks.some((l) => l.kind === "masjid") && (
+          districtById(save.district ?? DEFAULT_AREA).landmarks.some(
+            (l) => l.kind === "masjid",
+          ) && (
             <span
               className={`rounded-full px-3 py-1 text-[11.5px] font-semibold ${ms.open || areaLecture ? "bg-[#1f6f63] text-[#fdf8ec]" : "bg-[#fdf8ec]/90 text-[#10201e]"}`}
             >
@@ -9042,7 +9846,7 @@ function CityGame({
             </div>
             <div className="min-w-0 leading-tight">
               <div className="text-[15px] font-bold">
-                {districtById(save.district ?? "lekki").holy ? "On the bus" : "On the danfo"} ·{" "}
+                {districtById(save.district ?? DEFAULT_AREA).holy ? "On the bus" : "On the bus"} ·{" "}
                 {ride.kmh} km/h
               </div>
               <div className="truncate text-[12.5px] opacity-80">Next stop: {ride.next}</div>
@@ -9098,15 +9902,48 @@ function CityGame({
         >
           <div className="rounded-2xl border-2 border-[#e6b84a] bg-[#1f6f63]/95 px-6 py-4 text-center text-[#fdf8ec] shadow-2xl">
             <div className="text-[12px] font-semibold uppercase tracking-[0.15em] text-[#e6b84a]">
-              {countryOf(districtById(save.district ?? "lekki")) === "Nigeria"
-                ? `${districtById(save.district ?? "lekki").state} State`
-                : countryOf(districtById(save.district ?? "lekki"))}
+              {countryOf(districtById(save.district ?? DEFAULT_AREA)) === "Nigeria"
+                ? `${districtById(save.district ?? DEFAULT_AREA).state} State`
+                : countryOf(districtById(save.district ?? DEFAULT_AREA))}
             </div>
             <div className="font-serif text-3xl leading-tight">Welcome to {arriving}</div>
           </div>
         </div>
       )}
       {travelling && <TravelMap {...travelling} onDone={() => arriveRef.current?.()} />}
+      {busTrip && (
+        <BusCard
+          trip={busTrip}
+          onArrive={() => {
+            busRef.current = null;
+            setBusTrip(null);
+            const en = engine.current;
+            en?.leaveCabin();
+            if (en && en.scenePlace() !== "out") en.exitInterior();
+            arriveRef.current?.();
+          }}
+        />
+      )}
+      {flight && (
+        <FlightCard
+          t={flight}
+          onServe={(stage, meal) => engine.current?.cabinServe(stage, meal)}
+          onAte={(full) => {
+            need({ hunger: full ? 60 : 15 });
+            if (full) update((x) => ({ ...x, coins: x.coins + 2 }));
+          }}
+          onMiqat={() => {
+            update((x) => ({ ...x, umrah: { done: x.umrah?.done ?? 0, stage: "enter" } }));
+            sayDhikr("talbiyah");
+          }}
+          onLand={() => {
+            const t = flight;
+            ticketRef.current = null;
+            setFlight(null);
+            t.arrive();
+          }}
+        />
+      )}
       {panel && (
         <Sheet
           panel={panel}
@@ -9412,6 +10249,8 @@ function Sheet({
   quizLeft: number;
 }) {
   const [pct, setPct] = useState(0);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (panel.kind !== "busy") return;
     const t0 = performance.now();
@@ -9422,12 +10261,12 @@ function Sheet({
       if (p < 1) raf = requestAnimationFrame(tick);
       else {
         panel.done();
-        onClose();
+        closeRef.current();
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [panel, onClose]);
+  }, [panel]);
   if (panel.kind === "info" && panel.phone)
     return (
       <PhoneFrame title={panel.title} onHome={panel.phone.home} onClose={onClose}>
@@ -9437,7 +10276,11 @@ function Sheet({
   return (
     <div
       data-game-ui
-      className="absolute inset-0 flex items-end justify-center bg-black/30 p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:items-center"
+      className={
+        panel.kind === "busy"
+          ? "pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+          : "absolute inset-0 flex items-end justify-center bg-black/30 p-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:items-center"
+      }
       onClick={panel.kind === "busy" ? undefined : onClose}
     >
       <div
@@ -9738,7 +10581,7 @@ function TalkView({
           masjid ? "Where is the masjid?" : "Is there a masjid near here?",
           masjid
             ? `${masjid.name} is on ${STREETS[masjid.street].name}. ${nxt ? `${nxt.name} is at ${fmtTime(nxt.start)}, in shaa Allah.` : ""}`
-            : `Not in ${D.name} yet. Take a danfo to Lekki or Egbeda, they have big masjids.`,
+            : `Not in ${D.name} yet. Take a bus to Al-Masjid An-Nabawi.`,
           masjid ? "agree" : "headShake",
         ),
     },
@@ -9893,7 +10736,7 @@ function topicReply(
     return {
       text: masjid
         ? `${masjid.name} is on ${STREETS[masjid.street]?.name}. ${c.nextPrayer ? `The next prayer is ${c.nextPrayer}.` : ""}`
-        : "There is no masjid in this area yet. Take a danfo to the next area.",
+        : "There is no masjid in this area yet. Take a bus to the next area.",
       nod: masjid ? "agree" : "headShake",
     };
   if (has("rent", "house", "land", "flat", "apartment"))
@@ -9908,7 +10751,7 @@ function topicReply(
     };
   if (has("bus", "danfo", "travel", "go to", "keke", "road"))
     return {
-      text: "Wait at the blue bus stop and a danfo will come. Or tap Travel at the top.",
+      text: "Wait at the blue bus stop and a bus will come. Or tap Travel at the top.",
       nod: "agree",
     };
   if (has("school", "learn", "quiz", "class", "study", "madrasah"))
@@ -11358,38 +12201,42 @@ function Onboarding({
       >
         <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
           <h2 className="font-serif text-2xl">Where do you want to start?</h2>
-          <p className="text-[13px] opacity-75">You can travel anywhere later by danfo or car.</p>
+          <p className="text-[13px] opacity-75">You can travel anywhere later by bus or car.</p>
           <div className="mt-3 space-y-2 overflow-y-auto">
-            {DISTRICTS.filter((d) => !d.holy && !d.landmarks.some((l) => l.kind === "airport")).map(
-              (d, i, all) => (
-                <div key={d.id}>
-                  {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
-                    <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
-                      {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}, {d.state}{" "}
-                      State
-                    </div>
-                  )}
-                  <button
-                    onClick={() => {
-                      setArea(d.id);
-                      setStep("life");
-                    }}
-                    className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
-                  >
-                    <div className="text-[15px] font-bold">{fullName(d)}</div>
-                    <div className="text-[12px] opacity-75">
-                      {[
-                        STREETS[d.streets[0].id]?.name,
-                        ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
-                      ]
-                        .filter(Boolean)
-                        .slice(0, 3)
-                        .join(" · ")}
-                    </div>
-                  </button>
-                </div>
-              ),
-            )}
+            {DISTRICTS.filter(
+              (d) =>
+                !d.holy &&
+                cityLive(cityOf(d)) &&
+                !d.landmarks.some((l) => l.kind === "airport") &&
+                d.id !== "dhulhulayfah",
+            ).map((d, i, all) => (
+              <div key={d.id}>
+                {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
+                  <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
+                    {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}
+                    {countryOf(d) === "Nigeria" ? `, ${d.state} State` : `, ${countryOf(d)}`}
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    setArea(d.id);
+                    setStep("life");
+                  }}
+                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left active:bg-[#1f6f63]/10"
+                >
+                  <div className="text-[15px] font-bold">{fullName(d)}</div>
+                  <div className="text-[12px] opacity-75">
+                    {[
+                      STREETS[d.streets[0].id]?.name,
+                      ...d.landmarks.filter((l) => l.kind !== "home").map((l) => l.name),
+                    ]
+                      .filter(Boolean)
+                      .slice(0, 3)
+                      .join(" · ")}
+                  </div>
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -11406,8 +12253,8 @@ function Onboarding({
             Ilm<span className="text-[#45b8a8]">World</span>
           </div>
           <p className="mt-3 text-[16px] leading-snug opacity-90">
-            A Muslim world in Lagos and Ilorin that runs on real prayer times. Pray, learn, travel
-            by danfo, rent a home and run your own business.
+            Live in Madinah, the city of the Prophet ﷺ, on real prayer times. Pray in Al-Masjid
+            An-Nabawi, study at the Islamic University, own a home, and travel to Makkah for Umrah.
           </p>
           <ul className="mt-4 space-y-1.5 text-[14px] opacity-90">
             <li>🕌 Mosques with lectures, jama'ah and quizzes</li>
@@ -11600,8 +12447,8 @@ const GUIDE: GuideStep[] = [
   },
   {
     id: "ride",
-    title: "Ride a keke or danfo",
-    text: "Stand by the road and a keke will stop for you, or take a danfo from a bus stop to another area.",
+    title: "Ride a taxi or bus",
+    text: "Stand by the road and a taxi will stop for you, or take a bus from a bus stop to another area.",
     go: { prefix: "busstop:", label: "Show me a bus stop" },
   },
   {
@@ -11813,7 +12660,7 @@ function placesIn(id: string): Place[] {
   out.push({
     icon: "🚌",
     name: `${D.busStop ?? D.name} Bus Stop`,
-    sub: "Danfo to other areas",
+    sub: "Bus to other areas",
     prefix: "busstop:",
   });
   return out;
@@ -12468,7 +13315,7 @@ function RaceNews({
       </p>
       {r.kind === "bike" && !hasBike && (
         <p className="rounded-xl bg-[#fff7df] p-3 text-[13px]">
-          You need a bicycle: buy one at IlmMotors in Ikeja or Lekki.
+          You need a bicycle: buy one at IlmMotors in Shuran or Al-Khalidiyyah.
         </p>
       )}
       <button
@@ -13311,7 +14158,7 @@ function OutingView({
           <div className="text-[17px] font-black">Where do you want to go?</div>
           <div className="text-[12px] opacity-80">
             Powered by OutingStation · rides{" "}
-            {driving ? "petrol from your tank" : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
+            {driving ? "petrol from your tank" : `${N(BUS_FARE)} by bus`} · you have {N(coins)}
           </div>
         </div>
       </div>
@@ -13330,27 +14177,6 @@ function OutingView({
         <p className="text-[13px] opacity-70">
           Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
         </p>
-      )}
-      {tab === "travel" && (
-        <div className="space-y-1.5">
-          <div className="text-[12px] font-bold uppercase opacity-60">
-            Other cities · coming soon
-          </div>
-          {WORLD_CITIES.filter((c) => !c.live).map((c) => (
-            <div
-              key={c.id}
-              className="rounded-xl border border-dashed border-[#10201e]/20 bg-white/60 px-3 py-2"
-            >
-              <div className="text-[14px] font-bold">
-                {c.name}, {c.country === "Nigeria" ? `${c.state} State` : c.country}
-                <span className="ml-1.5 rounded bg-[#f2b84b] px-1.5 py-0.5 text-[10px] font-bold">
-                  SOON
-                </span>
-              </div>
-              <div className="text-[12px] opacity-70">{c.blurb}</div>
-            </div>
-          ))}
-        </div>
       )}
       <div className="max-h-[52vh] space-y-2 overflow-y-auto">
         {list.map((p) => {
@@ -13491,6 +14317,7 @@ function ChatView({
         {msgs.map((m) => (
           <div
             key={m.id}
+            data-keep
             className={`max-w-[85%] rounded-2xl px-3 py-2 text-[14px] ${m.from === me ? "ml-auto bg-[#1f6f63] text-[#fdf8ec]" : "bg-white"}`}
           >
             {m.text}
@@ -14218,7 +15045,7 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
   const t = s.tasks ?? {};
   const n = s.needs;
   const cp = currentPrayer(c);
-  const home = s.homeArea ?? "lekki";
+  const home = s.homeArea ?? DEFAULT_AREA;
   const homeDoor = s.homePlot
     ? `plot:${s.homePlot}`
     : `door:home:${home === "lekki" ? "home" : home}`;
@@ -14661,9 +15488,74 @@ function smallDhikr(c: Clock) {
   return { ...SMALL_DHIKR[block % SMALL_DHIKR.length], task: `dhikr${block}` };
 }
 
-/** A night in a hotel, in ₦10 units: dearer in Makkah and Madinah. */
-function hotelPrice(area: string) {
-  return districtById(area).holy ? 1200 : 600;
+/** Hotels for the night, cheap to grand (prices in ₦10 units). Grander rooms come with
+    more: a shower, breakfast, and in Makkah and Madinah a view of the Haram. */
+type Hotel = {
+  name: string;
+  icon: string;
+  tier: string;
+  price: number;
+  about: string;
+  perks?: Partial<Record<"hunger" | "energy" | "iman" | "social" | "clean", number>>;
+};
+function hotelsFor(area: string): Hotel[] {
+  const D = districtById(area);
+  const city = cityOf(D);
+  if (city === "makkah" || city === "madinah") {
+    const mk = city === "makkah";
+    return [
+      {
+        name: mk ? "Aziziyah Pilgrims' Lodge" : "Al-Ansar Pilgrims' Lodge",
+        icon: "🛏️",
+        tier: "Budget",
+        price: 300,
+        about: "A shared room with other pilgrims, a short bus ride from the Haram. Sleep well.",
+      },
+      {
+        name: mk ? "Al-Safwah Hotel" : "Al-Madinah Hotel",
+        icon: "🏨",
+        tier: "Standard",
+        price: 900,
+        about: "Your own room, a walk from the Haram. Sleep, then a hot shower.",
+        perks: { clean: 20 },
+      },
+      {
+        name: mk ? "Clock Tower Suites · Kaaba view" : "Nabawi View Suites",
+        icon: "🌟",
+        tier: "Luxury",
+        price: 3500,
+        about: mk
+          ? "A suite over the Haram with a view of the Kaaba. Breakfast and a shower included."
+          : "A suite facing Al-Masjid An-Nabawi and the Green Dome. Breakfast and a shower included.",
+        perks: { clean: 25, hunger: 50, iman: 15 },
+      },
+    ];
+  }
+  return [
+    {
+      name: `${D.name} Guest House`,
+      icon: "🛏️",
+      tier: "Budget",
+      price: 250,
+      about: "A simple, clean room for the night.",
+    },
+    {
+      name: `${D.name} City Hotel`,
+      icon: "🏨",
+      tier: "Standard",
+      price: 600,
+      about: "A good room with a fan and a hot shower.",
+      perks: { clean: 20 },
+    },
+    {
+      name: `${D.name} Grand Hotel`,
+      icon: "🌟",
+      tier: "Luxury",
+      price: 2500,
+      about: "Air-conditioned suite, buffet breakfast and a pool. You wake up like new.",
+      perks: { clean: 25, hunger: 50, social: 10 },
+    },
+  ];
 }
 
 /* ---------------- graphics setting ---------------- */
@@ -15085,7 +15977,15 @@ function InClassView({
   complexArea,
   onCorrect,
   onLeave,
+  onScreen,
+  dept0,
+  level0,
 }: {
+  /** a department's classroom: already in this department and level */
+  dept0?: Dept;
+  level0?: number;
+  /** show what the class is on, on the lecture theatre's screen */
+  onScreen?: (title: string, sub: string) => void;
   library: boolean;
   about: string;
   /** the Faculties Complex of this university area: choose a faculty first */
@@ -15096,13 +15996,13 @@ function InClassView({
   onLeave: () => void;
 }) {
   const [depts, setDepts] = useState<Dept[] | null>(null);
-  const [dept, setDept] = useState<Dept | null>(null);
-  const [level, setLevel] = useState<number | null>(null);
+  const [dept, setDept] = useState<Dept | null>(dept0 ?? null);
+  const [level, setLevel] = useState<number | null>(level0 ?? null);
   const [courses, setCourses] = useState<{ code: string; title: string }[] | null>(null);
   const [course, setCourse] = useState<{ code: string; title: string } | null>(null);
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [topic, setTopic] = useState<Topic | null>(null);
-  const [browsing, setBrowsing] = useState(false);
+  const [browsing, setBrowsing] = useState(!!dept0);
   const [facs, setFacs] = useState<string[] | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const faculty = complexArea ? (chosen ?? undefined) : faculty0;
@@ -15124,6 +16024,19 @@ function InClassView({
     if (dept && course && faculty) void courseTopics(dept, faculty, course).then(setTopics);
   }, [dept, course, faculty]);
   const quiz = topic?.qs;
+  const screen = useRef(onScreen);
+  screen.current = onScreen;
+  useEffect(() => {
+    const f = screen.current;
+    if (!f) return;
+    if (course)
+      f(
+        `${course.code} · ${course.title}`,
+        topic ? `Topic: ${topic.title}` : `${dept?.name ?? ""} · ${level ?? ""} Level`,
+      );
+    else if (dept && level) f(`${dept.name}`, `${level} Level · choose your course`);
+    else if (dept) f(`${dept.name}`, "Choose your level");
+  }, [course, topic, dept, level]);
   const pick = "w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-2.5 text-left";
   const back = (fn: () => void) => (
     <button onClick={fn} className="text-[12.5px] underline opacity-70">
@@ -15500,7 +16413,7 @@ function RadioView({
       </div>
       <label className="flex items-center justify-between rounded-xl bg-white p-3 text-[14px]">
         <span>
-          <b>Radio in danfo, keke and car</b>
+          <b>Radio in bus, taxi and car</b>
           <br />
           <span className="text-[12px] opacity-70">Each one plays its own reciter</span>
         </span>
@@ -15697,7 +16610,7 @@ function MssnView({
         onClick={onQuiz}
         className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
       >
-        📝 Take the MSSN Islamic quiz
+        📝 Take the {districtById(area).club ? "" : "MSSN "}Islamic quiz
       </button>
       {!mine &&
         (pick ? (
@@ -15721,7 +16634,9 @@ function MssnView({
           </button>
         ))}
       <div className="rounded-xl bg-white p-3">
-        <div className="text-[13px] font-semibold">Ask the MSSN a question</div>
+        <div className="text-[13px] font-semibold">
+          Ask {districtById(area).club ?? "the MSSN"} a question
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 400))}
@@ -16264,7 +17179,9 @@ function travelOptions(here: string) {
     }));
   const city = cityOf(districtById(here));
   const country = countryOf(districtById(here));
-  const away = DISTRICTS.filter((d) => !d.parent && d.id !== hereRoot && countryOf(d) === country)
+  const away = DISTRICTS.filter(
+    (d) => !d.parent && d.id !== hereRoot && countryOf(d) === country && cityLive(cityOf(d)),
+  )
     .sort((a, b) => Number(cityOf(a) !== city) - Number(cityOf(b) !== city))
     .map((d) => {
       const stops = stopsOf(d.id);
@@ -16531,6 +17448,29 @@ function PhoneView({
   onPlaces: () => void;
 }) {
   const now = new Date();
+  const { lang, set: setLang } = useAppLanguage();
+  const langs = useLiveAppLanguages();
+  const [pickLang, setPickLang] = useState(false);
+  if (pickLang)
+    return (
+      <div className="flex h-full min-h-[520px] flex-col gap-2 pt-6 text-white">
+        <div className="text-center text-[20px] font-bold">🌍 Language</div>
+        <p className="text-center text-[12px] opacity-75">The same language as your IlmStation app.</p>
+        <div data-keep className="mt-2 grid gap-2">
+          {langs.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => { setLang(l.code); setPickLang(false); }}
+              className={`flex items-center justify-between rounded-2xl px-4 py-3 text-left ${l.code === lang ? "bg-[#45b8a8] text-[#10201e]" : "bg-white/15"}`}
+            >
+              <span dir={l.dir} className="text-[16px] font-bold">{l.native}</span>
+              <span className="text-[12px] opacity-75">{l.label}{l.code === lang ? " ✓" : ""}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setPickLang(false)} className="mt-auto rounded-2xl bg-white/15 py-3 font-bold">Back</button>
+      </div>
+    );
   const icon = (bg: string, e: ReactNode, name: string, on?: () => void) => (
     <button
       key={name}
@@ -16551,10 +17491,10 @@ function PhoneView({
     <div className="flex h-full min-h-[520px] flex-col">
       <div className="pt-6 text-center text-white">
         <div className="text-[54px] font-light leading-none tracking-tight">
-          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {now.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" })}
         </div>
         <div className="mt-1 text-[13px] opacity-80">
-          {now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
+          {now.toLocaleDateString(lang, { weekday: "long", day: "numeric", month: "long" })}
         </div>
         {myNumber && (
           <div className="mx-auto mt-2 w-fit rounded-full bg-white/15 px-3 py-1 text-[12px] font-semibold tracking-wide">
@@ -16578,6 +17518,7 @@ function PhoneView({
         {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
         {icon("#1d6b3a", "💰", "Wallet", onWallet)}
         {icon("#7a5a2a", "🏨", "Hotel", onHotel)}
+        {icon("#2b5f8a", "🌍", "Language", () => setPickLang(true))}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">
@@ -16587,6 +17528,348 @@ function PhoneView({
           {icon("#1f6f63", "📍", "Places", onPlaces)}
         </div>
       </div>
+    </div>
+  );
+}
+
+type Ticket = {
+  dest: string;
+  destName: string;
+  fromName: string;
+  business: boolean;
+  flight: string;
+  seat: string;
+  seatN: number;
+  gate: string;
+  step: "checkin" | "security" | "board";
+  /** going for Umrah: ihram at the airport, the intention at the miqat */
+  umrah?: boolean;
+  dressed?: boolean;
+  arrive: () => void;
+};
+
+/** The boarding pass the check-in agent prints for you. */
+function BoardingPass({ t, name, onGo }: { t: Ticket; name: string; onGo: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] opacity-75">
+        Assalamu alaikum! Here is your boarding pass. Your bag is checked in.
+      </p>
+      <div className="overflow-hidden rounded-2xl bg-white shadow">
+        <div className="flex items-center justify-between bg-[#1f3d5a] px-4 py-2 text-[#fdf8ec]">
+          <b>✈ IlmAir</b>
+          <span className="text-[12px] font-bold text-[#e6b84a]">
+            {t.business ? "BUSINESS" : "ECONOMY"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 p-4 text-[13px]">
+          <div>
+            <div className="opacity-60">Passenger</div>
+            <b>{name || "Passenger"}</b>
+          </div>
+          <div>
+            <div className="opacity-60">Flight</div>
+            <b>{t.flight}</b>
+          </div>
+          <div>
+            <div className="opacity-60">From</div>
+            <b>{t.fromName}</b>
+          </div>
+          <div>
+            <div className="opacity-60">To</div>
+            <b>{t.destName}</b>
+          </div>
+          <div>
+            <div className="opacity-60">Gate</div>
+            <b>{t.gate}</b>
+          </div>
+          <div>
+            <div className="opacity-60">Seat</div>
+            <b>{t.seat}</b>
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={onGo}
+        className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+      >
+        Go to security
+      </button>
+    </div>
+  );
+}
+
+/** On the plane: seatbelt and the du'a for travelling, the crew's question for your meal,
+    then landing. */
+function FlightCard({
+  t,
+  onServe,
+  onAte,
+  onLand,
+  onMiqat,
+}: {
+  t: Ticket;
+  onMiqat?: () => void;
+  onServe: (stage: "coming" | "served" | "away", meal?: boolean) => void;
+  onAte: (full: boolean) => void;
+  onLand: () => void;
+}) {
+  const [phase, setPhase] = useState<"belt" | "fly" | "meal" | "miqat" | "landing">("belt");
+  const [q] = useState(() => QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]);
+  const [picked, setPicked] = useState<number | null>(null);
+  const d = PLACE_DHIKR.ride;
+  const serve = useRef(onServe);
+  serve.current = onServe;
+  useEffect(() => {
+    if (phase !== "fly") return;
+    const id = setTimeout(() => {
+      serve.current("coming");
+      setPhase("meal");
+    }, 3500);
+    return () => clearTimeout(id);
+  }, [phase]);
+  return (
+    <div
+      data-game-ui
+      className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+    >
+      <div className="pointer-events-auto max-h-[60vh] w-full max-w-md overflow-auto rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        <div className="mb-2 flex items-center justify-between text-[12px] font-bold opacity-70">
+          <span>
+            ✈ {t.flight} · {t.fromName} → {t.destName}
+          </span>
+          <span>Seat {t.seat}</span>
+        </div>
+        {phase === "belt" && (
+          <div className="space-y-2">
+            <div className="font-bold">Welcome aboard! Fasten your seatbelt. 🔒</div>
+            <p className="text-[13px] opacity-75">Say the du'a for travelling as we take off:</p>
+            <p dir="rtl" className="font-serif text-xl leading-loose">
+              {d.arabic}
+            </p>
+            <p className="text-[12.5px] italic opacity-80">{d.say}</p>
+            <button
+              onClick={() => setPhase("fly")}
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+            >
+              Ameen · take off
+            </button>
+          </div>
+        )}
+        {phase === "fly" && (
+          <div className="font-bold">
+            We're in the air. The cabin crew will be with you soon… ☁️
+          </div>
+        )}
+        {phase === "meal" && (
+          <div className="space-y-2">
+            <div className="font-bold">The cabin crew: "Answer this and your meal is served!"</div>
+            <p className="text-[15px]">{q.q}</p>
+            {q.o.map((o, i) => (
+              <button
+                key={i}
+                disabled={picked !== null}
+                onClick={() => {
+                  setPicked(i);
+                  const ok = i === q.a;
+                  onServe("served", ok);
+                  onAte(ok);
+                }}
+                className={`w-full rounded-xl border px-4 py-2 text-left font-semibold ${
+                  picked === null
+                    ? "border-[#10201e]/15 bg-white"
+                    : i === q.a
+                      ? "border-[#1d6b3a] bg-[#dff2e3]"
+                      : i === picked
+                        ? "border-[#b3262e] bg-[#f8e0e0]"
+                        : "border-[#10201e]/10 bg-white opacity-60"
+                }`}
+              >
+                {o}
+              </button>
+            ))}
+            {picked !== null && (
+              <>
+                <p className="text-[13px]">
+                  <b>
+                    {picked === q.a
+                      ? "Correct! Your hot meal is served. Bismillah."
+                      : "Not quite. Here are dates and water."}
+                  </b>{" "}
+                  {q.e}
+                </p>
+                <button
+                  onClick={() => {
+                    onServe("away");
+                    setPhase(t.umrah ? "miqat" : "landing");
+                  }}
+                  className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                >
+                  Alhamdulillah · carry on
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {phase === "miqat" && (
+          <div className="space-y-2">
+            <div className="font-bold">The captain: "We will pass the miqat in a few minutes."</div>
+            <p className="text-[13px] opacity-80">
+              Make your intention for Umrah now, in your seat, and begin the Talbiyah.
+            </p>
+            <p dir="rtl" className="font-serif text-xl leading-loose">
+              لَبَّيْكَ اللَّهُمَّ عُمْرَةً
+            </p>
+            <button
+              onClick={() => {
+                onMiqat?.();
+                setPhase("landing");
+              }}
+              className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+            >
+              🤍 Labbayk Allahumma 'Umrah
+            </button>
+          </div>
+        )}
+        {phase === "landing" && (
+          <div className="space-y-2">
+            <div className="font-bold">We'll soon land in {t.destName}. Seatbelts on, please.</div>
+            <button
+              onClick={onLand}
+              className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white"
+            >
+              Land and get off ✈
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type BusTrip = { from: string; to: string; toName: string; seat: string; far: boolean };
+
+/** On the bus: your seat, the du'a for travelling, and the road to where you're going. */
+function BusCard({ trip, onArrive }: { trip: BusTrip; onArrive: () => void }) {
+  const ms = trip.far ? 14000 : 7000;
+  const [pct, setPct] = useState(0);
+  const done = useRef(onArrive);
+  done.current = onArrive;
+  useEffect(() => {
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - t0) / ms);
+      setPct(p);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else done.current();
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [ms]);
+  const d = PLACE_DHIKR.ride;
+  return (
+    <div
+      data-game-ui
+      className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+    >
+      <div className="pointer-events-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
+        <div className="mb-1 flex items-center justify-between text-[12px] font-bold opacity-70">
+          <span>
+            🚌 {trip.far ? "Inter-city bus" : "Bus"} to {trip.toName}
+          </span>
+          <span>Seat {trip.seat}</span>
+        </div>
+        {pct < 0.4 ? (
+          <>
+            <p dir="rtl" className="font-serif text-lg leading-loose">
+              {d.arabic}
+            </p>
+            <p className="text-[12px] italic opacity-75">{d.say}</p>
+          </>
+        ) : (
+          <p className="text-[14px] font-semibold">
+            {pct < 0.85
+              ? "On the road… look out of the window. 🌴"
+              : `Nearly there: ${trip.toName}! Get your things ready.`}
+          </p>
+        )}
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
+          <div className="h-full bg-[#1f6f63]" style={{ width: `${pct * 100}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type CorridorRoom = { dept: Dept; level: number };
+type CorridorState = {
+  id: string;
+  faculty: string;
+  top: string;
+  pairs: CorridorRoom[];
+  floor: number;
+  entering?: boolean;
+};
+const FLOOR_NAMES = ["Ground floor", "First floor", "Second floor", "Third floor"];
+/** Twelve classrooms a floor: the lower levels downstairs, the higher levels upstairs. */
+function corridorRooms(c: CorridorState) {
+  return c.pairs
+    .slice(c.floor * 12, c.floor * 12 + 12)
+    .map((p) => ({ a: p.dept.name, b: `${p.level} Level` }));
+}
+function corridorFloorName(c: CorridorState) {
+  const here = c.pairs.slice(c.floor * 12, c.floor * 12 + 12).map((p) => p.level);
+  const lo = Math.min(...here),
+    hi = Math.max(...here);
+  return `${FLOOR_NAMES[c.floor] ?? `Floor ${c.floor}`} · ${lo === hi ? lo : `${lo} to ${hi}`} Level`;
+}
+
+/** Who else is in this class (real players): chat with them, or hide your own name. */
+function Classmates({
+  list,
+  hidden,
+  onHide,
+  onChat,
+}: {
+  list: () => { uid: string; name: string }[];
+  hidden: () => boolean;
+  onHide: (h: boolean) => void;
+  onChat: (m: { uid: string; name: string }) => void;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 2500);
+    return () => clearInterval(id);
+  }, []);
+  const mates = list();
+  const hid = hidden();
+  return (
+    <div className="mb-3 rounded-xl bg-white p-3 text-[13px]">
+      <div className="mb-1 flex items-center justify-between">
+        <b>👥 In class with you ({mates.length})</b>
+        <button
+          onClick={() => onHide(!hid)}
+          className="text-[12px] font-bold text-[#1f6f63] underline"
+        >
+          {hid ? "Show my name" : "Hide my name"}
+        </button>
+      </div>
+      {mates.length === 0 ? (
+        <p className="opacity-65">No classmates here right now. Invite a friend to this class!</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {mates.map((m) => (
+            <button
+              key={m.uid}
+              onClick={() => onChat({ uid: m.uid, name: m.name || "A classmate" })}
+              className="rounded-full bg-[#e8f2ef] px-3 py-1 font-semibold"
+            >
+              💬 {m.name || "A classmate"}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
