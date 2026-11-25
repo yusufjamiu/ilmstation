@@ -1,3 +1,5 @@
+import { Lamp as BLamp, KeyRound as BKey, Sprout as BSprout, Star as BStar, Sun as BSun, Eye as BEye, BookOpen as BBook, Crown as BCrown } from "lucide-react";
+import { createPortal as yPortal } from "react-dom";
 import { QuizFeedback, QuizNext, QuizOption, QuizProgress, QuizQuestion } from "@/components/quiz-ui";
 import { Moon as HMoon } from "lucide-react";
 import { useRamadanCountdown } from "@/components/ramadan";
@@ -52,28 +54,82 @@ import { adultBadges, earnedBadges, isEarned, nextBadge, progressToNext, remaini
 import { ShareActions, type ShareCard } from "@/components/share-actions";
 import { QuizVisual, quizQuestionsFor } from "@/components/quiz-visual";
 
-/** Demo learning record for the signed-in adult account. */
-const myRecord = { stars: 0, streak: 0, mastery: 0, kindness: 0 };
+type BadgeT = (typeof adultBadges)[number];
+const BADGE_AR: Record<string, string> = { hidayah: "مَنارَةُ الهِدايَة", understanding: "مِفْتاحُ الفَهْم", garden: "رَوْضَةُ العِلْم", ihsan: "نَجْمَةُ الإحْسان", yaqeen: "نُورُ اليَقِين", basirah: "عَيْنُ البَصِيرَة", seal: "خاتَمُ العِلْم", taqwa: "تاجُ التَّقْوَى" };
+const BADGE_ICON: Record<string, typeof Trophy> = { hidayah: BLamp, understanding: BKey, garden: BSprout, ihsan: BStar, yaqeen: BSun, basirah: BEye, seal: BBook, taqwa: BCrown };
+/* real record: badge points = lifetime XP; quests-first-try and kind acts are not tracked yet, so they don't block badges */
+function useMyRecord() {
+  const [r, setR] = useState({ stars: 0, streak: 0, mastery: 1e9, kindness: 1e9 });
+  useEffect(() => {
+    const u = yAuth.currentUser; if (!u) return;
+    void Promise.all([yGet(yDoc(yDb, "players", u.uid)), yGet(yDoc(yDb, "profiles", u.uid))]).then(([a, b]) => {
+      const pa = (a.data() ?? {}) as Record<string, unknown>, pb = (b.data() ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === "number" ? v : 0);
+      setR({ stars: num(pa.xp) || num(pb.xp), streak: num(pa.streak) || num(pb.streak), mastery: 1e9, kindness: 1e9 });
+    }).catch(() => {});
+  }, []);
+  return r;
+}
+const reqText = (b: BadgeT) => `${b.points.toLocaleString()} XP${b.streak ? ` and a ${b.streak}-day streak` : ""}`;
+function Medal({ b, got, size }: { b: BadgeT; got: boolean; size: number }) {
+  const I = BADGE_ICON[b.id] ?? Trophy;
+  return <span className="grid shrink-0 place-items-center rounded-full" style={{ width: size, height: size,
+    background: got ? "radial-gradient(circle at 35% 30%,#fff3b0,#f5c542 45%,#b8861a 100%)" : "radial-gradient(circle at 35% 30%,#f2f2f2,#bdbdbd 60%,#8a8a8a)",
+    boxShadow: `0 0 0 ${Math.max(2, size / 30)}px #1c1a17, 0 0 0 ${Math.max(4, size / 15)}px ${got ? "#c8961e" : "#8a8a8a"}` }}>
+    <span className="grid place-items-center rounded-full" style={{ width: size * 0.7, height: size * 0.7, background: got ? "#f8d86a" : "#d4d4d4", boxShadow: "inset 0 2px 6px rgba(0,0,0,.25)" }}>
+      <I style={{ width: size * 0.34, height: size * 0.34, color: "#1c1a17" }} strokeWidth={1.8} /></span></span>;
+}
+async function shareBadge(b: BadgeT) {
+  const data = { title: "IlmStation", text: `I earned the "${b.name}" badge (${BADGE_AR[b.id] ?? ""}) on IlmStation!`, url: "https://www.ilmstation.com" };
+  try { if (navigator.share) { await navigator.share(data); return; } await navigator.clipboard.writeText(`${data.text} ${data.url}`); toast.success("Copied, paste it anywhere"); } catch { /* cancelled */ }
+}
 
 function AchievementsTab() {
-  const p = myRecord;
-  const up = nextBadge(p, adultBadges);
+  const p = useMyRecord();
+  const [open, setOpen] = useState<BadgeT | null>(null);
+  const earned = adultBadges.filter((b) => isEarned(b, p));
+  const up = adultBadges.find((b) => !isEarned(b, p));
+  const stage = earned.at(-1)?.stage ?? "Seeking";
+  const prev = up ? (adultBadges[adultBadges.indexOf(up) - 1]?.points ?? 0) : 0;
+  const parts = up ? [Math.min(1, Math.max(0, (p.stars - prev) / Math.max(1, up.points - prev)))].concat(up.streak ? [Math.min(1, p.streak / up.streak)] : []) : [1];
+  const pct = Math.round((parts.reduce((a, x) => a + x, 0) / parts.length) * 100);
+  const needs = up ? [p.stars < up.points ? `${(up.points - p.stars).toLocaleString()} more XP` : "", up.streak && p.streak < up.streak ? `${up.streak - p.streak} more days in a row` : ""].filter(Boolean) : [];
+  const got = open ? isEarned(open, p) : false;
   return <div className="grid gap-5">
-    <Panel title={`${stageOf(p)} stage`} tag={`${earnedBadges(p, adultBadges).length} of ${adultBadges.length} badges`}>
+    <Panel title={`${stage} stage`} tag={`${earned.length} of ${adultBadges.length} badges`}>
       {up ? <>
-        <p className="flex items-center justify-between text-sm font-semibold"><span>Next: {up.name}</span><span>{progressToNext(p, adultBadges)}%</span></p>
-        <div className="mt-2 h-5 border-2 border-foreground p-0.5"><div className="h-full bg-primary" style={{ width: `${progressToNext(p, adultBadges)}%` }} /></div>
-        <p className="mt-2 text-sm text-muted-foreground">Still needs: {remainingFor(p).length ? remainingFor(p).join(", ") : up.criteria}</p>
+        <p className="flex items-center justify-between text-sm font-semibold"><span>Next: {up.name}</span><span>{pct}%</span></p>
+        <div className="mt-2 h-5 overflow-hidden border-2 border-foreground p-0.5 max-sm:rounded-full"><div className="h-full bg-primary max-sm:rounded-full" style={{ width: `${pct}%` }} /></div>
+        <p className="mt-2 text-sm text-muted-foreground">Still needs: {needs.join(", ")}</p>
+        <p className="mt-1 text-xs text-muted-foreground">You have {p.stars.toLocaleString()} XP{p.streak ? ` · ${p.streak}-day streak` : ""}</p>
       </> : <p>Every badge earned, masha’Allah.</p>}
     </Panel>
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{adultBadges.map((b) => {
-      const got = isEarned(b, p);
-      return <button key={b.id} onClick={() => toast(`${b.name}: ${got ? "earned" : b.criteria}`)} className={cn("border-2 border-foreground p-5 text-center shadow-brutal-sm", got ? "bg-primary" : "bg-muted opacity-60")}>
-        <Trophy className={cn("mx-auto size-8", !got && "opacity-50")} />
-        <b className="mt-3 block font-serif text-xl font-normal leading-tight">{b.name}</b>
-        <small className="text-muted-foreground">{got ? b.stage : `${b.points} pts`}</small>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{adultBadges.map((b) => {
+      const g = isEarned(b, p);
+      return <button key={b.id} onClick={() => setOpen(b)} className={cn("flex flex-col items-center border-2 border-foreground p-4 text-center shadow-brutal-sm", g ? "bg-primary/25" : "bg-muted")}>
+        <Medal b={b} got={g} size={64} />
+        <span dir="rtl" lang="ar" className="mt-4 font-arabic text-base leading-tight">{BADGE_AR[b.id]}</span>
+        <b className="block font-serif text-lg font-normal leading-tight">{b.name}</b>
+        <small className="text-muted-foreground">{g ? "Earned ✓" : `${b.points.toLocaleString()} XP`}</small>
       </button>;
     })}</div>
+    {open && typeof document !== "undefined" && yPortal(<div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-5" onClick={() => setOpen(null)}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm">
+        <div className="overflow-hidden rounded-2xl border-2 border-black bg-[#1c1a17] text-white shadow-[0_6px_0_#000]">
+          <p className={cn("py-3 text-center text-lg font-black uppercase tracking-wide text-[#1c1a17]", got ? "bg-[#f5c542]" : "bg-[#bdbdbd]")}>{got ? "Badge unlocked!" : "Locked badge"}</p>
+          <div className="relative flex flex-col items-center px-6 pb-7 pt-9">
+            <span className={cn("absolute right-4 top-4 rounded-lg px-2 py-0.5 text-sm font-black text-[#1c1a17]", got ? "bg-[#f5c542]" : "bg-[#bdbdbd]")}>{open.points.toLocaleString()} XP</span>
+            <Medal b={open} got={got} size={150} />
+            <p dir="rtl" lang="ar" className="mt-7 font-arabic text-2xl">{BADGE_AR[open.id]}</p>
+            <p className="mt-1 text-center font-mono text-lg font-bold uppercase tracking-widest">{open.name}</p>
+            <p className="mt-2 text-center text-sm text-white/80">{open.meaning}</p>
+            {!got && <p className="mt-3 text-center text-xs text-white/60">To unlock: {reqText(open)}</p>}
+          </div>
+        </div>
+        {got && <button onClick={() => void shareBadge(open)} className="mt-6 w-full rounded-2xl border-2 border-black bg-[#f5c542] py-3.5 font-black uppercase text-[#1c1a17] shadow-[0_4px_0_#000]">Share this badge ▶</button>}
+        <button onClick={() => setOpen(null)} className="mt-3 w-full rounded-2xl border-2 border-black bg-white py-3.5 font-black uppercase text-[#1c1a17] shadow-[0_4px_0_#000]">Close</button>
+      </div>
+    </div>, document.body)}
   </div>;
 }
 import { cn } from "@/lib/utils";
