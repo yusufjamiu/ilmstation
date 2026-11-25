@@ -120,7 +120,7 @@ export function LoginPage() {
         </button>
         <button type="button" onClick={() => setWho("kid")} className="flex w-full items-center gap-4 rounded-3xl border-2 border-foreground p-5 text-left shadow-[0_5px_0_var(--foreground)] transition active:translate-y-1 active:shadow-[0_1px_0_var(--foreground)] bg-secondary text-secondary-foreground">
           <span className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background text-foreground"><WhoChild className="size-8" /></span>
-          <span><b className="block text-xl">Child</b><span className="text-sm text-muted-foreground">Log in with the username your parent gave you</span></span>
+          <span><b className="block text-xl">Child</b><span className="text-sm opacity-90">Log in with the username your parent gave you</span></span>
         </button>
         <p className="mt-3 text-sm">New to IlmStation? <a href="/signup" className="font-bold underline underline-offset-4">Create an account</a></p>
       </div> : <div className="mb-4 mt-5 flex items-center justify-between rounded-full bg-foreground/[0.06] py-2 pl-2 pr-4 sm:rounded-none sm:border-2 sm:border-foreground sm:bg-transparent sm:px-4 sm:py-3">

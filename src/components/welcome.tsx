@@ -110,10 +110,11 @@ async function translateCards(lang: string) {
 
 /** In the home-screen app, the website homepage jumps straight to the app. */
 export function AppHomeOnly() {
+  const path = useRouterState({ select: (st) => st.location.pathname });
   useEffect(() => {
     const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (standalone && window.location.pathname === "/") window.location.replace("/app");
-  }, []);
+    if (standalone && path === "/") window.location.replace("/app");
+  }, [path]);
   return null;
 }
 
@@ -130,6 +131,6 @@ export function AuthMobileStyle() {
     body[data-auth] h2{font-size:24px!important;line-height:1.15!important}
     body[data-auth] main :is(button,a)[class*="border-2"]:not([data-who-pick] *):not([class*="rounded-3xl"]):not([data-plain]):not([data-plain]){border-radius:9999px!important;border-width:1.5px!important;box-shadow:0 3px 0 var(--foreground)!important}
     body[data-auth] main :is(button,a)[class*="h-11"],body[data-auth] main :is(button,a)[class*="h-12"]{min-height:46px;font-size:15px}
-    body[data-auth] main button[type=submit],body[data-auth] main button[class*="bg-primary"]:not([data-plain]){border-radius:9999px!important;border:1.5px solid var(--foreground)!important;box-shadow:0 3px 0 var(--foreground)!important;font-weight:800;text-transform:uppercase}
+    body[data-auth] main button[type=submit],body[data-auth] main button[class*="bg-primary"]:not([data-plain]):not([class*="rounded-3xl"]){border-radius:9999px!important;border:1.5px solid var(--foreground)!important;box-shadow:0 3px 0 var(--foreground)!important;font-weight:800;text-transform:uppercase}
   }`}</style>;
 }
