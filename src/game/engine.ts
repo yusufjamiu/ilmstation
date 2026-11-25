@@ -21,6 +21,10 @@ import {
   type Landmark,
   DEFAULT_AREA,
   hostelInfo,
+  brandsOf,
+  eateryName,
+  cafeName,
+  WORLD_CITIES,
 } from "./content";
 import { darkness, type Clock } from "./time";
 import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
@@ -2181,6 +2185,7 @@ export class IlmCityEngine {
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
     this.buildCityFill();
+    this.buildSaudiFill("madinah");
 
     // big roadside billboards along every expressway and Ikorodu Road
     const roadside = new THREE.Group();
@@ -2729,6 +2734,114 @@ export class IlmCityEngine {
       const g = this.areaGroup(id);
       for (const m of b.build()) {
         // background buildings: no shadows, to keep phones fast
+        m.castShadow = false;
+        m.receiveShadow = false;
+        g.add(m);
+      }
+    }
+  }
+
+  /** Madinah between its neighbourhoods: no empty sand, but blocks of flats, villas behind
+      walls and the odd glass tower, thinning out towards the desert edge. Background only
+      (no doors), and solid so you walk round them. */
+  private buildSaudiFill(city: string) {
+    const il = DISTRICTS.filter((d) => cityOf(d) === city);
+    if (!il.length) return;
+    const rnd = mulberry(7711);
+    const segs = this.roadSegments().filter(([x0, z0, x1, z1]) =>
+      il.some((d) => {
+        const H = halfOf(d);
+        const near = (x: number, z: number) =>
+          Math.abs(x - d.origin.x) < H.x + 400 && Math.abs(z - d.origin.z) < H.z + 400;
+        return near(x0, z0) || near(x1, z1);
+      }),
+    );
+    const C = 16;
+    const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)) - 60,
+      x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)) + 60,
+      z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)) - 60,
+      z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z)) + 60;
+    const center = CITY_CENTER[city];
+    const owner = (x: number, z: number) => {
+      let best = il[0],
+        bd = Infinity;
+      for (const d of il) {
+        const H = halfOf(d);
+        const dd = Math.hypot(
+          Math.max(0, Math.abs(x - d.origin.x) - H.x),
+          Math.max(0, Math.abs(z - d.origin.z) - H.z),
+        );
+        if (dd < bd) {
+          bd = dd;
+          best = d;
+        }
+      }
+      return { d: best, dist: bd };
+    };
+    const blocked = (x: number, z: number) => {
+      if (center && Math.hypot(x - center.x, z - center.z) < 70) return true;
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        if (Math.abs(x - d.origin.x) < H.x + 16 && Math.abs(z - d.origin.z) < H.z + 16) return true;
+      }
+      for (const sg of segs) if (IlmCityEngine.distToSeg(x, z, sg) < 24) return true;
+      for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 30) return true;
+      return false;
+    };
+    const walls = [0xf2ead8, 0xe8dcc4, 0xdccbaa, 0xf0e6d2, 0xe2d3b5, 0xd8c7a3];
+    const pick = <T>(a: T[]) => a[Math.floor(rnd() * a.length)];
+    const glass = MAT2.glass(),
+      band = MAT.plain(0x2c3a44, 0.35),
+      trim = MAT.plain(0xfaf6ee, 0.5),
+      wallM = MAT.plain(0xe4d6bb),
+      pool = MAT.plain(0x38b6d8, 0.15);
+    const batches = new Map<string, Batch>();
+    const i0 = Math.ceil((x0 + 780) / C),
+      i1 = Math.floor((x1 + 780) / C),
+      k0 = Math.ceil((z0 + 1600) / C),
+      k1 = Math.floor((z1 + 1600) / C);
+    for (let i = i0; i <= i1; i++)
+      for (let k = k0; k <= k1; k++) {
+        const x = i * C - 780,
+          z = k * C - 1600;
+        if (blocked(x, z)) continue;
+        const { d, dist } = owner(x, z);
+        if (dist > 170 || rnd() < 0.3 + dist / 400) continue; // open lots, thinner to the desert
+        let b = batches.get(d.id);
+        if (!b) batches.set(d.id, (b = new Batch()));
+        const lx = x - d.origin.x,
+          lz = z - d.origin.z;
+        const tier = d.tier ?? 2;
+        const roll = rnd();
+        if (tier === 1 && roll < 0.12) {
+          // a glass tower
+          const h = 26 + rnd() * 34,
+            w = 11 + rnd() * 2;
+          b.box(w, h, w, glass, lx, 0, lz);
+          b.box(w + 0.6, 1, w + 0.6, trim, lx, h, lz);
+        } else if (tier === 1 || roll < 0.25) {
+          // a villa behind its wall, sometimes with a pool
+          b.box(14, 1.6, 14, wallM, lx, 0, lz);
+          const fl = 2 + (rnd() < 0.3 ? 1 : 0);
+          b.box(10, 3.4 * fl, 7, MAT.plaster(pick(walls)), lx, 0, lz - 2.5);
+          b.box(10.05, 3.4 * fl - 2.4, 7.05, band, lx, 1.3, lz - 2.5);
+          b.box(10.4, 0.5, 7.4, trim, lx, 3.4 * fl, lz - 2.5);
+          if (rnd() < 0.5) b.add(groundGeo(6, 3, 2), pool, lx + 1.5, 0.15, lz + 4, 0, false);
+        } else {
+          // a block of flats with shops at the bottom
+          const fl = (tier === 2 ? 3 : 2) + Math.floor(rnd() * 3);
+          const w = 12 + rnd() * 1.5,
+            dd = 11 + rnd() * 1.5;
+          b.box(w, 3.3 * fl, dd, MAT.plaster(pick(walls)), lx, 0, lz);
+          // window bands on alternate floors
+          for (let f = 0; f < fl; f += 2) b.box(w + 0.05, 1.1, dd + 0.05, band, lx, 3.3 * f + 1.2, lz);
+          b.box(w + 0.5, 0.7, dd + 0.5, trim, lx, 3.3 * fl, lz);
+        }
+        this.fillCells.add(`${i},${k}`);
+      }
+    for (const [id, b] of batches) {
+      const g = this.areaGroup(id);
+      for (const m of b.build()) {
         m.castShadow = false;
         m.receiveShadow = false;
         g.add(m);
@@ -4367,8 +4480,12 @@ export class IlmCityEngine {
       const g = new THREE.Group();
       g.position.set(x, 0, z);
       g.rotation.y = north ? 0 : Math.PI;
+      const fb = brandsOf(D.id)?.food;
+      const fbg = fb ? "#" + fb.bg.toString(16).padStart(6, "0") : "#c8102e",
+        ffg = fb ? "#" + fb.fg.toString(16).padStart(6, "0") : "#fff";
+      const fname = eateryName(D.id);
       // the truck, its serving hatch and awning
-      g.add(box(6.6, 2.7, 2.6, 0xc8102e, 0, 0.55, 0));
+      g.add(box(6.6, 2.7, 2.6, fb?.bg ?? 0xc8102e, 0, 0.55, 0));
       g.add(box(6.8, 0.25, 2.8, 0xf4f1ea, 0, 3.25, 0));
       g.add(box(3.6, 1.1, 0.06, 0x2a1c05, -0.6, 1.6, 1.31));
       g.add(box(4, 0.12, 1.3, 0xf2c230, -0.6, 2.75, 1.9));
@@ -4382,13 +4499,13 @@ export class IlmCityEngine {
         5.6,
         1,
         (c, W, H) => {
-          c.fillStyle = "#c8102e";
+          c.fillStyle = fbg;
           c.fillRect(0, 0, W, H);
-          c.fillStyle = "#fff";
+          c.fillStyle = ffg;
           c.textAlign = "center";
           c.textBaseline = "middle";
           c.font = `800 ${Math.round(H * 0.55)}px "Work Sans", system-ui, sans-serif`;
-          c.fillText("AL-BARAKAH BROAST", W / 2, H * 0.52);
+          c.fillText(fname.toUpperCase(), W / 2, H * 0.52);
         },
         512,
       );
@@ -4399,13 +4516,13 @@ export class IlmCityEngine {
       const fz = z + (north ? 2.8 : -2.8);
       this.zones.push({
         id: "eatery:" + D.id,
-        label: "Eat at Al-Barakah Broast",
+        label: `Eat at ${fname}`,
         x: x + this.ox,
         z: fz + this.oz,
         r: 2.8,
         scene: "out",
       });
-      const t = label("Al-Barakah Broast · eatery", { size: 0.85, bg: "rgba(200,16,46,0.92)" });
+      const t = label(`${fname} · eatery`, { size: 0.85, bg: fbg });
       t.position.set(x, 5.2, z);
       this.dg.add(t);
       return;
@@ -4440,18 +4557,22 @@ export class IlmCityEngine {
         g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, -3, 0.9, Dp / 2 + 0.02));
         g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, 3, 0.9, Dp / 2 + 0.02));
         g.add(box(1.6, 2.8, 0.1, 0x5a3a22, 0, 0, Dp / 2 + 0.03));
-        g.add(box(W, 0.15, 1.6, 0x1f6f63, 0, 3.2, Dp / 2 + 0.8));
+        const cb = brandsOf(D.id)?.coffee;
+        const cbg = cb ? "#" + cb.bg.toString(16).padStart(6, "0") : "#1f6f63",
+          cfg = cb ? "#" + cb.fg.toString(16).padStart(6, "0") : "#f2c230";
+        const cname = cafeName(D.id);
+        g.add(box(W, 0.15, 1.6, cb?.bg ?? 0x1f6f63, 0, 3.2, Dp / 2 + 0.8));
         const { mesh } = canvasPlane(
           8,
           1.1,
           (c, CW, CH) => {
-            c.fillStyle = "#1f6f63";
+            c.fillStyle = cbg;
             c.fillRect(0, 0, CW, CH);
-            c.fillStyle = "#f2c230";
+            c.fillStyle = cfg;
             c.textAlign = "center";
             c.textBaseline = "middle";
             c.font = `800 ${Math.round(CH * 0.5)}px "Work Sans", system-ui, sans-serif`;
-            c.fillText("AL-MA'IDAH RESTAURANT", CW / 2, CH * 0.53);
+            c.fillText(cname.toUpperCase(), CW / 2, CH * 0.53);
           },
           512,
         );
@@ -4468,7 +4589,7 @@ export class IlmCityEngine {
         const fz = z + (north ? Dp / 2 + 1.4 : -Dp / 2 - 1.4);
         this.zones.push({
           id: "door:restaurant:" + D.id,
-          label: "Enter Al-Ma'idah Restaurant",
+          label: `Enter ${cname}`,
           x: x + this.ox,
           z: fz + this.oz,
           r: 2.2,
@@ -6854,7 +6975,7 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: hostelInfo(D.id, k).sisters ? 0xe9d6dc : 0xd9e6d2,
-            style: "storey",
+            style: saudiCity(D) ? "saudi" : "storey",
           });
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
           this.reserved.push({
@@ -6917,7 +7038,7 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: 0xe8dcb5,
-            style: prime ? houseStyleOf(D) : "storey",
+            style: prime ? houseStyleOf(D) : saudiCity(D) ? "saudi" : "storey",
           });
           if (prime) {
             this.buildTower(D, cx, cz, north);
@@ -11816,13 +11937,15 @@ export class IlmCityEngine {
     }
 
     // place name
-    let place = "Lagos";
+    const cityName =
+      WORLD_CITIES.find((w) => w.id === cityOf(this.district))?.name ?? "Madinah";
+    let place = cityName;
     const area = this.areaAt(pos.x, pos.z);
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
       place = `${area.name}${this.phaseOf(area.id) > 1 ? ` (Phase ${this.phaseOf(area.id)})` : ""}, ${area.state}`;
-    } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
+    } else place = this.roadAt(pos.x, pos.z) ?? cityName;
     if (place !== this.place) {
       this.place = place;
       this.ev.onPlace(place);

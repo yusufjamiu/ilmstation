@@ -30,6 +30,7 @@ import {
   startPayment,
   type WalletDoc,
   type WalletNet,
+  type MoneyResult,
 } from "./wallet";
 import { PACKS } from "./packs";
 import { housePrice, r10 } from "./prices";
@@ -113,6 +114,9 @@ import {
   WORLD_CITIES,
   DEFAULT_AREA,
   cityLive,
+  BRANDS,
+  cafeName,
+  eateryName,
   hostelInfo,
   INTERCITY,
   TRAIN_LOCAL,
@@ -162,7 +166,7 @@ import {
   eateryPrice,
   type Dish,
   POLICE,
-  UNIVERSITIES,
+
   facultiesOf,
   facultyQuestions,
   type FoundKind,
@@ -226,6 +230,8 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** your company's office in a business tower: open it each day to earn */
+  office?: { tower: string; name: string; size: "small" | "big"; floor: number; until: number; opened?: string };
   /** in class, other students don't see your name */
   classHidden?: boolean;
   /** your room in an MSSN hostel (free while you're a student there): its door's id */
@@ -561,19 +567,25 @@ function ilmLevel(ilm: number) {
   while (i + 1 < ILM_LEVELS.length && ilm >= ILM_LEVELS[i + 1].min) i++;
   return { ...ILM_LEVELS[i], i, next: ILM_LEVELS[i + 1] ?? null };
 }
-type LifePath = "rich" | "worker" | "trader";
+type LifePath = "rich" | "worker" | "trader" | "student";
 const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] = [
+  {
+    id: "student",
+    icon: "🎓",
+    name: "Student",
+    text: "Study at the Islamic University of Madinah: classes in your faculty, questions and friends on campus.",
+  },
   {
     id: "worker",
     icon: "💼",
-    name: "9-to-5 worker",
-    text: "A flat in the estate and a job with a daily salary: teacher, developer, Hajj consultant…",
+    name: "Worker",
+    text: "A job with a daily salary: teacher, developer, decorator, barista at Half Million, AlBaik crew…",
   },
   {
     id: "trader",
     icon: "🏪",
     name: "Trader",
-    text: "A flat and your first shop free for a week. Add products, then collect your sales.",
+    text: "Your first shop is free for a week. Add products, then collect your sales.",
   },
 ];
 /** Who teaches at a masjid or madrasah: the sheikh its street is named after. */
@@ -1623,16 +1635,19 @@ function CityGame({
     [update, toast, openMeal],
   );
   const openFood = useCallback(
-    (where: "order" | "eatery", phone = false) => {
+    (where: "order" | "eatery", phone = false, brand?: string) => {
+      const here = engine.current?.districtId() ?? DEFAULT_AREA;
       setPanel({
         kind: "info",
         phone: phone ? { home: () => openPhoneRef.current() } : undefined,
         title:
           where === "order"
             ? "IlmDash · order food"
-            : engine.current?.scenePlace() === "restaurant"
-              ? "Al-Ma'idah Restaurant · menu"
-              : "Al-Barakah Broast · eatery",
+            : brand
+              ? `${brand} · menu`
+              : engine.current?.scenePlace() === "restaurant"
+                ? `${cafeName(here)} · menu`
+                : `${eateryName(here)} · eatery`,
         body: (
           <FoodView
             where={where}
@@ -5032,6 +5047,33 @@ function CityGame({
     const t = setTimeout(() => applyPacksRef.current(), 4000);
     return () => clearTimeout(t);
   }, [save.profile, claimsReady, onlineReady]);
+  /** Find and claim a free small house in an area for a new player (on the server when
+      online, so each player gets only one). */
+  const starterHouse = async (e: IlmCityEngine, area: string, name: string) => {
+    const me = onlineRef.current?.uid ?? name;
+    const mix = (id: string) => flatFor(me + id).seed;
+    const all = e.plots.filter(
+      (q) => q.district === area && q.kind === "house" && q.toLet && q.type !== "tower",
+    );
+    const small = all.filter((q) => (q.floors ?? 1) <= 1).sort((a, b) => mix(a.id) - mix(b.id));
+    for (let n = 1; n <= 30; n++) {
+      let tries = 0;
+      for (const q of small) {
+        const id = e.phasedId(q.id, n);
+        if (saveRef.current.plots?.[id] || takenRef.current.has(id)) continue;
+        if (++tries > 5) break;
+        const w = walletNet.current;
+        const r: MoneyResult = w
+          ? await w.starterHouse(id, name).catch(() => ({ ok: false, error: "net" }))
+          : { ok: await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 }) };
+        if (r.ok) return { id, floors: q.floors ?? 1, street: q.street };
+        // only "taken" is worth trying the next house for
+        if (r.error && r.error !== "taken") return null;
+      }
+      if (!small.length) break;
+    }
+    return null;
+  };
   const applyingRich = useRef(false);
   applyPacksRef.current = () => {
     const e = engine.current;
@@ -5704,6 +5746,70 @@ function CityGame({
   );
   const openJobsRef = useRef(openJobs);
   openJobsRef.current = openJobs;
+
+  /* ---- offices in the business towers: rent from the building manager ---- */
+  const openOffice = (tower: string) => {
+    const L = landmarkById(tower);
+    if (!L) return;
+    const OFFICE = { small: { rent: 300, earn: 60, label: "Small office" }, big: { rent: 800, earn: 150, label: "Big office, city view" } };
+    const today = new Date().toDateString();
+    const render = (msg = "") => {
+      const sv = saveRef.current;
+      const mine = sv.office && sv.office.tower === tower && sv.office.until > Date.now() ? sv.office : null;
+      const elsewhere = sv.office && sv.office.tower !== tower && sv.office.until > Date.now();
+      setPanel({
+        kind: "info",
+        title: `🏢 ${L.l.name} · reception`,
+        body: (
+          <OfficeView
+            tower={L.l.name}
+            mine={mine}
+            elsewhere={elsewhere ? (landmarkById(sv.office!.tower)?.l.name ?? "another tower") : ""}
+            coins={sv.coins}
+            plans={OFFICE}
+            today={today}
+            msg={msg}
+            onRent={(size, name) => {
+              const plan = OFFICE[size];
+              if (saveRef.current.coins < plan.rent) return render("You don't have enough money for this office yet.");
+              const cur = saveRef.current.office;
+              const same = cur && cur.tower === tower && cur.until > Date.now();
+              const office = {
+                tower,
+                name: name.trim().slice(0, 40) || "My Company",
+                size,
+                floor: same ? cur!.floor : 2 + Math.floor(Math.random() * 10),
+                until: Math.max(Date.now(), same ? cur!.until : 0) + WEEK,
+                opened: same ? cur!.opened : undefined,
+              };
+              saveRef.current = { ...saveRef.current, coins: saveRef.current.coins - plan.rent, office };
+              update((x) => ({ ...x, coins: x.coins - plan.rent, office }));
+              toast(`${office.name} has an office on floor ${office.floor}. Open it every day to earn.`, "good");
+              render();
+            }}
+            onOpen={() => {
+              const o = saveRef.current.office;
+              if (!o || o.opened === today) return;
+              const earn = OFFICE[o.size].earn;
+              const office = { ...o, opened: today };
+              saveRef.current = { ...saveRef.current, coins: saveRef.current.coins + earn, office };
+              update((x) => ({ ...x, coins: x.coins + earn, office }));
+              toast(`${o.name} had a good day. +${N(earn)}`, "good");
+              render();
+            }}
+            onLeave={() => {
+              saveRef.current = { ...saveRef.current, office: undefined };
+              update((x) => ({ ...x, office: undefined }));
+              render("Your office is handed back. JazakAllahu khairan.");
+            }}
+          />
+        ),
+      });
+    };
+    render();
+  };
+  const openOfficeRef = useRef(openOffice);
+  openOfficeRef.current = openOffice;
 
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
@@ -7010,6 +7116,15 @@ function CityGame({
         });
         return;
       }
+      if (id.startsWith("office:food-")) {
+        const b = BRANDS.find((q) => "food-" + q.id === id.slice(7));
+        openFood("eatery", false, b?.name);
+        return;
+      }
+      if (id.startsWith("office:tower-")) {
+        openOfficeRef.current(id.slice(7));
+        return;
+      }
       if (id.startsWith("office:")) {
         const L = landmarkById(id.slice(7));
         if (!L) return;
@@ -7628,7 +7743,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:restaurant:")) {
-        e.enterInterior("restaurant", "Al-Ma'idah Restaurant");
+        e.enterInterior("restaurant", cafeName(id.slice(16)));
         setInside(true);
         tuneRef.current();
         toast("Assalamu alaikum! Order at the counter, then sit and eat.");
@@ -9751,14 +9866,32 @@ function CityGame({
                 };
               }
               msg = `Welcome, ${look.name}! Your first shop is free for 7 days. Find it with Places → Shops, name it and add products.`;
-            } else
+            } else if (path === "student")
+              msg = `Welcome, ${look.name}! You are now a student of the Islamic University of Madinah. Your classes are on campus; My Day shows you the way. Here is ₦1,000 to start.`;
+            else
               msg = `Welcome home, ${look.name}! Choose your job from 👤 Profile → Work. Here is ₦1,000 to start.`;
+            if (!homePlot) {
+              // every new player is given a small house of their own in the area they chose
+              const got = await starterHouse(e, area, look.name);
+              if (got) {
+                homePlot = got.id;
+                const own: PlotOwn = { kind: "bought", floors: got.floors, rooms: [] };
+                plots = { ...plots, [got.id]: own };
+                e.setPlot(got.id, plotStateFn(own) ?? { kind: "tolet" });
+                items = ["prayermat", "rug", "fan"];
+                msg += ` This house on ${got.street} is yours, free. When you're ready, buy a villa with a pool in Ar-Rawdah or Al-Aqiq.`;
+              }
+            }
             if (!homePlot) {
               lease = { until: Date.now() + WEEK };
               msg += ` Your first week's rent (${N(flatRent(area))}) is paid; after that, rent is due every week.`;
             }
             e.setHomeItems(items);
-            if (homePlot) e.startAtPlot(homePlot, `Family house · ${districtById(area).name}`);
+            if (homePlot)
+              e.startAtPlot(
+                homePlot,
+                `${path === "rich" ? "Family house" : "My house"} · ${districtById(area).name}`,
+              );
             else e.startAtHome(area, flatName(area));
             setInside(true);
             const next = {
@@ -10758,7 +10891,7 @@ function topicReply(
     return {
       text: school
         ? `Go to ${school.name}. Every class has its books and a quiz.`
-        : "Every mosque has a quiz, and there are big schools in Ikorodu and Ajegunle.",
+        : "Every mosque has a quiz, and the Islamic University of Madinah has classes every day.",
       nod: "agree",
     };
   if (has("quran", "qur'an", "hadith", "advice", "remind", "nasiha"))
@@ -12052,6 +12185,99 @@ function Swatches({
   );
 }
 
+function OfficeView({
+  tower,
+  mine,
+  elsewhere,
+  coins,
+  plans,
+  today,
+  msg,
+  onRent,
+  onOpen,
+  onLeave,
+}: {
+  tower: string;
+  mine: NonNullable<Save["office"]> | null;
+  elsewhere: string;
+  coins: number;
+  plans: Record<"small" | "big", { rent: number; earn: number; label: string }>;
+  today: string;
+  msg: string;
+  onRent: (size: "small" | "big", name: string) => void;
+  onOpen: () => void;
+  onLeave: () => void;
+}) {
+  const [name, setName] = useState(mine?.name ?? "");
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#1f6f63]/10 p-3 text-[14px]">
+        <b>Ustadh Faisal, building manager:</b>{" "}
+        {mine
+          ? `Assalamu alaikum! Welcome back to ${mine.name}.`
+          : `Assalamu alaikum, welcome to ${tower}! We have offices for your company. Choose one and I'll give you the keys.`}
+      </div>
+      {msg && <p className="font-bold text-[#b3261e]">{msg}</p>}
+      {mine ? (
+        <>
+          <div className="rounded-xl border border-[#1f6f63]/25 bg-white p-3">
+            <div className="text-[16px] font-bold">🏢 {mine.name}</div>
+            <div className="text-[13px] opacity-75">
+              {plans[mine.size].label} · floor {mine.floor} · rent paid until{" "}
+              {new Date(mine.until).toLocaleDateString()}
+            </div>
+          </div>
+          <button
+            disabled={mine.opened === today}
+            onClick={onOpen}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+          >
+            {mine.opened === today
+              ? "Open today ✓ · come back tomorrow"
+              : `Open your office today · earn ${N(plans[mine.size].earn)}`}
+          </button>
+          <button
+            onClick={() => onRent(mine.size, mine.name)}
+            className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+          >
+            Pay another week · {N(plans[mine.size].rent)}
+          </button>
+          <button onClick={onLeave} className="w-full py-2 text-[13px] font-bold text-[#b3261e]">
+            Give the office back
+          </button>
+        </>
+      ) : elsewhere ? (
+        <p className="text-[14px]">Your company already has an office in {elsewhere}.</p>
+      ) : (
+        <>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your company's name"
+            maxLength={40}
+            className="w-full rounded-xl border border-black/15 px-3 py-2.5"
+          />
+          {(["small", "big"] as const).map((k) => (
+            <button
+              key={k}
+              disabled={coins < plans[k].rent}
+              onClick={() => onRent(k, name)}
+              className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left disabled:opacity-50"
+            >
+              <span className="block text-[16px] font-bold">
+                {plans[k].label} · {N(plans[k].rent)}/week
+              </span>
+              <span className="block text-[13px] opacity-75">
+                Open it every day and your company earns {N(plans[k].earn)}.
+              </span>
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Onboarding({
   loggedIn,
   firstName,
@@ -12075,7 +12301,7 @@ function Onboarding({
   );
   const [path, setPath] = useState<LifePath>("worker");
   const [uni, setUni] = useState<string | null>(null);
-  const [area, setArea] = useState("lekki");
+  const [area, setArea] = useState(DEFAULT_AREA);
   const [look, setLook] = useState<Look>({
     name: firstName,
     female,
@@ -12105,14 +12331,19 @@ function Onboarding({
       >
         <div className="mx-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
           <h2 className="font-serif text-2xl">Choose your life</h2>
-          <p className="text-[13px] opacity-75">You can take a job or open a shop later too.</p>
+          <p className="text-[13px] opacity-75">
+            You can study, take a job or open a shop later too.
+          </p>
           <div className="mt-3 space-y-2">
             {LIFE_PATHS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => {
                   setPath(p.id);
-                  setStep("student");
+                  if (p.id === "student") {
+                    setUni(look.female ? "iumsisters" : "iumbrothers");
+                    setStep("student");
+                  } else onDone({ ...look, name: look.name.trim() }, area, p.id);
                 }}
                 className="flex w-full items-start gap-3 rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left active:bg-[#1f6f63]/10"
               >
@@ -12146,25 +12377,14 @@ function Onboarding({
       >
         <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
           <h2 className="font-serif text-2xl">
-            {uni ? "Which faculty?" : "Are you a university student?"}
+            Which faculty?
           </h2>
           <p className="text-[13px] opacity-75">
-            {uni
-              ? "You'll answer questions in your faculty and meet other Muslim students."
-              : "Students get faculty classes, questions and the MSSN meeting point."}
+            Islamic University of Madinah,{" "}
+            {look.female ? "sisters' campus" : "brothers' campus"}. You'll attend classes,
+            answer questions in your faculty and meet other students.
           </p>
           <div className="mt-3 space-y-2 overflow-y-auto">
-            {!uni &&
-              UNIVERSITIES.map((u) => (
-                <button
-                  key={u.area}
-                  onClick={() => setUni(u.area)}
-                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left"
-                >
-                  <span className="block text-[16px] font-bold">🎓 {u.name}</span>
-                  <span className="block text-[13px] opacity-75">{u.full}</span>
-                </button>
-              ))}
             {uni &&
               facultiesOf(uni).map((f) => (
                 <button
@@ -12181,12 +12401,13 @@ function Onboarding({
                 </button>
               ))}
             <button
-              onClick={() =>
-                uni ? setUni(null) : onDone({ ...look, name: look.name.trim() }, area, path)
-              }
+              onClick={() => {
+                setUni(null);
+                setStep("life");
+              }}
               className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-[#fdf8ec]"
             >
-              {uni ? "Back" : "No, I'm not a student"}
+              Back
             </button>
           </div>
         </div>
@@ -12200,20 +12421,24 @@ function Onboarding({
         className="absolute inset-0 z-30 flex items-end bg-[#10201e]/70 p-3 pb-[max(14px,env(safe-area-inset-bottom))]"
       >
         <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
-          <h2 className="font-serif text-2xl">Where do you want to start?</h2>
-          <p className="text-[13px] opacity-75">You can travel anywhere later by bus or car.</p>
+          <h2 className="font-serif text-2xl">Where is your house?</h2>
+          <p className="text-[13px] opacity-75">
+            Every new player is given a small house of their own in Madinah. Choose the
+            neighbourhood. Later you can buy a villa with a pool.
+          </p>
           <div className="mt-3 space-y-2 overflow-y-auto">
             {DISTRICTS.filter(
               (d) =>
                 !d.holy &&
-                cityLive(cityOf(d)) &&
-                !d.landmarks.some((l) => l.kind === "airport") &&
-                d.id !== "dhulhulayfah",
+                cityOf(d) === "madinah" &&
+                !d.campus &&
+                !["dhulhulayfah", "bizdistrict"].includes(d.id) &&
+                !d.landmarks.some((l) => l.kind === "airport"),
             ).map((d, i, all) => (
               <div key={d.id}>
                 {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
                   <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
-                    {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}
+                    {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Madinah"}
                     {countryOf(d) === "Nigeria" ? `, ${d.state} State` : `, ${countryOf(d)}`}
                   </div>
                 )}
@@ -14079,14 +14304,14 @@ function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => bo
       if (has(`door:restaurant:${D.id}`))
         at({
           icon: "🍽️",
-          name: `Al-Ma'idah Restaurant, ${D.name}`,
+          name: `${cafeName(D.id)}, ${D.name}`,
           sub: "Walk in · sit at a table and eat",
           prefix: `door:restaurant:${D.id}`,
         });
       if (has(`eatery:${D.id}`))
         at({
           icon: "🍗",
-          name: `Al-Barakah Broast, ${D.name}`,
+          name: `${eateryName(D.id)}, ${D.name}`,
           sub: "Roadside food truck · quick bites",
           prefix: `eatery:${D.id}`,
         });

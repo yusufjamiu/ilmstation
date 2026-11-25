@@ -2232,7 +2232,9 @@ export type HouseStyle =
   /** Kano's old city: red-earth Hausa houses with horned roof corners (zanko) */
   | "hausa"
   /** Madinah: white-stone villas with warm wood, tall glass, roof terraces and date palms */
-  | "villa";
+  | "villa"
+  /** Ar-Rawdah and Al-Aqiq: Madinah villas with a swimming pool in the garden */
+  | "poolvilla";
 /** What kind of home a plot holds, when it isn't an ordinary house. */
 export type HomeType = "tower" | "faceme";
 
@@ -2550,6 +2552,11 @@ function styledHouse(
   /** Kano: built like an Ilorin house, in red earth with horns and carved relief */
   const hausa = style === "hausa";
   if (hausa) style = "ilorin";
+  const pool = style === "poolvilla";
+  if (pool) style = "villa";
+  // Madinah: a one-floor plot is a small family house (the homes new players are given);
+  // the villas are the bigger plots, for sale
+  else if (style === "villa" && ref.floors <= 1) style = "saudi";
   if (style === "prime") {
     // no bungalows: glass towers, storey buildings and duplexes
     const k = r();
@@ -3095,9 +3102,26 @@ function styledHouse(
       if (Math.abs(lx - gx) < 3) continue;
       b.add(groundGeo(lawnW, 2.6, 2), MAT2.lawn(), lx, 0.05, front - 1.8, 0, false);
     }
+    let poolSide = 0;
+    if (pool) {
+      // the swimming pool fills the garden on the side away from the gate: white stone
+      // edging, blue tiles, a sun lounger and an umbrella
+      poolSide = gx > 0 ? -1 : 1;
+      const pw = PW / 2 - 2.2,
+        pd = Math.max(3, front - fz - 2.2);
+      const px = poolSide * (PW / 4 + 0.2),
+        pz = (front + fz) / 2 - 0.2;
+      b.box(pw + 1, 0.22, pd + 1, MAT.plain(0xf1ece0), px, 0, pz);
+      b.add(groundGeo(pw, pd, 2), MAT.plain(0x38b6d8, 0.15), px, 0.24, pz, 0, false);
+      b.box(1.8, 0.35, 0.7, MAT.plain(0xffffff), px + poolSide * (pw / 2 - 1), 0.22, pz - pd / 2 - 0.2);
+      b.box(0.08, 2.2, 0.08, trimM, px - poolSide * (pw / 2 - 0.6), 0, pz - pd / 2 - 0.1);
+      const umb = new THREE.ConeGeometry(1.4, 0.6, 8);
+      b.add(umb, MAT.plain(0xe9dcc4), px - poolSide * (pw / 2 - 0.6), 2.4, pz - pd / 2 - 0.1);
+      solid(px - pw / 2 - 0.5, px + pw / 2 + 0.5, pz - pd / 2 - 0.5, pz + pd / 2 + 0.5);
+    }
     b.add(groundGeo(1.6, front - fz - 1, 2), MAT.paving(), ex, 0.06, (front + fz) / 2, 0, false);
     for (const px of [-PW / 2 + 1.3, PW / 2 - 1.3]) {
-      if (Math.abs(px - gx) < 3) continue;
+      if (Math.abs(px - gx) < 3 || (poolSide && Math.sign(px) === poolSide)) continue;
       datePalmInto(b, px, front - 1.6, 0.75);
       solid(px - 0.3, px + 0.3, front - 1.9, front - 1.3);
     }
