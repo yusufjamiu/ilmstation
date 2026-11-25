@@ -201,3 +201,11 @@ export function addPhrase(en: string, lang: string, text: string) {
   (DICT as Record<string, Record<string, string>>)[k] = { ...((DICT as Record<string, Record<string, string>>)[k] ?? {}), [lang]: text };
   try { sweep(document.body, read()); } catch { /* ignore */ }
 }
+
+/* phones: flat look, no shadows (except the floating bottom bar and pop-ups) */
+if (typeof document !== "undefined" && !document.getElementById("flat-style")) {
+  const st = document.createElement("style"); st.id = "flat-style";
+  const R = ":root:root:root:root:root:root:root:root";
+  st.textContent = "@media (max-width:639px){" + R + " *:not(nav):not(nav *):not([role=dialog]):not([role=dialog] *):not([role=menu]):not([role=menu] *):not([data-drawer] > *){box-shadow:none!important}}";
+  document.head.appendChild(st);
+}
