@@ -26,7 +26,7 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SponsorshipRouteImport } from './routes/sponsorship'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as WorldRouteImport } from './routes/world'
-import { Route as AdminWorldRouteImport } from './routes/admin.world'
+import { Route as AdminWorldRouteImport } from './routes/admin_.world'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -114,15 +114,15 @@ const WorldRoute = WorldRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminWorldRoute = AdminWorldRouteImport.update({
-  id: '/world',
-  path: '/world',
-  getParentRoute: () => AdminRoute,
+  id: '/admin_/world',
+  path: '/admin/world',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/admin': typeof AdminRouteWithChildren
+  '/admin': typeof AdminRoute
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
@@ -142,7 +142,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/admin': typeof AdminRouteWithChildren
+  '/admin': typeof AdminRoute
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
@@ -163,7 +163,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/admin': typeof AdminRouteWithChildren
+  '/admin': typeof AdminRoute
   '/app': typeof AppRoute
   '/centres': typeof CentresRoute
   '/chatrooms': typeof ChatroomsRoute
@@ -178,7 +178,7 @@ export interface FileRoutesById {
   '/sponsorship': typeof SponsorshipRoute
   '/terms': typeof TermsRoute
   '/world': typeof WorldRoute
-  '/admin/world': typeof AdminWorldRoute
+  '/admin_/world': typeof AdminWorldRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -240,13 +240,13 @@ export interface FileRouteTypes {
     | '/sponsorship'
     | '/terms'
     | '/world'
-    | '/admin/world'
+    | '/admin_/world'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
-  AdminRoute: typeof AdminRouteWithChildren
+  AdminRoute: typeof AdminRoute
   AppRoute: typeof AppRoute
   CentresRoute: typeof CentresRoute
   ChatroomsRoute: typeof ChatroomsRoute
@@ -261,6 +261,7 @@ export interface RootRouteChildren {
   SponsorshipRoute: typeof SponsorshipRoute
   TermsRoute: typeof TermsRoute
   WorldRoute: typeof WorldRoute
+  AdminWorldRoute: typeof AdminWorldRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -384,30 +385,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorldRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/world': {
-      id: '/admin/world'
-      path: '/world'
+    '/admin_/world': {
+      id: '/admin_/world'
+      path: '/admin/world'
       fullPath: '/admin/world'
       preLoaderRoute: typeof AdminWorldRouteImport
-      parentRoute: typeof AdminRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface AdminRouteChildren {
-  AdminWorldRoute: typeof AdminWorldRoute
-}
-
-const AdminRouteChildren: AdminRouteChildren = {
-  AdminWorldRoute: AdminWorldRoute,
-}
-
-const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  AdminRoute: AdminRouteWithChildren,
+  AdminRoute: AdminRoute,
   AppRoute: AppRoute,
   CentresRoute: CentresRoute,
   ChatroomsRoute: ChatroomsRoute,
@@ -422,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   SponsorshipRoute: SponsorshipRoute,
   TermsRoute: TermsRoute,
   WorldRoute: WorldRoute,
+  AdminWorldRoute: AdminWorldRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
