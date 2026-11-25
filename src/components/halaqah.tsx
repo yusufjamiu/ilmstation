@@ -1,3 +1,4 @@
+import { QuizFeedback, QuizNext, QuizOption, QuizProgress, QuizQuestion } from "@/components/quiz-ui";
 import { consumeFeature, usePremium } from "@/components/premium";
 import { useEffect, useState } from "react";
 import { deleteField, doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
@@ -145,25 +146,19 @@ export function FamilyHalaqah() {
 
   const reveal = room.status === "reveal";
   const right = list.filter((p) => room.answers?.[room.qIndex]?.[p.id] === q.a);
-  return <section className={panel}>
-    <div className="flex items-center justify-between text-sm font-bold">
-      <span>Question {room.qIndex + 1} / {room.questions.length}</span>
-      {!reveal && <span className="flex items-center gap-1"><Timer className="size-4" />{left}s</span>}
-    </div>
-    <h2 className="mt-3 font-serif text-3xl leading-tight">{q.q}</h2>
-    <div className="mt-4 grid gap-2">{q.options.map((o, i) => {
-      const chosen = mine === i; const correct = reveal && i === q.a; const wrong = reveal && chosen && i !== q.a;
-      return <button key={i} onClick={() => answer(i)} disabled={reveal || mine !== undefined}
-        className={cn("flex items-center justify-between border-2 border-foreground px-4 py-3 text-left font-semibold", correct ? "bg-secondary text-background" : wrong ? "bg-destructive text-background" : chosen ? "bg-primary" : "bg-background")}>
-        <span>{o}</span>{correct ? <Check className="size-5" /> : wrong ? <X className="size-5" /> : null}</button>;
-    })}</div>
-    {!reveal && mine !== undefined && <p className="mt-3 text-sm font-semibold">Locked in. Waiting for the others… ({answered}/{playerCount})</p>}
-    {!reveal && host && <Button variant="outline" className="mt-3" onClick={() => ref && void updateDoc(ref, { status: "reveal" })}>Reveal now</Button>}
+  return <section className="grid gap-4">
+    <div className="flex items-center justify-between text-sm"><span className="font-bold">Question {room.qIndex + 1} of {room.questions.length}<span className="block text-xs font-normal uppercase text-muted-foreground">{room.topic}</span></span>{!reveal && <span className="flex items-center gap-1 font-mono"><Timer className="size-4" />{left}s</span>}</div>
+    <QuizProgress value={((room.qIndex + (reveal ? 1 : 0)) / room.questions.length) * 100} />
+    <QuizQuestion topic={room.topic} text={q.q} />
+    <div className="grid gap-3">{q.options.map((o, i) => <QuizOption key={i} letter={"ABCD"[i] ?? "•"} text={o} disabled={reveal || mine !== undefined} onClick={() => answer(i)}
+      state={reveal && i === q.a ? "correct" : reveal && mine === i ? "wrong" : mine === i ? "picked" : "idle"} />)}</div>
+    {!reveal && mine !== undefined && <p className="text-sm font-semibold">Locked in. Waiting for the others… ({answered}/{playerCount})</p>}
+    {!reveal && host && <Button variant="outline" onClick={() => ref && void updateDoc(ref, { status: "reveal" })}>Reveal now</Button>}
     {reveal && <>
-      {q.why && <p className="mt-4 border-2 border-foreground bg-primary/20 p-3 text-sm">{q.why}</p>}
-      <p className="mt-4 text-sm font-semibold">Got it right: {right.length ? right.map((p) => p.name).join(", ") : "nobody this time"}</p>
-      <ol className="mt-3 grid gap-1 text-sm">{list.map((p, i) => <li key={p.id} className="flex justify-between border-b border-foreground/30 py-1"><span>{i + 1}. {p.name}</span><b>{p.score}</b></li>)}</ol>
-      {host ? <Button className="mt-4 w-full" onClick={next}>{room.qIndex + 1 < room.questions.length ? "Next question" : "See results"}</Button> : <p className="mt-4 text-sm text-muted-foreground">The host will start the next question.</p>}
+      <QuizFeedback ok={mine === q.a} text={q.why} />
+      <p className="text-sm font-semibold">Got it right: {right.length ? right.map((p) => p.name).join(", ") : "nobody this time"}</p>
+      <ol className="grid gap-1 text-sm">{list.map((p, i) => <li key={p.id} className="flex justify-between border-b border-foreground/20 py-1"><span>{i + 1}. {p.name}</span><b>{p.score}</b></li>)}</ol>
+      {host ? <QuizNext label={room.qIndex + 1 < room.questions.length ? "Next question" : "See results"} onClick={next} /> : <p className="text-sm text-muted-foreground">The host will start the next question.</p>}
     </>}
   </section>;
 }
