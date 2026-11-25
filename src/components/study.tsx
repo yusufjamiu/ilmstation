@@ -55,7 +55,7 @@ function useExam(id: string | undefined) {
 
 export function StudyScreen() {
   const { uid } = useStudyMe();
-  return <><StudyScreenInner /><StudyTestBar uid={uid} /></>;
+  return <><div data-study><StudyScreenInner /></div><StudyTestBar uid={uid} /></>;
 }
 
 function StudyScreenInner() {
@@ -212,13 +212,17 @@ function StageView({ cat, stage, stageIdx, reached, subjects, flow, lessons, don
         {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
         <p className="mt-3 text-sm font-semibold">Finish {s.name} in {prev?.name} to open it.</p>
       </button>;
-      return <button key={s.id} onClick={() => onSubject(s.id)} className="flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal hover:-translate-y-0.5">
+      return <div key={s.id}><button onClick={() => onSubject(s.id)} className="flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-foreground bg-card p-3.5 text-left shadow-[0_4px_0_var(--foreground)] sm:hidden">
+        <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-primary text-[#1c1a17]"><BookOpen className="size-6" /></span>
+        <span className="min-w-0 flex-1"><b className="block truncate text-base leading-tight">{s.name}</b>{s.nameAr && <span dir="rtl" className="block text-sm text-muted-foreground">{s.nameAr}</span>}<span className="text-xs text-muted-foreground">{passed ? "Completed ✓" : `${d}/${ls.length}`}</span></span>
+        <StudyRing pct={ls.length ? (d / ls.length) * 100 : 0} /></button>
+      <button onClick={() => onSubject(s.id)} className="hidden w-full flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal hover:-translate-y-0.5 sm:flex">
         <div className="flex items-start justify-between"><span className="grid size-10 place-items-center border-2 border-foreground bg-primary"><BookOpen className="size-5" /></span>{passed && <span className="flex items-center gap-1 border-2 border-foreground bg-secondary px-2 text-xs font-bold text-secondary-foreground"><Check className="size-3" /> Completed</span>}</div>
         <h2 className="mt-3 font-serif text-3xl leading-tight">{s.name}</h2>
         {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
         <div className="mt-3 flex items-center gap-2"><div className="h-3 flex-1 border-2 border-foreground p-px"><div className="h-full bg-secondary" style={{ width: `${ls.length ? (d / ls.length) * 100 : 0}%` }} /></div><span className="text-xs font-bold tabular-nums">{d}/{ls.length}</span></div>
         <CardAction label={d === 0 ? "Start ▶" : d < ls.length ? "Continue ▶" : "Review →"} pulse={d < ls.length} />
-      </button>;
+      </button></div>;
     })}</div>
 
     {promo && <div className={cn("mt-8 flex flex-wrap items-center gap-4 border-2 border-foreground p-5 shadow-brutal", promoPassed ? "bg-secondary text-secondary-foreground" : "bg-primary")}>
@@ -438,4 +442,25 @@ export function QuestMap() {
         </div>; })}
     </div>}
   </div>;
+}
+
+/* progress ring for subject rows on phones */
+function StudyRing({ pct }: { pct: number }) {
+  const r = 18, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, Math.round(pct)));
+  return <span className="relative grid size-12 shrink-0 place-items-center">
+    <svg viewBox="0 0 44 44" className="absolute inset-0 size-12 -rotate-90"><circle cx="22" cy="22" r={r} fill="none" stroke="currentColor" strokeOpacity=".12" strokeWidth="4" />
+      <circle cx="22" cy="22" r={r} fill="none" stroke="#2f7352" strokeWidth="4" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (c * v) / 100} /></svg>
+    <span className="text-[11px] font-bold tabular-nums text-[#2f7352]">{v}%</span></span>;
+}
+
+/* phones: Study cards look like the Today cards */
+if (typeof document !== "undefined" && !document.getElementById("study-m-style")) {
+  const st = document.createElement("style"); st.id = "study-m-style";
+  st.textContent = "@media (max-width:639px){"
+    + "[data-study] .shadow-brutal:not([data-plain]),[data-study] .shadow-brutal-sm:not([data-plain]){border-radius:16px!important;border-width:1.5px!important;box-shadow:0 4px 0 var(--foreground)!important}"
+    + "[data-study] span.bg-foreground.text-background,[data-study] button.bg-foreground.text-background{border-radius:999px!important;box-shadow:none!important}"
+    + "[data-study] .border-dashed{border-radius:16px}"
+    + "[data-study] .size-10.border-2,[data-study] .size-12.border-2{border-radius:12px;border-width:1.5px}"
+    + "}";
+  document.head.appendChild(st);
 }
