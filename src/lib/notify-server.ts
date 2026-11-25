@@ -136,6 +136,7 @@ export async function handleNotify(request: Request): Promise<Response> {
       r?.responses.forEach((x, i) => { const c = x.error?.code ?? ""; if (c.includes("registration-token-not-registered") || c.includes("invalid-registration-token") || c.includes("invalid-argument")) bad.add(tokens[i]); });
       if (r?.successCount) sent++;
       done[m.key] = true;
+      await a.db.collection(`notifs/${u.id}/items`).add({ key: m.key, title: m.title, body: m.body, url: m.url, at: Date.now(), read: false }).catch(() => null);
     }
     await u.ref.set({ sent: { day: t.date, keys: done }, ...(bad.size ? { tokens: tokens.filter((x) => !bad.has(x)) } : {}) }, { merge: true });
   }
