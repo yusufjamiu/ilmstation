@@ -92,7 +92,11 @@ export type InteriorKind =
   | "lecture"
   | "corridor"
   /** inside Al-Masjid An-Nabawi: the prayer hall, the Rawdah and the courtyard */
-  | "nabawi";
+  | "nabawi"
+  /** a hotel: the lobby with the reception, the lift and the stairs */
+  | "hotel"
+  /** your hotel room upstairs */
+  | "hotelroom";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -617,6 +621,8 @@ export class IlmCityEngine {
     lecture: [],
     corridor: [],
     nabawi: [],
+    hotel: [],
+    hotelroom: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -646,6 +652,8 @@ export class IlmCityEngine {
     lecture: new THREE.Vector3(2000, 0, 320),
     corridor: new THREE.Vector3(2150, 0, 320),
     nabawi: new THREE.Vector3(2350, 0, 320),
+    hotel: new THREE.Vector3(2550, 0, 320),
+    hotelroom: new THREE.Vector3(2650, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -920,6 +928,11 @@ export class IlmCityEngine {
   scenePlace() {
     return this.where;
   }
+  /** The building you are inside (the hotel's name in its lobby). */
+  placeName() {
+    return this.where === "out" ? "" : this.interiorName;
+  }
+
   playerPos() {
     return { x: this.player.position.x, z: this.player.position.z, where: this.where };
   }
@@ -939,6 +952,20 @@ export class IlmCityEngine {
       0,
       o.z + (kind === "home" ? 8 : kind === "nabawi" ? NABAWI_IN.D / 2 - 3 : 5.5),
     );
+    this.player.rotation.y = Math.PI;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+  }
+  /** Inside a building, go to another of its rooms (the lift up to your hotel room, and
+      back down): the door outside stays where it was. */
+  moveInside(kind: InteriorKind, name = this.interiorName) {
+    this.homeActEnd();
+    this.interiorName = name;
+    this.where = kind;
+    const o = this.interiorOrigin[kind];
+    this.player.position.set(o.x, 0, o.z + (kind === "hotelroom" ? 3 : -2));
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -1184,6 +1211,38 @@ export class IlmCityEngine {
     // in Makkah and Madinah the Haram is north of the main road: the cross road only runs south
     const crossTop = D.holy ? -8 : north;
     road(0, (crossTop + crossEnd) / 2, 12, crossEnd - crossTop);
+    // Madinah: footbridges over the main road, and a road down each side that joins every
+    // street end (and the roads in from the next areas), so no street stops dead at the sand
+    if (saudiCity(D) && !D.holy && !D.campus)
+      for (const bx of [-(H.x - 36), H.x - 36]) {
+        if (!this.boxFree(bx - 2, bx + 2, -10.8, -7.2) || !this.boxFree(bx - 2, bx + 2, 7.2, 10.8))
+          continue;
+        // keep clear of the buildings on the main road (built after the roads)
+        const main = D.streets[0]?.id;
+        if (D.landmarks.some((l) => l.street === main && Math.abs(l.x - bx) < (l.width ?? 30) / 2 + 3))
+          continue;
+        // the towers stand on the pavements, clear of the house plots behind them
+        for (const t of this.footbridge(batch, bx, 0, 18, false))
+          this.addCollider("out", t.x - 1.6, t.x + 1.6, t.z - 1.4, t.z + 1.4);
+      }
+    if (saudiCity(D) && !D.holy) {
+      const ends = [...zs];
+      for (const c of DISTRICTS)
+        if (c.parent === D.id && c.link === "east") ends.push(c.origin.z - D.origin.z);
+      const z0 = Math.max(-(H.z - 6), Math.min(...ends) - 8),
+        z1 = Math.min(H.z - 6, Math.max(...ends) + 8);
+      if (z1 - z0 > 20)
+        for (const sx of [-1, 1]) {
+          road(sx * (H.x - 7), (z0 + z1) / 2, 9, z1 - z0);
+          for (let z = z0 + 4; z < z1 - 4; z += 6) {
+            if (ends.some((sz) => Math.abs(z - sz) < 8)) continue;
+            const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
+            d.rotation.x = -Math.PI / 2;
+            d.position.set(sx * (H.x - 7), 0.06, z);
+            batch.addObject(d);
+          }
+        }
+    }
     for (let z = crossTop; z < crossEnd; z += 6) {
       if (zs.some((sz) => Math.abs(z - sz) < 8)) continue;
       const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
@@ -2828,7 +2887,8 @@ export class IlmCityEngine {
           b.box(10.4, 0.5, 7.4, trim, lx, 3.4 * fl, lz - 2.5);
           if (rnd() < 0.5) b.add(groundGeo(6, 3, 2), pool, lx + 1.5, 0.15, lz + 4, 0, false);
         } else {
-          // a block of flats with shops at the bottom
+          // a block of flats with shops at the bottom, on a paved lot
+          b.box(15.6, 0.08, 15.6, MAT.paving(), lx, 0.01, lz);
           const fl = (tier === 2 ? 3 : 2) + Math.floor(rnd() * 3);
           const w = 12 + rnd() * 1.5,
             dd = 11 + rnd() * 1.5;
@@ -2892,6 +2952,19 @@ export class IlmCityEngine {
       }
     }
     this.worldBatch.addObject(g);
+    // a footbridge over the middle of a long expressway (Makkah and Madinah)
+    if (len > 160 && x0 < -3000) {
+      const fb = new THREE.Group();
+      fb.position.copy(g.position);
+      fb.rotation.y = g.rotation.y;
+      const towers = this.footbridge(this.worldBatch, 0, 0, 25, true, fb);
+      const a = g.rotation.y;
+      for (const t of towers) {
+        const wx = g.position.x + t.x * Math.cos(a) + t.z * Math.sin(a),
+          wz = g.position.z - t.x * Math.sin(a) + t.z * Math.cos(a);
+        this.colliders.out.push({ x0: wx - 1.8, x1: wx + 1.8, z0: wz - 1.8, z1: wz + 1.8 });
+      }
+    }
     for (const f of [0.2, 0.5, 0.8]) {
       const t = label(name, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
       t.position.set(x0 + dx * f, 6.5, z0 + dz * f);
@@ -7311,35 +7384,44 @@ export class IlmCityEngine {
     const dside = D.link === "east" ? -1 : side;
     // a south area is reached from the north: the same way in, mirrored
     const fromN = D.link === "south";
-    if (byCar && fromN) {
+    const fromS = !!D.parent && D.link !== "east" && !fromN;
+    // where the trip starts: on the road that leads in, never across the sand
+    let start: THREE.Vector3;
+    if (fromN) start = W(-3, -(Hz + 40));
+    else if (fromS) start = W(3, Hz + 40);
+    else if (D.parent) start = W(dside * (Hx + 30), 3);
+    else {
+      // down the expressway from the city junction, in the inbound lane
+      const c = centerOf(D);
+      const ex = D.origin.x + side * (Hx - 6),
+        ez = D.origin.z;
+      const len = Math.hypot(c.x - ex, c.z - ez) || 1;
+      const ux = (c.x - ex) / len,
+        uz = (c.z - ez) / len;
+      const back = Math.min(90, len - 40);
+      start = new THREE.Vector3(ex + ux * back - uz * 3, 0, ez + uz * back + ux * 3);
+    }
+    // then along the main road in its lane (z = 3), stopping at the bus stop: no pavements
+    const inEnd = fromN || fromS ? null : W(dside * (Hx - 6), 3);
+    if (byCar) {
       vehicle = this.car;
-      path = [W(3, -(Hz + 40)), W(3, -20), W(-4, 9.8), W(-16, 9.8)];
-    } else if (fromN) {
-      vehicle = makeBus(!!D.holy);
-      this.scene.add(vehicle);
-      path = [W(3, -(Hz + 40)), W(3, -20), W(-6, 9.6), W(-52, 9.6)];
-    } else if (byCar) {
-      vehicle = this.car;
-      path =
-        D.parent && D.link !== "east"
-          ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
-          : [W(dside * (Hx + 38), -3), W(dside * 40, -3), W(-4, 9.8), W(-16, 9.8)];
+      path = fromN
+        ? [start, W(-3, -8), W(-8, 3), W(-12, 8.4), W(-16, 9.8)]
+        : fromS
+          ? [start, W(3, 8), W(-2, 3), W(-12, 8.4), W(-16, 9.8)]
+          : [start, inEnd!, W(-4, 3), W(-12, 8.4), W(-16, 9.8)];
     } else {
       vehicle = makeBus(!!D.holy);
       this.scene.add(vehicle);
-      path =
-        D.parent && D.link !== "east"
-          ? [W(3, Hz + 40), W(3, 20), W(-6, 9.6), W(-52, 9.6)]
-          : [W(dside * (Hx + 38), 3), W(dside * 40, 3), W(-6, 9.6), W(-52, 9.6)];
+      path = fromN
+        ? [start, W(-3, -8), W(-10, 3), W(-48, 3)]
+        : fromS
+          ? [start, W(3, 8), W(-6, 3), W(-48, 3)]
+          : [start, inEnd!, W(-48, 3)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = fromN
-      ? -Math.PI / 2
-      : D.parent && D.link !== "east"
-        ? Math.PI / 2
-        : dside > 0
-          ? Math.PI
-          : 0;
+    // face the first stretch of road
+    vehicle.rotation.y = Math.atan2(-(path[1].z - path[0].z), path[1].x - path[0].x);
     this.player.position.copy(path[0]);
     this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
     this.ev.onCinematic?.(true);
@@ -8285,6 +8367,41 @@ export class IlmCityEngine {
     this.dg.add(mat2);
   }
 
+  /** A footbridge over a road: a glass tower with stairs on each side, a covered deck across.
+      Built into group g at (cx, cz); `span` is the distance between the towers, and the deck
+      runs along x when acrossX (else along z). Returns the towers' centres in g's space. */
+  private footbridge(g: Batch, cx: number, cz: number, span: number, acrossX: boolean, base?: THREE.Object3D) {
+    const b = new THREE.Group();
+    b.position.set(cx, 0, cz);
+    if (acrossX) b.rotation.y = Math.PI / 2;
+    const white = 0xf2eee6,
+      steel = 0x9aa3a8,
+      glassC = 0x8fb3c4;
+    const H = 6.2,
+      L = span + 3;
+    for (const z of [-span / 2, span / 2]) {
+      b.add(box(3.2, H + 0.6, 2.8, white, 0, 0, z));
+      b.add(box(3.25, H - 1.2, 2, glassC, 0, 0.8, z));
+      b.add(box(3.6, 0.35, 3.2, steel, 0, H + 0.6, z));
+    }
+    b.add(box(3, 0.55, L, white, 0, H, 0));
+    b.add(box(0.08, 1.2, L, glassC, -1.45, H + 0.55, 0), box(0.08, 1.2, L, glassC, 1.45, H + 0.55, 0));
+    b.add(box(3.6, 0.15, L, steel, 0, H + 2.8, 0));
+    for (let z = -L / 2 + 1; z <= L / 2 - 1; z += 4) {
+      b.add(box(0.12, 2.3, 0.12, steel, -1.5, H + 0.55, z), box(0.12, 2.3, 0.12, steel, 1.5, H + 0.55, z));
+    }
+    // a green band and the crescent of the city
+    b.add(box(3.05, 0.25, L, 0x1f6f63, 0, H + 0.1, 0));
+    // merged into the area's shapes, so a bridge costs the phone almost nothing to draw
+    if (base) {
+      base.add(b);
+      g.addObject(base);
+      base.remove(b);
+    } else g.addObject(b);
+    return [-span / 2, span / 2].map((z) =>
+      acrossX ? { x: cx + z, z: cz } : { x: cx, z: cz + z },
+    );
+  }
   private streetSign(x: number, z: number, streetId: string, rot: number) {
     const st = STREETS[streetId];
     const g = new THREE.Group();
@@ -8893,6 +9010,110 @@ export class IlmCityEngine {
         g.add(f);
       }
     }
+    // Hotel lobby: marble floor, the reception desk, the lifts and the stairs
+    {
+      const { g, o } = this.room("hotel", 24, 18, 0xefe6d4, 0xd9d2c4);
+      // marble tiles
+      for (let i = -5; i <= 5; i++) {
+        const l = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 18), mat(0xbfb6a4));
+        l.rotation.x = -Math.PI / 2;
+        l.position.set(i * 2.2, 0.01, 0);
+        g.add(l);
+      }
+      const rug = new THREE.Mesh(new THREE.PlaneGeometry(6, 8), mat(0x7a2a2a));
+      rug.rotation.x = -Math.PI / 2;
+      rug.position.set(0, 0.015, 3);
+      g.add(rug);
+      // the reception desk, with the receptionist and a bell
+      const desk = new THREE.Group();
+      desk.add(box(8, 1.15, 1.3, 0x5a3a22, 0, 0, 0), box(8.3, 0.12, 1.5, 0xf4efe4, 0, 1.15, 0));
+      desk.add(box(0.3, 0.2, 0.3, 0xd4a72c, 2.6, 1.27, 0.2));
+      desk.position.set(0, 0, -5.8);
+      this.solid("hotel", g, desk, 8.3, 1.5);
+      const clerk = person(0xffffff, { cap: 0xffffff, trousers: 0x1d1d26, seed: 31 });
+      clerk.position.set(0.6, 0, -7);
+      g.add(clerk);
+      g.add(box(10, 3, 0.15, 0x6d4a2b, 0, 1.6, -8.75));
+      const rec = label("🛎️ Reception", { size: 0.7, bg: "rgba(90,58,34,0.95)" });
+      rec.position.set(0, 4.3, -8.4);
+      g.add(rec);
+      this.zones.push({ id: "hotel:desk", label: "Book a room at reception", x: o.x, z: o.z - 3.9, r: 2.4, scene: "hotel" });
+      // the lifts on the left wall
+      for (const lz of [-3.5, 1.5]) {
+        g.add(box(0.2, 3.2, 2.4, 0xb8bcc2, -11.75, 0, lz));
+        g.add(box(0.22, 3.1, 0.06, 0x6c7075, -11.73, 0, lz));
+        g.add(box(0.2, 0.4, 0.8, 0xd4a72c, -11.7, 3.3, lz));
+      }
+      const lift = label("🛗 Lifts", { size: 0.6, bg: "rgba(31,111,99,0.95)" });
+      lift.position.set(-11, 4.2, -1);
+      g.add(lift);
+      this.zones.push({ id: "hotel:lift", label: "Take the lift to your room", x: o.x - 10, z: o.z - 1, r: 2.2, scene: "hotel" });
+      // the stairs on the right
+      for (let k = 0; k < 7; k++) g.add(box(3, 0.35 * (k + 1), 0.6, 0xcfc6b4, 10, 0, -6 + k * 0.6));
+      const st = label("🪜 Stairs", { size: 0.6, bg: "rgba(31,111,99,0.95)" });
+      st.position.set(10, 4.2, -4);
+      g.add(st);
+      this.addCollider("hotel", o.x + 8.4, o.x + 11.6, o.z - 6.4, o.z - 2);
+      this.zones.push({ id: "hotel:stairs", label: "Take the stairs to your room", x: o.x + 7.4, z: o.z - 4, r: 2, scene: "hotel" });
+      // sofas, plants and a chandelier
+      for (const [x, z, r] of [[-6, 4, Math.PI / 2], [6, 4, -Math.PI / 2]] as [number, number, number][]) {
+        const sofa = new THREE.Group();
+        sofa.add(box(3.4, 0.5, 1.1, 0xe9dcc4, 0, 0, 0), box(3.4, 0.9, 0.3, 0xe9dcc4, 0, 0, -0.45));
+        sofa.position.set(x, 0, z);
+        sofa.rotation.y = r;
+        this.solid("hotel", g, sofa, 1.2, 3.4);
+      }
+      for (const [x, z] of [[-10.5, 7.5], [10.5, 7.5], [-4.5, -7.5], [4.5, -7.5]]) {
+        const pot = cyl(0.45, 0.35, 0.8, 0xd9cfbb, 10);
+        pot.position.set(x, 0.4, z);
+        const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8, 0), mat(0x3f7a3a));
+        leaf.position.set(x, 1.5, z);
+        g.add(pot, leaf);
+      }
+      const ch = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), this.lampMat);
+      ch.position.set(0, 4.2, 1);
+      g.add(ch);
+      const guest = person(0x8fb8e8, { cap: 0xffffff, seed: 33 });
+      sitPerson(guest);
+      guest.position.set(-6.2, 0.1, 4);
+      guest.rotation.y = Math.PI / 2;
+      g.add(guest);
+    }
+    // Hotel room: a big bed, a window over the city, a prayer mat and the door to the lift
+    {
+      const { g, o } = this.room("hotelroom", 12, 10, 0xf4ede0, 0x8a6a4a, false);
+      const bed = new THREE.Group();
+      bed.add(box(3.6, 0.6, 4.4, 0x5a3a22, 0, 0, 0));
+      bed.add(box(3.6, 2, 0.25, 0x6d4a2b, 0, 0, -2.2));
+      bed.add(box(3.4, 0.4, 4.2, 0xffffff, 0, 0.6, 0));
+      bed.add(box(1.1, 0.3, 0.6, 0xf0ece4, -0.85, 1, -1.6), box(1.1, 0.3, 0.6, 0xf0ece4, 0.85, 1, -1.6));
+      bed.add(box(3.5, 0.12, 1, 0xc9a227, 0, 1, 1.3));
+      bed.position.set(-2.5, 0, -2.6);
+      this.solid("hotelroom", g, bed, 3.8, 4.6);
+      const cover = box(3.5, 0.4, 2.8, 0xf4efe4, -2.5, 1.02, -1.75);
+      cover.visible = false;
+      g.add(cover);
+      this.hotelCover = cover;
+      this.zones.push({ id: "hotel:bed", label: "Sleep", x: o.x - 2.5, z: o.z + 0.4, r: 1.8, scene: "hotelroom" });
+      // the window: blue sky and a green dome far away
+      g.add(box(5, 2.6, 0.1, 0x9fd0ea, 3, 1.3, -4.75));
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0x2e8b57));
+      dome.position.set(3.4, 1.6, -4.68);
+      g.add(dome);
+      g.add(box(5.3, 0.15, 0.3, 0x6d4a2b, 3, 3.95, -4.7), box(5.3, 0.15, 0.3, 0x6d4a2b, 3, 1.2, -4.7));
+      // a prayer mat, a little table and a lamp
+      const matM = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.8), mat(0x1f6f63));
+      matM.rotation.x = -Math.PI / 2;
+      matM.position.set(3.5, 0.02, 0.5);
+      g.add(matM);
+      g.add(box(0.8, 0.7, 0.7, 0x8a5a3a, -5.2, 0, -4));
+      const lamp = cyl(0.18, 0.28, 0.35, 0xf2e3c0, 10);
+      lamp.position.set(-5.2, 0.95, -4);
+      g.add(lamp);
+      // the door back to the corridor and the lift
+      g.add(box(1.6, 2.7, 0.12, 0x6d4a2b, 3.5, 0, 4.8));
+      this.zones.push({ id: "hotel:down", label: "Go back down to the lobby", x: o.x + 3.5, z: o.z + 3.6, r: 1.6, scene: "hotelroom" });
+    }
     // Restaurant: a counter at the back, tables and people eating
     {
       const { g, o } = this.room("restaurant", 20, 14, 0xf3e6cf, 0x9a6b45);
@@ -8904,13 +9125,13 @@ export class IlmCityEngine {
       const cook = person(0xffffff, { cap: 0xffffff, trousers: 0x1d1d26, seed: 7 });
       cook.position.set(1, 0, -5.8);
       g.add(cook);
-      const menu = label("Menu · jollof · broast · amala · shawarma · kabsa · suya", {
+      const menu = label("Menu · broast · mandi · kabsa · shawarma · mutabbaq · coffee", {
         size: 0.5,
         bg: "rgba(31,111,99,0.95)",
       });
       menu.position.set(0, 3.6, -6.7);
       g.add(menu);
-      const sign = label("Al-Ma'idah Restaurant", { size: 0.7, bg: "rgba(122,59,42,0.95)" });
+      const sign = label("Order here", { size: 0.7, bg: "rgba(122,59,42,0.95)" });
       sign.position.set(0, 4.5, -6.7);
       g.add(sign);
       // hand-wash sink by the wall
@@ -11349,6 +11570,18 @@ export class IlmCityEngine {
   /** Do something at home that you can see: lie in bed, sit on the sofa or at the table, cook,
       or use the laptop. Returns false when you aren't at home. */
   homeAct(what: "sleep" | "sofa" | "eat" | "cook" | "laptop" | "tv") {
+    if (this.where === "hotelroom" && what === "sleep") {
+      const o = this.interiorOrigin.hotelroom;
+      this.homeActEnd();
+      const back = { x: this.player.position.x, z: this.player.position.z, rot: this.player.rotation.y };
+      this.tapTarget = null;
+      this.marker.visible = false;
+      this.player.position.set(o.x - 2.5, 1.1, o.z - 2.4);
+      this.player.rotation.set(-Math.PI / 2, 0, 0);
+      if (this.hotelCover) this.hotelCover.visible = true;
+      this.acting = { ...back, scene: this.where };
+      return true;
+    }
     if (this.where !== "home") return false;
     const o = this.interiorOrigin.home;
     this.homeActEnd();
@@ -11399,9 +11632,11 @@ export class IlmCityEngine {
     this.player.rotation.set(0, b.rot, 0);
     this.player.position.set(b.x, 0, b.z);
     if (this.sleepCover) this.sleepCover.visible = false;
+    if (this.hotelCover) this.hotelCover.visible = false;
     if (this.cookSteam) this.cookSteam.visible = false;
     if (this.eatPlate) this.eatPlate.visible = false;
   }
+  private hotelCover: THREE.Object3D | null = null;
   private stepActing(t: number) {
     // the road going by outside the bus windows
     if (this.where === "coach") for (const tx of this.coachViews) tx.offset.x = (t * 0.12) % 1;

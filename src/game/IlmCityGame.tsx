@@ -230,6 +230,8 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** tonight's hotel room: the hotel and when the booking ends */
+  hotelStay?: { hotel: string; room: number; until: number };
   /** your company's office in a business tower: open it each day to earn */
   office?: { tower: string; name: string; size: "small" | "big"; floor: number; until: number; opened?: string };
   /** in class, other students don't see your name */
@@ -6963,7 +6965,48 @@ function CityGame({
       }
       // the hotels round Al-Masjid An-Nabawi
       if (id.startsWith("office:hotel-")) {
+        // walk in through the front door: the reception, the lifts and the stairs are inside
+        const name = landmarkById(id.slice(7))?.l.name ?? "Hotel";
+        e.enterInterior("hotel", name);
+        setInside(true);
+        const st = saveRef.current.hotelStay;
+        toast(
+          st && st.hotel === name && st.until > Date.now()
+            ? `Welcome back! Your room ${st.room} is ready: take the lift.`
+            : `Welcome to ${name}. Book a room at reception.`,
+        );
+        return;
+      }
+      if (id === "hotel:desk") {
         openHotelRef.current(true);
+        return;
+      }
+      if (id === "hotel:lift" || id === "hotel:stairs") {
+        const st = saveRef.current.hotelStay;
+        const here = engine.current?.placeName?.() ?? "";
+        if (!st || st.until < Date.now() || (here && st.hotel !== here)) {
+          toast("Book a room at reception first.");
+          return;
+        }
+        const lift = id === "hotel:lift";
+        setPanel({
+          kind: "busy",
+          title: lift ? `🛗 Going up to floor ${Math.floor(st.room / 100)}…` : "🪜 Climbing the stairs…",
+          ms: lift ? 1800 : 3200,
+          done: () => {
+            e.moveInside("hotelroom", `Room ${st.room}`);
+            toast(`Room ${st.room}. The bed is ready: tap it to sleep.`);
+          },
+        });
+        return;
+      }
+      if (id === "hotel:bed") {
+        onActionRef.current("sleep");
+        return;
+      }
+      if (id === "hotel:down") {
+        const st = saveRef.current.hotelStay;
+        e.moveInside("hotel", st?.hotel ?? "Hotel");
         return;
       }
       // Jannat Al-Baqi' and the martyrs of Uhud: give salam to the people of the graves
@@ -8989,7 +9032,7 @@ function CityGame({
     const atHome = !atHotel && cityOf(D) === cityOf(districtById(home));
     setPanel({
       kind: "info",
-      title: "🏨 Rest for the night",
+      title: atHotel ? `🛎️ ${engine.current?.placeName() || "Hotel"} · reception` : "🏨 Rest for the night",
       body: (
         <div className="space-y-3 text-[14px]">
           {atHome ? (
@@ -8997,11 +9040,38 @@ function CityGame({
           ) : (
             <p>
               {atHotel
-                ? `Welcome! Choose your room for the night in ${D.name}.`
+                ? "Assalamu alaikum, welcome! Which room would you like tonight? After booking, take the lift or the stairs to your room."
                 : `You are in ${D.name}, ${D.state}, far from home. Book a hotel room here to sleep, or travel back home.`}
             </p>
           )}
-          {hotelsFor(here).map((h) => {
+          {!atHotel && engine.current?.hasZone("office:hotel-") ? (
+            <>
+              <p>
+                Hotels are by Al-Masjid An-Nabawi: walk in, book a room at reception, then take the
+                lift to your room.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  const e2 = engine.current;
+                  if (!e2?.goToZone("office:hotel-")) tripRef.current("nabawi", false);
+                  else e2.guideTo("office:hotel-");
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec]"
+              >
+                🏨 Show me the way to a hotel
+              </button>
+            </>
+          ) : null}
+          {(atHotel || !engine.current?.hasZone("office:hotel-")) && hotelsFor(here).map((h0, hi) => {
+            // at a hotel's own desk you choose a kind of room in that hotel
+            const h = atHotel
+              ? {
+                  ...h0,
+                  name: ["Shared pilgrims' room", "Standard room", "Suite facing the Haram"][hi] ?? h0.name,
+                  icon: ["🛏️", "🏨", "🌟"][hi] ?? h0.icon,
+                }
+              : h0;
             const short = saveRef.current.coins < h.price;
             return (
               <div key={h.name} className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
@@ -9021,9 +9091,20 @@ function CityGame({
                       ...saveRef.current,
                       coins: saveRef.current.coins - h.price,
                     };
-                    toast(`${h.name}: room booked, ${N(h.price)}.`, "good");
                     if (h.perks) need(h.perks);
-                    onActionRef.current("sleep");
+                    const inHotel = engine.current?.scenePlace() === "hotel";
+                    if (inHotel) {
+                      const room = 100 * (2 + Math.floor(Math.random() * 9)) + 1 + Math.floor(Math.random() * 30);
+                      const hotel = engine.current?.placeName?.() || h.name;
+                      const hotelStay = { hotel, room, until: Date.now() + 20 * 3600000 };
+                      saveRef.current = { ...saveRef.current, hotelStay };
+                      update((x) => ({ ...x, hotelStay }));
+                      setPanel(null);
+                      toast(`Room ${room} is yours tonight (${N(h.price)}). Here is your key card: take the lift.`, "good");
+                    } else {
+                      toast(`${h.name}: room booked, ${N(h.price)}.`, "good");
+                      onActionRef.current("sleep");
+                    }
                   }}
                   className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
                 >
