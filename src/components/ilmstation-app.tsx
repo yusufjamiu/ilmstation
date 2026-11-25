@@ -509,10 +509,9 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
         {tile(YTrend, "Progress", "Your learning record", () => go("progress"))}
         {tile(YTarget, "Quests", "Daily and weekly goals", () => go("quests"))}
         {tile(YAward, "Badges", "Everything you’ve earned", () => { try { sessionStorage.setItem("iq_growth_tab", "Achievements"); } catch { /* */ } go("progress"); })}
-        {tile(YWallet, "Wallet & points", `${pr.points ?? 0} points · swap for Premium`, () => go("rewards"))}
+        {tile(YCrown, "Premium & points", `${pr.premium ? (pr.trial ? "Free trial" : "Premium") : "Free plan"} · ${pr.points ?? 0} points`, () => go("rewards"))}
         {tile(YUsers, "Friends & challenges", "Your circle", () => go("community"))}
         {tile(YFamily, "Family hub", "Children’s accounts and family plan", () => go("family"))}
-        {tile(YCrown, "Premium", pr.premium ? "Your plan" : "See plans", () => { try { sessionStorage.setItem("iq_rewards_tab", "Premium"); } catch { /* */ } go("rewards" as Screen); })}
         {tile(YShare, "Invite friends", "Share IlmStation", () => void invite())}
       </>}
     </div>
