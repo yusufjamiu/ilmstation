@@ -207,7 +207,7 @@ export function IlmStationApp() {
             {!isKid && <Button variant={premium ? "secondary" : "outline"} className="hidden sm:inline-flex" onClick={() => selectScreen("rewards")}><Crown /> {premium ? "Premium" : "Go Premium"}</Button>}
             <LanguageSelect className="h-10 px-2.5" />
             <NotifBell inboxCount={inbox.length} onInbox={() => setNotifications(true)} go={(sc) => selectScreen(sc as Screen)} />
-            <ThemeToggle />
+            <span className="contents max-sm:hidden"><ThemeToggle /></span>
             <Button variant="secondary" data-avatar className="relative max-sm:size-11 max-sm:p-0" aria-label={inbox.length ? `Profile, ${inbox.length} notifications` : "Profile"} onClick={() => selectScreen(profileScreen)}><span className="grid size-6 place-items-center bg-primary text-primary-foreground max-sm:size-8 max-sm:rounded-full max-sm:text-base max-sm:font-bold">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
           </div>
         </header>
