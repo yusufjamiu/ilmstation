@@ -142,7 +142,7 @@ export function IlmStationApp() {
       <Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="hidden lg:block" />
       {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="h-full w-64 overflow-y-auto overscroll-contain bg-background pb-24" /></div>}
       <main className="min-w-0 flex-1 pb-20 lg:pb-0">
-        <header className="sticky top-0 z-40 -mt-2 mb-2 sm:mb-6 flex items-center justify-between gap-3 bg-background py-2">
+        <header data-topbar className="sticky top-0 z-40 -mt-2 mb-2 sm:mb-6 flex items-center justify-between gap-3 bg-background py-2">
           <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu /></Button>
           <div className="hidden sm:block"><p className="text-xs font-semibold uppercase text-muted-foreground">{todayLabel()}</p></div>
           <div className="ml-auto flex items-center gap-2">
@@ -150,7 +150,7 @@ export function IlmStationApp() {
             {!isKid && <Button variant={premium ? "secondary" : "outline"} className="hidden sm:inline-flex" onClick={() => selectScreen("rewards")}><Crown /> {premium ? "Premium" : "Go Premium"}</Button>}
             <LanguageSelect className="h-10 px-2.5" />
             <ThemeToggle />
-            <Button variant="secondary" className="relative" aria-label={inbox.length ? `Profile, ${inbox.length} notifications` : "Profile"} onClick={() => inbox.length ? setNotifications(true) : selectScreen(profileScreen)}><InboxBadge count={inbox.length} /><span className="grid size-6 place-items-center bg-primary text-primary-foreground">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
+            <Button variant="secondary" data-avatar className="relative max-sm:size-11 max-sm:p-0" aria-label={inbox.length ? `Profile, ${inbox.length} notifications` : "Profile"} onClick={() => inbox.length ? setNotifications(true) : selectScreen(profileScreen)}><InboxBadge count={inbox.length} /><span className="grid size-6 place-items-center bg-primary text-primary-foreground max-sm:size-8 max-sm:rounded-full max-sm:text-base max-sm:font-bold">{account?.name?.[0]?.toUpperCase() ?? "?"}</span><span className="hidden sm:inline">{account?.name?.split(/\s+/)[0] ?? "Account"}</span></Button>
           </div>
         </header>
         <PresenceBeat />
@@ -547,4 +547,15 @@ function LevelCard({ onOpen }: { onOpen: () => void }) {
     <span className="mt-2 block h-2 overflow-hidden rounded-full bg-foreground/10"><span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></span>
     {ok && <span className="mt-2 block text-xs text-muted-foreground">{hi - me.xp} XP to Level {idx + 2} ({String(next!.name ?? "")})</span>}
   </button>;
+}
+
+/* phones: round, light top bar */
+if (typeof document !== "undefined" && !document.getElementById("topbar-style")) {
+  const st = document.createElement("style"); st.id = "topbar-style";
+  st.textContent = "@media (max-width:639px){"
+    + "[data-topbar] button,[data-topbar] select,[data-topbar] [role=combobox]{border-radius:999px!important;border-width:1.5px!important;box-shadow:0 2px 8px rgba(0,0,0,.10)!important;min-height:44px}"
+    + "[data-topbar] button[aria-label='Open navigation']{width:44px;height:44px}"
+    + "[data-topbar] [data-avatar]{width:44px;height:44px;padding:0!important;display:grid!important;place-items:center}"
+    + "}";
+  document.head.appendChild(st);
 }
