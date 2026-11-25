@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DICT } from "@/lib/i18n-dict";
-import { doc as lDoc, setDoc as lSet, onSnapshot as lSnap } from "firebase/firestore";
+import { doc as lDoc, setDoc as lSet, getDoc as lGet, onSnapshot as lSnap } from "firebase/firestore";
+import { onAuthStateChanged as lOnAuth } from "firebase/auth";
 import { auth as lAuth, db as lDb } from "@/lib/firebase";
 
 export const languages = [
@@ -47,7 +48,25 @@ const read = (): Lang => {
   } catch { return "en"; }
 };
 
+/** On a new phone or browser, use the language saved on the user's IlmStation profile. */
+let profileSynced = false;
+function syncFromProfile() {
+  if (profileSynced || typeof window === "undefined") return; profileSynced = true;
+  try {
+    lOnAuth(lAuth, (u) => {
+      if (!u) return;
+      void lGet(lDoc(lDb, "profiles", u.uid)).then((s) => {
+        const l = s.data()?.language as string | undefined;
+        if (!l || !languages.some((x) => x.code === l) || l === read()) return;
+        try { localStorage.setItem(KEY, l); localStorage.setItem(MANUAL, "1"); } catch { /* ignore */ }
+        subs.forEach((f) => f());
+      }).catch(() => {});
+    });
+  } catch { /* ignore */ }
+}
+
 export function useLanguage() {
+  useEffect(() => { syncFromProfile(); }, []);
   const lang = useSyncExternalStore((cb) => { subs.add(cb); return () => subs.delete(cb); }, read, () => "en" as Lang);
   const set = (l: Lang, auto = false) => { localStorage.setItem(KEY, l); if (!auto) localStorage.setItem(MANUAL, "1"); subs.forEach((f) => f()); const u = lAuth.currentUser; if (u) void lSet(lDoc(lDb, "profiles", u.uid), { language: l }, { merge: true }).catch(() => {}); };
   const t = (s: string) => (lang === "en" ? s : (DICT[s] as Record<string, string> | undefined)?.[lang] ?? dict[s]?.[lang] ?? s);
@@ -171,6 +190,12 @@ export function useLiveLanguages() {
 }
 
 /** Adds a translation at runtime (e.g. an auto-translated Daily Wisdom) and refreshes the screen. */
+/** Adds many translations at once (one screen refresh). */
+export function addPhrases(lang: string, pairs: Record<string, string>) {
+  const D = DICT as Record<string, Record<string, string>>;
+  for (const [en, text] of Object.entries(pairs)) { const k = en.trim(); if (k && text) D[k] = { ...(D[k] ?? {}), [lang]: text }; }
+  try { sweep(document.body, read()); } catch { /* ignore */ }
+}
 export function addPhrase(en: string, lang: string, text: string) {
   const k = en.trim(); if (!k || !text) return;
   (DICT as Record<string, Record<string, string>>)[k] = { ...((DICT as Record<string, Record<string, string>>)[k] ?? {}), [lang]: text };

@@ -9,6 +9,8 @@ import { connectRope, connectRopeLocal } from "./ropenet";
 import { VEHICLE_INFO } from "./vehicles";
 import { connectHomes, connectHomesLocal, type Homes, type Knock, type ShownHome } from "./homes";
 import { connectRooms, connectRoomsLocal, roomId, type RoomAd, type RoomsNet } from "./rooms";
+import { useWorldLanguage, WORLD_I18N_CSS } from "./i18n";
+import { useLanguage as useAppLanguage, useLiveLanguages as useLiveAppLanguages } from "@/components/language";
 import {
   cleanNumber,
   connectCalls,
@@ -1008,6 +1010,8 @@ function CityGame({
   adult: boolean;
 }) {
   useAccountSave(uid);
+  const worldRoot = useRef<HTMLDivElement>(null);
+  const worldLang = useWorldLanguage(worldRoot);
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<IlmCityEngine | null>(null);
   const [save, setSave] = useState<Save>(() => {
@@ -9015,7 +9019,14 @@ function CityGame({
     );
 
   return (
-    <div className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]">
+    <div
+      ref={worldRoot}
+      data-no-translate
+      dir="ltr"
+      data-lang={worldLang}
+      className="relative h-full w-full select-none overflow-hidden bg-[#10201e] font-[Work_Sans,system-ui,sans-serif] text-[#10201e]"
+    >
+      <style>{WORLD_I18N_CSS}</style>
       <div ref={host} className="absolute inset-0" />
       {!shown && (
         <div className="absolute inset-0 z-[100] grid place-items-center bg-[#10201e] text-center text-[#fdf8ec]">
@@ -14321,6 +14332,7 @@ function ChatView({
         {msgs.map((m) => (
           <div
             key={m.id}
+            data-keep
             className={`max-w-[85%] rounded-2xl px-3 py-2 text-[14px] ${m.from === me ? "ml-auto bg-[#1f6f63] text-[#fdf8ec]" : "bg-white"}`}
           >
             {m.text}
@@ -17451,6 +17463,29 @@ function PhoneView({
   onPlaces: () => void;
 }) {
   const now = new Date();
+  const { lang, set: setLang } = useAppLanguage();
+  const langs = useLiveAppLanguages();
+  const [pickLang, setPickLang] = useState(false);
+  if (pickLang)
+    return (
+      <div className="flex h-full min-h-[520px] flex-col gap-2 pt-6 text-white">
+        <div className="text-center text-[20px] font-bold">🌍 Language</div>
+        <p className="text-center text-[12px] opacity-75">The same language as your IlmStation app.</p>
+        <div data-keep className="mt-2 grid gap-2">
+          {langs.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => { setLang(l.code); setPickLang(false); }}
+              className={`flex items-center justify-between rounded-2xl px-4 py-3 text-left ${l.code === lang ? "bg-[#45b8a8] text-[#10201e]" : "bg-white/15"}`}
+            >
+              <span dir={l.dir} className="text-[16px] font-bold">{l.native}</span>
+              <span className="text-[12px] opacity-75">{l.label}{l.code === lang ? " ✓" : ""}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setPickLang(false)} className="mt-auto rounded-2xl bg-white/15 py-3 font-bold">Back</button>
+      </div>
+    );
   const icon = (bg: string, e: ReactNode, name: string, on?: () => void) => (
     <button
       key={name}
@@ -17471,10 +17506,10 @@ function PhoneView({
     <div className="flex h-full min-h-[520px] flex-col">
       <div className="pt-6 text-center text-white">
         <div className="text-[54px] font-light leading-none tracking-tight">
-          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {now.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" })}
         </div>
         <div className="mt-1 text-[13px] opacity-80">
-          {now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
+          {now.toLocaleDateString(lang, { weekday: "long", day: "numeric", month: "long" })}
         </div>
         {myNumber && (
           <div className="mx-auto mt-2 w-fit rounded-full bg-white/15 px-3 py-1 text-[12px] font-semibold tracking-wide">
@@ -17498,6 +17533,7 @@ function PhoneView({
         {icon("#5a3f6a", "🔑", "Rooms", onRooms)}
         {icon("#1d6b3a", "💰", "Wallet", onWallet)}
         {icon("#7a5a2a", "🏨", "Hotel", onHotel)}
+        {icon("#2b5f8a", "🌍", "Language", () => setPickLang(true))}
       </div>
       <div className="mt-auto rounded-[22px] bg-white/15 p-2.5 backdrop-blur">
         <div className="grid grid-cols-4 gap-2">
