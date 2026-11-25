@@ -627,6 +627,8 @@ if (typeof document !== "undefined" && !document.getElementById("soft-style")) {
     + "[data-soft] .size-9.border-2,[data-soft] .size-10.border-2,[data-soft] .size-11.border-2,[data-soft] .size-12.border-2{border-radius:12px;border-width:1.5px}"
     + "[data-soft] input:not([type=checkbox]):not([type=radio]):not([type=range]),[data-soft] select,[data-soft] textarea{border-radius:12px!important}"
     + "[data-soft] button.border-2:not(.rounded-full)" + X + "{border-radius:12px}"
+    + "[data-soft] .border-2" + X + ":not(.rounded-full):not(.rounded-2xl){border-radius:12px}"
+    + "[data-soft] .h-2.border-2,[data-soft] .h-3.border-2,[data-soft] .h-5.border-2,[data-soft] .h-2.border,[data-soft] .h-3.border{border-radius:999px!important;overflow:hidden}"
     + "}";
   document.head.appendChild(st);
 }
