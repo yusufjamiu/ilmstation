@@ -1,3 +1,4 @@
+import { BookOpen as QIBook, ScrollText as QIScroll, Repeat as QIRepeat, Headphones as QIHead } from "lucide-react";
 import { createPortal as createPortalQ } from "react-dom";
 import { addMemorised as addMemorisedQ } from "@/components/hifz";
 import { checkUpTo as rvCheckUpTo, isMark as rvIsMark } from "@/components/free-revision";
@@ -485,21 +486,21 @@ export function QuranScreen() {
   const practice = section === "hifz" || section === "revision";
   const [revMode, setRevMode] = useState<null | "hifz" | "free">(null);
   useEffect(() => { if (section !== "revision") setRevMode(null); }, [section]);
-  const info: Record<string, [string, string]> = { hifz: ["📖", "Memorise step by step"], tilawah: ["📜", "Read the mushaf page by page"], revision: ["🔁", "Review what you've memorised"], listen: ["🎧", "Listen to beautiful recitations"] };
+  const info: Record<string, [typeof QIBook, string, string]> = { hifz: [QIBook, "Memorise step by step", "bg-primary"], tilawah: [QIScroll, "Read the mushaf page by page", "bg-[#d7ecd9]"], revision: [QIRepeat, "Review what you've memorised", "bg-[#f7d9c4]"], listen: [QIHead, "Listen to beautiful recitations", "bg-[#d9e3f7]"] };
   if (!section) return <div className="iq-rise">
     <p className="text-xs font-bold uppercase text-muted-foreground">Qur’an</p>
     <h1 className="font-serif text-4xl leading-none sm:text-5xl">What would you like to do?</h1>
-    <div className="mt-6 grid gap-3">{sections.map(item => <button key={item.id} onClick={() => setSection(item.id)} className="flex items-center gap-4 border-2 border-foreground bg-background p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5">
-      <span className="text-4xl">{info[item.id]?.[0] ?? "📖"}</span>
-      <span className="min-w-0 flex-1"><b className="block font-serif text-3xl leading-none">{item.label}</b><span className="text-sm text-muted-foreground">{info[item.id]?.[1] ?? ""}</span></span>
+    <div className="mt-6 grid gap-3">{sections.map(item => <button key={item.id} onClick={() => setSection(item.id)} className="flex items-center gap-4 border-2 border-foreground bg-background p-5 text-left shadow-brutal transition-transform hover:-translate-y-0.5 max-sm:gap-3 max-sm:p-3.5 max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:shadow-[0_4px_0_var(--foreground)]">
+      {(() => { const I = info[item.id]?.[0] ?? QIBook; return <span className={`grid size-14 shrink-0 place-items-center rounded-xl text-[#1c1a17] max-sm:size-12 ${info[item.id]?.[2] ?? "bg-primary"}`}><I className="size-6" /></span>; })()}
+      <span className="min-w-0 flex-1"><b className="block font-serif text-3xl leading-none max-sm:text-2xl">{item.label}</b><span className="text-sm text-muted-foreground">{info[item.id]?.[1] ?? ""}</span></span>
       <ArrowRight className="size-5 shrink-0" />
     </button>)}</div>
   </div>;
   return <div>
-    {practice && <button onClick={() => setSection(null)} className="mb-2 border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold shadow-brutal-sm">← Qur’an</button>}
+    {practice && <button onClick={() => setSection(null)} className="mb-2 border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold shadow-brutal-sm max-sm:rounded-full max-sm:border-[1.5px]">← Qur’an</button>}
     {section === "revision" && revMode === null && <div className="grid gap-3 sm:grid-cols-2">
-      <button onClick={() => setRevMode("hifz")} className="border-2 border-foreground bg-background p-5 text-left shadow-brutal transition hover:-translate-y-0.5"><b className="block font-serif text-2xl">My Hifz portion</b><span className="text-sm text-muted-foreground">Review what you’ve memorised in the app</span></button>
-      <button onClick={() => setRevMode("free")} className="border-2 border-foreground bg-primary p-5 text-left shadow-brutal transition hover:-translate-y-0.5"><b className="block font-serif text-2xl">Any part of the Qur’an</b><span className="text-sm">Choose a surah and verses to revise from memory</span></button>
+      <button onClick={() => setRevMode("hifz")} className="border-2 border-foreground bg-background p-5 text-left shadow-brutal transition hover:-translate-y-0.5 max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:shadow-[0_4px_0_var(--foreground)]"><b className="block font-serif text-2xl">My Hifz portion</b><span className="text-sm text-muted-foreground">Review what you’ve memorised in the app</span></button>
+      <button onClick={() => setRevMode("free")} className="border-2 border-foreground bg-primary p-5 text-left text-[#1c1a17] shadow-brutal transition hover:-translate-y-0.5 max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:shadow-[0_4px_0_var(--foreground)]"><b className="block font-serif text-2xl">Any part of the Qur’an</b><span className="text-sm">Choose a surah and verses to revise from memory</span></button>
     </div>}
     {section === "revision" && revMode === "free" && <RevisionPages onBack={() => setRevMode(null)}/>}
     {practice && (section !== "revision" || revMode === "hifz") && <HifzScreen section={section === "revision" ? "revision" : "hifz"} onGoRevision={() => setSection("revision")}/>}
