@@ -141,7 +141,7 @@ export function IlmStationApp() {
     <div className="mx-auto flex max-w-[1440px] gap-5 px-3 py-3 sm:px-5 sm:py-5">
       <Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="hidden lg:block" />
       {mobileNav && <div className="fixed inset-0 z-40 bg-foreground/40 lg:hidden" onClick={() => setMobileNav(false)}><Sidebar kid={isKid} current={screen} onSelect={selectScreen} className="h-full w-64 overflow-y-auto overscroll-contain bg-background pb-24" /></div>}
-      <main className="min-w-0 flex-1 pb-20 lg:pb-0">
+      <main data-soft className="min-w-0 flex-1 pb-20 lg:pb-0">
         <header data-topbar className="sticky top-0 z-40 -mt-2 mb-2 sm:mb-6 flex items-center justify-between gap-3 bg-background py-2">
           <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu /></Button>
           <div className="hidden sm:block"><p className="text-xs font-semibold uppercase text-muted-foreground">{todayLabel()}</p></div>
@@ -557,6 +557,21 @@ if (typeof document !== "undefined" && !document.getElementById("topbar-style"))
     + "[data-topbar] button,[data-topbar] select,[data-topbar] [role=combobox]{border-radius:999px!important;border-width:1.5px!important;box-shadow:0 2px 8px rgba(0,0,0,.10)!important;min-height:44px}"
     + "[data-topbar] button[aria-label='Open navigation']{width:44px;height:44px}"
     + "[data-topbar] [data-avatar]{width:44px;height:44px;padding:0!important;display:grid!important;place-items:center}"
+    + "}";
+  document.head.appendChild(st);
+}
+
+/* phones: soft, rounded look on every page */
+if (typeof document !== "undefined" && !document.getElementById("soft-style")) {
+  const st = document.createElement("style"); st.id = "soft-style";
+  const X = ":not([data-plain]):not([data-plain] *)";
+  st.textContent = "@media (max-width:639px){"
+    + "[data-soft] .shadow-brutal" + X + ",[data-soft] .shadow-brutal-sm" + X + "{border-radius:16px!important;border-width:1.5px!important;box-shadow:0 4px 0 var(--foreground)!important}"
+    + "[data-soft] span.bg-foreground.text-background" + X + ",[data-soft] button.bg-foreground.text-background" + X + "{border-radius:999px!important;box-shadow:none!important}"
+    + "[data-soft] .border-dashed" + X + "{border-radius:16px}"
+    + "[data-soft] .size-9.border-2,[data-soft] .size-10.border-2,[data-soft] .size-11.border-2,[data-soft] .size-12.border-2{border-radius:12px;border-width:1.5px}"
+    + "[data-soft] input:not([type=checkbox]):not([type=radio]):not([type=range]),[data-soft] select,[data-soft] textarea{border-radius:12px!important}"
+    + "[data-soft] button.border-2:not(.rounded-full)" + X + "{border-radius:12px}"
     + "}";
   document.head.appendChild(st);
 }
