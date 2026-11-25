@@ -7731,3 +7731,8 @@ DICT["For me"] = { ...(DICT["For me"] ?? {}), ar: "لي", fr: "Pour moi", ur: "�
 DICT["Teen or adult"] = { ...(DICT["Teen or adult"] ?? {}), ar: "يافع أو بالغ", fr: "Ado ou adulte", ur: "نوجوان یا بالغ", ha: "Matashi ko babba", id: "Remaja atau dewasa", tl: "Kabataan o matanda" };
 DICT["For my child"] = { ...(DICT["For my child"] ?? {}), ar: "لطفلي", fr: "Pour mon enfant", ur: "میرے بچے کے لیے", ha: "Don ɗana", id: "Untuk anak saya", tl: "Para sa anak ko" };
 DICT["Ages 3 to 13 · safe and simple"] = { ...(DICT["Ages 3 to 13 · safe and simple"] ?? {}), ar: "من 3 إلى 13 سنة · آمن وبسيط", fr: "De 3 à 13 ans · sûr et simple", ur: "3 سے 13 سال · محفوظ اور آسان", ha: "Shekaru 3 zuwa 13 · lafiya kuma mai sauƙi", id: "Usia 3 sampai 13 · aman dan mudah", tl: "Edad 3 hanggang 13 · ligtas at madali" };
+
+DICT["Your daily quest is waiting."] = { ...(DICT["Your daily quest is waiting."] ?? {}), ar: "مهمتك اليومية بانتظارك.", fr: "Votre quête du jour vous attend.", ur: "آپ کی آج کی مہم منتظر ہے۔", ha: "Aikinka na yau yana jiranka.", id: "Misi harianmu sudah menunggu.", tl: "Naghihintay ang iyong misyon ngayon." };
+DICT["Points balance"] = { ...(DICT["Points balance"] ?? {}), ar: "رصيد النقاط", fr: "Solde de points", ur: "پوائنٹس کا بیلنس", ha: "Ma’aunin maki", id: "Saldo poin", tl: "Balanse ng puntos" };
+DICT["View wallet"] = { ...(DICT["View wallet"] ?? {}), ar: "عرض المحفظة", fr: "Voir le portefeuille", ur: "والٹ دیکھیں", ha: "Duba jaka", id: "Lihat dompet", tl: "Tingnan ang wallet" };
+DICT["Test your knowledge"] = { ...(DICT["Test your knowledge"] ?? {}), ar: "اختبر معرفتك", fr: "Testez vos connaissances", ur: "اپنا علم آزمائیں", ha: "Gwada iliminka", id: "Uji pengetahuanmu", tl: "Subukin ang iyong kaalaman" };

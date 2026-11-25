@@ -1,3 +1,4 @@
+import { BookOpen as HBook, Target as HTarget, Users as HUsers, Bot as HBot, ChevronRight as HChev } from "lucide-react";
 import { useRef } from "react";
 import { doc as docLB, setDoc as setDocLB } from "firebase/firestore";
 import { FamilyHalaqah as FamilyHalaqahLive } from "@/components/halaqah";
@@ -196,27 +197,50 @@ function Sidebar({ current, onSelect, className, kid }: { current: Screen; onSel
 
 function MobileNav({ current, onSelect, kid }: { current: Screen; onSelect: (s: Screen) => void; kid?: boolean }) {
   const items: [Screen, string, typeof Home][] = kid ? [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library], ["you", "Me", CircleUserRound]] : [["home", "Today", Home], ["hifz", "Qur’an", BookOpen], ["study", "Study", GraduationCap], ["play", "Play", Play], ["you", "You", CircleUserRound]];
-  return <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t-2 border-foreground bg-background lg:hidden">{items.map(([id, label, Icon]) => <button key={id} onClick={() => onSelect(id)} className={cn("flex h-16 min-w-0 flex-col items-center justify-center gap-1 px-0.5 text-[11px] sm:text-xs", current === id && "bg-primary font-bold")}><Icon className="size-5 shrink-0" /><span className="truncate">{label}</span></button>)}</nav>;
+  return <nav className="fixed inset-x-3 z-30 flex items-center justify-between gap-0.5 rounded-full border border-foreground/20 bg-background/95 p-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.18)] backdrop-blur lg:hidden" style={{ bottom: "calc(env(safe-area-inset-bottom) + 10px)" }}>{items.map(([id, label, Icon]) => { const on = current === id; return <button key={id} onClick={() => onSelect(id)} aria-current={on ? "page" : undefined} className={cn("flex h-11 min-w-0 items-center justify-center gap-1 rounded-full text-[12px] transition-all", on ? "bg-primary px-3 font-bold text-foreground" : "px-2 text-muted-foreground")}><Icon className="size-[18px] shrink-0" /><span className="truncate">{label}</span></button>; })}</nav>;
 }
 
 function HomeScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?: ShareCard) => void }) {
   const { firstName } = useAuth();
   const wisdom = useTodaysWisdom();
-  return <Frame eyebrow="Your daily ledger" title={<>Assalamu-alaikum, <em className="text-secondary">{firstName || "friend"}</em></>} actions={<Button onClick={() => go("play")}><Play /> Quick quiz</Button>}>
-    <RamadanBanner onOpen={() => go("ramadan")} />
-    <KahfReminder />
-    <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-      <div className="grid gap-5 md:grid-cols-3">
-        <Panel title="Pick up where you left off" className="md:col-span-2"><ContinueCard onLibrary={() => go("library")} onPlay={() => go("play")} /></Panel>
-        <Panel title="Daily Wisdom" tag={KIND_LABEL[wisdom.kind] ?? wisdom.kind}><DailyWisdom onShare={onShare} w={wisdom} /></Panel>
-        <Panel title="Play Modes" tag="Choose a practice" className="md:col-span-3"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["Hifz Drills","Recite and review","hifz"],["Tafsir Quiz","10 mixed questions","play"],["Halaqah","Learn with family","halaqah"],["IlmBot","Ask and explore","bot"]].map(([a,b,c]) => <button key={a} onClick={() => go(c as Screen)} className="border-2 border-foreground p-4 text-left transition hover:bg-primary"><small className="uppercase text-muted-foreground">Practice</small><strong className="mt-1 block font-serif text-2xl font-normal">{a}</strong><span className="text-sm">{b}</span><ChevronRight className="mt-4 size-4" /></button>)}</div></Panel>
+  const pts = (usePremium() as unknown as { points?: number }).points ?? 0;
+  const initial = (firstName || "?").trim().charAt(0).toUpperCase();
+  const tile = (Icon: typeof HBook, title: string, sub: string, to: Screen) => <button key={title} onClick={() => go(to)} className="flex min-w-0 flex-col items-start rounded-2xl border-[1.5px] border-foreground bg-background p-4 text-left shadow-[0_4px_0_var(--foreground)] transition active:translate-y-1 active:shadow-[0_1px_0_var(--foreground)]">
+    <Icon className="size-7" /><b className="mt-3 block leading-tight">{title}</b><span className="text-xs text-muted-foreground">{sub}</span></button>;
+  return <div className="min-w-0 iq-rise">
+    <header className="flex items-center justify-between gap-3">
+      <div className="min-w-0"><h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl"><span>Assalamu-alaikum,</span> <span className="text-secondary">{firstName || "friend"}</span>!</h1><p className="text-sm text-muted-foreground">Your daily quest is waiting.</p></div>
+      <button onClick={() => go("you")} aria-label="You" className="grid size-11 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground bg-primary text-lg font-bold">{initial}</button>
+    </header>
+    <div className="mt-4"><RamadanBanner onOpen={() => go("ramadan")} /><KahfReminder /></div>
+    <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <HCard tone="dark" title="Pick up where you left off" className="md:col-span-2"><ContinueCard onLibrary={() => go("library")} onPlay={() => go("play")} /></HCard>
+      <button onClick={() => go("rewards")} className="rounded-2xl border-[1.5px] border-foreground bg-primary p-4 text-left shadow-[0_4px_0_var(--foreground)] active:translate-y-1">
+        <span className="flex items-center justify-between text-xs font-bold uppercase tracking-wider opacity-70"><span>Points balance</span><span className="flex items-center gap-1 normal-case tracking-normal opacity-100">View wallet <HChev className="size-4" /></span></span>
+        <b className="mt-1 block text-4xl font-extrabold tabular-nums">{pts.toLocaleString()}</b>
+      </button>
+      <button onClick={() => go("play")} className="flex items-center gap-3 rounded-2xl border-[1.5px] border-foreground bg-primary p-4 text-left shadow-[0_4px_0_var(--foreground)] active:translate-y-1">
+        <HTarget className="size-8 shrink-0" /><span><b className="block text-lg leading-tight">Quick quiz</b><span className="text-sm opacity-80">Test your knowledge</span></span>
+      </button>
+      <div className="grid grid-cols-2 gap-3 md:col-span-2 lg:grid-cols-4">
+        {tile(HBook, "Hifz Drills", "Recite and review", "hifz")}
+        {tile(HTarget, "Tafsir Quiz", "10 mixed questions", "play")}
+        {tile(HUsers, "Halaqah", "Learn with family", "halaqah")}
+        {tile(HBot, "IlmBot", "Ask and explore", "bot")}
       </div>
-      <aside className="space-y-5">
-        <Panel title="Prayer times" tag="Today"><PrayerCard /></Panel>
-        <Panel title="Leaderboard" tag="Weekly"><YouRank /><p className="mt-2 text-xs text-muted-foreground">Invite friends to see the leaderboard.</p><Button variant="ghost" className="mt-2 w-full" onClick={() => go("progress")}>View all</Button></Panel>
-      </aside>
+      <HCard title="Prayer times" tag="Today"><PrayerCard /></HCard>
+      <HCard title="Leaderboard" tag="Weekly"><YouRank /><p className="mt-2 text-xs text-muted-foreground">Invite friends to see the leaderboard.</p><Button variant="ghost" className="mt-2 w-full" onClick={() => go("progress")}>View all</Button></HCard>
+      <HCard tone="dark" title="Daily Wisdom" tag={KIND_LABEL[wisdom.kind] ?? wisdom.kind} className="md:col-span-2"><DailyWisdom onShare={onShare} w={wisdom} /></HCard>
     </div>
-  </Frame>;
+  </div>;
+}
+/** Rounded card for Today: light (default), or dark with a yellow title. */
+function HCard({ title, tag, tone = "light", className, children }: { title?: string; tag?: string; tone?: "light" | "dark"; className?: string; children: React.ReactNode }) {
+  const dark = tone === "dark";
+  return <section className={cn("min-w-0 rounded-2xl border-[1.5px] p-4", dark ? "dark border-black bg-background text-foreground shadow-[0_4px_0_rgba(0,0,0,0.85)]" : "border-foreground bg-background shadow-[0_4px_0_var(--foreground)]", className)}>
+    {(title || tag) && <div className="mb-3 flex items-center justify-between gap-3"><p className={cn("text-xs font-bold uppercase tracking-wider", dark ? "text-primary" : "text-muted-foreground")}>{title}</p>{tag && <span className="text-xs font-semibold uppercase text-muted-foreground">{tag}</span>}</div>}
+    {children}
+  </section>;
 }
 
 function ProgressLine({ name, value }: { name: string; value: number }) { return <div className="mt-3"><div className="flex justify-between text-sm"><span>{name}</span><span className="font-serif">{value}%</span></div><div className="mt-1 h-2 border border-foreground"><div className="h-full bg-primary" style={{ width: `${value}%` }} /></div></div>; }
