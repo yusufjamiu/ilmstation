@@ -3,7 +3,7 @@
    - LessonPath (adults): a clean vertical path with a "Continue" card, the final exam as a 🎓 stop and the certificate after it
    - StageRail (adults): the levels as one road, each with a progress bar */
 import { useEffect, useRef, type ReactNode } from "react";
-import { Lock } from "lucide-react";
+import { Award, Check, CheckCircle2, ChevronRight, GraduationCap, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type L = { id: string; title: string; mins?: number; tier?: string };
@@ -67,8 +67,30 @@ export function LessonPath({ lessons, isDone, firstOpen, canOpen, premiumLocked,
         <span className="block truncate font-serif text-xl leading-tight">{cur.title}</span></span>
       <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-3 py-1.5 text-sm font-bold text-background">{doneN ? "Continue ▶" : "Start ▶"}</span>
     </button>}
-    <div className="mt-2 h-2 w-full border-2 border-foreground bg-background"><div className="h-full bg-secondary" style={{ width: `${(doneN / Math.max(1, lessons.length)) * 100}%` }} /></div>
-    <ol className="relative mt-4 pl-11">
+    <div className="mt-2 h-2 w-full overflow-hidden border-2 border-foreground bg-background max-sm:rounded-full max-sm:border-[1.5px]"><div className="h-full bg-secondary" style={{ width: `${(doneN / Math.max(1, lessons.length)) * 100}%` }} /></div>
+    <div className="mt-4 grid gap-3 sm:hidden">
+      {lessons.map((l, i) => {
+        const done = isDone(l.id), cur = i === firstOpen, open = canOpen(i), prem = premiumLocked(l), fin = isFinal(l.title);
+        return <button key={l.id} disabled={!open} onClick={() => onOpen(l)}
+          className={cn("flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-foreground p-3 text-left shadow-[0_4px_0_var(--foreground)] disabled:opacity-50", cur ? "bg-primary text-[#1c1a17]" : "bg-card", fin && "border-dashed")}>
+          <span className={cn("grid size-12 shrink-0 place-items-center rounded-xl text-lg font-bold", done ? "bg-[#2f7352] text-white" : cur ? "bg-white text-[#1c1a17]" : "bg-primary/25")}>
+            {fin ? <GraduationCap className="size-6" /> : done ? <Check className="size-6" /> : !open ? <Lock className="size-5" /> : i + 1}
+          </span>
+          <span className="min-w-0 flex-1"><span className="block font-semibold leading-tight">{l.title}</span>
+            <span className={cn("text-xs", cur ? "text-[#1c1a17]/70" : "text-muted-foreground")}>{fin ? "Final exam · opens the next level" : `Lesson ${i + 1}${l.mins ? ` · ${l.mins} min` : ""}`}{l.tier === "premium" ? " · Premium" : ""}</span></span>
+          {prem ? <span className="shrink-0 rounded-full border border-foreground px-2 text-xs font-bold">Premium</span>
+            : cur ? <span className="shrink-0 rounded-full bg-[#1c1a17] px-3 py-1.5 text-xs font-bold text-white">Start ▶</span>
+            : done ? <CheckCircle2 className="size-6 shrink-0 text-[#2f7352]" />
+            : open ? <ChevronRight className="size-5 shrink-0 text-muted-foreground" /> : null}
+        </button>;
+      })}
+      {lessons.length > 0 && <div className={cn("flex items-center gap-3 rounded-2xl border-[1.5px] border-foreground p-3", certificate === "earned" ? "bg-primary text-[#1c1a17]" : "bg-muted")}>
+        <span className={cn("grid size-12 shrink-0 place-items-center rounded-xl", certificate === "earned" ? "bg-white" : "bg-background")}><Award className="size-6" /></span>
+        <span className="min-w-0 flex-1"><b className="block leading-tight">{levelName} certificate</b>
+          <span className="text-xs">{certificate === "earned" ? "Earned. Download it above." : "Pass the final exam to earn it."}</span></span>
+      </div>}
+    </div>
+    <ol className="relative mt-4 hidden pl-11 sm:block">
       <span className="absolute bottom-6 left-[18px] top-4 w-[3px] bg-foreground/15" aria-hidden />
       <span className="absolute left-[18px] top-4 w-[3px] bg-secondary" style={{ height: lessons.length ? `calc(${(doneN / lessons.length) * 100}% - 1rem)` : 0 }} aria-hidden />
       {lessons.map((l, i) => {
@@ -117,7 +139,7 @@ export function StageRail({ items }: { items: { key: string; state: "done" | "op
 export function ProgressBar({ done, total }: { done: number; total: number }) {
   if (!total) return null;
   return <span className="mt-2 block">
-    <span className="block h-2 w-full border-2 border-foreground bg-background"><span className="block h-full bg-secondary" style={{ width: `${(done / total) * 100}%` }} /></span>
+    <span className="block h-2 w-full overflow-hidden border-2 border-foreground bg-background max-sm:rounded-full max-sm:border-[1.5px]"><span className="block h-full bg-secondary" style={{ width: `${(done / total) * 100}%` }} /></span>
     <span className="mt-0.5 block text-xs text-muted-foreground">{`${done} of ${total} lessons`}</span>
   </span>;
 }
