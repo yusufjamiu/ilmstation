@@ -415,21 +415,22 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
   const kid = me.zone === "kids";
   const until = pr.premiumUntil ? new Date(pr.premiumUntil).toLocaleDateString() : "";
   const status = pr.premium ? `${pr.trial ? "Free trial" : "Premium"}${until ? ` · until ${until}` : ""}` : "Free plan";
-  const tile = (Icon: typeof YTrend, title: string, sub: string, on: () => void) => <button key={title} onClick={on} className="flex items-center gap-3 border-2 border-foreground bg-background p-4 text-left shadow-brutal-sm transition hover:bg-primary/15">
-    <span className="grid size-11 shrink-0 place-items-center border-2 border-foreground bg-primary"><Icon className="size-5" /></span>
-    <span className="min-w-0"><b className="block">{title}</b><span className="text-xs text-muted-foreground">{sub}</span></span></button>;
+  let yti = 0; const YTINTS = ["max-sm:bg-primary", "max-sm:bg-[#d7ecd9]", "max-sm:bg-[#f7d9c4]", "max-sm:bg-[#d9e3f7]"];
+  const tile = (Icon: typeof YTrend, title: string, sub: string, on: () => void) => <button key={title} onClick={on} className="flex items-center gap-3 border-2 border-foreground bg-background p-4 text-left shadow-brutal-sm transition hover:bg-primary/15 max-sm:border-0 max-sm:border-b max-sm:border-foreground/10 max-sm:bg-transparent max-sm:py-3 max-sm:shadow-none max-sm:last:border-b-0">
+    <span className={`grid size-11 shrink-0 place-items-center border-2 border-foreground bg-primary max-sm:rounded-xl max-sm:border-0 max-sm:text-[#1c1a17] ${YTINTS[yti++ % 4]}`}><Icon className="size-5" /></span>
+    <span className="min-w-0"><b className="block">{title}</b><span className="text-xs text-muted-foreground">{sub}</span></span><span className="ml-auto pl-2 text-2xl leading-none text-muted-foreground sm:hidden">›</span></button>;
   const invite = async () => {
     const data = { title: "IlmStation", text: "Learn, play and grow with me on IlmStation", url: "https://www.ilmstation.com" };
     try { if (navigator.share) { await navigator.share(data); return; } await navigator.clipboard.writeText(data.url); toast.success("Link copied"); } catch { /* cancelled */ }
   };
   const initial = (me.name || me.username || "?").trim().charAt(0).toUpperCase();
-  const row = "flex w-full items-center justify-between border-b-2 border-foreground py-3.5 text-left font-semibold";
+  const row = "flex w-full items-center justify-between border-b-2 border-foreground py-3.5 text-left font-semibold max-sm:border-b max-sm:border-foreground/10 max-sm:last:border-b-0";
   const label = (Icon: typeof YTrend, text: string) => <span className="flex items-center gap-3"><Icon className="size-5" />{text}</span>;
-  const chip = "flex items-center gap-1.5 border-2 border-foreground bg-background px-2 py-1";
+  const chip = "flex items-center gap-1.5 border-2 border-foreground bg-background px-2 py-1 max-sm:rounded-full max-sm:border-[1.5px] max-sm:px-3";
   return <Frame eyebrow="Your account" title={kid ? "Me" : "You"}>
-    <section className="border-2 border-foreground bg-primary p-5 shadow-brutal">
+    <section className="border-2 border-foreground bg-primary p-5 text-[#1c1a17] shadow-brutal max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:shadow-[0_4px_0_var(--foreground)]">
       <div className="flex items-center gap-4">
-        <span className="grid size-16 shrink-0 place-items-center border-2 border-foreground bg-foreground font-serif text-3xl text-background">{initial}</span>
+        <span className="grid size-16 shrink-0 place-items-center border-2 border-foreground max-sm:rounded-full bg-foreground font-serif text-3xl text-background">{initial}</span>
         <div className="min-w-0">
           <p className="truncate font-serif text-3xl leading-tight">{me.name || "Your profile"}</p>
           {me.username && <p className="text-sm font-semibold">@{me.username}</p>}
@@ -442,7 +443,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
         {!kid && <span className={chip}><YCrown className="size-4" />{status}</span>}
       </div>
     </section>
-    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+    <div className="mt-5 grid gap-3 sm:grid-cols-2 max-sm:gap-0 max-sm:overflow-hidden max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:border-foreground max-sm:bg-card max-sm:shadow-[0_4px_0_var(--foreground)]">
       {kid ? <>
         {tile(YTrend, "My progress", "Stars, levels and streak", () => go("progress"))}
         {tile(YAward, "My badges", "Everything you’ve earned", () => go("progress"))}
@@ -459,7 +460,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
         {tile(YShare, "Invite friends", "Share IlmStation", () => void invite())}
       </>}
     </div>
-    <div className="mt-6 border-t-2 border-foreground">
+    <div className="mt-6 border-t-2 border-foreground max-sm:mt-5 max-sm:px-4 max-sm:overflow-hidden max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:border-foreground max-sm:bg-card max-sm:shadow-[0_4px_0_var(--foreground)]">
       {!kid && <button className={row} onClick={() => go("settings")}>{label(YCog, "Settings")}<YChevron className="size-4" /></button>}
       <a className={row} href="mailto:admin@ilmstation.com">{label(YHelp, "Help & contact")}<YChevron className="size-4" /></a>
       <a className={row} href="/privacy" target="_blank" rel="noreferrer">{label(YDoc, "Privacy Policy")}<YChevron className="size-4" /></a>
