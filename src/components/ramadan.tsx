@@ -1,3 +1,4 @@
+import { usePremium as usePremiumR } from "@/components/premium";
 import { awardXp } from "@/lib/xp";
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
@@ -13,16 +14,31 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /* ---------- dates ---------- */
-type Config = { year: number; start: string; days: number; eidCards?: boolean };
+type Config = { year: number; start: string; days: number; eidCards?: boolean; countryStarts?: Record<string, string> };
 /** Used until the admin sets ramadanConfig/current. 1 Ramadan 1448 is expected around 8 Feb 2027. */
 const DEFAULT: Config = { year: 1448, start: "2027-02-08", days: 30 };
 const DAY = 86_400_000;
 
+/** 1 Ramadan from the Umm al-Qura calendar, used only when the admin hasn't set a start date. */
+function autoRamadanStart(): string | null {
+  try {
+    const f = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura-nu-latn", { day: "numeric", month: "numeric" });
+    const t = localDate();
+    for (let i = -35; i < 400; i++) {
+      const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() + i);
+      const p = f.formatToParts(d); const m = Number(p.find((x) => x.type === "month")?.value); const day = Number(p.find((x) => x.type === "day")?.value);
+      if (m === 9 && day === 1) return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
 function useRamadanConfig(): Config {
-  const [c, setC] = useState(DEFAULT);
+  const [c, setC] = useState<Config>(() => ({ ...DEFAULT, start: autoRamadanStart() ?? DEFAULT.start }));
+  const { country } = usePremiumR() as unknown as { country?: string };
   useEffect(() => onSnapshot(doc(db, "ramadanConfig", "current"),
-    (s) => { if (s.exists()) setC({ ...DEFAULT, ...(s.data() as Partial<Config>) }); }, () => {}), []);
-  return c;
+    (s) => { if (s.exists()) setC((prev) => ({ ...prev, ...(s.data() as Partial<Config>) })); }, () => {}), []);
+  const local = country ? c.countryStarts?.[country] : undefined;
+  return local ? { ...c, start: local } : c;
 }
 const localDate = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const parseDate = (iso: string) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y ?? 2027, (m ?? 1) - 1, d ?? 1); };

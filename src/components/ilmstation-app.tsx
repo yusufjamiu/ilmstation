@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { doc as docLB, setDoc as setDocLB } from "firebase/firestore";
 import { FamilyHalaqah as FamilyHalaqahLive } from "@/components/halaqah";
 import { QuestMap as QuestMapReal } from "@/components/study";
@@ -154,6 +155,7 @@ export function IlmStationApp() {
         <NotifyPrompt />
         {screen === "home" && (isKid ? <KidHome go={selectScreen} /> : <HomeScreen go={selectScreen} onShare={openShare} />)}
         {screen === "kidrank" && <KidLeaderboard />}
+        {!isKid && <PremiumEnded go={selectScreen} />}
         {screen === "kidgames" && <KidGames />}
         {screen === "games" && <KidGames audience="all" />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
@@ -435,7 +437,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
       <a className={row} href="mailto:admin@ilmstation.com">{label(YHelp, "Help & contact")}<YChevron className="size-4" /></a>
       <a className={row} href="/privacy" target="_blank" rel="noreferrer">{label(YDoc, "Privacy Policy")}<YChevron className="size-4" /></a>
       <a className={row} href="/terms" target="_blank" rel="noreferrer">{label(YDoc, "Terms of Use")}<YChevron className="size-4" /></a>
-      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/" }); }}>{label(YLogOut, "Log out")}<YChevron className="size-4" /></button>
+      <button className={`${row} text-destructive`} onClick={() => { logOut(); toast("Logged out"); void navigate({ to: "/app" }); }}>{label(YLogOut, "Log out")}<YChevron className="size-4" /></button>
     </div>
   </Frame>;
 }
@@ -447,4 +449,37 @@ function KidLeaderboard() {
     {rows.length ? <div className="border-2 border-foreground bg-background p-3 shadow-brutal">{rows.slice(0, 10).map((r, i) => <Rank key={r.id} n={String(i + 1)} name={r.name} xp={`${r.xp} XP`} active={r.me} />)}</div>
       : <p className="border-2 border-dashed border-foreground p-6 text-lg">Play games and finish lessons to get on the leaderboard!</p>}
   </Frame>;
+}
+
+/** Once, when Premium or the free trial has ended: renew, use points, or continue free. */
+function PremiumEnded({ go }: { go: (s: Screen) => void }) {
+  const pr = usePremium() as unknown as { premium: boolean; trial?: boolean; plan?: string; premiumUntil?: number | null };
+  const [show, setShow] = useState<null | "trial" | "premium">(null);
+  const latest = useRef(pr); latest.current = pr;
+  useEffect(() => {
+    // wait a few seconds so the Premium status has loaded before deciding
+    const t = setTimeout(() => {
+      const p = latest.current;
+      try {
+        if (p.premium) { localStorage.setItem("ilm:wasPremium", p.trial || p.plan === "trial" ? "trial" : "premium"); return; }
+        const was = localStorage.getItem("ilm:wasPremium");
+        if (was) { localStorage.removeItem("ilm:wasPremium"); setShow(was === "trial" ? "trial" : "premium"); }
+      } catch { /* ignore */ }
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [pr.premium]);
+  if (!show) return null;
+  const close = () => setShow(null);
+  return <div className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4" onClick={close}>
+    <div className="w-full max-w-sm border-2 border-foreground bg-background p-6 shadow-brutal" onClick={(e) => e.stopPropagation()}>
+      <Crown className="size-10" />
+      <p className="mt-2 font-serif text-3xl leading-tight">{show === "trial" ? "Your free trial has ended" : "Your Premium has ended"}</p>
+      <p className="mt-2 text-sm text-muted-foreground">Thank you for learning with IlmStation. Renew to keep everything unlocked.</p>
+      <div className="mt-5 grid gap-2">
+        <Button onClick={() => { close(); go("rewards"); }}>See plans</Button>
+        <Button variant="outline" onClick={() => { close(); go("rewards"); }}>Use my points</Button>
+        <Button variant="ghost" onClick={close}>Continue free</Button>
+      </div>
+    </div>
+  </div>;
 }

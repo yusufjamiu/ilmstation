@@ -24,6 +24,13 @@ function checking(on: boolean) {
   el.style.display = checks > 0 ? "block" : "none";
 }
 
+/** A message at the bottom of the screen for a few seconds. */
+function notice(text: string) {
+  let el = document.getElementById("cloud-notice");
+  if (!el) { el = document.createElement("div"); el.id = "cloud-notice"; el.style.cssText = "position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:61;max-width:92vw;background:#e8c25b;color:#1c1a17;font:600 14px system-ui,sans-serif;padding:10px 14px;border:2px solid #1c1a17;text-align:center"; document.body.appendChild(el); }
+  el.textContent = text; el.style.display = "block";
+  setTimeout(() => { if (el) el.style.display = "none"; }, 7000);
+}
 const VOICE = 0.02;        // loudness that counts as speaking
 const END_SILENCE = 600;   // ms of silence = you've stopped
 const PIECE_MIN = 2500;    // ms of speech before a near-live piece can be sent
@@ -56,12 +63,12 @@ class CloudRecognition {
     results.item = (i: number) => results[i];
     this.emit("result", { resultIndex: this.finals.length - 1, results });
   }
-  private async deliver(chunks: Blob[], type: string, spoke: boolean) {
+  private async deliver(chunks: Blob[], type: string, spoke: boolean, ms = 0) {
     this.pending++;
     if (spoke && !this.aborted) {
       checking(true);
-      try { const text = await transcribe(new Blob(chunks, { type: type || "audio/webm" })); if (text.trim() && !this.aborted) { this.finals.push(text.trim()); this.emitResults(); } }
-      catch (e) { this.emit("error", { error: "network", message: (e as Error).message }); }
+      try { const text = await transcribe(new Blob(chunks, { type: type || "audio/webm" }), "", ms); if (text.trim() && !this.aborted) { this.finals.push(text.trim()); this.emitResults(); } }
+      catch (e) { const msg = (e as Error).message; if (/limit|minutes/i.test(msg)) { notice(msg); this.aborted = true; this.ending = true; } this.emit("error", { error: "network", message: msg }); }
       checking(false);
     }
     this.pending--;
@@ -81,7 +88,7 @@ class CloudRecognition {
       const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       const seg = { r, spoke: false, at: Date.now() };
       r.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-      r.onstop = () => { void this.deliver(chunks, r.mimeType || mime, seg.spoke); };
+      r.onstop = () => { void this.deliver(chunks, r.mimeType || mime, seg.spoke, Date.now() - seg.at); };
       r.start(250);
       return seg;
     };

@@ -1,3 +1,4 @@
+import { RamadanCountries } from "@/components/admin/ramadan-countries";
 import { LiveLanguagesAdmin } from "@/components/admin/languages-live";
 import { FlyersSection } from "./flyers";
 import { Image as FlyerIcon } from "lucide-react";
@@ -151,7 +152,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
           {current === "users" && <UsersSection />}
           {current === "study" && <StudySection />}
           {current === "library" && <LibrarySection />}
-          {current === "ramadan" && <RamadanSection />}
+          {current === "ramadan" && <><RamadanCountries /><RamadanSection /></>}
           {current === "cards" && <CardsSection />}
           {current === "wisdom" && <WisdomSection />}
           {current === "xp" && <XpSection />}

@@ -1,3 +1,4 @@
+import { Welcome as WelcomeMobile } from "@/components/welcome";
 import { useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
@@ -15,6 +16,8 @@ export function AppGate() {
   </div>;
   if (account) return <IlmStationApp />;
   if (loggedIn) return <CompleteProfile />;
+  if (typeof window !== "undefined" && (window.matchMedia("(max-width: 767px)").matches || window.matchMedia("(display-mode: standalone)").matches))
+    return <WelcomeMobile onSignup={() => { window.location.href = "/signup"; }} onLogin={() => { window.location.href = "/login"; }} />;
   return <main className="grid min-h-screen place-items-center bg-background px-4 py-10 text-foreground">
     <div className="w-full max-w-md">
       <div className="flex items-center gap-3">

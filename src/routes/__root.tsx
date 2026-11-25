@@ -1,3 +1,4 @@
+import { AppHomeOnly, AuthMobileStyle } from "@/components/welcome";
 import { LanguageBoot } from "@/components/language";
 import { UpdateBar } from "@/components/update-bar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -133,6 +134,8 @@ function RootComponent() {
       <Outlet />
       <UpdateBar />
       <LanguageBoot />
+      <AppHomeOnly />
+      <AuthMobileStyle />
       <Toaster position="bottom-right" />
     </QueryClientProvider>
   );

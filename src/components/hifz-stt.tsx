@@ -7,10 +7,10 @@ const norm = (w: string) => w.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\
 const words = (t: string) => t.trim().split(/\s+/).map(norm).filter(Boolean);
 
 /** Record a verse and see what the speech AI heard. Used to test Hifz checking. */
-export async function transcribe(blob: Blob, hint = ""): Promise<string> {
+export async function transcribe(blob: Blob, hint = "", ms = 0): Promise<string> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error("Please log in first.");
-  const r = await fetch(`/api/hifz-stt${hint ? `?hint=${encodeURIComponent(hint)}` : ""}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": blob.type || "audio/webm" }, body: blob });
+  const r = await fetch(`/api/hifz-stt${hint ? `?hint=${encodeURIComponent(hint)}` : ""}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": blob.type || "audio/webm", "x-audio-ms": String(Math.round(ms)) }, body: blob });
   const j = (await r.json()) as { text?: string; error?: string };
   if (!r.ok) throw new Error(j.error ?? "Something went wrong.");
   return j.text ?? "";
