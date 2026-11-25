@@ -335,7 +335,7 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
         <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold">Choose a topic <ChevronRight className="size-4" /></span>
       </button>}
       <a href="/world" className="group relative block overflow-hidden border-2 border-foreground bg-[#10201e] text-left text-[#fdf8ec] shadow-brutal transition hover:-translate-y-0.5">
-        <img src="/ilmworld-madinah.jpg" alt="A street in IlmWorld with a masjid" loading="lazy" className="aspect-[9/5] w-full object-cover transition group-hover:scale-[1.02]" />
+        <video src="/ilmworld-preview.mp4" poster="/ilmworld-poster.jpg" autoPlay muted loop playsInline preload="metadata" aria-label="IlmWorld preview" className="aspect-[9/5] w-full object-cover transition group-hover:scale-[1.02]" />
         <span className="absolute left-3 top-3 bg-[#e6b84a] px-2 py-1 text-[11px] font-bold uppercase text-[#2a1c05]">New · 3D world</span>
         <div className="flex flex-wrap items-end justify-between gap-3 p-4">
           <span><strong className="block font-serif text-3xl font-normal leading-none">IlmWorld</strong><span className="mt-1 block text-sm opacity-85">Live in Madinah, the city of the Prophet ﷺ, on real prayer times. Pray in Al-Masjid An-Nabawi, study at the Islamic University, own a home, and travel to Makkah for Umrah.</span></span>
