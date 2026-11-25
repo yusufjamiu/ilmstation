@@ -376,7 +376,8 @@ function KidStudy({ cats }: { cats: Category[] }) {
 export function QuestMap() {
   const raw = useStudyCategories() as unknown;
   const all = ((Array.isArray(raw) ? raw : (raw as { cats?: Category[] } | null)?.cats) ?? []) as (Category & { live?: boolean })[];
-  const cats = all.filter((c) => c.live !== false);
+  const { account: qAcct } = useAuth();
+  const cats = all.filter((c) => c.live !== false && catFor(c, qAcct?.zone));
   const [catId, setCatId] = useState<string | undefined>(undefined);
   const [subjectId, setSubjectId] = useState<string | undefined>(undefined);
   const [lessonId, setLessonId] = useState<string | undefined>(undefined);
@@ -428,7 +429,7 @@ export function QuestMap() {
       {list.map((x, i) => { const st = status(i); const pct = pctOf(x.id); const left = i % 2 === 0;
         return <div key={x.id} className={cn("relative mb-6 flex", left ? "justify-start" : "justify-end")}>
           <button onClick={() => (st === "locked" ? toast(`Finish ${list[firstOpen]?.name ?? "the previous stop"} first`) : setSubjectId(x.id))}
-            className={cn("relative z-10 flex w-[82%] items-center gap-3 border-2 border-foreground p-3 text-left shadow-brutal transition hover:-translate-y-0.5", st === "current" ? "bg-primary" : st === "done" ? "bg-background" : "bg-muted opacity-75")}>
+            className={cn("relative z-10 flex w-[82%] items-center gap-3 border-2 border-foreground p-3 text-left shadow-brutal transition hover:-translate-y-0.5", st === "current" ? "bg-primary" : st === "done" ? "bg-background" : "bg-muted text-muted-foreground")}>
             <span className={cn("grid size-12 shrink-0 place-items-center rounded-full border-2 border-foreground font-serif text-xl", st === "done" ? "bg-secondary text-background" : st === "current" ? "bg-background" : "bg-muted")}>
               {st === "done" ? <QCheck className="size-6" /> : st === "locked" ? <QLock className="size-5" /> : i + 1}
             </span>

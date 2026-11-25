@@ -507,7 +507,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
         {tile(YCog, "Settings", "Language and more", () => go("settings"))}
       </> : <>
         {tile(YTrend, "Progress", "Your learning record", () => go("progress"))}
-        {tile(YTarget, "Quests", "Daily and weekly goals", () => go("quests"))}
+        {tile(YTarget, "Quest Map", "Your learning journey", () => go("quests"))}
         {tile(YAward, "Badges", "Everything you’ve earned", () => { try { sessionStorage.setItem("iq_growth_tab", "Achievements"); } catch { /* */ } go("progress"); })}
         {tile(YCrown, "Premium & points", `${pr.premium ? (pr.trial ? "Free trial" : "Premium") : "Free plan"} · ${pr.points ?? 0} points`, () => go("rewards"))}
         {tile(YUsers, "Friends & challenges", "Your circle", () => go("community"))}
