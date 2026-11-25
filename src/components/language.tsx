@@ -84,10 +84,10 @@ export function LanguageSelect({ className }: { className?: string }) {
         <Globe /><span className="font-bold uppercase">{current.code}</span><ChevronDown className="size-3 opacity-70" />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-56 rounded-none border-2 border-foreground p-1 shadow-brutal">
+    <DropdownMenuContent align="end" className="max-h-[70vh] w-56 overflow-y-auto rounded-none border-2 border-foreground p-1 shadow-brutal max-sm:w-64 max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:p-2 max-sm:shadow-[0_4px_0_var(--foreground)]">
       <DropdownMenuLabel className="text-xs uppercase text-muted-foreground">Choose language</DropdownMenuLabel>
-      <DropdownMenuSeparator className="bg-foreground" />
-      {liveLangs.map((l) => <DropdownMenuItem key={l.code} onSelect={() => { set(l.code); toast.success(`✓ ${l.native}`); }} className={cn("flex cursor-pointer items-center justify-between rounded-none px-3 py-2", l.code === lang && "bg-primary text-foreground focus:bg-primary")}>
+      <DropdownMenuSeparator className="bg-foreground max-sm:bg-foreground/15" />
+      {liveLangs.map((l) => <DropdownMenuItem key={l.code} onSelect={() => { set(l.code); toast.success(`✓ ${l.native}`); }} className={cn("flex cursor-pointer items-center justify-between rounded-none px-3 py-2 max-sm:mb-0.5 max-sm:rounded-xl max-sm:py-2.5", l.code === lang && "bg-primary text-foreground focus:bg-primary")}>
         <span><span className="block font-semibold" dir={l.dir}>{l.native}</span><span className="text-xs text-muted-foreground">{l.label}</span></span>
         {l.code === lang && <Check className="size-4" />}
       </DropdownMenuItem>)}
