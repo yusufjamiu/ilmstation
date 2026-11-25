@@ -1,3 +1,5 @@
+import { Moon as HMoon } from "lucide-react";
+import { useRamadanCountdown } from "@/components/ramadan";
 import { BookOpen as HBook, Target as HTarget, Users as HUsers, Bot as HBot, ChevronRight as HChev } from "lucide-react";
 import { useRef } from "react";
 import { doc as docLB, setDoc as setDocLB } from "firebase/firestore";
@@ -197,7 +199,7 @@ function Sidebar({ current, onSelect, className, kid }: { current: Screen; onSel
 
 function MobileNav({ current, onSelect, kid }: { current: Screen; onSelect: (s: Screen) => void; kid?: boolean }) {
   const items: [Screen, string, typeof Home][] = kid ? [["home", "Home", Home], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library], ["you", "Me", CircleUserRound]] : [["home", "Today", Home], ["hifz", "Qur’an", BookOpen], ["study", "Study", GraduationCap], ["play", "Play", Play], ["you", "You", CircleUserRound]];
-  return <nav className="fixed inset-x-3 z-30 flex items-center justify-between gap-0.5 rounded-full border border-foreground/20 bg-background/95 p-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.18)] backdrop-blur lg:hidden" style={{ bottom: "calc(env(safe-area-inset-bottom) + 10px)" }}>{items.map(([id, label, Icon]) => { const on = current === id; return <button key={id} onClick={() => onSelect(id)} aria-current={on ? "page" : undefined} className={cn("flex h-11 min-w-0 items-center justify-center gap-1 rounded-full text-[12px] transition-all", on ? "bg-primary px-3 font-bold text-foreground" : "px-2 text-muted-foreground")}><Icon className="size-[18px] shrink-0" /><span className="truncate">{label}</span></button>; })}</nav>;
+  return <nav className="fixed inset-x-3 z-30 flex items-center justify-between gap-0.5 rounded-full border border-foreground/20 bg-background/95 p-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.18)] backdrop-blur lg:hidden" style={{ bottom: "calc(env(safe-area-inset-bottom) + 10px)" }}>{items.map(([id, label, Icon]) => { const on = current === id; return <button key={id} onClick={() => onSelect(id)} aria-current={on ? "page" : undefined} aria-label={label} className={cn("flex h-11 items-center justify-center gap-1.5 rounded-full text-[13px] transition-all", on ? "shrink-0 bg-primary px-4 font-bold text-foreground" : "flex-1 text-muted-foreground")}><Icon className="size-5 shrink-0" />{on && <span className="whitespace-nowrap">{label}</span>}</button>; })}</nav>;
 }
 
 function HomeScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?: ShareCard) => void }) {
@@ -210,11 +212,11 @@ function HomeScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
   return <div className="min-w-0 iq-rise">
     <header className="flex items-center justify-between gap-3">
       <div className="min-w-0"><h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl"><span>Assalamu-alaikum,</span> <span className="text-secondary">{firstName || "friend"}</span>!</h1><p className="text-sm text-muted-foreground">Your daily quest is waiting.</p></div>
-      <button onClick={() => go("you")} aria-label="You" className="grid size-11 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground bg-primary text-lg font-bold">{initial}</button>
     </header>
-    <div className="mt-4"><RamadanBanner onOpen={() => go("ramadan")} /><KahfReminder /></div>
+    <div className="mt-4 grid gap-4"><RamadanMini onOpen={() => go("ramadan")} /><KahfReminder /></div>
     <div className="mt-4 grid gap-4 md:grid-cols-2">
       <HCard tone="dark" title="Pick up where you left off" className="md:col-span-2"><ContinueCard onLibrary={() => go("library")} onPlay={() => go("play")} /></HCard>
+      <LevelCard onOpen={() => go("progress")} />
       <button onClick={() => go("rewards")} className="rounded-2xl border-[1.5px] border-foreground bg-primary p-4 text-left shadow-[0_4px_0_var(--foreground)] active:translate-y-1">
         <span className="flex items-center justify-between text-xs font-bold uppercase tracking-wider opacity-70"><span>Points balance</span><span className="flex items-center gap-1 normal-case tracking-normal opacity-100">View wallet <HChev className="size-4" /></span></span>
         <b className="mt-1 block text-4xl font-extrabold tabular-nums">{pts.toLocaleString()}</b>
@@ -237,7 +239,7 @@ function HomeScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
 /** Rounded card for Today: light (default), or dark with a yellow title. */
 function HCard({ title, tag, tone = "light", className, children }: { title?: string; tag?: string; tone?: "light" | "dark"; className?: string; children: React.ReactNode }) {
   const dark = tone === "dark";
-  return <section className={cn("min-w-0 rounded-2xl border-[1.5px] p-4", dark ? "dark border-black bg-background text-foreground shadow-[0_4px_0_rgba(0,0,0,0.85)]" : "border-foreground bg-background shadow-[0_4px_0_var(--foreground)]", className)}>
+  return <section className={cn("min-w-0 rounded-2xl border-[1.5px] p-4", dark ? "hcard-dark dark border-black bg-background text-foreground shadow-[0_4px_0_rgba(0,0,0,0.85)]" : "border-foreground bg-background shadow-[0_4px_0_var(--foreground)]", className)}>
     {(title || tag) && <div className="mb-3 flex items-center justify-between gap-3"><p className={cn("text-xs font-bold uppercase tracking-wider", dark ? "text-primary" : "text-muted-foreground")}>{title}</p>{tag && <span className="text-xs font-semibold uppercase text-muted-foreground">{tag}</span>}</div>}
     {children}
   </section>;
@@ -506,4 +508,42 @@ function PremiumEnded({ go }: { go: (s: Screen) => void }) {
       </div>
     </div>
   </div>;
+}
+
+if (typeof document !== "undefined" && !document.getElementById("hcard-style")) {
+  const st = document.createElement("style"); st.id = "hcard-style";
+  st.textContent = "html.dark .hcard-dark{background:#2a2620!important;border-color:rgba(255,255,255,.16)!important;box-shadow:0 4px 0 rgba(0,0,0,.6)!important}";
+  document.head.appendChild(st);
+}
+/** Small Ramadan card: countdown before, day number during. */
+function RamadanMini({ onOpen }: { onOpen: () => void }) {
+  const { day, daysLeft } = useRamadanCountdown();
+  if (day === -1) return null;
+  return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-black bg-[#1b1d36] px-4 py-3 text-left text-white shadow-[0_4px_0_rgba(0,0,0,0.85)] active:translate-y-1">
+    <HMoon className="size-9 shrink-0 text-[#f6b700]" />
+    <span className="min-w-0">
+      {day === 0 ? <b className="block text-lg leading-tight text-[#f6b700]">{daysLeft} days to Ramadan</b> : <b className="block text-lg leading-tight text-[#f6b700]">Ramadan Kareem! Day {day}</b>}
+      <span className="block text-xs text-white/70">{day === 0 ? "Prepare your intention, Tarawih plan, and 30-day quest chain." : "Tap for your Ramadan quest"}</span>
+    </span>
+  </button>;
+}
+/** Level and XP towards the next level. */
+function LevelCard({ onOpen }: { onOpen: () => void }) {
+  const { rows } = useLeaderboard();
+  const raw = useLevels() as unknown;
+  const me = rows.find((r) => r.me);
+  if (!me) return null;
+  const list = (Array.isArray(raw) ? raw : ((raw as { levels?: unknown[] } | null)?.levels ?? [])) as Record<string, unknown>[];
+  const lv = levelFor(me.xp, raw as never) as unknown as Record<string, unknown>;
+  const min = (l?: Record<string, unknown>) => Number(l?.xp ?? l?.min ?? l?.minXp ?? l?.from ?? l?.at ?? 0);
+  const idx = list.findIndex((l) => l.name === lv?.name);
+  const next = idx >= 0 ? list[idx + 1] : undefined;
+  const lo = min(lv), hi = next ? min(next) : 0;
+  const ok = next && hi > lo;
+  const pct = ok ? Math.max(0, Math.min(100, ((me.xp - lo) / (hi - lo)) * 100)) : 100;
+  return <button onClick={onOpen} className="block w-full rounded-2xl border-[1.5px] border-foreground bg-background p-4 text-left shadow-[0_4px_0_var(--foreground)] active:translate-y-1 md:col-span-2">
+    <span className="flex items-center justify-between text-xs font-bold uppercase tracking-wider"><span className="text-muted-foreground">Level {idx >= 0 ? idx + 1 : ""} ({String(lv?.name ?? "")})</span><span className="text-secondary">{me.xp}{ok ? `/${hi}` : ""} XP</span></span>
+    <span className="mt-2 block h-2 overflow-hidden rounded-full bg-foreground/10"><span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></span>
+    {ok && <span className="mt-2 block text-xs text-muted-foreground">{hi - me.xp} XP to Level {idx + 2} ({String(next!.name ?? "")})</span>}
+  </button>;
 }

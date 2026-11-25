@@ -418,3 +418,6 @@ function DayQuest({ n, steps, result, onClose, onStep, onFinish }: {
     </>}
   </div>;
 }
+
+/** For Today's small Ramadan card: { day: 0 (before, see daysLeft) | 1..30 | -1 (after), daysLeft }. */
+export function useRamadanCountdown() { return ramadanDay(useRamadanConfig()); }
