@@ -271,7 +271,7 @@ export function DeleteMyAccount() {
     const r = await callPremium("deleteMe", { confirm: "DELETE" });
     if (!r.ok) { setBusy(false); setErr(r.error ?? "Couldn't delete your account."); return; }
     await fbSignOut(auth).catch(() => {});
-    window.location.href = "/";
+    window.location.href = "/app";
   };
   return <div className="mt-6 border-2 border-destructive p-5">
     <p className="font-serif text-2xl">Delete my account</p>

@@ -92,7 +92,7 @@ export const isAdminRole = (r: unknown): r is AdminRole => typeof r === "string"
 
 /** The /admin route has already checked Firebase (signed in + listed in "admins"). */
 export function AdminApp({ session, section, onNavigate }: { session: AdminSession; section: Section; onNavigate: (s: Section) => void }) {
-  const logout = async () => { await signOut(auth); window.location.href = "/"; };
+  const logout = async () => { await signOut(auth); window.location.href = "/app"; };
   return <Shell session={session} section={section} onNavigate={onNavigate} onLogout={logout} />;
 }
 
