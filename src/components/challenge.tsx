@@ -1,3 +1,4 @@
+import { QuizFeedback, QuizNext, QuizOption, QuizProgress, QuizQuestion } from "@/components/quiz-ui";
 import { consumeFeature } from "@/components/premium";
 import { awardXp } from "@/lib/xp";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -387,12 +388,9 @@ export function ChallengeScreen() {
             <div className="bg-primary p-4"><b>You</b><p className="font-serif text-4xl">{you}</p></div>
             <div className="p-4"><b>{rival.name.split(" ")[0]}</b><p className="font-serif text-4xl">{them}</p></div>
           </div>
-          <h3 className="mt-8 max-w-3xl font-serif text-3xl sm:text-4xl">{current.q}</h3>
-          {current.visual && <QuizVisual kind={current.visual} compact />}
-          <div className="mt-6 grid gap-3 md:grid-cols-2">{current.options.map((o, i) => <Button key={o} variant="outline" onClick={() => lockIn(i)} disabled={picked !== undefined}
-            className={cn("min-h-14 justify-start text-left",
-              picked === undefined ? "bg-background hover:bg-primary" : i === current.a ? "bg-secondary text-secondary-foreground" : picked === i ? "bg-destructive text-destructive-foreground" : "bg-muted opacity-70")}>{o}</Button>)}</div>
-          {picked !== undefined && <p className="mt-4 font-semibold">{picked === current.a ? "Correct — points banked." : picked === -1 ? "Time up — no points this round." : "Not this time. The right answer is highlighted."}{current.why && <span className="mt-1 block font-normal text-muted-foreground">{current.why}</span>}</p>}
+          <div className="mt-6"><QuizQuestion topic={topic} text={current.q}>{current.visual && <QuizVisual kind={current.visual} compact />}</QuizQuestion></div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">{current.options.map((o, i) => <QuizOption key={o} letter={"ABCD"[i] ?? "•"} text={o} disabled={picked !== undefined} onClick={() => lockIn(i)} state={picked === undefined ? "idle" : i === current.a ? "correct" : picked === i ? "wrong" : "idle"} />)}</div>
+          {picked !== undefined && <div className="mt-4"><QuizFeedback ok={picked === current.a} text={<>{picked === -1 ? "Time up, no points this round. " : ""}{current.why}</>} /></div>}
         </div>
       </section>}
 

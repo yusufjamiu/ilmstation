@@ -1,3 +1,4 @@
+import { QuizFeedback, QuizNext, QuizOption, QuizProgress, QuizQuestion } from "@/components/quiz-ui";
 import { doc as rqDoc, getDoc as rqGetDoc } from "firebase/firestore";
 import { auth as rqAuth, db as rqDb } from "@/lib/firebase";
 import { useEffect, useState } from "react";
@@ -83,14 +84,13 @@ export function RamadanQuiz({ n, day, kid, unlocked, done, onFinish }: {
   const isWinner = !!uid && winnerIds.includes(uid);
 
   const questions = (opts: { picked: number[]; keys?: number[] | null; locked: boolean }) => quiz.map((q, qi) => <fieldset key={qi} className="mt-4">
-    <legend className="font-semibold">{qi + 1}. {q.q}</legend>
-    <div className="mt-2 grid gap-2">{q.options.map((o, oi) => {
+    <legend className="text-lg font-bold leading-snug">{qi + 1}. {q.q}</legend>
+    <div className="mt-3 grid gap-3">{q.options.map((o, oi) => {
       const chosen = opts.picked[qi] === oi;
       const right = !!opts.keys && opts.keys[qi] === oi;
       const wrong = !!opts.keys && chosen && !right;
-      return <button key={oi} type="button" disabled={opts.locked} onClick={() => setPicks((p) => { const c = [...p]; c[qi] = oi; return c; })}
-        className={cn("border-2 border-foreground px-3 py-2 text-left text-sm",
-          right ? "bg-secondary text-secondary-foreground" : wrong ? "bg-destructive text-white" : chosen ? "bg-primary" : "bg-background hover:bg-muted")}>{o}</button>;
+      return <QuizOption key={oi} letter={"ABCD"[oi] ?? "•"} text={o} disabled={opts.locked} onClick={() => setPicks((p) => { const c = [...p]; c[qi] = oi; return c; })}
+        state={right ? "correct" : wrong ? "wrong" : chosen ? "picked" : "idle"} />;
     })}</div>
   </fieldset>);
 
