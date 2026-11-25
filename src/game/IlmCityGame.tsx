@@ -651,6 +651,12 @@ function useAccountSave(uid: string | null) {
 function loadSave(): Save {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? "null") as Save | null;
+    // IlmWorld is Madinah now: a game saved in a city that is switched off starts again from nothing
+    const offCity = (id?: string) => !!id && !cityLive(cityOf(districtById(id)));
+    if (s && (offCity(s.district) || offCity(s.homeArea))) {
+      try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+      return { coins: POINTS.start, ilm: 0, day: "", prayed: {}, asked: [], world: true };
+    }
     if (s && typeof s.coins === "number") {
       if (!s.world) return { ...s, pos: undefined, car: undefined, world: true };
       return s;
@@ -2423,7 +2429,7 @@ function CityGame({
             2500,
           );
         } else if (bikeAlong && !byCar)
-          setTimeout(() => toast(`Your bicycle came on the danfo: +${N(BIKE_ON_BUS)}.`), 2500);
+          setTimeout(() => toast(`Your bicycle came on the bus: +${N(BIKE_ON_BUS)}.`), 2500);
         update((x) => ({
           ...x,
           coins: x.coins - fare,
@@ -5187,7 +5193,7 @@ function CityGame({
               setPanel(null);
               if (!engine.current?.goToZone("door:boutique:"))
                 toast(
-                  "IlmWorld Fashion is in Lekki, Ikeja, Akoka, Agege, Igbe Laara, Fate, Ilorin Central and Tanke.",
+                  "IlmWorld Fashion is in the big shopping streets of Madinah.",
                 );
             }}
             look={look}
@@ -5685,7 +5691,7 @@ function CityGame({
               setPanel(null);
               if (j.area && engine.current?.districtId() !== j.area) {
                 toast(
-                  `Your work is in ${fullName(districtById(j.area))}. Take a danfo there (📱 Phone → Travel).`,
+                  `Your work is in ${fullName(districtById(j.area))}. Take a bus there (📱 Phone → Travel).`,
                 );
                 return;
               }
@@ -7176,7 +7182,7 @@ function CityGame({
         const kfare = districtById(area).holy ? 10 : 3;
         setPanel({
           kind: "info",
-          title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Keke",
+          title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Taxi",
           body: (
             <div className="space-y-2">
               <p className="text-[13px] opacity-75">
@@ -7214,7 +7220,7 @@ function CityGame({
         toast(
           districtById(e.districtId()).holy
             ? 'Taxi driver: "Wasalna, alhamdulillah! Ma\'a salamah."'
-            : 'Keke driver: "We don reach! Safe journey."',
+            : 'Taxi driver: "Here we are. Safe journey, in sha Allah."',
           "good",
         );
         return;
@@ -7254,7 +7260,7 @@ function CityGame({
         toast(
           districtById(e.districtId()).holy
             ? "Waiting for the bus… it's coming down the road."
-            : "Waiting for a danfo… it's coming down the road.",
+            : "Waiting for a bus… it's coming down the road.",
         );
         return;
       }
@@ -7435,7 +7441,7 @@ function CityGame({
         const which = id.slice(10) === "home" ? "lekki" : id.slice(10);
         const mine = saveRef.current.homeArea ?? DEFAULT_AREA;
         if (which !== mine) {
-          toast(`Your flat is in ${estateName(mine)}. Take a danfo or keke there.`);
+          toast(`Your flat is in ${estateName(mine)}. Take a bus or taxi there.`);
           return;
         }
         const go = () => {
@@ -9840,7 +9846,7 @@ function CityGame({
             </div>
             <div className="min-w-0 leading-tight">
               <div className="text-[15px] font-bold">
-                {districtById(save.district ?? DEFAULT_AREA).holy ? "On the bus" : "On the danfo"} ·{" "}
+                {districtById(save.district ?? DEFAULT_AREA).holy ? "On the bus" : "On the bus"} ·{" "}
                 {ride.kmh} km/h
               </div>
               <div className="truncate text-[12.5px] opacity-80">Next stop: {ride.next}</div>
@@ -10575,7 +10581,7 @@ function TalkView({
           masjid ? "Where is the masjid?" : "Is there a masjid near here?",
           masjid
             ? `${masjid.name} is on ${STREETS[masjid.street].name}. ${nxt ? `${nxt.name} is at ${fmtTime(nxt.start)}, in shaa Allah.` : ""}`
-            : `Not in ${D.name} yet. Take a danfo to Lekki or Egbeda, they have big masjids.`,
+            : `Not in ${D.name} yet. Take a bus to Al-Masjid An-Nabawi.`,
           masjid ? "agree" : "headShake",
         ),
     },
@@ -10730,7 +10736,7 @@ function topicReply(
     return {
       text: masjid
         ? `${masjid.name} is on ${STREETS[masjid.street]?.name}. ${c.nextPrayer ? `The next prayer is ${c.nextPrayer}.` : ""}`
-        : "There is no masjid in this area yet. Take a danfo to the next area.",
+        : "There is no masjid in this area yet. Take a bus to the next area.",
       nod: masjid ? "agree" : "headShake",
     };
   if (has("rent", "house", "land", "flat", "apartment"))
@@ -10745,7 +10751,7 @@ function topicReply(
     };
   if (has("bus", "danfo", "travel", "go to", "keke", "road"))
     return {
-      text: "Wait at the blue bus stop and a danfo will come. Or tap Travel at the top.",
+      text: "Wait at the blue bus stop and a bus will come. Or tap Travel at the top.",
       nod: "agree",
     };
   if (has("school", "learn", "quiz", "class", "study", "madrasah"))
@@ -12195,7 +12201,7 @@ function Onboarding({
       >
         <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
           <h2 className="font-serif text-2xl">Where do you want to start?</h2>
-          <p className="text-[13px] opacity-75">You can travel anywhere later by danfo or car.</p>
+          <p className="text-[13px] opacity-75">You can travel anywhere later by bus or car.</p>
           <div className="mt-3 space-y-2 overflow-y-auto">
             {DISTRICTS.filter(
               (d) =>
@@ -12247,8 +12253,8 @@ function Onboarding({
             Ilm<span className="text-[#45b8a8]">World</span>
           </div>
           <p className="mt-3 text-[16px] leading-snug opacity-90">
-            A Muslim world in Lagos and Ilorin that runs on real prayer times. Pray, learn, travel
-            by danfo, rent a home and run your own business.
+            Live in Madinah, the city of the Prophet ﷺ, on real prayer times. Pray in Al-Masjid
+            An-Nabawi, study at the Islamic University, own a home, and travel to Makkah for Umrah.
           </p>
           <ul className="mt-4 space-y-1.5 text-[14px] opacity-90">
             <li>🕌 Mosques with lectures, jama'ah and quizzes</li>
@@ -12441,8 +12447,8 @@ const GUIDE: GuideStep[] = [
   },
   {
     id: "ride",
-    title: "Ride a keke or danfo",
-    text: "Stand by the road and a keke will stop for you, or take a danfo from a bus stop to another area.",
+    title: "Ride a taxi or bus",
+    text: "Stand by the road and a taxi will stop for you, or take a bus from a bus stop to another area.",
     go: { prefix: "busstop:", label: "Show me a bus stop" },
   },
   {
@@ -12654,7 +12660,7 @@ function placesIn(id: string): Place[] {
   out.push({
     icon: "🚌",
     name: `${D.busStop ?? D.name} Bus Stop`,
-    sub: "Danfo to other areas",
+    sub: "Bus to other areas",
     prefix: "busstop:",
   });
   return out;
@@ -13309,7 +13315,7 @@ function RaceNews({
       </p>
       {r.kind === "bike" && !hasBike && (
         <p className="rounded-xl bg-[#fff7df] p-3 text-[13px]">
-          You need a bicycle: buy one at IlmMotors in Ikeja or Lekki.
+          You need a bicycle: buy one at IlmMotors in Shuran or Al-Khalidiyyah.
         </p>
       )}
       <button
@@ -14152,7 +14158,7 @@ function OutingView({
           <div className="text-[17px] font-black">Where do you want to go?</div>
           <div className="text-[12px] opacity-80">
             Powered by OutingStation · rides{" "}
-            {driving ? "petrol from your tank" : `${N(BUS_FARE)} by danfo`} · you have {N(coins)}
+            {driving ? "petrol from your tank" : `${N(BUS_FARE)} by bus`} · you have {N(coins)}
           </div>
         </div>
       </div>
@@ -14171,27 +14177,6 @@ function OutingView({
         <p className="text-[13px] opacity-70">
           Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
         </p>
-      )}
-      {tab === "travel" && (
-        <div className="space-y-1.5">
-          <div className="text-[12px] font-bold uppercase opacity-60">
-            Other cities · coming soon
-          </div>
-          {WORLD_CITIES.filter((c) => !c.live).map((c) => (
-            <div
-              key={c.id}
-              className="rounded-xl border border-dashed border-[#10201e]/20 bg-white/60 px-3 py-2"
-            >
-              <div className="text-[14px] font-bold">
-                {c.name}, {c.country === "Nigeria" ? `${c.state} State` : c.country}
-                <span className="ml-1.5 rounded bg-[#f2b84b] px-1.5 py-0.5 text-[10px] font-bold">
-                  SOON
-                </span>
-              </div>
-              <div className="text-[12px] opacity-70">{c.blurb}</div>
-            </div>
-          ))}
-        </div>
       )}
       <div className="max-h-[52vh] space-y-2 overflow-y-auto">
         {list.map((p) => {
@@ -16428,7 +16413,7 @@ function RadioView({
       </div>
       <label className="flex items-center justify-between rounded-xl bg-white p-3 text-[14px]">
         <span>
-          <b>Radio in danfo, keke and car</b>
+          <b>Radio in bus, taxi and car</b>
           <br />
           <span className="text-[12px] opacity-70">Each one plays its own reciter</span>
         </span>

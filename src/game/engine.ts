@@ -1405,7 +1405,7 @@ export class IlmCityEngine {
     this.reserved.push(...playHold);
     this.buildEatery(D);
     this.buildRestaurant(D);
-    if (D.id === "ikeja" || D.id === "lekki") this.buildDealer(D);
+    if (D.id === "ikeja" || D.id === "lekki" || D.id === "shuran" || D.id === "khalidiyyah") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
     if (
       [
@@ -11432,7 +11432,7 @@ export class IlmCityEngine {
       b.addObject(g);
       this.zones.push({
         id: "busstop:" + st.id,
-        label: st.x < -3000 ? "Wait for the bus" : "Wait for a danfo",
+        label: st.x < -3000 ? "Wait for the bus" : "Wait for a bus",
         x: st.x,
         z: st.z,
         r: 3.6,
@@ -11738,7 +11738,7 @@ export class IlmCityEngine {
     else if (this.waitStop && this.traffic.busAt(this.waitStop))
       best = {
         id: "board",
-        label: this.district.holy ? "Board the bus" : "Board the danfo",
+        label: this.district.holy ? "Board the bus" : "Board the bus",
         x: 0,
         z: 0,
         r: 0,
@@ -11791,7 +11791,7 @@ export class IlmCityEngine {
       if (kk)
         best = {
           id: "keke",
-          label: this.district.holy ? "Take a taxi" : "Take a keke",
+          label: this.district.holy ? "Take a taxi" : "Take a taxi",
           x: 0,
           z: 0,
           r: 0,

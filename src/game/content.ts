@@ -32,7 +32,7 @@ const ILORIN_ST =
   "A street in Ilorin, Kwara State: the city of scholars, known for its Islamic learning.";
 const ABUJA_ST = "An Abuja street: neat roads, offices, shops and homes, and a mosque never far.";
 const KANO_ST =
-  "A Kano street: traders, kekes, the call to prayer from many mosques and the smell of suya.";
+  "A Kano street: traders, taxis, the call to prayer from many mosques and the smell of suya.";
 const KANO_OLD =
   "Inside the old city walls: Hausa family houses of red earth, with horned roof corners and carved doorways.";
 const MADINAH_ST =
@@ -405,7 +405,7 @@ export const STREETS: Record<string, Street> = {
   kubwaexpress: {
     id: "kubwaexpress",
     name: "Kubwa Expressway",
-    bio: "Kubwa's main road: shops, kekes and homes people can afford.",
+    bio: "Kubwa's main road: shops, taxis and homes people can afford.",
   },
   kubwavillage: { id: "kubwavillage", name: "Kubwa Village Road", bio: ABUJA_ST },
   byazhin: { id: "byazhin", name: "Byazhin Road", bio: ABUJA_ST },
@@ -543,7 +543,7 @@ export const STREETS: Record<string, Street> = {
   offaroad: {
     id: "offaroad",
     name: "Offa Garage Road",
-    bio: "Where the motor parks and mechanics are, and kekes wait for passengers.",
+    bio: "Where the motor parks and mechanics are, and taxis wait for passengers.",
   },
   ridwanjamiu: { id: "ridwanjamiu", name: "Imam Ridwan Jamiu Street", bio: COMING_SOON },
   alilory: {
