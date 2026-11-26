@@ -139,7 +139,7 @@ export function UnlockDialog({ item, onOpenChange }: { item?: { id: string; titl
         <DialogDescription>Get Premium to open everything, or use your points.</DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
-        <button onClick={() => { activatePremium(); onOpenChange(false); }} className={`${row} bg-primary text-[#1c1a17]`}>
+        <button onClick={() => { onOpenChange(false); const go = (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo; if (go) { try { sessionStorage.setItem("iq_rewards_tab", "Premium"); } catch { /* */ } go("rewards"); } else activatePremium(); }} className={`${row} bg-primary text-[#1c1a17]`}>
           <span className={`${tile} bg-white`}><Crown className="size-5" /></span>
           <span className="min-w-0 flex-1"><b className="block">Get Premium</b><span className="text-sm opacity-80">Every Premium book, lesson and topic</span></span>
           <span className="text-2xl leading-none">›</span>
@@ -150,7 +150,7 @@ export function UnlockDialog({ item, onOpenChange }: { item?: { id: string; titl
           <span className={`${tile} bg-muted`}><Sparkles className="size-5" /></span>
           <span className="min-w-0 flex-1"><b className="block">{points < cost ? `Need ${(cost - points).toLocaleString()} more points` : `Unlock with ${cost.toLocaleString()} points`}</b><span className="text-sm text-muted-foreground">Just this one · you have {points.toLocaleString()}</span></span>
         </button>
-        : cheapest ? <button onClick={() => { try { sessionStorage.setItem("iq_rewards_tab", "Redeem"); } catch { /* */ } onOpenChange(false); window.location.href = "/app?s=rewards"; }} className={row}>
+        : cheapest ? <button onClick={() => { try { sessionStorage.setItem("iq_rewards_tab", "Redeem"); } catch { /* */ } onOpenChange(false); const go = (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo; if (go) go("rewards"); else window.location.href = "/app?s=rewards"; }} className={row}>
           <span className={`${tile} bg-muted`}><Sparkles className="size-5" /></span>
           <span className="min-w-0 flex-1"><b className="block">Swap points for Premium days</b><span className="text-sm text-muted-foreground">{cheapest.points.toLocaleString()} points = {cheapest.days} days · you have {points.toLocaleString()}</span></span>
           <span className="text-2xl leading-none">›</span>

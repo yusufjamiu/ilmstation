@@ -183,6 +183,8 @@ export function IlmStationApp() {
   useEffect(() => { if (!account) return; try { localStorage.setItem("ilm:kid", account.zone === "kids" ? "1" : "0"); } catch { /* ignore */ }
     const u = yAuth.currentUser; if (u) void setDocLB(docLB(yDb, "players", u.uid), { zone: account.zone ?? "adult" }, { merge: true }).catch(() => {}); }, [account?.zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const inbox = useInbox();
+  // let pop-ups elsewhere (like the unlock pop-up) switch pages without reloading the app
+  useEffect(() => { (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo = (sc: string) => selectScreen(sc as Screen); return () => { delete (window as unknown as { __ilmGo?: unknown }).__ilmGo; }; });
   const profileScreen: Screen = isKid ? "settings" : "community";
   const selectScreen = (next: Screen) => { setScreen(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   // children only reach their own screens
