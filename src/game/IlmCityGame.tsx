@@ -1102,6 +1102,24 @@ function CityGame({
   /** your plane ticket, from buying it to landing: check in, security, board */
   const ticketRef = useRef<Ticket | null>(null);
   const [flight, setFlight] = useState<Ticket | null>(null);
+  // the map on the plane's screens: the little plane moves along the route as you fly
+  const flightStart = useRef(0);
+  useEffect(() => {
+    if (!flight) return;
+    const id = setInterval(() => {
+      if (!flightStart.current) return;
+      const p = Math.min(0.92, (Date.now() - flightStart.current) / 60000);
+      engine.current?.setCabinScreen({
+        title: p < 0.15 ? "Climbing" : "Cruising",
+        lines: [`${Math.round(36000 * Math.min(1, p * 4))} ft · ${Math.round(Math.min(1, p * 5) * 840)} km/h`],
+        flight: flight.flight,
+        from: flight.fromName,
+        to: flight.destName,
+        progress: p,
+      });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [flight]);
   // the departures board keeps its times and statuses up to date while you're in the terminal
   useEffect(() => {
     const id = setInterval(() => {
@@ -1260,6 +1278,26 @@ function CityGame({
       });
     },
     [toast, syncCoins],
+  );
+  /** An announcement on the plane or in the terminal: on the screen, in a banner, and spoken. */
+  const announce = useCallback(
+    (who: string, text: string) => {
+      toast(`🎙️ ${who}: "${text}"`);
+      try {
+        const sy = window.speechSynthesis;
+        if (!sy) return;
+        sy.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-GB";
+        u.rate = 0.98;
+        const v = sy.getVoices().find((x) => x.lang.startsWith("en-GB")) ?? sy.getVoices()[0];
+        if (v) u.voice = v;
+        sy.speak(u);
+      } catch {
+        /* no voice on this device */
+      }
+    },
+    [toast],
   );
   const walletDoc = useRef<WalletDoc | null>(null);
   /** hand over what a bought pack gives besides money (set further down) */
@@ -8331,10 +8369,17 @@ function CityGame({
         }
         const board = () => {
           setPanel(null);
-          e.moveInside("jetbridge", "Jet bridge · Gate " + t.gate);
+          e.moveInside("jetbridge", "Apron · Gate " + t.gate);
           e.guideTo("planedoor");
-          toast("Boarding pass scanned ✓ Walk down the jet bridge to the plane.", "good");
+          toast("Boarding pass scanned ✓ Walk out to the plane and up the steps.", "good");
         };
+        if (flightStatus(t.depAt).boarding && !t.called) {
+          t.called = true;
+          announce(
+            "Gate 3",
+            `Flight ${t.flight.replace("IA ", "I A ")} to ${t.destName} is now boarding at gate ${t.gate}.`,
+          );
+        }
         if (flightStatus(t.depAt).boarding) {
           board();
           return;
@@ -8370,10 +8415,34 @@ function CityGame({
       if (id === "planedoor") {
         const t = ticketRef.current;
         if (!t) return;
-        toast(`"Welcome aboard! Seat ${t.seat} is ${t.business ? "in business class, at the front" : "down the aisle"}."`, "good");
-        e.enterCabin(t.business, t.seatN);
-        setInside(true);
-        setFlight(t);
+        const aboard = () => {
+          toast(
+            `Crew: "Welcome aboard! Seat ${t.seat} is ${t.business ? "in business class, at the front" : "down the aisle"}."`,
+            "good",
+          );
+          e.enterCabin(t.business, t.seatN);
+          setInside(true);
+          flightStart.current = 0;
+          setFlight(t);
+          e.setCabinScreen({
+            title: "Welcome aboard",
+            lines: [
+              `${t.flight} · ${t.fromName} → ${t.destName}`,
+              "Please take your seat and fasten your seatbelt",
+              "Phones on flight mode, please",
+            ],
+            flight: t.flight,
+          });
+          setTimeout(
+            () =>
+              announce(
+                "Captain",
+                `Assalamu alaikum, ladies and gentlemen. This is your captain. Welcome aboard IlmAir flight ${t.flight.replace("IA ", "I A ")} from ${t.fromName} to ${t.destName}. Please fasten your seatbelts. We will be on our way shortly, in sha Allah.`,
+              ),
+            1200,
+          );
+        };
+        if (!e.climbStairs(aboard)) aboard();
         return;
       }
       if (id === "jetback") {
@@ -10478,7 +10547,33 @@ function CityGame({
         <FlightCard
           t={flight}
           onServe={(stage, meal) => engine.current?.cabinServe(stage, meal)}
-          onShow={(kind) => engine.current?.planeShow(kind, kind === "takeoff" ? 7500 : 6400)}
+          onShow={(kind) => {
+            const en = engine.current;
+            if (!en) return;
+            if (kind === "takeoff") {
+              en.setCabinScreen({
+                title: "Take-off",
+                lines: ["Seatbelts fastened · tray tables up", "Bismillah"],
+                flight: flight.flight,
+              });
+              announce("Captain", "Cabin crew, please be seated for take-off.");
+              flightStart.current = Date.now() + 7500;
+            } else {
+              en.setCabinScreen({
+                title: `Landing in ${flight.destName}`,
+                lines: ["Please return to your seat and fasten your seatbelt"],
+                flight: flight.flight,
+                from: flight.fromName,
+                to: flight.destName,
+                progress: 0.98,
+              });
+              announce(
+                "Captain",
+                `Ladies and gentlemen, we have begun our descent into ${flight.destName}. Please fasten your seatbelts.`,
+              );
+            }
+            en.planeShow(kind, kind === "takeoff" ? 7500 : 6400);
+          }}
           onAte={(full) => {
             need({ hunger: full ? 60 : 15 });
             if (full) update((x) => ({ ...x, coins: x.coins + 2 }));
@@ -10491,7 +10586,16 @@ function CityGame({
             const t = flight;
             ticketRef.current = null;
             setFlight(null);
+            flightStart.current = 0;
             t.arrive();
+            setTimeout(
+              () =>
+                announce(
+                  "Captain",
+                  `Welcome to ${t.destName}. The local time is ${hhmm(Date.now())}. Thank you for flying IlmAir. Ma'a salamah.`,
+                ),
+              1500,
+            );
             // landed in Jeddah: the taxi to Makkah waits outside arrivals
             setTimeout(() => {
               if (engine.current?.districtId() === "jeddahairport") openJeddahTaxiRef.current();
@@ -18199,6 +18303,8 @@ type Ticket = {
   /** going for Umrah: ihram at the airport, the intention at the miqat */
   umrah?: boolean;
   dressed?: boolean;
+  /** the boarding call has been made */
+  called?: boolean;
   arrive: () => void;
 };
 

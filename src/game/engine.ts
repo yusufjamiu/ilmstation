@@ -467,7 +467,7 @@ export function planeMesh(stripe: number) {
 }
 
 /** The IlmAir airliner up close: a row of windows, the cockpit, doors and the name. */
-export function airliner(stripe: number) {
+export function airliner(stripe: number, name = "IlmAir  ✈  إلم للطيران", ink = "#1f3d5a") {
   const g = planeMesh(stripe);
   const dark = mat(0x1b2630);
   const wins: THREE.BufferGeometry[] = [];
@@ -489,13 +489,14 @@ export function airliner(stripe: number) {
   for (const sx of [-1, 1])
     for (const z of [8.3, -9]) g.add(box(0.04, 1.1, 0.55, 0xc9ced2, sx * 1.5, 2.1, z));
   // the name along the body, and a gold crescent on the tail
+  const label = name;
   for (const sx of [-1, 1]) {
     const name = canvasPlane(5.5, 0.8, (c, W, H) => {
-      c.fillStyle = "#1f3d5a";
+      c.fillStyle = ink;
       c.font = `800 ${Math.round(H * 0.8)}px "Work Sans", Arial, sans-serif`;
       c.textBaseline = "middle";
       c.textAlign = "center";
-      c.fillText("IlmAir  ✈  إلم للطيران", W / 2, H / 2);
+      c.fillText(label, W / 2, H / 2, W * 0.96);
     }).mesh;
     (name.material as THREE.MeshBasicMaterial).transparent = true;
     name.position.set(sx * 1.53, 3.45, 2.5);
@@ -1076,7 +1077,7 @@ export class IlmCityEngine {
     this.player.position.set(
       o.x,
       0,
-      o.z + (kind === "hotelroom" ? 3 : kind === "jetbridge" ? 10 : -2),
+      o.z + (kind === "hotelroom" ? 3 : kind === "jetbridge" ? 12 : -2),
     );
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
@@ -11605,176 +11606,269 @@ export class IlmCityEngine {
     return true;
   }
 
-  /** The jet bridge: a glass tunnel from the gate to the plane's open door, high over the
-      tarmac, with the ground crew, the baggage carts and the other planes outside. */
+  /** Out on the apron: the walk from the gate across the tarmac to your plane and up its
+      steps. Planes of every colour wait at their stands, the ground crew load the bags, and
+      the runway is beyond. (The scene is still called the jet bridge inside the game.) */
   private buildJetBridge() {
     const o = this.interiorOrigin.jetbridge;
     const g = new THREE.Group();
     g.position.copy(o);
     g.userData.indoors = true;
     this.scene.add(g);
-    const W = 3.4,
-      L = 24;
-    // the floor, the roof and the glass sides of the tunnel
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), mat(0x4a5a6a));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(0, 0.01, 0);
-    floor.receiveShadow = true;
-    g.add(floor);
-    g.add(box(W + 0.4, 0.5, L, 0x9aa3ab, 0, -0.5, 0)); // underside
-    // a glass roof on a frame, so you can see out and down
-    const roof = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, L),
-      new THREE.MeshStandardMaterial({ color: 0xbfe2f0, transparent: true, opacity: 0.18, side: THREE.DoubleSide }),
-    );
-    roof.rotation.x = -Math.PI / 2;
-    roof.position.y = 2.9;
-    g.add(roof);
-    for (let z = -L / 2; z <= L / 2; z += 3) g.add(box(W + 0.3, 0.14, 0.14, 0x8a939b, 0, 2.85, z));
-    const glass = new THREE.MeshStandardMaterial({
-      color: 0xbfe2f0,
-      transparent: true,
-      opacity: 0.28,
-      side: THREE.DoubleSide,
-    });
-    for (const sx of [-W / 2, W / 2]) {
-      const gl = new THREE.Mesh(new THREE.PlaneGeometry(L, 2.7), glass);
-      gl.rotation.y = Math.PI / 2;
-      gl.position.set(sx, 1.45, 0);
-      g.add(gl);
-      for (let z = -L / 2; z <= L / 2; z += 3) g.add(box(0.12, 2.8, 0.12, 0x8a939b, sx, 0, z));
-      g.add(box(0.14, 0.12, L, 0x8a939b, sx, 2.75, 0));
-      g.add(box(0.14, 0.9, L, 0x8a939b, sx, 0, 0)); // the low wall
-    }
-    // ceiling lights
-    for (let z = -L / 2 + 2; z < L / 2; z += 4) {
-      const lt = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.4), this.lampMat);
-      lt.position.set(0, 2.72, z);
-      g.add(lt);
-    }
-    this.lampMat.emissiveIntensity = Math.max(this.lampMat.emissiveIntensity, 0.6);
-    // the terminal behind you: a glass wall with the gate sign
-    g.add(box(30, 5.4, 0.6, 0xd9dde0, 0, -5.4, L / 2 + 0.4));
-    const gateSign = label("Gate 3 · IlmAir", { size: 0.6, bg: "rgba(31,61,90,0.92)" });
-    gateSign.position.set(0, 2.4, L / 2 - 0.2);
-    g.add(gateSign);
-    // the tarmac far below, with its markings
-    const TY = -5.4;
-    const tarmac = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), mat(0x6b6f72));
+    const S = 2.6; // planes at full size
+    const R = 1.5 * S;
+    // the tarmac, the painted walkway and the stand lines
+    const tarmac = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), mat(0x6b6f72));
     tarmac.rotation.x = -Math.PI / 2;
-    tarmac.position.y = TY;
     tarmac.receiveShadow = true;
     g.add(tarmac);
-    const yellow = mat(0xf2c230);
-    for (const [w, d, x, z] of [
-      [0.4, 160, 22, -40],
-      [160, 0.4, 0, -60],
-      [0.4, 60, -30, 20],
-    ])
-      g.add(box(w, 0.04, d, 0xf2c230, x, TY + 0.02, z));
-    void yellow;
-    // the plane, its door open at the end of the bridge (nose to the east)
-    const P = airliner(0x1f3d5a);
-    const S = 2.6;
-    P.scale.setScalar(S);
-    P.rotation.y = Math.PI / 2;
-    const R = 1.5 * S;
-    P.position.set(-6 * S, TY, -L / 2 - R + 0.2);
-    // lift the body so its door sill is level with the bridge floor
-    P.position.y = 0.2 - 2.6 * S + R * 0.3;
-    g.add(P);
-    // the open door: a dark doorway in the side, the door swung back against the body
-    g.add(box(1.5, 2.3, 0.3, 0x1b2026, 0, 0, -L / 2 - 0.05));
-    g.add(box(1.4, 2.2, 0.15, 0xf4f6f8, -1.3, 0.05, -L / 2 + 0.3));
+    const b = new Batch();
+    const paint = (w: number, d: number, c: number, x: number, z: number) =>
+      b.box(w, 0.03, d, mat(c), x, 0.01, z);
+    // the walkway from the gate door to the steps, between two lines, with zebra stripes
+    paint(0.25, 26, 0xf4f4f0, -1.6, 9);
+    paint(0.25, 26, 0xf4f4f0, 1.6, 9);
+    for (let z = -2; z <= 21; z += 1.6) paint(3, 0.5, 0x2f8f63, 0, z);
+    // stand lines: a yellow lead-in line to every stand
+    for (const x of [-120, -60, 0, 60, 120]) paint(0.35, 70, 0xf2c230, x, -30);
+    paint(300, 0.35, 0xf2c230, 0, -62);
+    // the terminal behind you: long and glassy, with the gate's door
+    const glass = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0x5f8fa8, roughness: 0.2, metalness: 0.3 }),
+      0.9,
+      0xffd9a0,
+    );
+    b.box(320, 12, 14, glass, 0, 0, 30);
+    b.box(322, 1.2, 15, mat(0xe9e4d8), 0, 12, 30);
+    for (let x = -150; x <= 150; x += 10) b.box(0.4, 12, 0.4, mat(0xd9dde0), x, 0, 22.8);
+    b.box(4, 3.2, 0.3, mat(0x1b2026), 0, 0, 22.9); // the gate door
+    const gateSign = label("Gate 3 · IlmAir · Boarding", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
+    gateSign.position.set(0, 4.4, 22.4);
+    g.add(gateSign);
+    // jet bridges on the far stands, reaching out from the terminal
+    for (const x of [-120, 120]) {
+      b.box(3, 2.6, 30, mat(0xc9ced2), x + 8, 4.2, 6);
+      b.box(1, 4.2, 1, mat(0x8a939b), x + 8, 0, -6);
+    }
+
+    // a plane at a stand: nose to the east, its front door facing the terminal
+    const parked = (
+      x: number,
+      z: number,
+      stripe: number,
+      name: string,
+      ink: string,
+      ry = Math.PI / 2,
+    ) => {
+      const P = airliner(stripe, name, ink);
+      P.scale.setScalar(S);
+      P.rotation.y = ry;
+      // the body sits on its landing gear
+      P.position.set(x, 0, z);
+      P.position.y = 1.2;
+      P.updateMatrixWorld(true);
+      return P;
+    };
+    // your plane at stand 3, right in front of the gate
+    const mine = parked(-8.3 * S, -12 - R, 0x1f3d5a, "IlmAir  ✈  إلم للطيران", "#1f3d5a");
+    g.add(mine);
+    this.minePlane = mine;
+    const bodyY = 1.2 + 2.6 * S; // the middle of the body
+    const doorY = bodyY - 1.1; // the door sill
+    const doorZ = -12; // the side of the body facing the terminal
+    // landing gear under every plane: legs and wheels
+    const gear = (P: THREE.Object3D) => {
+      for (const [lx, lz] of [
+        [-2.6, -1],
+        [2.6, -1],
+        [0, 9],
+      ]) {
+        const v = new THREE.Vector3(lx, 0, lz).applyMatrix4(
+          new THREE.Matrix4().makeRotationY(P.rotation.y),
+        );
+        const wx = P.position.x + v.x * S,
+          wz = P.position.z + v.z * S;
+        b.add(new THREE.CylinderGeometry(0.25, 0.25, bodyY - R * 0.8, 8), mat(0x9aa0a6), wx, (bodyY - R * 0.8) / 2, wz);
+        for (const d of [-0.5, 0.5]) {
+          const w = new THREE.CylinderGeometry(0.7, 0.7, 0.45, 12);
+          w.rotateZ(Math.PI / 2);
+          w.rotateY(P.rotation.y);
+          b.add(w, mat(0x1b1d20), wx + Math.sin(P.rotation.y + Math.PI / 2) * d, 0.7, wz + Math.cos(P.rotation.y + Math.PI / 2) * d);
+        }
+      }
+    };
+    gear(mine);
+    // the open door with its light, and the steps up to it
+    b.box(1.6, 2.3, 0.3, mat(0x1b2026), 0, doorY, doorZ - 0.1);
     const cabinGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.1), this.lampMat);
-    cabinGlow.position.set(0, 1.08, -L / 2 + 0.11);
+    cabinGlow.position.set(0, doorY + 1.08, doorZ + 0.08);
     g.add(cabinGlow);
-    // the cabin crew waiting at the door
-    const crew = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 5 });
-    crew.position.set(0.9, 0, -L / 2 + 1.2);
-    crew.rotation.y = Math.PI * 0.9;
-    g.add(crew);
-    this.terminalStaff.push(crew);
-    // the plane's wheels on the tarmac
-    // the landing gear: two main legs under the wings, one under the nose
-    const bodyY = P.position.y + 2.6 * S;
-    for (const [x, zz] of [
-      [-13, -2.6],
-      [-13, 2.6],
-      [9, 0],
-    ]) {
-      const cz = -L / 2 - R + zz;
-      const leg = cyl(0.25, 0.25, bodyY - R * 0.8 - TY, 0x9aa0a6, 8);
-      leg.position.set(x, (bodyY - R * 0.8 + TY) / 2, cz);
-      g.add(leg);
-      for (const dz of [-0.45, 0.45]) {
-        const wh = cyl(0.7, 0.7, 0.4, 0x1b1d20, 12);
-        wh.rotation.x = Math.PI / 2;
-        wh.position.set(x, TY + 0.7, cz + dz);
-        g.add(wh);
+    b.box(1.4, 2.2, 0.15, mat(0xf4f6f8), -1.5, doorY + 0.05, doorZ + 0.25);
+    // the stairs truck: white steps rising from the tarmac to the door, rails both sides
+    const SL = 9; // its length on the ground
+    const st = { z0: doorZ + 0.4 + SL, z1: doorZ + 0.4 };
+    this.airStairs = { x: 0, z0: st.z0, z1: st.z1, h: doorY };
+    const steps = 16;
+    for (let i = 0; i < steps; i++) {
+      const f = (i + 1) / steps;
+      b.box(2, 0.12, SL / steps + 0.05, mat(0xd9dde0), 0, f * doorY - 0.12, st.z0 - f * SL + SL / steps / 2);
+      b.box(2, f * doorY - 0.12, 0.08, mat(0xb9bfc4), 0, 0, st.z0 - f * SL);
+    }
+    const slope = Math.atan2(doorY, SL);
+    for (const sx of [-1.05, 1.05]) {
+      const rail = new THREE.BoxGeometry(0.08, 0.08, Math.hypot(SL, doorY));
+      rail.rotateX(slope);
+      b.add(rail, mat(0x2f8f63), sx, doorY / 2 + 1.05, (st.z0 + st.z1) / 2);
+      for (let i = 0; i <= 4; i++) {
+        const f = i / 4;
+        b.box(0.07, 1, 0.07, mat(0x2f8f63), sx, f * doorY, st.z0 - f * SL);
       }
     }
-    // down below: a tug pulling baggage carts, a fuel truck, the ground crew in orange vests
-    const tug = box(2.4, 1.2, 1.6, 0xf2c230, 8, TY, -8);
-    g.add(tug);
-    for (let i = 0; i < 3; i++) {
-      g.add(box(2.2, 0.5, 1.4, 0x8a939b, 10.8 + i * 2.6, TY + 0.4, -8));
-      g.add(box(1.8, 0.7, 1.1, [0x3a3f46, 0x7d2f3a, 0x2f4a7a][i], 10.8 + i * 2.6, TY + 0.9, -8));
+    // the platform at the top, and the little truck the steps stand on
+    b.box(2.2, 0.15, 1.4, mat(0xd9dde0), 0, doorY - 0.15, st.z1 + 0.5);
+    // the truck under the steps, its cab beside them
+    b.box(2.4, 0.9, SL - 2, mat(0xf2f2ee), 0, 0, (st.z0 + st.z1) / 2 - 0.5);
+    b.box(2.2, 1.8, 3, mat(0x1f6f63), 2.5, 0, st.z0 - 2);
+    const stairsSign = label("✈ IA · Board here", { size: 0.6, bg: "rgba(31,61,90,0.92)" });
+    stairsSign.position.set(-2.4, 3.2, st.z0 + 0.5);
+    g.add(stairsSign);
+    // the crew member at the top, welcoming you aboard
+    const crew = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 5 });
+    crew.position.set(0.5, doorY, doorZ + 1);
+    crew.rotation.y = 0.2;
+    g.add(crew);
+    this.terminalStaff.push(crew);
+    // other passengers walking out to the plane with you
+    for (let i = 0; i < 5; i++) {
+      const female = i % 2 === 1;
+      const p = person([0xf4f1ea, 0x2f4a7a, 0x6d4a2b, 0x1d1f22, 0x7d2f3a][i], {
+        seed: 40 + i,
+        ...(female ? { hijab: [0x1d1f22, 0x2f6f4f][i % 2] } : {}),
+      });
+      p.position.set(i % 2 ? -0.6 : 0.6, 0, 6 - i * 3.2);
+      p.rotation.y = Math.PI;
+      g.add(p);
     }
-    g.add(box(6, 2.4, 2.4, 0xf4f4f0, -14, TY, 6), box(2, 2, 2.4, 0x1f6f63, -10.4, TY, 6));
+
+    // parked planes in the colours of other (made-up) airlines, at every stand and beyond
+    const fleet: [number, string, string][] = [
+      [0x1d6b3a, "Haramain Air  ·  طيران الحرمين", "#1d6b3a"],
+      [0xc9a227, "Sahara Wings", "#8a6a1c"],
+      [0x7d2f3a, "Oasis Airways", "#7d2f3a"],
+      [0x2c6db0, "Crescent Air", "#2c6db0"],
+      [0x1f3d5a, "IlmAir  ✈  إلم للطيران", "#1f3d5a"],
+      [0x2f8f83, "Nakhla Air", "#2f8f83"],
+    ];
+    const stands: [number, number, number][] = [
+      [-60, -12 - R, Math.PI / 2],
+      [60, -12 - R, Math.PI / 2],
+      [-120, -12 - R, Math.PI / 2],
+      [120, -12 - R, Math.PI / 2],
+      [-150, -95, 0.3],
+      [-90, -95, 0.3],
+      [-30, -95, 0.3],
+      [30, -95, 0.3],
+      [90, -95, 0.3],
+      [150, -95, 0.3],
+    ];
+    stands.forEach(([x, z, ry], i) => {
+      const [c, n, ink] = fleet[i % fleet.length];
+      const P = parked(x - (ry === Math.PI / 2 ? 8.3 * S : 0), z, c, n, ink, ry);
+      b.addObject(P);
+      gear(P);
+    });
+    // ground crew, bag carts and a tug at your plane, a fuel truck, a catering lift
+    b.box(2.4, 1.2, 1.6, mat(0xf2c230), -24, 0, -6);
+    for (let i = 0; i < 3; i++) {
+      b.box(2.2, 0.5, 1.4, mat(0x8a939b), -21 + i * 2.6, 0.4, -6);
+      b.box(1.8, 0.7, 1.1, mat([0x3a3f46, 0x7d2f3a, 0x2f4a7a][i]), -21 + i * 2.6, 0.9, -6);
+    }
+    b.box(7, 2.6, 2.6, mat(0xf4f4f0), 24, 0, -4);
+    b.box(2.2, 2.4, 2.6, mat(0x1f6f63), 28.6, 0, -4);
+    b.box(4, 2.2, 2.6, mat(0xf4f4f0), -32, 2.2, -10); // catering box raised to the back door
+    b.box(4, 2.2, 2.6, mat(0x55585c), -32, 0, -10);
     for (const [x, z, r] of [
-      [6, -10.5, 0.4],
-      [12, -6, 2.4],
-      [-4, -4, -0.6],
+      [-18, -5, 0.4],
+      [-26, -8, 2.4],
+      [20, -7, -0.6],
+      [6, -4, 1.2],
     ]) {
       const w = person(0xf28a1e, { cap: 0xf28a1e, seed: Math.round(x * 3) });
-      w.position.set(x, TY, z);
+      w.position.set(x, 0, z);
       w.rotation.y = r;
       g.add(w);
     }
-    // the runway, for watching your plane take off and land
-    g.add(box(560, 0.05, 30, 0x3c4044, 0, TY + 0.01, -150));
-    for (let x = -270; x < 270; x += 14) g.add(box(6, 0.04, 0.5, 0xf4f4f0, x, TY + 0.06, -150));
-    for (const z of [-164, -136]) g.add(box(560, 0.04, 0.4, 0xf4f4f0, 0, TY + 0.06, z));
+    // the runway beyond, for take-off and landing
+    b.box(700, 0.04, 30, mat(0x3c4044), 0, 0.01, -150);
+    for (let x = -340; x < 340; x += 14) b.box(6, 0.04, 0.5, mat(0xf4f4f0), x, 0.05, -150);
+    for (const z of [-164, -136]) b.box(700, 0.04, 0.4, mat(0xf4f4f0), 0, 0.05, z);
+    for (const m of b.build()) g.add(m);
     const show = airliner(0x1f3d5a);
     show.scale.setScalar(S);
     show.visible = false;
     g.add(show);
     this.showPlane = show;
-    this.showBase = { x: o.x, y: o.y + TY, z: o.z - 150 };
-    // another plane waiting on the far stand, and the control tower
-    const P2 = airliner(0x1d6b3a);
-    P2.scale.setScalar(S);
-    P2.position.set(70, TY, -70);
-    P2.rotation.y = -0.6;
-    g.add(P2);
+    this.showBase = { x: o.x, y: o.y, z: o.z - 150 };
+    // the control tower
     const tower = cyl(2.2, 2.6, 30, 0xe9e4d8, 10);
-    tower.position.set(-80, TY + 15, -230);
+    tower.position.set(-80, 15, -230);
     g.add(tower);
     const cab = cyl(5, 4, 4, 0x2a3a44, 10);
-    cab.position.set(-80, TY + 32, -230);
+    cab.position.set(-80, 32, -230);
     g.add(cab);
-    // walls of the tunnel
-    this.addCollider("jetbridge", o.x - 9, o.x - W / 2 + 0.3, o.z - L, o.z + L);
-    this.addCollider("jetbridge", o.x + W / 2 - 0.3, o.x + 9, o.z - L, o.z + L);
-    this.addCollider("jetbridge", o.x - 9, o.x + 9, o.z + L / 2 - 0.2, o.z + L);
-    this.addCollider("jetbridge", o.x - 9, o.x + 9, o.z - L, o.z - L / 2 + 0.2);
+    // keep to the walkway: the terminal behind, the plane ahead, the apron edges
+    this.addCollider("jetbridge", o.x - 40, o.x + 40, o.z + 22.6, o.z + 50);
+    this.addCollider("jetbridge", o.x - 40, o.x - 6, o.z - 60, o.z + 40);
+    this.addCollider("jetbridge", o.x + 6, o.x + 40, o.z - 60, o.z + 40);
+    this.addCollider("jetbridge", o.x - 40, o.x + 40, o.z - 60, o.z + st.z0 - 0.6);
     this.zones.push({
       id: "planedoor",
-      label: "Board the plane",
+      label: "Climb the steps and board",
       x: o.x,
-      z: o.z - L / 2 + 1.4,
-      r: 1.6,
+      z: o.z + st.z0 + 0.8,
+      r: 1.8,
       scene: "jetbridge",
     });
     this.zones.push({
       id: "jetback",
       label: "Back to the gate",
       x: o.x,
-      z: o.z + L / 2 - 0.9,
+      z: o.z + 21.4,
       r: 1.2,
       scene: "jetbridge",
     });
+  }
+  private minePlane: THREE.Object3D | null = null;
+  private airStairs: { x: number; z0: number; z1: number; h: number } | null = null;
+  private climb: { t: number; dur: number; done: () => void } | null = null;
+  /** Walk up the steps to the plane's door; `done` when you're at the top. */
+  climbStairs(done: () => void) {
+    if (this.where !== "jetbridge" || !this.airStairs) return false;
+    const o = this.interiorOrigin.jetbridge;
+    this.player.position.set(o.x + this.airStairs.x, 0, o.z + this.airStairs.z0 + 0.3);
+    this.player.rotation.y = Math.PI;
+    this.climb = { t: 0, dur: 3.4, done };
+    return true;
+  }
+  private stepClimb(dt: number) {
+    const c = this.climb!;
+    const st = this.airStairs!;
+    const o = this.interiorOrigin.jetbridge;
+    c.t += dt;
+    const f = Math.min(1, c.t / c.dur);
+    this.player.position.set(
+      o.x + st.x,
+      f * st.h,
+      o.z + st.z0 + 0.3 + (st.z1 - 0.8 - st.z0 - 0.3) * f,
+    );
+    this.player.rotation.y = Math.PI;
+    animatePerson(this.player, c.t * 7, 1, 2);
+    if (f >= 1) {
+      this.climb = null;
+      animatePerson(this.player, 0, 0);
+      this.player.position.y = 0;
+      c.done();
+    }
   }
 
   private buildAirport() {
@@ -12077,6 +12171,27 @@ export class IlmCityEngine {
       }
       // the galley at the front
       g.add(B(W - 0.6, 1.2, 1.4, 0xd9dde0, 0, 0, -D / 2 + 1.2));
+      // the big screen on the front wall and a little one in the back of every seat: the
+      // captain's welcome, the safety notice, the map of the flight
+      const cv = document.createElement("canvas");
+      cv.width = 1024;
+      cv.height = 576;
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const scrM = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
+      const big = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.03), scrM);
+      big.position.set(0, 2.75, -D / 2 + 0.25);
+      g.add(big);
+      g.add(B(3.8, 2.2, 0.08, 0x111317, 0, 1.64, -D / 2 + 0.2));
+      const backs: THREE.BufferGeometry[] = [];
+      for (const st of this.cabinSeats) {
+        const q = new THREE.PlaneGeometry(st.business ? 0.62 : 0.5, st.business ? 0.36 : 0.29);
+        q.translate(st.x, 1.32, st.z + 0.56);
+        backs.push(q);
+      }
+      g.add(new THREE.Mesh(mergeGeometries(backs)!, scrM));
+      this.cabinScreen = { canvas: cv, tex };
+      this.setCabinScreen({ title: "Welcome aboard", lines: ["IlmAir · إلم للطيران"] });
       const tag = label("IlmAir", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
       tag.position.set(0, 3.6, -D / 2 + 1);
       g.add(tag);
@@ -12767,6 +12882,94 @@ export class IlmCityEngine {
     );
     return { seat: s, label: `${row}${"ABCDEF"[xs.indexOf(s.x)]}` };
   }
+  private cabinScreen: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture } | null = null;
+  /** What the screens on the plane show: a title, a few lines, and the map of the flight. */
+  setCabinScreen(s: {
+    title: string;
+    lines?: string[];
+    flight?: string;
+    from?: string;
+    to?: string;
+    progress?: number;
+  }) {
+    const sc = this.cabinScreen;
+    if (!sc) return;
+    const c = sc.canvas.getContext("2d")!;
+    const W = sc.canvas.width,
+      H = sc.canvas.height;
+    const bg = c.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#14304a");
+    bg.addColorStop(1, "#0b1a2a");
+    c.fillStyle = bg;
+    c.fillRect(0, 0, W, H);
+    // the top bar
+    c.fillStyle = "#e6b84a";
+    c.fillRect(0, 0, W, 64);
+    c.fillStyle = "#14304a";
+    c.font = '800 38px "Work Sans", Arial, sans-serif';
+    c.textBaseline = "middle";
+    c.textAlign = "left";
+    c.fillText("✈ IlmAir", 28, 33);
+    c.textAlign = "right";
+    c.font = '700 30px "Work Sans", Arial, sans-serif';
+    c.fillText(s.flight ?? "", W - 28, 33);
+    // the title and the lines
+    c.textAlign = "center";
+    c.fillStyle = "#ffffff";
+    c.font = '800 64px "Work Sans", Arial, sans-serif';
+    const map = s.progress !== undefined && s.from && s.to;
+    c.fillText(s.title, W / 2, map ? 128 : 190, W - 60);
+    c.font = '600 34px "Work Sans", Arial, sans-serif';
+    c.fillStyle = "#cfe3ef";
+    (s.lines ?? []).forEach((l, i) => c.fillText(l, W / 2, (map ? 182 : 270) + i * 48, W - 60));
+    if (map) {
+      // the route: from the left dot to the right one over the desert, the plane on it
+      const y0 = 420,
+        x0 = 150,
+        x1 = W - 150;
+      c.fillStyle = "#6b5a3e";
+      c.fillRect(40, 300, W - 80, 230);
+      c.fillStyle = "#c9a46f";
+      c.fillRect(44, 304, W - 88, 222);
+      const at = (t: number) => [x0 + (x1 - x0) * t, y0 - Math.sin(t * Math.PI) * 70];
+      c.strokeStyle = "rgba(20,48,74,0.5)";
+      c.setLineDash([14, 10]);
+      c.lineWidth = 5;
+      c.beginPath();
+      for (let t = 0; t <= 1.001; t += 0.05) {
+        const [x, y] = at(t);
+        if (t === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.stroke();
+      c.setLineDash([]);
+      c.strokeStyle = "#14304a";
+      c.beginPath();
+      const p = Math.max(0, Math.min(1, s.progress!));
+      for (let t = 0; t <= p + 0.001; t += 0.02) {
+        const [x, y] = at(Math.min(t, p));
+        if (t === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.stroke();
+      for (const [t, name] of [
+        [0, s.from!],
+        [1, s.to!],
+      ] as [number, string][]) {
+        const [x, y] = at(t);
+        c.fillStyle = "#14304a";
+        c.beginPath();
+        c.arc(x, y, 12, 0, Math.PI * 2);
+        c.fill();
+        c.font = '800 32px "Work Sans", Arial, sans-serif';
+        c.fillText(name, x, y + 44);
+      }
+      const [px, py] = at(p);
+      c.font = "56px sans-serif";
+      c.fillText("✈", px, py - 6);
+    }
+    sc.tex.needsUpdate = true;
+  }
   /** Board: your seat, the other passengers, the crew in the aisle. */
   enterCabin(business: boolean, n = 0) {
     const o = this.interiorOrigin.cabin;
@@ -12884,7 +13087,7 @@ export class IlmCityEngine {
     }
     // down the jet bridge: low behind you, looking along the tunnel to the plane's door
     if (this.where === "jetbridge")
-      return portrait ? new THREE.Vector3(0, 6.5, 9) : new THREE.Vector3(0, 5.2, 8);
+      return portrait ? new THREE.Vector3(0, 5.5, 10) : new THREE.Vector3(0, 4.4, 9);
     if (this.where !== "out" && !this.cine)
       return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
@@ -13717,6 +13920,7 @@ export class IlmCityEngine {
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (this.pathWalk) this.stepPath(dt);
+    else if (this.climb) this.stepClimb(dt);
     else if (this.acting) this.stepActing(t);
     else if (!this.riding) this.walk(v, dt, t);
 
