@@ -1710,6 +1710,7 @@ export class IlmCityEngine {
   private tawaf: {
     bodies: THREE.InstancedMesh;
     heads: THREE.InstancedMesh;
+    umbrellas: THREE.InstancedMesh;
     people: { r: number; a: number; w: number }[];
     world: { x: number; z: number };
     t: number;
@@ -1721,7 +1722,9 @@ export class IlmCityEngine {
     const people: { r: number; a: number; w: number }[] = [];
     for (let i = 0; i < 1500; i++) {
       // packed close to the Kaaba, thinner towards the colonnades
-      const r = 8.5 + Math.pow(rnd(), 1.6) * (IN - 12);
+      // on the round white mataf, thickest near the Kaaba
+      void IN;
+      const r = 9.6 + Math.pow(rnd(), 1.25) * 20.5;
       // walking pace: about 1.1 m/s, a little slower in the thick of the crowd
       people.push({ r, a: rnd() * Math.PI * 2, w: (0.9 + rnd() * 0.5) / r });
     }
@@ -1738,6 +1741,22 @@ export class IlmCityEngine {
     };
     const bodies = mk(body),
       heads = mk(head);
+    // a few pilgrims under umbrellas against the sun, as in the Haram at midday
+    const ug = new THREE.ConeGeometry(0.62, 0.3, 10, 1, true);
+    ug.translate(0, 2.05, 0);
+    const stick = new THREE.CylinderGeometry(0.02, 0.02, 0.6, 4);
+    stick.translate(0, 1.75, 0);
+    const umbGeo = mergeGeometries([ug.toNonIndexed(), stick.toNonIndexed()])!;
+    const umbrellas = new THREE.InstancedMesh(
+      umbGeo,
+      mat(0xffffff, { side: THREE.DoubleSide }),
+      Math.ceil(people.length / 14),
+    );
+    umbrellas.frustumCulled = false;
+    g.add(umbrellas);
+    const UC = [0x2f9a4a, 0x2f9a4a, 0xc23a4a, 0xf2f2ee, 0x2c6db0];
+    for (let i = 0; i < umbrellas.count; i++)
+      umbrellas.setColorAt(i, new THREE.Color(UC[i % UC.length]));
     const c = new THREE.Color();
     const skins = [0x8d5a3b, 0x6b4430, 0xc68a5e, 0xe0b48a, 0x5a3a28];
     people.forEach((_, i) => {
@@ -1748,6 +1767,7 @@ export class IlmCityEngine {
     this.tawaf = {
       bodies,
       heads,
+      umbrellas,
       people,
       world: { x: g.position.x + this.ox, z: g.position.z + this.oz },
       t: 1,
@@ -1778,7 +1798,9 @@ export class IlmCityEngine {
       M4.compose(v.set(x, 0, z), q, one);
       T.bodies.setMatrixAt(i, M4);
       T.heads.setMatrixAt(i, M4);
+      if (i % 14 === 0) T.umbrellas.setMatrixAt(i / 14, M4);
     });
+    T.umbrellas.instanceMatrix.needsUpdate = true;
     T.bodies.instanceMatrix.needsUpdate = true;
     T.heads.instanceMatrix.needsUpdate = true;
   }
@@ -4817,6 +4839,291 @@ export class IlmCityEngine {
     safa?: { x: number; z: number };
     marwah?: { x: number; z: number };
   } = {};
+  private haramTexCache: {
+    kiswa: THREE.CanvasTexture;
+    kiswaDoor: THREE.CanvasTexture;
+    ottoman: THREE.CanvasTexture;
+    facade: THREE.CanvasTexture;
+  } | null = null;
+  /** Drawn once: the kiswah with its gold band, the Ottoman arch and the white arcade storeys. */
+  private haramTex() {
+    if (this.haramTexCache) return this.haramTexCache;
+    const make = (w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) => {
+      const cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = h;
+      draw(cv.getContext("2d")!);
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      t.wrapS = THREE.RepeatWrapping;
+      return t;
+    };
+    // the kiswah: 12 m wide, 15 m tall, drawn 512 x 640
+    const kiswaFace = (door: boolean) => (c: CanvasRenderingContext2D) => {
+      c.fillStyle = "#0d0d0e";
+      c.fillRect(0, 0, 512, 640);
+      // the woven pattern of faint script in the black cloth
+      c.strokeStyle = "rgba(255,255,255,0.045)";
+      c.lineWidth = 2;
+      for (let y = 0; y < 640; y += 22)
+        for (let x = (y / 22) % 2 ? 0 : 22; x < 512; x += 44) {
+          c.beginPath();
+          c.moveTo(x, y + 11);
+          c.quadraticCurveTo(x + 11, y, x + 22, y + 11);
+          c.quadraticCurveTo(x + 33, y + 22, x + 44, y + 11);
+          c.stroke();
+        }
+      // the gold belt (hizam) a little above two thirds of the way up
+      const band = (y: number, h: number) => {
+        const gr = c.createLinearGradient(0, y, 0, y + h);
+        gr.addColorStop(0, "#8a6a1c");
+        gr.addColorStop(0.5, "#e2c165");
+        gr.addColorStop(1, "#8a6a1c");
+        c.fillStyle = "#151410";
+        c.fillRect(0, y, 512, h);
+        c.strokeStyle = gr;
+        c.lineWidth = 3;
+        c.strokeRect(2, y + 3, 508, h - 6);
+        // embroidered script: flowing gold strokes
+        c.lineWidth = 3.2;
+        c.lineCap = "round";
+        let r = 11;
+        const rr = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+        for (let x = 10; x < 500; x += 9) {
+          c.beginPath();
+          const top = y + 9 + rr() * 8,
+            bot = y + h - 9 - rr() * 6;
+          c.moveTo(x, bot);
+          if (rr() < 0.45) c.lineTo(x, top);
+          else c.quadraticCurveTo(x + 6, bot - 10, x + 9, bot - rr() * 14);
+          c.stroke();
+          if (rr() < 0.25) {
+            c.beginPath();
+            c.arc(x + 4, top + 2, 1.8, 0, Math.PI * 2);
+            c.fillStyle = gr;
+            c.fill();
+          }
+        }
+      };
+      band(128, 46);
+      // the gold medallions and lamp shapes below the belt
+      const gold = "#d8b552";
+      for (const x of [64, 192, 320, 448]) {
+        if (door && x > 256 && x < 400) continue;
+        c.fillStyle = "#16140f";
+        c.fillRect(x - 26, 196, 52, 44);
+        c.strokeStyle = gold;
+        c.lineWidth = 2.5;
+        c.strokeRect(x - 26, 196, 52, 44);
+        for (let k = 0; k < 4; k++) {
+          c.beginPath();
+          c.moveTo(x - 18 + k * 12, 230);
+          c.quadraticCurveTo(x - 12 + k * 12, 202, x - 8 + k * 12, 226);
+          c.stroke();
+        }
+      }
+      // the corners: a line of gold script running down the edges
+      c.fillStyle = "rgba(216,181,82,0.6)";
+      for (let y = 180; y < 600; y += 14) {
+        c.fillRect(4, y, 6, 8);
+        c.fillRect(502, y, 6, 8);
+      }
+      if (door) {
+        // the sitara: the embroidered curtain round the door, gold on black
+        const x0 = 256 + (2.4 / 12) * 512 - 70,
+          w = 140;
+        c.fillStyle = "#121110";
+        c.fillRect(x0, 320, w, 290);
+        c.strokeStyle = gold;
+        c.lineWidth = 3;
+        c.strokeRect(x0 + 4, 324, w - 8, 282);
+        for (let y = 336; y < 410; y += 14) {
+          c.beginPath();
+          c.moveTo(x0 + 14, y);
+          for (let x = x0 + 14; x < x0 + w - 14; x += 10)
+            c.quadraticCurveTo(x + 5, y - 6, x + 10, y);
+          c.stroke();
+        }
+      }
+    };
+    const kiswa = make(512, 640, kiswaFace(false));
+    const kiswaDoor = make(512, 640, kiswaFace(true));
+    kiswa.wrapS = kiswaDoor.wrapS = THREE.ClampToEdgeWrapping;
+    // one Ottoman bay: 4.6 m wide, 7.6 m tall, drawn 256 x 424. The opening is see-through.
+    const ottoman = make(256, 424, (c) => {
+      c.fillStyle = "#d9b77e";
+      c.fillRect(0, 0, 256, 424);
+      // the cornice and the band under the domes
+      c.fillStyle = "#c79e5c";
+      c.fillRect(0, 0, 256, 34);
+      c.fillStyle = "#efe2c4";
+      c.fillRect(0, 34, 256, 6);
+      // the pointed arch, in alternating pale and ochre stones
+      const cx = 128,
+        spring = 196,
+        half = 92;
+      const archPath = (r: number) => {
+        c.beginPath();
+        c.moveTo(cx - r, 424);
+        c.lineTo(cx - r, spring);
+        c.quadraticCurveTo(cx - r, spring - r * 1.05, cx, spring - r * 1.35);
+        c.quadraticCurveTo(cx + r, spring - r * 1.05, cx + r, spring);
+        c.lineTo(cx + r, 424);
+        c.closePath();
+      };
+      for (let k = 0; k < 14; k++) {
+        c.save();
+        archPath(half + 16);
+        c.clip();
+        const a0 = Math.PI + (k / 14) * Math.PI,
+          a1 = Math.PI + ((k + 1) / 14) * Math.PI;
+        c.beginPath();
+        c.moveTo(cx, spring);
+        c.arc(cx, spring, 200, a0, a1);
+        c.closePath();
+        c.fillStyle = k % 2 ? "#b8803f" : "#f1e6cc";
+        c.fill();
+        c.restore();
+      }
+      // gilded calligraphy roundels between the arches
+      for (const x of [14, 242]) {
+        c.beginPath();
+        c.arc(x, 100, 13, 0, Math.PI * 2);
+        c.fillStyle = "#2e5a3a";
+        c.fill();
+        c.strokeStyle = "#e6c45c";
+        c.lineWidth = 3;
+        c.stroke();
+      }
+      // cut the opening out
+      c.globalCompositeOperation = "destination-out";
+      archPath(half);
+      c.fill();
+      c.globalCompositeOperation = "source-over";
+      // the piers' marble bases
+      c.fillStyle = "#efe7d6";
+      c.fillRect(0, 392, cx - half, 32);
+      c.fillRect(cx + half, 392, 256 - cx - half, 32);
+    });
+    // one bay of the white arcades: 7 m wide, 21 m tall, three storeys of arches
+    const facade = make(256, 768, (c) => {
+      c.fillStyle = "#f4f1ea";
+      c.fillRect(0, 0, 256, 768);
+      const arch = (y0: number, y1: number, w: number, shade: string) => {
+        const x0 = 128 - w / 2,
+          sp = y0 + w * 0.55;
+        c.beginPath();
+        c.moveTo(x0, y1);
+        c.lineTo(x0, sp);
+        c.quadraticCurveTo(x0, y0, 128, y0 - 6);
+        c.quadraticCurveTo(x0 + w, y0, x0 + w, sp);
+        c.lineTo(x0 + w, y1);
+        c.closePath();
+        const gr = c.createLinearGradient(0, y0, 0, y1);
+        gr.addColorStop(0, shade);
+        gr.addColorStop(1, "#8f877a");
+        c.fillStyle = gr;
+        c.fill();
+        c.strokeStyle = "#ddd5c4";
+        c.lineWidth = 5;
+        c.stroke();
+      };
+      // the parapet with its crenellations
+      c.fillStyle = "#e3dccd";
+      c.fillRect(0, 0, 256, 50);
+      for (let x = 6; x < 256; x += 22) c.fillRect(x, 50, 12, 12);
+      arch(92, 236, 150, "#7f786c"); // top storey
+      c.fillStyle = "#ddd5c4";
+      c.fillRect(0, 248, 256, 14);
+      arch(300, 500, 196, "#6f685d"); // middle storey
+      // a balustrade across the middle storey
+      c.fillStyle = "#efeadf";
+      c.fillRect(30, 470, 196, 8);
+      for (let x = 36; x < 226; x += 10) c.fillRect(x, 478, 4, 22);
+      c.fillStyle = "#ddd5c4";
+      c.fillRect(0, 512, 256, 14);
+      arch(560, 768, 200, "#5f594f"); // ground storey
+    });
+    this.haramTexCache = { kiswa, kiswaDoor, ottoman, facade };
+    return this.haramTexCache;
+  }
+  /** Round the courtyard: the tall white arcades on the walls, and in front of them the old
+      Ottoman arcade, open arches on columns with a row of small domes, merged into one batch. */
+  private buildHaramArcades(g: THREE.Group, IN: number, H: number) {
+    const tx = this.haramTex();
+    const b = new Batch();
+    const facadeMat = new THREE.MeshStandardMaterial({ map: tx.facade, roughness: 0.85 });
+    const otMat = new THREE.MeshStandardMaterial({
+      map: tx.ottoman,
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      roughness: 0.8,
+    });
+    const domeMat = mat(0xe9e4da, { flatShading: false });
+    const goldM = mat(0xd4ad3c, { metalness: 0.6, roughness: 0.35 });
+    const roofM = mat(0xd9c49c);
+    const colM = mat(0xece4d2, { flatShading: false });
+    // a plane `len` long facing the courtyard, its texture repeated once per bay
+    const facePlane = (len: number, h: number, bay: number, m: THREE.Material, x: number, y: number, z: number, ry: number) => {
+      const geo = new THREE.PlaneGeometry(len, h);
+      const n = Math.max(1, Math.round(len / bay));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, y, z, ry, false);
+      return n;
+    };
+    // the white arcades on the inner walls (the east wall stands behind the Mas'a)
+    const E = 0.06;
+    facePlane(IN * 2, H, 7, facadeMat, 0, H / 2, -IN + E, 0);
+    facePlane(IN * 2, H, 7, facadeMat, -IN + E, H / 2, 0, Math.PI / 2);
+    facePlane(IN * 2, H, 7, facadeMat, IN - E, H / 2, 0, -Math.PI / 2);
+    facePlane(IN - 9, H, 7, facadeMat, -(IN + 9) / 2, H / 2, IN - E, Math.PI);
+    facePlane(IN - 9, H, 7, facadeMat, (IN + 9) / 2, H / 2, IN - E, Math.PI);
+    // the Ottoman arcade: depth D, arch face 7.6 m tall, domes on top
+    const D = 4.6,
+      AH = 7.6,
+      BAY = 4.6;
+    const side = (len: number, cx: number, cz: number, ry: number) => {
+      // the run goes along local x; local +z faces the courtyard
+      const cos = Math.cos(ry),
+        sin = Math.sin(ry);
+      const at = (lx: number, lz: number): [number, number] => [
+        cx + lx * cos + lz * sin,
+        cz - lx * sin + lz * cos,
+      ];
+      const [fx, fz] = at(0, D / 2);
+      const n = facePlane(len, AH, BAY, otMat, fx, AH / 2, fz, ry);
+      const bw = len / n;
+      // the roof slab, the back row of columns and a dome over every bay
+      b.box(len, 0.5, D, roofM, ...withY(at(0, 0), AH), ry, 4);
+      for (let i = 0; i <= n; i++) {
+        const lx = -len / 2 + i * bw;
+        for (const lz of [D / 2 - 0.35, -D / 2 + 0.6]) {
+          const [x, z] = at(lx, lz);
+          b.add(new THREE.CylinderGeometry(0.28, 0.32, AH - 0.4, 10), colM, x, (AH - 0.4) / 2, z);
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        const [x, z] = at(-len / 2 + (i + 0.5) * bw, 0);
+        b.add(new THREE.CylinderGeometry(1.75, 1.85, 0.6, 14), roofM, x, AH + 0.8, z);
+        b.add(
+          new THREE.SphereGeometry(1.75, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2),
+          domeMat,
+          x,
+          AH + 1.1,
+          z,
+        );
+        b.add(new THREE.ConeGeometry(0.12, 0.9, 6), goldM, x, AH + 3.25, z);
+      }
+    };
+    const withY = ([x, z]: [number, number], y: number): [number, number, number] => [x, y, z];
+    const east = IN - 13; // the Mas'a starts here
+    side(east + IN, (east - IN) / 2, -IN + D / 2, 0); // north, facing south
+    side(IN * 2 - D * 2, -IN + D / 2, 0, Math.PI / 2); // west, facing east
+    side(east + IN, (east - IN) / 2, IN - D / 2, Math.PI); // south, facing north
+    for (const m of b.build()) g.add(m);
+  }
   /** Al-Masjid Al-Haram: the colonnades round an open courtyard with the Kaaba in the middle,
       Maqam Ibrahim, the Zamzam taps, Safa and Marwah, tall minarets and the clock tower. */
   private buildHaram(l: Landmark, D: District) {
@@ -4824,7 +5131,7 @@ export class IlmCityEngine {
     const C = { x: l.x, z: sz - 130 };
     const OUT = 88,
       IN = 46,
-      H = 15;
+      H = 21;
     const g = new THREE.Group();
     g.position.set(C.x, 0, C.z);
     const white = 0xf3f0e7;
@@ -4837,11 +5144,25 @@ export class IlmCityEngine {
     plaza.position.set(0, 0.025, 8);
     plaza.receiveShadow = true;
     g.add(plaza);
-    const mataf = new THREE.Mesh(new THREE.PlaneGeometry(IN * 2, IN * 2), mat(0xfbfaf6));
+    // the courtyard in white marble, and the round mataf, brighter still, where tawaf is made
+    const court = new THREE.Mesh(new THREE.PlaneGeometry(IN * 2, IN * 2), mat(0xf2efe8));
+    court.rotation.x = -Math.PI / 2;
+    court.position.y = 0.04;
+    court.receiveShadow = true;
+    g.add(court);
+    const mataf = new THREE.Mesh(
+      new THREE.CircleGeometry(31, 64),
+      mat(0xffffff, { roughness: 0.35, flatShading: false }),
+    );
     mataf.rotation.x = -Math.PI / 2;
-    mataf.position.y = 0.04;
+    mataf.position.y = 0.05;
     mataf.receiveShadow = true;
     g.add(mataf);
+    // a thin grey ring of marble round the Kaaba
+    const ring = new THREE.Mesh(new THREE.RingGeometry(10.2, 10.6, 64), mat(0xcfc9bd));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    g.add(ring);
     // the colonnades: four wings, with the King Abdulaziz Gate on the south
     const wing = (x0: number, x1: number, z0: number, z1: number) => {
       const w = x1 - x0,
@@ -4868,9 +5189,9 @@ export class IlmCityEngine {
     };
     arches(3, OUT, -OUT + 2, -11, 12, 1);
     arches(3, OUT, 11, OUT - 2, 12, 1);
-    arches(3, -IN, -IN + 2, IN - 2, 14, 1);
-    arches(3, IN, -IN + 2, -11, 6, -1);
-    arches(3, IN, 11, IN - 2, 6, -1);
+    // the courtyard sides: tall white arcades on three storeys, and in front of them the
+    // old Ottoman arcade of sand-coloured arches under rows of little domes
+    this.buildHaramArcades(g, IN, H);
     // the gate: an arch with two minarets
     g.add(box(20, 2.4, 6, 0xd9cfb8, 0, H - 1.2, OUT - 3));
     const gateSign = this.signBoard("KING ABDULAZIZ GATE", 16, 1.1, "#5a4a2a", "#f3e2b0");
@@ -4905,11 +5226,34 @@ export class IlmCityEngine {
       minaret(x, z, 56);
     // the Kaaba: black kiswah with its gold band, the door, Hijr Ismail and the Black Stone
     const K = new THREE.Group();
-    K.add(box(12, 15, 12, 0x111111));
-    const band = box(12.15, 1.2, 12.15, 0xc9a227, 0, 10.4, 0);
-    K.add(band);
-    // the door, on the face just after the Black Stone (the Multazam is between them)
-    K.add(box(0.2, 3.6, 2.4, 0xc9a227, 6.05, 2.2, 2.4));
+    const tx = this.haramTex();
+    const kiswa = new THREE.MeshStandardMaterial({ map: tx.kiswa, roughness: 0.75 });
+    const kiswaDoor = new THREE.MeshStandardMaterial({ map: tx.kiswaDoor, roughness: 0.75 });
+    const roof = mat(0x141414);
+    // faces: +x (the door's face, towards the Maqam), -x, top, bottom, +z, -z
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(12, 15, 12), [
+      kiswaDoor,
+      kiswa,
+      roof,
+      roof,
+      kiswa,
+      kiswa,
+    ]);
+    cube.position.y = 7.5;
+    cube.castShadow = true;
+    cube.receiveShadow = true;
+    K.add(cube);
+    // the Shadharwan: the sloping marble base all round, with brass rings for the kiswah
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(8.75, 9.2, 0.55, 4, 1), mat(0xd8d0c0));
+    base.rotation.y = Math.PI / 4;
+    base.position.y = 0.27;
+    base.receiveShadow = true;
+    K.add(base);
+    // the gold door, raised above the floor, in its gold frame
+    K.add(box(0.25, 4.4, 3.1, 0xb8901f, 6.05, 1.9, 2.4));
+    const door = box(0.3, 3.8, 2.5, 0xd8b03a, 6.1, 2.2, 2.4);
+    door.material = mat(0xd8b03a, { metalness: 0.7, roughness: 0.3 });
+    K.add(door);
     const stone = new THREE.Mesh(
       new THREE.TorusGeometry(0.45, 0.14, 8, 16),
       mat(0xc0c4c8, { metalness: 0.6, roughness: 0.3 }),
@@ -4917,31 +5261,56 @@ export class IlmCityEngine {
     stone.position.set(6.05, 1.5, 6.05);
     stone.rotation.y = Math.PI / 4;
     K.add(stone);
-    const hijr = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.45, 8, 28, Math.PI), mat(0xe9e4d8));
-    // Hijr Ismail: the low curved wall on the far side, part of the Kaaba
-    hijr.rotation.x = -Math.PI / 2;
-    hijr.position.set(0, 0.6, -6);
-    K.add(hijr);
+    // Hijr Ismail: the low curved wall of white marble on the far side, part of the Kaaba
+    const hijrMat = mat(0xf7f5ef);
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 17) * Math.PI;
+      const seg = box(1.05, 1.3, 0.9, 0xf7f5ef, Math.cos(a) * 7.6, 0, -6 - Math.sin(a) * 7.6);
+      seg.material = hijrMat;
+      seg.rotation.y = -a + Math.PI / 2;
+      K.add(seg);
+    }
     g.add(K);
     this.addCollider("out", C.x - 6.2, C.x + 6.2, C.z - 6.2, C.z + 6.2);
     // Maqam Ibrahim: a small gold-and-glass cage
     const maqam = new THREE.Group();
-    maqam.add(cyl(0.9, 1.1, 0.6, 0xd9cfb8, 12));
-    const cage = cyl(0.8, 0.8, 2.2, 0xc9a227, 12);
+    const gold = mat(0xd4ad3c, { metalness: 0.7, roughness: 0.3 });
+    const mb = cyl(1.1, 1.3, 0.6, 0xe6e0d2, 6);
+    mb.position.y = 0.3;
+    maqam.add(mb);
+    const cage = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.85, 0.85, 2.2, 6),
+      new THREE.MeshStandardMaterial({
+        color: 0xe8d9a8,
+        metalness: 0.5,
+        roughness: 0.2,
+        transparent: true,
+        opacity: 0.55,
+      }),
+    );
     cage.position.y = 1.7;
     maqam.add(cage);
-    const capm = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.9, 12), mat(0xc9a227));
-    capm.position.y = 3.2;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, 0.12), gold);
+      bar.position.set(Math.cos(a) * 0.85, 1.7, Math.sin(a) * 0.85);
+      maqam.add(bar);
+    }
+    const capm = new THREE.Mesh(
+      new THREE.SphereGeometry(0.95, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      gold,
+    );
+    capm.position.y = 2.8;
     maqam.add(capm);
     // in front of the Kaaba's door
     maqam.position.set(15, 0, 2.4);
     g.add(maqam);
     this.addCollider("out", C.x + 14, C.x + 16, C.z + 1.4, C.z + 3.4);
     // the start of each round: a line from the Black Stone and a green light on the wall
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.35, IN - 9), mat(0x6b4426));
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 22), mat(0x3f9a62));
     line.rotation.x = -Math.PI / 2;
     line.rotation.z = Math.PI / 4;
-    line.position.set(Math.SQRT1_2 * (IN / 2 + 3), 0.06, Math.SQRT1_2 * (IN / 2 + 3));
+    line.position.set(Math.SQRT1_2 * 19, 0.07, Math.SQRT1_2 * 19);
     g.add(line);
     const lamp = new THREE.Mesh(
       new THREE.BoxGeometry(1.2, 1.2, 0.3),
@@ -4956,25 +5325,6 @@ export class IlmCityEngine {
     });
     bl.position.set(Math.SQRT1_2 * 20, 3, Math.SQRT1_2 * 20);
     g.add(bl);
-    // worshippers sitting in rings round the Kaaba, waiting for the next salah
-    for (let ring = 0; ring < 2; ring++) {
-      const rr = 27 + ring * 3,
-        n = 18 + ring * 4;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + ring * 0.12;
-        const x = Math.cos(a) * rr,
-          z = Math.sin(a) * rr;
-        if (x > 12 && Math.abs(z) < 8) continue; // keep the way to the Maqam clear
-        const f = (i + ring) % 4 === 3;
-        const pg = f
-          ? person(0x1d1d26, { hijab: 0xf4f4ef, seed: 80 + i })
-          : person([0xf7f7f2, 0xe8e2d4, 0xf4efe4][i % 3], { cap: 0xffffff, seed: 80 + i });
-        pg.position.set(x, 0.1, z);
-        pg.rotation.y = Math.atan2(-x, -z);
-        if (!sitHuman(pg)) sitPerson(pg);
-        g.add(pg);
-      }
-    }
     // Zamzam taps along the west colonnade
     for (let i = 0; i < 5; i++) {
       const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
