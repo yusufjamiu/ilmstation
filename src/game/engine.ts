@@ -7345,7 +7345,7 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set(C.x, 0, C.z);
     const b = new Batch();
-    const STONE = 0xeee4cf,
+    const STONE = 0xe8d6b8,
       BAND = 0xc9b48f,
       GOLD = 0xc9a227;
     // floodlit after dark, like the real mosque
@@ -7360,16 +7360,19 @@ export class IlmCityEngine {
     b.box(W + 2, 0.6, Dd + 2, MAT.plain(0xf8f6f0, 0.4), 0, 0, -10);
     // the hall is a great ring round two open courtyards, side by side behind the old
     // mosque, with a covered spine between them (as in the model at Dar Al-Madinah)
+    // two courtyards in the middle, behind the old mosque; the King Fahd wings on both sides
+    const CZ0 = bz + 14,
+      CZ1 = -6,
+      CX = 38;
     const courts = [
-      { x0: -56, x1: -12, z0: bz + 12, z1: 4 },
-      { x0: 12, x1: 56, z0: bz + 12, z1: 4 },
+      { x0: -CX, x1: -6, z0: CZ0, z1: CZ1 },
+      { x0: 6, x1: CX, z0: CZ0, z1: CZ1 },
     ];
     const RIM = 0.6 + H;
-    b.box(W, H, fz - 4, stone, 0, 0.6, (fz + 4) / 2); // the front (old mosque and qibla)
-    b.box(W, H, 12, stone, 0, 0.6, bz + 6); // the back
-    b.box(24, H, 4 - bz - 12, stone, -68, 0.6, (bz + 12 + 4) / 2); // west
-    b.box(24, H, 4 - bz - 12, stone, 68, 0.6, (bz + 12 + 4) / 2); // east
-    b.box(24, H, 4 - bz - 12, stone, 0, 0.6, (bz + 12 + 4) / 2); // the spine
+    b.box(W, H, fz - CZ1, stone, 0, 0.6, (fz + CZ1) / 2); // the front (old mosque and qibla)
+    b.box(W, H, CZ0 - bz, stone, 0, 0.6, (bz + CZ0) / 2); // the back
+    for (const sx of [-1, 1]) b.box(W / 2 - CX, H, CZ1 - CZ0, stone, sx * (W / 2 + CX) / 2, 0.6, (CZ0 + CZ1) / 2); // the wings
+    b.box(12, H, CZ1 - CZ0, stone, 0, 0.6, (CZ0 + CZ1) / 2); // the spine
     // the roof: pale tiles in a grid
     const roofTex = this.paintTex(128, 128, (c) => {
       c.fillStyle = "#efe6d3";
@@ -7401,11 +7404,11 @@ export class IlmCityEngine {
       b.add(s, roofM, (x0 + x1) / 2, RIM + 0.03, (z0 + z1) / 2, 0, false);
     };
     roofG.dispose();
-    strip(-W / 2, W / 2, 4, fz);
-    strip(-W / 2, W / 2, bz, bz + 12);
-    strip(-W / 2, -56, bz + 12, 4);
-    strip(56, W / 2, bz + 12, 4);
-    strip(-12, 12, bz + 12, 4);
+    strip(-W / 2, W / 2, CZ1, fz);
+    strip(-W / 2, W / 2, bz, CZ0);
+    strip(-W / 2, -CX, CZ0, CZ1);
+    strip(CX, W / 2, CZ0, CZ1);
+    strip(-6, 6, CZ0, CZ1);
     // the courtyards: white marble in a grid, cream arcades on every side, the umbrellas
     const courtTex = this.paintTex(128, 128, (c) => {
       c.fillStyle = "#f7f5f0";
@@ -7420,7 +7423,7 @@ export class IlmCityEngine {
       c.stroke();
     });
     courtTex.wrapT = THREE.RepeatWrapping;
-    courtTex.repeat.set(44 / 2.5, (4 - bz - 12) / 2.5);
+    courtTex.repeat.set((CX - 6) / 2.5, (CZ1 - CZ0) / 2.5);
     const courtM = this.glow(new THREE.MeshStandardMaterial({ map: courtTex, roughness: 0.4 }), 0.3, 0xfff4e0, courtTex);
     const htx = this.haramTex();
     const arcadeM = this.glow(new THREE.MeshStandardMaterial({ map: htx.facade, roughness: 0.85 }), 1.0, 0xffffff, htx.facadeGlow);
@@ -7448,9 +7451,9 @@ export class IlmCityEngine {
         for (const z of [ct.z0 + 0.25, ct.z1 - 0.25]) b.box(1.2, 1.1, 0.5, stone, x, RIM, z);
       for (let z = ct.z0 + 1; z < ct.z1; z += 2.4)
         for (const x of [ct.x0 + 0.25, ct.x1 - 0.25]) b.box(0.5, 1.1, 1.2, stone, x, RIM, z);
-      // three by four great umbrellas
+      // twelve umbrellas, three by four, as in the real courtyards
       for (let i = 0; i < 3; i++)
-        for (let k = 0; k < 4; k++) courtUmbrellas.push([ct.x0 + 7.3 + i * 14.7, ct.z0 + 6.5 + k * ((cd - 13) / 3)]);
+        for (let k = 0; k < 4; k++) courtUmbrellas.push([ct.x0 + cw / 6 + (i * cw) / 3, ct.z0 + cd / 8 + (k * cd) / 4]);
     }
     this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z + bz, C.z + fz);
     // two rows of arched windows all round, and stone bands
@@ -7518,25 +7521,28 @@ export class IlmCityEngine {
       gate(-W / 2, -10 + z, -Math.PI / 2);
       gate(W / 2, -10 + z, Math.PI / 2);
     }
-    // the roof: rows of grey sliding domes over the King Fahd extension
-    const slide = lit(0xc4c6bf, 0.35, 0.5, 0xfff0dc);
-    const inCourt = (x: number, z: number, m: number) =>
-      courts.some((ct) => x > ct.x0 - m && x < ct.x1 + m && z > ct.z0 - m && z < ct.z1 + m);
-    for (let x = -W / 2 + 6; x < W / 2 - 3; x += 12)
-      for (let z = bz + 6; z < fz - 3; z += 11) {
-        if (inCourt(x, z, 3.5)) continue;
-        if (x > W / 2 - 40 && z > fz - 36) continue; // round the Green Dome
-        if (z > 6 && Math.abs(x) < 32) continue; // the old mosque's little domes go here
-        b.box(5, 0.8, 5, stone, x, RIM, z);
-        b.add(new THREE.SphereGeometry(2.2, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), slide, x, RIM + 0.8, z);
-      }
-    // the old Ottoman mosque at the front: rows of small white domes
+    // the King Fahd wings and the back: big white sliding domes on square bases, in a
+    // chequer with green roof panels
+    const slide = lit(0xf2efe8, 0.5, 0.45, 0xfff0dc);
+    const panel = lit(0x5f8f62, 0.25, 0.7, 0x7fd08a);
+    const cell = (x: number, z: number, dome: boolean) => {
+      if (dome) {
+        b.box(7.6, 1, 7.6, stone, x, RIM, z);
+        b.add(new THREE.SphereGeometry(3.4, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), slide, x, RIM + 1, z);
+      } else b.box(8.4, 0.2, 8.4, panel, x, RIM, z);
+    };
+    for (const sx of [-1, 1])
+      [46, 57, 68].forEach((ax, i) => {
+        for (let z = bz + 6, k = 0; z < fz - 4; z += 11, k++) cell(sx * ax, z, (i + k) % 2 === 0);
+      });
+    for (let x = -33, i = 0; x <= 33; x += 11, i++) cell(x, (bz + CZ0) / 2, i % 2 === 0);
+    // the spine between the courtyards: a row of small domes
     const smallDome = lit(0xf4f1ea, 0.5, 0.5, 0xfff0dc);
-    for (let x = -28; x <= 23; x += 5.6)
-      for (let z = 9; z < fz - 2; z += 5.6) {
-        b.add(new THREE.CylinderGeometry(1.9, 1.9, 0.5, 12), stone, x, RIM + 0.25, z);
-        b.add(new THREE.SphereGeometry(1.8, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), smallDome, x, RIM + 0.5, z);
-      }
+    const little = (x: number, z: number, r = 1.8) => {
+      b.add(new THREE.CylinderGeometry(r + 0.1, r + 0.1, 0.5, 12), stone, x, RIM + 0.25, z);
+      b.add(new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), smallDome, x, RIM + 0.5, z);
+    };
+    for (let z = CZ0 + 3; z < CZ1 - 2; z += 5.2) little(0, z, 1.9);
     // the Green Dome over the resting place of the Prophet ﷺ (south-east, by the qibla wall),
     // and the white dome of the old mosque beside it
     const domeAt = (x: number, z: number, r: number, color: number, tall: number) => {
@@ -7556,14 +7562,24 @@ export class IlmCityEngine {
       );
       return H + 5.2 + r * tall + r * 0.7;
     };
-    const gx = W / 2 - 24,
-      gz = fz - 20;
+    const gx = 26,
+      gz = fz - 18;
     const top = domeAt(gx, gz, 6.5, 0x1f8a4c, 1.25);
     const c0 = crescent();
     c0.scale.setScalar(1.3);
     c0.position.set(gx - 0.3, top + 1.4, gz);
     g.add(c0);
-    domeAt(gx - 22, gz + 2, 4, 0xf4efe2, 1.1);
+    domeAt(gx - 16, gz + 1, 4, 0xf4efe2, 1.1);
+    // the old Ottoman mosque at the front: rows of small white domes round the two big ones,
+    // and a low parapet marking it off from the wings
+    for (let x = -36; x <= 36; x += 5.6)
+      for (let z = CZ1 + 4; z < fz - 2; z += 5.6) {
+        if (Math.abs(x - gx) < 9.5 && Math.abs(z - gz) < 9.5) continue;
+        if (Math.abs(x - (gx - 16)) < 6.5 && Math.abs(z - (gz + 1)) < 6.5) continue;
+        little(x, z);
+      }
+    for (let x = -39; x <= 39; x += 2.4) b.box(1.2, 1, 0.5, stone, x, RIM, CZ1 + 0.3);
+    for (let z = CZ1 + 1; z < fz; z += 2.4) for (const x of [-39.5, 39.5]) b.box(0.5, 1, 1.2, stone, x, RIM, z);
     // ten minarets: a square base, an octagonal shaft, three balconies, a round top and a
     // gold crescent
     const minaret = (x: number, z: number, h: number) => {
@@ -7629,26 +7645,88 @@ export class IlmCityEngine {
         0,
         false,
       );
-    const canopyGeo = new THREE.ConeGeometry(7.2, 2.2, 4, 1, true);
-    canopyGeo.rotateY(Math.PI / 4);
-    const fabric = this.glow(MAT3.fabric().clone() as THREE.MeshStandardMaterial, 0.45, 0xfff4e0);
+    // the Madinah umbrella: a square of white fabric peaked at the pole, its four corners
+    // lifted on ribs and each edge curving in between them
+    const S = 7,
+      PEAK = 2.6,
+      N = 14;
+    const canopyGeo = new THREE.BufferGeometry();
+    {
+      const pos: number[] = [],
+        idx: number[] = [];
+      for (let j = 0; j <= N; j++)
+        for (let i = 0; i <= N; i++) {
+          const u = (i / N) * 2 - 1,
+            v = (j / N) * 2 - 1;
+          const r = Math.max(Math.abs(u), Math.abs(v));
+          const w = r > 0 ? Math.min(Math.abs(u), Math.abs(v)) / r : 0;
+          // the edges curve in between the corners, and sag below them
+          const pull = 1 - 0.12 * r * (1 - w * w);
+          const y = PEAK * Math.pow(1 - r, 1.25) + 0.55 * r * w * w - 0.25 * r * (1 - w);
+          pos.push(u * S * pull, y, v * S * pull);
+        }
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i < N; i++) {
+          const a = j * (N + 1) + i;
+          idx.push(a, a + N + 1, a + 1, a + 1, a + N + 1, a + N + 2);
+        }
+      canopyGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      canopyGeo.setIndex(idx);
+      canopyGeo.computeVertexNormals();
+    }
+    // the four ribs from the pole head out to the corners
+    const ribGeo = new THREE.BufferGeometry();
+    {
+      const parts: THREE.BufferGeometry[] = [];
+      const head = new THREE.Vector3(0, PEAK - 0.9, 0);
+      for (const [sx, sz2] of [
+        [1, 1],
+        [1, -1],
+        [-1, 1],
+        [-1, -1],
+      ]) {
+        const tip = new THREE.Vector3(sx * S * 0.98, 0.25, sz2 * S * 0.98);
+        const len = head.distanceTo(tip);
+        const rg = new THREE.CylinderGeometry(0.07, 0.09, len, 5);
+        rg.rotateX(Math.PI / 2);
+        const m = new THREE.Matrix4().lookAt(head, tip, new THREE.Vector3(0, 1, 0));
+        m.setPosition(head.clone().add(tip).multiplyScalar(0.5));
+        rg.applyMatrix4(m);
+        parts.push(rg.toNonIndexed());
+      }
+      const merged = mergeGeometries(parts);
+      ribGeo.copy(merged ?? parts[0]);
+    }
+    const fabric = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.9, side: THREE.DoubleSide }),
+      0.5,
+      0xfff4e0,
+    );
     const poleM = lit(0xe8e8e4, 0.5, 0.3, 0xfff4e0);
-    const umbrella = (x: number, z: number, solid = true, y = 0) => {
-      b.add(new THREE.CylinderGeometry(0.28, 0.4, 10, 10), poleM, x, y + 5, z);
-      b.add(canopyGeo, fabric, x, y + 10.6, z);
-      b.add(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 10), poleM, x, y + 11.9, z);
+    const umbrella = (x: number, z: number, solid = true, y = 0, k = 1) => {
+      b.add(new THREE.CylinderGeometry(0.28, 0.4, 9.6, 10), poleM, x, y + 4.8, z);
+      b.add(new THREE.CylinderGeometry(0.55, 0.4, 0.8, 10), poleM, x, y + 9.4, z);
+      b.add(canopyGeo.clone().scale(k, 1, k), fabric, x, y + 9.4, z);
+      b.add(ribGeo.clone().scale(k, 1, k), poleM, x, y + 9.4, z);
+      b.add(new THREE.ConeGeometry(0.35, 0.9, 10), poleM, x, y + 9.4 + PEAK + 0.4, z);
       if (solid) this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
     };
-    for (const [x, z] of courtUmbrellas) umbrella(x, z, false, 0.6);
+    for (const [x, z] of courtUmbrellas) umbrella(x, z, false, 0.6, 0.64);
     for (let r = 0; r < 4; r++)
       for (let k = 0; k < 11; k++) umbrella(-W / 2 + 6 + k * ((W - 12) / 10), fz + 10 + r * 14.5);
     for (const sx of [-1, 1])
       for (let r = 0; r < 6; r++) umbrella(sx * (W / 2 + 12), bz + 8 + r * 16);
-    // marble lamp posts along the plaza edge
+    // tall stone lamp columns with gold capitals and lanterns along the plaza edge
+    const lampGlass = new THREE.MeshBasicMaterial({ color: 0xffe6a8 });
     for (let k = 0; k < 12; k++) {
       const x = -W / 2 - 14 + k * ((W + 28) / 11);
-      b.box(0.5, 6, 0.5, poleM, x, 0, fz + 70);
-      b.box(1.2, 0.7, 1.2, MAT.bulb(), x, 6, fz + 70);
+      const z = fz + 70;
+      b.box(1.3, 1.2, 1.3, stone, x, 0, z);
+      b.add(new THREE.CylinderGeometry(0.32, 0.4, 6.4, 8), stone, x, 1.2 + 3.2, z);
+      b.add(new THREE.CylinderGeometry(0.55, 0.4, 0.5, 8), gold, x, 7.85, z);
+      b.add(new THREE.CylinderGeometry(0.42, 0.34, 1.2, 8), lampGlass, x, 8.7, z);
+      b.add(new THREE.ConeGeometry(0.55, 0.8, 8), gold, x, 9.7, z);
+      b.add(new THREE.ConeGeometry(0.1, 0.8, 6), gold, x, 10.5, z);
     }
     for (const m of b.build()) g.add(m);
     // Jannat Al-Baqi', east of the mosque
@@ -7677,7 +7755,7 @@ export class IlmCityEngine {
     this.zones.push({
       id: "nabawi:salam",
       label: "Send salam to the Prophet ﷺ",
-      ...P(W / 2 - 22, -10 + Dd / 2 + 5),
+      ...P(gx, -10 + Dd / 2 + 5),
       r: 4,
       scene: "out",
     });
