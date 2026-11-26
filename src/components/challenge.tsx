@@ -305,7 +305,7 @@ export function ChallengeScreen() {
                   <Swords /> {r.presence === "in-duel" ? "Queue duel" : "Challenge"}
                 </Button>
               </li>)}
-              {!list.length && <li className="border-2 border-dashed border-foreground p-6 text-center text-muted-foreground">Nobody matches that search right now.</li>}
+              {!list.length && <li className="border-2 border-dashed border-foreground p-6 text-center text-muted-foreground">No one is online right now. Tap All to challenge anyone, or try Quick match.</li>}
             </ul>
           </div>
         </section>
