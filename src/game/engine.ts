@@ -7410,8 +7410,7 @@ export class IlmCityEngine {
     const gold = lit(GOLD, 1.1, 0.35, 0xffc850);
     const fz = -10 + Dd / 2; // the front (qibla) wall, facing the street
     const bz = -10 - Dd / 2; // the back wall
-    // the great hall in cream stone, on a low marble plinth
-    b.box(W + 2, 0.6, Dd + 2, MAT.plain(0xf8f6f0, 0.4), 0, 0, -10);
+    const marble = MAT.plain(0xf8f6f0, 0.4);
     // the hall is a great ring round two open courtyards, side by side behind the old
     // mosque, with a covered spine between them (as in the model at Dar Al-Madinah)
     // two courtyards in the middle, behind the old mosque; the King Fahd wings on both sides
@@ -7423,10 +7422,68 @@ export class IlmCityEngine {
       { x0: 6, x1: CX, z0: CZ0, z1: CZ1 },
     ];
     const RIM = 0.6 + H;
-    b.box(W, H, fz - CZ1, stone, 0, 0.6, (fz + CZ1) / 2); // the front (old mosque and qibla)
-    b.box(W, H, CZ0 - bz, stone, 0, 0.6, (bz + CZ0) / 2); // the back
-    for (const sx of [-1, 1]) b.box(W / 2 - CX, H, CZ1 - CZ0, stone, sx * (W / 2 + CX) / 2, 0.6, (CZ0 + CZ1) / 2); // the wings
-    b.box(12, H, CZ1 - CZ0, stone, 0, 0.6, (CZ0 + CZ1) / 2); // the spine
+    // the courtyards can be walked into: two gateways in the back wall (one into each
+    // courtyard), one through each side wing, and a passage between the courtyards
+    const PW = 6, // a gateway's width
+      PH = 6.6, // and height
+      PX = 33, // the back gateways, either side of the middle
+      PZ = -29; // the side gateways and the passage, along the hall
+    // each block of the hall stands on its marble plinth and is solid to walk into
+    const mass = (x0: number, x1: number, z0: number, z1: number) => {
+      b.box(x1 - x0, 0.6, z1 - z0, marble, (x0 + x1) / 2, 0, (z0 + z1) / 2);
+      b.box(x1 - x0, H, z1 - z0, stone, (x0 + x1) / 2, 0.6, (z0 + z1) / 2);
+      this.addCollider("out", C.x + x0, C.x + x1, C.z + z0, C.z + z1);
+    };
+    const lantern = new THREE.MeshBasicMaterial({ color: 0xffe6a8 });
+    const lintel = (x0: number, x1: number, z0: number, z1: number) => {
+      b.box(x1 - x0, RIM - PH, z1 - z0, stone, (x0 + x1) / 2, PH, (z0 + z1) / 2);
+      b.add(groundGeo(x1 - x0, z1 - z0, 3), marble, (x0 + x1) / 2, 0.03, (z0 + z1) / 2, 0, false);
+      // brass lanterns hanging down the middle of the passage
+      const alongX = x1 - x0 > z1 - z0,
+        len = alongX ? x1 - x0 : z1 - z0,
+        n = Math.max(1, Math.round(len / 7));
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        const lx = alongX ? x0 + t * (x1 - x0) : (x0 + x1) / 2,
+          lz = alongX ? (z0 + z1) / 2 : z0 + t * (z1 - z0);
+        b.add(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 4), gold, lx, PH - 0.45, lz);
+        b.add(new THREE.CylinderGeometry(0.28, 0.2, 0.6, 8), lantern, lx, PH - 1.2, lz, 0, false);
+        b.add(new THREE.ConeGeometry(0.34, 0.3, 8), gold, lx, PH - 0.75, lz);
+      }
+    };
+    const hx = W / 2;
+    mass(-hx, hx, CZ1, fz); // the front (old mosque and qibla)
+    // the back, with its two gateways
+    mass(-hx, -PX - PW / 2, bz, CZ0);
+    mass(-PX + PW / 2, PX - PW / 2, bz, CZ0);
+    mass(PX + PW / 2, hx, bz, CZ0);
+    for (const sx of [-1, 1]) lintel(sx * PX - PW / 2, sx * PX + PW / 2, bz, CZ0);
+    // the wings, each with a gateway from the side
+    for (const sx of [-1, 1]) {
+      const x0 = sx < 0 ? -hx : CX,
+        x1 = sx < 0 ? -CX : hx;
+      mass(x0, x1, CZ0, PZ - PW / 2);
+      mass(x0, x1, PZ + PW / 2, CZ1);
+      lintel(x0, x1, PZ - PW / 2, PZ + PW / 2);
+    }
+    // the spine between the courtyards, with a passage through
+    mass(-6, 6, CZ0, PZ - PW / 2);
+    mass(-6, 6, PZ + PW / 2, CZ1);
+    lintel(-6, 6, PZ - PW / 2, PZ + PW / 2);
+    // the plinth's lip round the outside, open at the gateways
+    b.box(W + 2, 0.6, 1, marble, 0, 0, fz + 0.5);
+    for (const [a, c] of [
+      [-hx - 1, -PX - PW / 2],
+      [-PX + PW / 2, PX - PW / 2],
+      [PX + PW / 2, hx + 1],
+    ])
+      b.box(c - a, 0.6, 1, marble, (a + c) / 2, 0, bz - 0.5);
+    for (const sx of [-1, 1])
+      for (const [a, c] of [
+        [bz - 1, PZ - PW / 2],
+        [PZ + PW / 2, fz + 1],
+      ])
+        b.box(1, 0.6, c - a, marble, sx * (hx + 0.5), 0, (a + c) / 2);
     // the roof: pale tiles in a grid
     const roofTex = this.paintTex(128, 128, (c) => {
       c.fillStyle = "#efe6d3";
@@ -7481,12 +7538,41 @@ export class IlmCityEngine {
     const courtM = this.glow(new THREE.MeshStandardMaterial({ map: courtTex, roughness: 0.4 }), 0.3, 0xfff4e0, courtTex);
     const htx = this.haramTex();
     const arcadeM = this.glow(new THREE.MeshStandardMaterial({ map: htx.facade, roughness: 0.85 }), 1.0, 0xffffff, htx.facadeGlow);
-    const facePlane = (len: number, m: THREE.Material, x: number, z: number, ry: number) => {
-      const geo = new THREE.PlaneGeometry(len, H);
+    // an arcade face from a0 to a1 (along x, or along z), between heights y0 and y1
+    const face = (
+      a0: number,
+      a1: number,
+      y0: number,
+      y1: number,
+      m: THREE.Material,
+      fixed: number,
+      alongX: boolean,
+      ry: number,
+    ) => {
+      const len = a1 - a0,
+        h = y1 - y0;
+      const geo = new THREE.PlaneGeometry(len, h);
       const n = Math.max(1, Math.round(len / 5.6));
       const uv = geo.attributes.uv;
-      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
-      b.add(geo, m, x, 0.6 + H / 2, z, ry, false);
+      for (let i = 0; i < uv.count; i++)
+        uv.setXY(i, uv.getX(i) * n, (y0 - 0.6 + uv.getY(i) * h) / H);
+      const mid = (a0 + a1) / 2;
+      b.add(geo, m, alongX ? mid : fixed, (y0 + y1) / 2, alongX ? fixed : mid, ry, false);
+    };
+    // the same, with a gateway cut through it at `gap`
+    const facePlane = (
+      a0: number,
+      a1: number,
+      m: THREE.Material,
+      fixed: number,
+      alongX: boolean,
+      ry: number,
+      gap?: number,
+    ) => {
+      if (gap === undefined) return face(a0, a1, 0.6, RIM, m, fixed, alongX, ry);
+      face(a0, gap - PW / 2, 0, RIM, m, fixed, alongX, ry);
+      face(gap + PW / 2, a1, 0, RIM, m, fixed, alongX, ry);
+      face(gap - PW / 2, gap + PW / 2, PH, RIM, m, fixed, alongX, ry);
     };
     const courtUmbrellas: [number, number][] = [];
     for (const ct of courts) {
@@ -7494,12 +7580,17 @@ export class IlmCityEngine {
         cd = ct.z1 - ct.z0,
         cx = (ct.x0 + ct.x1) / 2,
         cz = (ct.z0 + ct.z1) / 2;
-      b.add(groundGeo(cw, cd, 3), courtM, cx, 0.63, cz, 0, false);
+      // the floor at ground level, so you can walk in from the gateways
+      b.add(groundGeo(cw, cd, 3), courtM, cx, 0.04, cz, 0, false);
       const E = 0.05;
-      facePlane(cw, arcadeM, cx, ct.z0 + E, 0);
-      facePlane(cw, arcadeM, cx, ct.z1 - E, Math.PI);
-      facePlane(cd, arcadeM, ct.x0 + E, cz, Math.PI / 2);
-      facePlane(cd, arcadeM, ct.x1 - E, cz, -Math.PI / 2);
+      facePlane(ct.x0, ct.x1, arcadeM, ct.z0 + E, true, 0, Math.sign(cx) * PX);
+      facePlane(ct.x0, ct.x1, arcadeM, ct.z1 - E, true, Math.PI);
+      facePlane(ct.z0, ct.z1, arcadeM, ct.x0 + E, false, Math.PI / 2, PZ);
+      facePlane(ct.z0, ct.z1, arcadeM, ct.x1 - E, false, -Math.PI / 2, PZ);
+      // a marble skirting round the walls, where the plinth was
+      for (const z of [ct.z0 + 0.15, ct.z1 - 0.15])
+        b.box(cw, 0.6, 0.3, marble, cx, 0, z);
+      for (const x of [ct.x0 + 0.15, ct.x1 - 0.15]) b.box(0.3, 0.6, cd, marble, x, 0, cz);
       // a parapet round the opening
       for (let x = ct.x0 + 1; x < ct.x1; x += 2.4)
         for (const z of [ct.z0 + 0.25, ct.z1 - 0.25]) b.box(1.2, 1.1, 0.5, stone, x, RIM, z);
@@ -7509,8 +7600,7 @@ export class IlmCityEngine {
       for (let i = 0; i < 3; i++)
         for (let k = 0; k < 4; k++) courtUmbrellas.push([ct.x0 + cw / 6 + (i * cw) / 3, ct.z0 + cd / 8 + (k * cd) / 4]);
     }
-    this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z + bz, C.z + fz);
-    // two rows of arched windows all round, and stone bands
+    // two rows of arched windows all round (not over the gateways), and stone bands
     const arch = MAT3.archWin(STONE, 0x6b5a3a);
     for (const [len, along] of [
       [W, true],
@@ -7521,6 +7611,8 @@ export class IlmCityEngine {
         const t = -len / 2 + 2.1 + k * (len / n);
         for (const y of [4.2, 10.6])
           for (const sd of [1, -1]) {
+            if (y < PH && along && sd < 0 && Math.abs(Math.abs(t) - PX) < PW / 2 + 1.2) continue;
+            if (y < PH && !along && Math.abs(-10 + t - PZ) < PW / 2 + 1.2) continue;
             if (along)
               b.plane(2.2, 4.2, arch, t, y, (sd > 0 ? fz : bz) + sd * 0.04, sd > 0 ? 0 : Math.PI);
             else b.plane(2.2, 4.2, arch, sd * (W / 2 + 0.04), y, -10 + t, (sd * Math.PI) / 2);
@@ -7765,7 +7857,7 @@ export class IlmCityEngine {
       b.add(new THREE.ConeGeometry(0.35, 0.9, 10), poleM, x, y + 9.4 + PEAK + 0.4, z);
       if (solid) this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
     };
-    for (const [x, z] of courtUmbrellas) umbrella(x, z, false, 0.6, 0.64);
+    for (const [x, z] of courtUmbrellas) umbrella(x, z, false, 0, 0.64);
     for (let r = 0; r < 4; r++)
       for (let k = 0; k < 11; k++) umbrella(-W / 2 + 6 + k * ((W - 12) / 10), fz + 10 + r * 14.5);
     for (const sx of [-1, 1])
