@@ -1,5 +1,13 @@
 import * as THREE from "three";
-import { iumCollege, iumGarden, iumGate, iumHostel, takeIumGlow } from "./ium";
+import {
+  iumCollege,
+  iumForecourt,
+  iumGarden,
+  iumGate,
+  iumHostel,
+  iumPlaza,
+  takeIumGlow,
+} from "./ium";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BILLBOARDS,
@@ -1459,7 +1467,10 @@ export class IlmCityEngine {
     });
     const crossEnd = southEdge - 6;
     // in Makkah and Madinah the Haram is north of the main road: the cross road only runs south
-    const crossTop = D.holy ? -8 : north;
+    // the Islamic University: the road inside the campus stops at Students' Avenue, and
+    // the star plaza takes the middle of the campus beyond it
+    const ium = !!D.campus?.arabic;
+    const crossTop = D.holy ? -8 : ium ? D.streets[1].z - 6 : north;
     road(0, (crossTop + crossEnd) / 2, 12, crossEnd - crossTop);
     // Madinah: footbridges over the main road, and a road down each side that joins every
     // street end (and the roads in from the next areas), so no street stops dead at the sand
@@ -1596,10 +1607,13 @@ export class IlmCityEngine {
             rnd();
             toLet = true;
           }
+          // the Islamic University: no shops at the entrance, gardens either side of the gate
+          const atGate = ium && sz === 0 && north && (x === -42 || x === -18);
           if (
-            play &&
-            ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
-              (play.police?.sz === sz && play.police.north === north && play.police.x === x))
+            atGate ||
+            (play &&
+              ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
+                (play.police?.sz === sz && play.police.north === north && play.police.x === x)))
           ) {
             // this plot is the pitch or the sisters' corner; draw the house it replaces into a
             // throwaway batch so every later plot keeps the same number and look as before
@@ -1627,6 +1641,7 @@ export class IlmCityEngine {
               ghosts.push(box);
               this.reserved.push(box);
             }
+            if (atGate) this.ghostGarden(batch, x, cz);
             num += 2;
             continue;
           }
@@ -3759,8 +3774,8 @@ export class IlmCityEngine {
       const south = l.side === "s";
       const d = l.depth ?? 30,
         w = l.width ?? 30;
-      const cz = south ? sz + 11 + d / 2 : sz - 11 - d / 2;
-      const turn = south ? Math.PI : 0;
+      const cz = l.at ? l.at.z : south ? sz + 11 + d / 2 : sz - 11 - d / 2;
+      const turn = south && !l.at ? Math.PI : 0;
       const b = this.curBatch;
       const o = { x: l.x, z: cz, turn, width: w, depth: d, floors: l.floors ?? 2, name: l.name };
       let seats: { x: number; z: number; face: number }[] = [];
@@ -5481,6 +5496,25 @@ export class IlmCityEngine {
       const hint = label("Main Gate · " + c.gate, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
       hint.position.set(0, ium.height + 3, z);
       g.add(hint);
+      // gardens and palms in the forecourt between the gate and the colleges
+      const av = D.streets[1].z;
+      for (const q of iumForecourt(this.curBatch, gz - 4.6, av + 7))
+        this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      this.reserved.push({
+        x0: this.ox - 28,
+        x1: this.ox + 28,
+        z0: this.oz + av + 6,
+        z1: this.oz + z,
+      });
+      // the star plaza in the middle of the campus, with the water tower beside it
+      const pz = av - 34;
+      for (const q of iumPlaza(this.curBatch, 0, pz)) this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      this.reserved.push({
+        x0: this.ox - 40,
+        x1: this.ox + 40,
+        z0: this.oz + pz - 25,
+        z1: this.oz + av - 6,
+      });
       for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
       this.dg.add(g);
       return;
@@ -8765,12 +8799,12 @@ export class IlmCityEngine {
     for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
   }
   /** Student Hostels 1, 2 and 3 of the Islamic University, inside the campus behind the
-      colleges: one each side of the mosque and one along the back wall. */
+      colleges: two along the back wall and one beside the library. */
   private buildIumHostels(D: District) {
     const spots = [
-      { x: 21, z: -101, w: 24, d: 22 },
+      { x: 60, z: -128, w: 36, d: 14 },
       { x: 120, z: -101, w: 24, d: 22 },
-      { x: -72, z: -129, w: 40, d: 13 },
+      { x: -68, z: -124, w: 32, d: 16 },
     ];
     spots.forEach((p, k) => {
       const { name, sisters } = hostelInfo(D.id, k);
@@ -8796,6 +8830,16 @@ export class IlmCityEngine {
       });
       t.position.set(p.x, h.top + 2, p.z + p.d / 2);
       this.dg.add(t);
+    });
+  }
+  /** A lawn with palms where a plot was taken out (the entrance of the Islamic University). */
+  private ghostGarden(batch: Batch, x: number, cz: number) {
+    for (const b of iumGarden(batch, x, cz)) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+    this.reserved.push({
+      x0: this.ox + x - 11,
+      x1: this.ox + x + 11,
+      z0: this.oz + cz - 10,
+      z1: this.oz + cz + 10,
     });
   }
   private buildHostelsOutside(D: District, XR: number, rnd: () => number) {

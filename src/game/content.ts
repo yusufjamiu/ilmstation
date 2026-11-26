@@ -726,6 +726,8 @@ export type Landmark = {
   /** a short description for the info panel */
   about?: string;
   brand?: { color: number; accent: number; link?: string };
+  /** set back from its street: stands at this z instead, front facing south (+z) */
+  at?: { z: number };
 };
 export type District = {
   id: string;
@@ -827,6 +829,9 @@ function universityArea(o: {
   club?: string;
   clubAbout?: string;
   half?: { x: number; z: number };
+  /** the Islamic University's layout: an open forecourt behind the gate, the colleges
+      either side of it, and the Faculties Complex at the back by the hostels */
+  ium?: boolean;
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
   // every faculty has its own building: eight along the south of MSSN Avenue, four more on
@@ -835,6 +840,9 @@ function universityArea(o: {
     ...[-26, 26, -50, 50, -74, 74, -98, 98].map((x) => ({ x, side: "s" as const })),
     ...[-52, 26, -76, 116].map((x) => ({ x, side: "n" as const })),
   ];
+  if (o.ium)
+    [-38, 38, -59, 59, -80, 80, -101, 101].forEach((x, i) => (slots[i] = { x, side: "s" }));
+  const facW = o.ium ? 19 : 22;
   const allFaculties = [...o.faculties, ...(o.more ?? [])].slice(0, slots.length);
   return {
     id: o.id,
@@ -868,7 +876,7 @@ function universityArea(o: {
         street: o.avenue,
         side: slots[i].side,
         x: slots[i].x,
-        width: 22,
+        width: facW,
         depth: 26,
         floors: 3,
         about: `${f}, ${o.uni}.`,
@@ -878,9 +886,10 @@ function universityArea(o: {
         kind: "faculty",
         name: `${o.short} Faculties Complex`,
         street: o.avenue,
-        x: -28,
-        width: 22,
-        depth: 26,
+        x: o.ium ? 106 : -28,
+        width: o.ium ? 28 : 22,
+        depth: o.ium ? 18 : 26,
+        at: o.ium ? { z: -127 } : undefined,
         floors: 4,
         about: `The Faculties Complex of ${o.uni}: lecture halls for its newest faculties. Choose your faculty inside.`,
       },
@@ -3519,6 +3528,7 @@ export const DISTRICTS: District[] = [
     id: "iumbrothers",
     gate: "Islamic University of Madinah · Brothers",
     gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
+    ium: true,
     name: "Islamic University (Brothers)",
     uni: "the Islamic University of Madinah (brothers' campus)",
     short: "IUM Brothers",
@@ -3545,6 +3555,7 @@ export const DISTRICTS: District[] = [
     id: "iumsisters",
     gate: "Islamic University of Madinah · Sisters",
     gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
+    ium: true,
     name: "Islamic University (Sisters)",
     uni: "the Islamic University of Madinah (sisters' campus)",
     short: "IUM Sisters",

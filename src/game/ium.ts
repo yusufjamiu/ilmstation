@@ -420,8 +420,8 @@ export function iumGate(arName: string) {
     { x0: W2, x1: W2 + SW, z0: -SD / 2, z1: SD / 2 },
     { x0: -W2 - SW, x1: -W2, z0: -SD / 2, z1: SD / 2 },
   ];
-  // built a fifth larger than drawn, so it stands as tall as the colleges behind it
-  const S = 1.2;
+  // built a tenth larger than drawn, so it stands as tall as the colleges behind it
+  const S = 1.1;
   g.scale.setScalar(S);
   for (const c of colliders) {
     c.x0 *= S;
@@ -789,5 +789,177 @@ export function iumGarden(b: Batch, x: number, z: number) {
     b.box(2.2, 0.45, 0.6, MAT.plain(0xd8cdb4), x + dx, 0, z + 1.5);
     colliders.push({ x0: x + dx - 1.1, x1: x + dx + 1.1, z0: z + 1.2, z1: z + 1.8 });
   }
+  return colliders;
+}
+
+/* ---------------- the forecourt and the star plaza ---------------- */
+/** Lawns, palms and lamps either side of the road between the gate and the colleges.
+    z0 is just behind the gate, z1 by Students' Avenue (z1 < z0). */
+export function iumForecourt(b: Batch, z0: number, z1: number) {
+  const colliders: Box[] = [];
+  const lamp = M.tex("lamp", winTex(), 1.2);
+  for (const s of [-1, 1]) {
+    const xc = s * 19.5;
+    b.add(groundGeo(15, z0 - z1, 2), MAT2.lawn(), xc, 0.05, (z0 + z1) / 2, 0, false);
+    b.add(groundGeo(15.6, z0 - z1 + 0.6, 2), MAT.plain(0xb4614a), xc, 0.045, (z0 + z1) / 2, 0, false);
+    for (let z = z0 - 3; z > z1 + 1.5; z -= 6.5)
+      for (const x of [s * 14.5, s * 24.5]) {
+        palm(b, x, z, 1);
+        colliders.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
+      }
+    for (let z = z0 - 6.2; z > z1 + 1.5; z -= 13) {
+      const x = s * 19.5;
+      b.add(new THREE.CylinderGeometry(0.09, 0.13, 5, 8), MAT.plain(0x2e2e2a), x, 2.5, z);
+      b.add(new THREE.SphereGeometry(0.34, 10, 8), lamp, x, 5.2, z);
+      colliders.push({ x0: x - 0.2, x1: x + 0.2, z0: z - 0.2, z1: z + 0.2 });
+    }
+  }
+  return colliders;
+}
+function paverTex() {
+  const t = canvasTex(
+    "ium-paver",
+    128,
+    128,
+    (c, w, h) => {
+      c.fillStyle = "#e8d6b8";
+      c.fillRect(0, 0, w, h);
+      for (let y = 0; y < h; y += 16)
+        for (let x = 0; x < w; x += 32) {
+          const ox = (y / 16) % 2 ? 16 : 0;
+          c.fillStyle = (x + y) % 64 ? "#e3cfae" : "#ddc3a4";
+          c.fillRect(x + ox + 1, y + 1, 30, 14);
+        }
+      c.strokeStyle = "rgba(150,110,80,0.25)";
+      c.lineWidth = 2;
+      c.strokeRect(0, 0, w, h);
+    },
+    true,
+  );
+  t.repeat.set(1 / 4, 1 / 4);
+  return t;
+}
+/** A flat shape on the ground (drawn in x and z). */
+function flat(shape: THREE.Shape) {
+  const g = new THREE.ShapeGeometry(shape, 24);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+function stadium(hx: number, hz: number, r: number) {
+  const s = new THREE.Shape();
+  s.moveTo(-hx + r, -hz);
+  s.lineTo(hx - r, -hz);
+  s.absarc(hx - r, -hz + r, r, -Math.PI / 2, 0, false);
+  s.lineTo(hx, hz - r);
+  s.absarc(hx - r, hz - r, r, 0, Math.PI / 2, false);
+  s.lineTo(-hx + r, hz);
+  s.absarc(-hx + r, hz - r, r, Math.PI / 2, Math.PI, false);
+  s.lineTo(-hx, -hz + r);
+  s.absarc(-hx + r, -hz + r, r, Math.PI, Math.PI * 1.5, false);
+  return s;
+}
+/** The star plaza (like the one at the university's heart): a long paved oval edged in red
+    brick, an eight-pointed star of lawn in a ring of lawn, tall lamps, stone balls, palms
+    along its sides and the yellow water tower at one corner. */
+export function iumPlaza(b: Batch, cx: number, cz: number) {
+  const colliders: Box[] = [];
+  const solid = (x: number, z: number, r: number) =>
+    colliders.push({ x0: x - r, x1: x + r, z0: z - r, z1: z + r });
+  const paver = mat(
+    "paver",
+    () => new THREE.MeshStandardMaterial({ map: paverTex(), roughness: 0.9 }),
+    0.12,
+  );
+  const lawn = MAT2.lawn();
+  const HX = 35,
+    HZ = 22;
+  b.add(flat(stadium(HX + 1, HZ + 1, 19)), MAT.plain(0xb4614a), cx, 0.045, cz, 0, false);
+  b.add(flat(stadium(HX, HZ, 18)), paver, cx, 0.055, cz, 0, false);
+  // the round centre: a paved circle, a broken ring of lawn and the star
+  const circ = new THREE.Shape();
+  circ.absarc(0, 0, 17, 0, Math.PI * 2, false);
+  b.add(flat(circ), MAT.plain(0xeadcc2), cx, 0.065, cz, 0, false);
+  for (let k = 0; k < 8; k++) {
+    const g = new THREE.RingGeometry(12.6, 15.6, 8, 1, (k * Math.PI) / 4 + 0.13, Math.PI / 4 - 0.26);
+    g.rotateX(-Math.PI / 2);
+    b.add(g, lawn, cx, 0.075, cz, 0, false);
+  }
+  const star = new THREE.Shape();
+  for (let i = 0; i < 16; i++) {
+    const r = i % 2 ? 8.3 : 10.8,
+      a = (i / 16) * Math.PI * 2 + Math.PI / 8;
+    if (i) star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    else star.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  b.add(flat(star), lawn, cx, 0.08, cz, 0, false);
+  const stone = MAT.plain(0xe8dcc6);
+  b.add(new THREE.SphereGeometry(0.7, 14, 10), stone, cx, 0.6, cz);
+  solid(cx, cz, 0.7);
+  // tall lamps in the gaps of the lawn ring, stone balls round the paved circle
+  const lamp = M.tex("lamp", winTex(), 1.2);
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    const x = cx + Math.cos(a) * 14.1,
+      z = cz + Math.sin(a) * 14.1;
+    b.add(new THREE.CylinderGeometry(0.1, 0.16, 7.5, 8), MAT.plain(0x9a9a92), x, 3.75, z);
+    b.add(new THREE.CylinderGeometry(0.42, 0.3, 0.7, 10), lamp, x, 7.7, z);
+    b.add(new THREE.ConeGeometry(0.5, 0.4, 10), MAT.plain(0x9a9a92), x, 8.25, z);
+    solid(x, z, 0.25);
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = (k * Math.PI) / 8 + Math.PI / 16;
+    b.add(new THREE.SphereGeometry(0.4, 10, 8), stone, cx + Math.cos(a) * 17.6, 0.4, cz + Math.sin(a) * 17.6);
+  }
+  // long strips of lawn with young palms along both sides, and lawn at each end
+  for (const s of [-1, 1]) {
+    b.add(groundGeo(30, 2.6, 1), lawn, cx, 0.075, cz + s * 19.2, 0, false);
+    for (let x = -12; x <= 12; x += 6) {
+      palm(b, cx + x, cz + s * 19.2, 0.7);
+      solid(cx + x, cz + s * 19.2, 0.25);
+    }
+    const end = new THREE.Shape();
+    end.absarc(0, 0, 4.5, 0, Math.PI * 2, false);
+    b.add(flat(end), lawn, cx + s * 27, 0.075, cz, 0, false);
+    palm(b, cx + s * 27, cz, 1.1);
+    solid(cx + s * 27, cz, 0.3);
+  }
+  // the water tower: a yellow steel frame carrying a round tank
+  const tx = cx + 30,
+    tz = cz - 18;
+  const steel = mat(
+    "tower",
+    () => new THREE.MeshStandardMaterial({ color: 0xe2b448, roughness: 0.6, metalness: 0.2 }),
+    0.2,
+  );
+  const TH = 24;
+  for (const [sx, sz] of [
+    [-1, -1],
+    [1, -1],
+    [-1, 1],
+    [1, 1],
+  ]) {
+    const leg = new THREE.CylinderGeometry(0.22, 0.3, TH + 0.6, 8);
+    leg.rotateZ(sx * -0.06);
+    leg.rotateX(sz * 0.06);
+    b.add(leg, steel, tx + sx * 2.2, TH / 2, tz + sz * 2.2);
+    colliders.push({
+      x0: tx + sx * 2.9 - 0.4,
+      x1: tx + sx * 2.9 + 0.4,
+      z0: tz + sz * 2.9 - 0.4,
+      z1: tz + sz * 2.9 + 0.4,
+    });
+  }
+  for (let y = 4; y < TH; y += 4) {
+    const w = 5.8 - (y / TH) * 1.6;
+    for (const s of [-1, 1]) {
+      b.box(w, 0.22, 0.22, steel, tx, y, tz + (s * w) / 2);
+      b.box(0.22, 0.22, w, steel, tx + (s * w) / 2, y, tz);
+    }
+  }
+  b.add(new THREE.CylinderGeometry(3.6, 3.2, 1.2, 24), steel, tx, TH + 0.6, tz);
+  b.add(new THREE.CylinderGeometry(3.6, 3.6, 3.4, 24), M.cream(), tx, TH + 2.9, tz);
+  b.add(new THREE.CylinderGeometry(3.7, 3.7, 0.5, 24), MAT.plain(0x2a6fb0), tx, TH + 3.6, tz);
+  b.add(new THREE.ConeGeometry(3.9, 1.6, 24), steel, tx, TH + 5.4, tz);
+  b.add(new THREE.CylinderGeometry(0.6, 0.6, 1.2, 12), M.cream(), tx, TH + 6.6, tz);
   return colliders;
 }
