@@ -7348,14 +7348,110 @@ export class IlmCityEngine {
     const STONE = 0xeee4cf,
       BAND = 0xc9b48f,
       GOLD = 0xc9a227;
-    const stone = MAT.plaster(STONE);
-    const band = MAT.plain(BAND, 0.6);
-    const gold = MAT.plain(GOLD, 0.35);
+    // floodlit after dark, like the real mosque
+    const lit = (color: number, k: number, rough = 0.8, glowC = 0xffe8c8) =>
+      this.glow(new THREE.MeshStandardMaterial({ color, roughness: rough }), k, glowC);
+    const stone = lit(STONE, 0.42);
+    const band = lit(BAND, 0.4, 0.6);
+    const gold = lit(GOLD, 1.1, 0.35, 0xffc850);
     const fz = -10 + Dd / 2; // the front (qibla) wall, facing the street
     const bz = -10 - Dd / 2; // the back wall
     // the great hall in cream stone, on a low marble plinth
     b.box(W + 2, 0.6, Dd + 2, MAT.plain(0xf8f6f0, 0.4), 0, 0, -10);
-    b.box(W, H, Dd, stone, 0, 0.6, -10);
+    // the hall is a great ring round two open courtyards, side by side behind the old
+    // mosque, with a covered spine between them (as in the model at Dar Al-Madinah)
+    const courts = [
+      { x0: -56, x1: -12, z0: bz + 12, z1: 4 },
+      { x0: 12, x1: 56, z0: bz + 12, z1: 4 },
+    ];
+    const RIM = 0.6 + H;
+    b.box(W, H, fz - 4, stone, 0, 0.6, (fz + 4) / 2); // the front (old mosque and qibla)
+    b.box(W, H, 12, stone, 0, 0.6, bz + 6); // the back
+    b.box(24, H, 4 - bz - 12, stone, -68, 0.6, (bz + 12 + 4) / 2); // west
+    b.box(24, H, 4 - bz - 12, stone, 68, 0.6, (bz + 12 + 4) / 2); // east
+    b.box(24, H, 4 - bz - 12, stone, 0, 0.6, (bz + 12 + 4) / 2); // the spine
+    // the roof: pale tiles in a grid
+    const roofTex = this.paintTex(128, 128, (c) => {
+      c.fillStyle = "#efe6d3";
+      c.fillRect(0, 0, 128, 128);
+      c.strokeStyle = "#cdbf9f";
+      c.lineWidth = 3;
+      c.strokeRect(0, 0, 128, 128);
+      c.strokeStyle = "#ded2b8";
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(64, 0);
+      c.lineTo(64, 128);
+      c.moveTo(0, 64);
+      c.lineTo(128, 64);
+      c.stroke();
+    });
+    roofTex.wrapT = THREE.RepeatWrapping;
+    roofTex.repeat.set(W / 4, Dd / 4);
+    const roofM = this.glow(new THREE.MeshStandardMaterial({ map: roofTex, roughness: 0.8 }), 0.35, 0xffe8c8, roofTex);
+    const roofG = new THREE.PlaneGeometry(W, Dd);
+    roofG.rotateX(-Math.PI / 2);
+    // cut the courtyards out of the roof sheet by building it from strips
+    const strip = (x0: number, x1: number, z0: number, z1: number) => {
+      const s = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
+      const uv = s.attributes.uv;
+      for (let i = 0; i < uv.count; i++)
+        uv.setXY(i, (x0 + W / 2 + uv.getX(i) * (x1 - x0)) / W, (Dd / 2 - (z1 + 10) + uv.getY(i) * (z1 - z0)) / Dd);
+      s.rotateX(-Math.PI / 2);
+      b.add(s, roofM, (x0 + x1) / 2, RIM + 0.03, (z0 + z1) / 2, 0, false);
+    };
+    roofG.dispose();
+    strip(-W / 2, W / 2, 4, fz);
+    strip(-W / 2, W / 2, bz, bz + 12);
+    strip(-W / 2, -56, bz + 12, 4);
+    strip(56, W / 2, bz + 12, 4);
+    strip(-12, 12, bz + 12, 4);
+    // the courtyards: white marble in a grid, cream arcades on every side, the umbrellas
+    const courtTex = this.paintTex(128, 128, (c) => {
+      c.fillStyle = "#f7f5f0";
+      c.fillRect(0, 0, 128, 128);
+      c.strokeStyle = "#d9d3c6";
+      c.lineWidth = 2;
+      c.strokeRect(0, 0, 128, 128);
+      c.strokeStyle = "rgba(170,160,140,0.18)";
+      c.beginPath();
+      c.moveTo(0, 90);
+      c.bezierCurveTo(40, 60, 80, 110, 128, 70);
+      c.stroke();
+    });
+    courtTex.wrapT = THREE.RepeatWrapping;
+    courtTex.repeat.set(44 / 2.5, (4 - bz - 12) / 2.5);
+    const courtM = this.glow(new THREE.MeshStandardMaterial({ map: courtTex, roughness: 0.4 }), 0.3, 0xfff4e0, courtTex);
+    const htx = this.haramTex();
+    const arcadeM = this.glow(new THREE.MeshStandardMaterial({ map: htx.facade, roughness: 0.85 }), 1.0, 0xffffff, htx.facadeGlow);
+    const facePlane = (len: number, m: THREE.Material, x: number, z: number, ry: number) => {
+      const geo = new THREE.PlaneGeometry(len, H);
+      const n = Math.max(1, Math.round(len / 5.6));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, 0.6 + H / 2, z, ry, false);
+    };
+    const courtUmbrellas: [number, number][] = [];
+    for (const ct of courts) {
+      const cw = ct.x1 - ct.x0,
+        cd = ct.z1 - ct.z0,
+        cx = (ct.x0 + ct.x1) / 2,
+        cz = (ct.z0 + ct.z1) / 2;
+      b.add(groundGeo(cw, cd, 3), courtM, cx, 0.63, cz, 0, false);
+      const E = 0.05;
+      facePlane(cw, arcadeM, cx, ct.z0 + E, 0);
+      facePlane(cw, arcadeM, cx, ct.z1 - E, Math.PI);
+      facePlane(cd, arcadeM, ct.x0 + E, cz, Math.PI / 2);
+      facePlane(cd, arcadeM, ct.x1 - E, cz, -Math.PI / 2);
+      // a parapet round the opening
+      for (let x = ct.x0 + 1; x < ct.x1; x += 2.4)
+        for (const z of [ct.z0 + 0.25, ct.z1 - 0.25]) b.box(1.2, 1.1, 0.5, stone, x, RIM, z);
+      for (let z = ct.z0 + 1; z < ct.z1; z += 2.4)
+        for (const x of [ct.x0 + 0.25, ct.x1 - 0.25]) b.box(0.5, 1.1, 1.2, stone, x, RIM, z);
+      // three by four great umbrellas
+      for (let i = 0; i < 3; i++)
+        for (let k = 0; k < 4; k++) courtUmbrellas.push([ct.x0 + 7.3 + i * 14.7, ct.z0 + 6.5 + k * ((cd - 13) / 3)]);
+    }
     this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z + bz, C.z + fz);
     // two rows of arched windows all round, and stone bands
     const arch = MAT3.archWin(STONE, 0x6b5a3a);
@@ -7423,20 +7519,23 @@ export class IlmCityEngine {
       gate(W / 2, -10 + z, Math.PI / 2);
     }
     // the roof: rows of grey sliding domes over the King Fahd extension
-    const slide = MAT.plain(0xb7b9b2, 0.5);
-    for (let r = 0; r < 4; r++)
-      for (let k = 0; k < 10; k++) {
-        const x = -W / 2 + 14 + k * ((W - 28) / 9),
-          z = bz + 14 + r * ((Dd - 40) / 3);
+    const slide = lit(0xc4c6bf, 0.35, 0.5, 0xfff0dc);
+    const inCourt = (x: number, z: number, m: number) =>
+      courts.some((ct) => x > ct.x0 - m && x < ct.x1 + m && z > ct.z0 - m && z < ct.z1 + m);
+    for (let x = -W / 2 + 6; x < W / 2 - 3; x += 12)
+      for (let z = bz + 6; z < fz - 3; z += 11) {
+        if (inCourt(x, z, 3.5)) continue;
         if (x > W / 2 - 40 && z > fz - 36) continue; // round the Green Dome
-        b.box(6, 1, 6, stone, x, H + 0.6, z);
-        b.add(
-          new THREE.SphereGeometry(2.6, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-          slide,
-          x,
-          H + 1.6,
-          z,
-        );
+        if (z > 6 && Math.abs(x) < 32) continue; // the old mosque's little domes go here
+        b.box(5, 0.8, 5, stone, x, RIM, z);
+        b.add(new THREE.SphereGeometry(2.2, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), slide, x, RIM + 0.8, z);
+      }
+    // the old Ottoman mosque at the front: rows of small white domes
+    const smallDome = lit(0xf4f1ea, 0.5, 0.5, 0xfff0dc);
+    for (let x = -28; x <= 23; x += 5.6)
+      for (let z = 9; z < fz - 2; z += 5.6) {
+        b.add(new THREE.CylinderGeometry(1.9, 1.9, 0.5, 12), stone, x, RIM + 0.25, z);
+        b.add(new THREE.SphereGeometry(1.8, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), smallDome, x, RIM + 0.5, z);
       }
     // the Green Dome over the resting place of the Prophet ﷺ (south-east, by the qibla wall),
     // and the white dome of the old mosque beside it
@@ -7445,11 +7544,12 @@ export class IlmCityEngine {
       b.add(new THREE.CylinderGeometry(r * 0.98, r, 2.2, 24), stone, x, H + 4.1, z);
       const dg = new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
       dg.scale(1, tall, 1);
-      b.add(dg, MAT.plain(color, 0.45), x, H + 5.2, z);
+      const dm = lit(color, 0.55, 0.45, color === 0x1f8a4c ? 0x3fd07a : 0xfff0dc);
+      b.add(dg, dm, x, H + 5.2, z);
       // the pointed top
       b.add(
         new THREE.ConeGeometry(r * 0.22, r * 0.7, 12),
-        MAT.plain(color, 0.45),
+        dm,
         x,
         H + 5.2 + r * tall + r * 0.3,
         z,
@@ -7516,12 +7616,13 @@ export class IlmCityEngine {
     ] as [number, number][])
       minaret(x, z, 62);
     // the marble plaza in front, with rows of great white umbrellas that open in the day
+    const plazaM = lit(0xf8f7f2, 0.22, 0.35, 0xfff4e0);
     const plaza = groundGeo(W + 40, 74, 3);
-    b.add(plaza, MAT.plain(0xf8f7f2, 0.35), 0, 0.04, fz + 38, 0, false);
+    b.add(plaza, plazaM, 0, 0.04, fz + 38, 0, false);
     for (const sx of [-1, 1])
       b.add(
         groundGeo(24, Dd + 6, 3),
-        MAT.plain(0xf8f7f2, 0.35),
+        plazaM,
         sx * (W / 2 + 12),
         0.04,
         -10,
@@ -7530,14 +7631,15 @@ export class IlmCityEngine {
       );
     const canopyGeo = new THREE.ConeGeometry(7.2, 2.2, 4, 1, true);
     canopyGeo.rotateY(Math.PI / 4);
-    const fabric = MAT3.fabric();
-    const poleM = MAT.plain(0xe8e8e4, 0.3);
-    const umbrella = (x: number, z: number) => {
-      b.add(new THREE.CylinderGeometry(0.28, 0.4, 10, 10), poleM, x, 5, z);
-      b.add(canopyGeo, fabric, x, 10.6, z);
-      b.add(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 10), poleM, x, 11.9, z);
-      this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
+    const fabric = this.glow(MAT3.fabric().clone() as THREE.MeshStandardMaterial, 0.45, 0xfff4e0);
+    const poleM = lit(0xe8e8e4, 0.5, 0.3, 0xfff4e0);
+    const umbrella = (x: number, z: number, solid = true, y = 0) => {
+      b.add(new THREE.CylinderGeometry(0.28, 0.4, 10, 10), poleM, x, y + 5, z);
+      b.add(canopyGeo, fabric, x, y + 10.6, z);
+      b.add(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 10), poleM, x, y + 11.9, z);
+      if (solid) this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
     };
+    for (const [x, z] of courtUmbrellas) umbrella(x, z, false, 0.6);
     for (let r = 0; r < 4; r++)
       for (let k = 0; k < 11; k++) umbrella(-W / 2 + 6 + k * ((W - 12) / 10), fz + 10 + r * 14.5);
     for (const sx of [-1, 1])
