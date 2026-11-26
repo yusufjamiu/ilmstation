@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { duelQuestions, duelTopics } from "@/components/challenge";
 
 type HQ = { q: string; options: string[]; a: number; why?: string };
@@ -41,6 +42,20 @@ export function FamilyHalaqah() {
   const [join, setJoin] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [invite, setInvite] = useState<{ code: string; hostName: string; topic: string; n: number } | null>(null);
+  const dropInvite = () => { setInvite(null); try { localStorage.removeItem("iq_halaqah_invite"); } catch { /* ignore */ } };
+  useEffect(() => onAuthStateChanged(auth, (u) => {
+    if (!u) return;
+    let c = ""; try { c = localStorage.getItem("iq_halaqah_invite") ?? ""; } catch { /* ignore */ }
+    if (!c) return;
+    void getDoc(doc(db, "halaqahRooms", c)).then((snap) => {
+      if (!snap.exists()) { dropInvite(); toast("That Halaqah room has closed."); return; }
+      const r = snap.data() as Room;
+      if (r.host === u.uid || r.players?.[u.uid]) { dropInvite(); setCode(c); return; }
+      if (r.status !== "lobby") { dropInvite(); toast("That game has already started."); return; }
+      setInvite({ code: c, hostName: r.hostName, topic: r.topic, n: r.questions?.length ?? 0 });
+    }).catch(() => {});
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
   const setCode = (c: string) => { setCodeRaw(c); try { if (c) sessionStorage.setItem("halaqahRoom", c); else sessionStorage.removeItem("halaqahRoom"); } catch { /* ignore */ } };
   useEffect(() => { try { const c = sessionStorage.getItem("halaqahRoom"); if (c) setCodeRaw(c); } catch { /* ignore */ } }, []);
   useEffect(() => {
@@ -73,8 +88,8 @@ export function FamilyHalaqah() {
     } catch { toast.error("Couldn't create the room. Try again."); }
     setBusy(false);
   };
-  const joinRoom = async () => {
-    const c = join.trim().toUpperCase().replace(/^IQ-?/, "IQ-"); if (!c || c.length < 5) return toast.error("Enter the room code.");
+  const joinRoom = async (raw: string = join) => {
+    const c = raw.trim().toUpperCase().replace(/^IQ-?/, "IQ-"); if (!c || c.length < 5) return toast.error("Enter the room code.");
     setBusy(true);
     try {
       const snap = await getDoc(doc(db, "halaqahRooms", c));
@@ -91,11 +106,21 @@ export function FamilyHalaqah() {
   const again = () => ref && room && void updateDoc(ref, { questions: duelQuestions(room.topic, room.questions.length).map(norm), status: "lobby", qIndex: 0, answers: {} });
   const leave = () => { if (ref && room && !host) void updateDoc(ref, { [`players.${uid}`]: deleteField() }).catch(() => {}); setCode(""); };
   const share = async () => {
-    const text = `Join our Family Halaqah on IlmStation. Room code: ${code}`;
-    try { if (navigator.share) { await navigator.share({ title: "Family Halaqah", text, url: "https://www.ilmstation.com/app" }); return; } await navigator.clipboard.writeText(text); toast.success("Copied"); } catch { /* cancelled */ }
+    const url = `https://www.ilmstation.com/app?halaqah=${code}`;
+    const text = `Join our Family Halaqah on IlmStation. Tap the link, or use room code ${code}.`;
+    try { if (navigator.share) { await navigator.share({ title: "Family Halaqah", text, url }); return; } await navigator.clipboard.writeText(`${text} ${url}`); toast.success("Invite link copied"); } catch { /* cancelled */ }
   };
 
   if (!room) return <div className="grid gap-5 lg:grid-cols-2">
+    {invite && <section className={cn(panel, "bg-primary text-[#1c1a17] lg:col-span-2")}>
+      <p className="text-xs font-bold uppercase">You’re invited</p>
+      <h2 className="mt-1 font-serif text-3xl leading-tight">Join {invite.hostName}’s Family Halaqah?</h2>
+      <p className="mt-1 text-sm">{invite.topic}{invite.n ? ` · ${invite.n} questions` : ""} · room {invite.code}</p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button variant="secondary" disabled={busy} onClick={() => { const c = invite.code; dropInvite(); void joinRoom(c); }}><Check /> Join</Button>
+        <Button variant="outline" className="bg-white" onClick={dropInvite}>Not now</Button>
+      </div>
+    </section>}
     <section className={panel}>
       <p className="text-xs font-bold uppercase text-muted-foreground">Host</p>
       <h2 className="mt-1 font-serif text-3xl">Create a room</h2>
@@ -125,7 +150,7 @@ export function FamilyHalaqah() {
     <p className="mt-1 font-mono text-5xl tracking-widest">{room.code}</p>
     <div className="mt-3 flex flex-wrap gap-2">
       <Button size="sm" variant="outline" onClick={() => { void navigator.clipboard?.writeText(room.code); toast.success("Copied"); }}><Copy /> Copy code</Button>
-      <Button size="sm" variant="outline" onClick={() => void share()}><Share2 /> Share</Button>
+      <Button size="sm" onClick={() => void share()}><Share2 /> Invite</Button>
     </div>
     <p className="mt-6 text-sm font-semibold">In the room ({playerCount})</p>
     <ul className="mt-2 grid gap-2">{list.map((p) => <li key={p.id} className="flex items-center gap-2 border-2 border-foreground px-3 py-2 font-semibold">{p.id === room.host ? <Crown className="size-4" /> : <Users className="size-4" />}{p.name}</li>)}</ul>

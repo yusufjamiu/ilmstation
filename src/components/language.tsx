@@ -209,3 +209,8 @@ if (typeof document !== "undefined" && !document.getElementById("flat-style")) {
   st.textContent = "@media (max-width:639px){" + R + " *:not(nav):not(nav *):not([role=dialog]):not([role=dialog] *):not([role=menu]):not([role=menu] *):not([data-drawer] > *){box-shadow:none!important}}";
   document.head.appendChild(st);
 }
+
+/* remember a Family Halaqah invite link (?halaqah=IQ-XXXX), even across login */
+if (typeof window !== "undefined") {
+  try { const c = new URLSearchParams(window.location.search).get("halaqah")?.toUpperCase() ?? ""; if (/^IQ-[A-Z0-9]{4}$/.test(c)) localStorage.setItem("iq_halaqah_invite", c); } catch { /* ignore */ }
+}

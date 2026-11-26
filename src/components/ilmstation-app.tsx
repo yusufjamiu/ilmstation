@@ -183,6 +183,7 @@ export function IlmStationApp() {
   useEffect(() => { if (!account) return; try { localStorage.setItem("ilm:kid", account.zone === "kids" ? "1" : "0"); } catch { /* ignore */ }
     const u = yAuth.currentUser; if (u) void setDocLB(docLB(yDb, "players", u.uid), { zone: account.zone ?? "adult" }, { merge: true }).catch(() => {}); }, [account?.zone]); // eslint-disable-line react-hooks/exhaustive-deps
   const inbox = useInbox();
+  useEffect(() => { try { if (localStorage.getItem("iq_halaqah_invite")) selectScreen("halaqah"); } catch { /* ignore */ } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // let pop-ups elsewhere (like the unlock pop-up) switch pages without reloading the app
   useEffect(() => { (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo = (sc: string) => selectScreen(sc as Screen); return () => { delete (window as unknown as { __ilmGo?: unknown }).__ilmGo; }; });
   const profileScreen: Screen = isKid ? "settings" : "community";
