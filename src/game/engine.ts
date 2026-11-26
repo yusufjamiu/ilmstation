@@ -435,78 +435,214 @@ function person(
   return g;
 }
 
-/** A passenger plane, nose along +z: body, wings, tail and engines. */
+/** A passenger plane shaped like a real twin-engine airliner, nose along +z: a smooth round
+    body with a tapered nose and an upswept tail, the cockpit windows, swept wings with
+    winglets, an engine under each wing, the swept tailplane and the tall fin. The body's
+    middle is 2.6 up and 1.5 round, the nose at z = 13, the tail at z = -14. */
 export function planeMesh(stripe: number) {
   const g = new THREE.Group();
-  const white = 0xf4f6f8;
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 22, 16), mat(white));
-  body.rotation.x = Math.PI / 2;
-  body.position.y = 2.6;
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 10), mat(white));
-  nose.scale.set(1, 1, 1.6);
-  nose.position.set(0, 2.6, 11);
-  const tail = new THREE.Mesh(new THREE.ConeGeometry(1.5, 4, 16), mat(white));
-  tail.rotation.x = -Math.PI / 2;
-  tail.position.set(0, 2.6, -13);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.52, 1.52, 18, 16, 1, true), mat(stripe));
-  band.rotation.x = Math.PI / 2;
-  band.scale.set(1, 1, 0.2);
-  band.position.set(0, 2.2, 0);
-  const wing = box(20, 0.25, 4, white, 0, 2, 1);
-  const fin = box(0.3, 4, 3, stripe, 0, 3.6, -12);
-  const tailWing = box(7, 0.2, 2, white, 0, 3.4, -12);
-  const engines = [-5, 5].map((x) => {
-    const e = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 3, 12), mat(0x9aa0a6));
-    e.rotation.x = Math.PI / 2;
-    e.position.set(x, 1.4, 2);
-    return e;
+  const white = mat(0xf4f6f8, { flatShading: false, roughness: 0.45 });
+  const grey = mat(0xb9bfc6, { flatShading: false, roughness: 0.5 });
+  const livery = mat(stripe, { flatShading: false, roughness: 0.5 });
+  const dark = mat(0x1b2630, { flatShading: false, roughness: 0.25, metalness: 0.3 });
+  // the body: a lathe along its length, then the tail bent up
+  const prof: [number, number][] = [
+    [0.02, -14.2],
+    [0.35, -13.8],
+    [0.7, -12.9],
+    [1.05, -11.6],
+    [1.32, -10],
+    [1.47, -8.4],
+    [1.5, -6],
+    [1.5, 8],
+    [1.47, 9.4],
+    [1.38, 10.4],
+    [1.2, 11.3],
+    [0.95, 12],
+    [0.62, 12.55],
+    [0.3, 12.9],
+    [0.02, 13.05],
+  ];
+  const lathe = (pts: [number, number][], seg = 28, phi0 = 0, phiL = Math.PI * 2) => {
+    const geo = new THREE.LatheGeometry(
+      pts.map(([r, y]) => new THREE.Vector2(r, y)),
+      seg,
+      phi0,
+      phiL,
+    );
+    geo.rotateX(Math.PI / 2); // its length along +z (y becomes z)
+    // bend the tail up and drop the nose a touch, like a real airliner
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const z = p.getZ(i);
+      if (z < -7) p.setY(i, p.getY(i) + (-7 - z) * 0.11);
+      if (z > 10) p.setY(i, p.getY(i) - (z - 10) * 0.06);
+    }
+    geo.computeVertexNormals();
+    geo.translate(0, 2.6, 0);
+    return geo;
+  };
+  // rotateX(π/2) turns the lathe's own z into -y: phi = 0 points down... so we measure the
+  // window band from the top: the band covers the front of the nose, above the middle
+  const body = new THREE.Mesh(lathe(prof, 32), white);
+  // the lower half of the body in grey, and the livery band along the side
+  const belly = new THREE.Mesh(
+    lathe(
+      prof.map(([r, y]) => [r * 1.004, y] as [number, number]),
+      32,
+      Math.PI * 1.62,
+      Math.PI * 0.76,
+    ),
+    grey,
+  );
+  const band = new THREE.Mesh(
+    lathe(
+      prof.filter(([, y]) => y > -11 && y < 11.4).map(([r, y]) => [r * 1.008, y] as [number, number]),
+      32,
+      Math.PI * 0.42,
+      Math.PI * 0.08,
+    ),
+    livery,
+  );
+  const band2 = band.clone();
+  band2.scale.x = -1;
+  // the cockpit windows: a dark strip wrapped round the top of the nose
+  const cockpit = new THREE.Mesh(
+    lathe(
+      [
+        [1.26, 10.95],
+        [1.2, 11.25],
+        [1.1, 11.6],
+        [0.98, 11.9],
+      ].map(([r, y]) => [r * 1.025, y] as [number, number]),
+      48,
+      Math.PI * 0.72,
+      Math.PI * 0.56,
+    ),
+    dark,
+  );
+  // the wings: swept, tapered, set low on the body, tipped up a little, with winglets
+  const wingShape = (side: number) => {
+    const sh = new THREE.Shape();
+    const P = (x: number, z: number) => [x * side, z] as [number, number];
+    const pts = [P(0.6, 3.2), P(13, -3.3), P(13.2, -4.6), P(0.6, -2.6)];
+    sh.moveTo(...pts[0]);
+    for (const q of pts.slice(1)) sh.lineTo(...q);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2); // flat: the shape's y becomes z
+    geo.rotateZ(side * 0.07); // dihedral
+    geo.translate(0, 1.95, 0);
+    return geo;
+  };
+  const both = mat(0xf4f6f8, { flatShading: false, roughness: 0.45, side: THREE.DoubleSide });
+  const wings = [new THREE.Mesh(wingShape(1), both), new THREE.Mesh(wingShape(-1), both)];
+  const winglets = [-1, 1].map((s2) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.5, 0.9), livery);
+    m.position.set(s2 * 13.25, 1.95 + 13 * 0.07 + 0.7, -4.3);
+    m.rotation.z = -s2 * 0.25;
+    m.rotation.x = 0.35;
+    return m;
   });
-  for (const m of [body, nose, tail, band, ...engines]) m.castShadow = true;
-  g.add(body, nose, tail, band, wing, fin, tailWing, ...engines);
+  // the tailplane: two small swept wings at the tail
+  const tailShape = (side: number) => {
+    const sh = new THREE.Shape();
+    const P = (x: number, z: number) => [x * side, z] as [number, number];
+    const pts = [P(0.3, -10.4), P(5, -13.2), P(5.1, -14), P(0.3, -13.2)];
+    sh.moveTo(...pts[0]);
+    for (const q of pts.slice(1)) sh.lineTo(...q);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    geo.rotateZ(side * 0.09);
+    geo.translate(0, 3.25, 0);
+    return geo;
+  };
+  const tails = [new THREE.Mesh(tailShape(1), both), new THREE.Mesh(tailShape(-1), both)];
+  // the fin: tall and swept, in the airline's colour
+  const finSh = new THREE.Shape();
+  finSh.moveTo(-8.9, 3.4);
+  finSh.lineTo(-13.6, 3.6);
+  finSh.lineTo(-14.6, 8.6);
+  finSh.lineTo(-12.7, 8.6);
+  finSh.closePath();
+  const finGeo = new THREE.ExtrudeGeometry(finSh, { depth: 0.22, bevelEnabled: false });
+  // the shape's x is along the plane (z), its y is up
+  finGeo.rotateY(-Math.PI / 2);
+  finGeo.translate(0.11, 0, 0);
+  const fin = new THREE.Mesh(
+    finGeo,
+    mat(stripe, { flatShading: false, roughness: 0.5, side: THREE.DoubleSide }),
+  );
+  // the engines: a pod under each wing with a dark intake, on a pylon
+  const engines: THREE.Object3D[] = [];
+  for (const sx of [-4.6, 4.6]) {
+    const e = new THREE.Group();
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.56, 3.2, 20), grey);
+    pod.rotation.x = Math.PI / 2;
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.64, 0.07, 8, 20), white);
+    lip.position.z = 1.6;
+    const intake = new THREE.Mesh(new THREE.CircleGeometry(0.62, 20), dark);
+    intake.position.z = 1.58;
+    const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 2.2), grey);
+    pylon.position.set(0, 0.6, -0.4);
+    e.add(pod, lip, intake, pylon);
+    e.position.set(sx, 1.15, 1.9);
+    engines.push(e);
+  }
+  const all = [body, belly, band, band2, cockpit, ...wings, ...winglets, ...tails, fin, ...engines];
+  for (const m of all) m.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+  g.add(...all);
   return g;
 }
 
-/** The IlmAir airliner up close: a row of windows, the cockpit, doors and the name. */
+/** The IlmAir airliner up close: windows along the body, the doors and the name. */
 export function airliner(stripe: number, name = "IlmAir  ✈  إلم للطيران", ink = "#1f3d5a") {
   const g = planeMesh(stripe);
   const dark = mat(0x1b2630);
   const wins: THREE.BufferGeometry[] = [];
   for (const sx of [-1, 1])
-    for (let z = -8.5; z <= 9.2; z += 0.62) {
-      const w = new THREE.BoxGeometry(0.06, 0.2, 0.22);
-      w.translate(sx * 1.47, 2.95, z);
+    for (let z = -8.2; z <= 9.4; z += 0.58) {
+      if (Math.abs(z - 8.3) < 0.5 || Math.abs(z + 7.2) < 0.5) continue; // the doors
+      const w = new THREE.BoxGeometry(0.05, 0.19, 0.15);
+      w.translate(sx * 1.49, 2.95, z);
       wins.push(w);
     }
-  // the cockpit windows wrap round the nose
-  for (let i = -2; i <= 2; i++) {
-    const w = new THREE.BoxGeometry(0.42, 0.26, 0.08);
-    w.rotateY(i * 0.38);
-    w.translate(Math.sin(i * 0.38) * 1.25, 3.15, 11.75 + Math.cos(i * 0.38) * 0.35 - 0.35);
-    wins.push(w);
-  }
   g.add(new THREE.Mesh(mergeGeometries(wins)!, dark));
   // door outlines, front and back, on both sides
   for (const sx of [-1, 1])
-    for (const z of [8.3, -9]) g.add(box(0.04, 1.1, 0.55, 0xc9ced2, sx * 1.5, 2.1, z));
-  // the name along the body, and a gold crescent on the tail
+    for (const z of [8.3, -7.2]) g.add(box(0.03, 1.05, 0.5, 0xc9ced2, sx * 1.5, 2.25, z));
+  // the name along the body, above the windows
   const label = name;
   for (const sx of [-1, 1]) {
-    const name = canvasPlane(5.5, 0.8, (c, W, H) => {
+    const nm = canvasPlane(6, 0.7, (c, W, H) => {
       c.fillStyle = ink;
       c.font = `800 ${Math.round(H * 0.8)}px "Work Sans", Arial, sans-serif`;
       c.textBaseline = "middle";
       c.textAlign = "center";
       c.fillText(label, W / 2, H / 2, W * 0.96);
     }).mesh;
-    (name.material as THREE.MeshBasicMaterial).transparent = true;
-    name.position.set(sx * 1.53, 3.45, 2.5);
-    name.rotation.y = sx * Math.PI / 2;
-    g.add(name);
+    const nmM = nm.material as THREE.MeshBasicMaterial;
+    nmM.transparent = true;
+    nmM.side = THREE.FrontSide;
+    // on the curve of the body, above the windows, leaning with it
+    const dy = 0.85,
+      r = Math.sqrt(1.5 * 1.5 - dy * dy) + 0.03;
+    nm.position.set(sx * r, 2.6 + dy, 2);
+    nm.rotation.set(0, (sx * Math.PI) / 2, 0);
+    nm.rotateX(-Math.atan2(dy, r));
+    g.add(nm);
   }
-  const moon = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.16, 8, 20, Math.PI * 1.4), mat(0xe6b84a));
-  moon.rotation.y = Math.PI / 2;
-  moon.position.set(0, 4.3, -12.2);
-  g.add(moon);
+  // a gold crescent on the fin, both sides
+  for (const sx of [-1, 1]) {
+    const moon = new THREE.Mesh(
+      new THREE.TorusGeometry(0.62, 0.15, 8, 20, Math.PI * 1.4),
+      mat(0xe6b84a),
+    );
+    moon.rotation.y = Math.PI / 2;
+    moon.position.set(sx * 0.14, 6.3, -12.6);
+    g.add(moon);
+  }
   return g;
 }
 
@@ -11525,7 +11661,12 @@ export class IlmCityEngine {
   private showPlane: THREE.Object3D | null = null;
   private showBase = { x: 0, y: 0, z: 0 };
   private showFog: [number, number] = [70, 260];
-  private show: { kind: "takeoff" | "landing"; t: number; ms: number } | null = null;
+  private show: { kind: "takeoff" | "landing" | "apron"; t: number; ms: number } | null = null;
+  /** Walking out to the plane: first the camera sweeps round it so you see all of it. */
+  apronIntro() {
+    if (this.where !== "jetbridge" || !this.minePlane) return;
+    this.show = { kind: "apron", t: 0, ms: 6500 };
+  }
   /** Watch your plane from outside: rolling down the runway and lifting off, or coming in
       to land. The game goes back to the cabin when it's over. */
   planeShow(kind: "takeoff" | "landing", ms = 7000) {
@@ -11547,6 +11688,37 @@ export class IlmCityEngine {
     const sh = this.show!;
     sh.t += dt * 1000;
     const k = Math.min(1, sh.t / sh.ms);
+    if (sh.kind === "apron") {
+      // from high over the nose, along the side of the plane, down to the steps behind you
+      // (always on the apron side, in front of the terminal)
+      const P = this.minePlane!;
+      const c = new THREE.Vector3();
+      P.getWorldPosition(c);
+      const o = this.interiorOrigin.jetbridge;
+      const keys = [
+        new THREE.Vector3(c.x + 75, 30, c.z + 26),
+        new THREE.Vector3(c.x + 8, 15, c.z + 34),
+        new THREE.Vector3(o.x + 4, 6, o.z + 19),
+      ];
+      const looks = [
+        new THREE.Vector3(c.x + 6, 6, c.z),
+        new THREE.Vector3(c.x, 6, c.z),
+        new THREE.Vector3(o.x, 4, o.z - 6),
+      ];
+      const e = k * k * (3 - 2 * k);
+      const seg = e < 0.5 ? 0 : 1;
+      const f = seg === 0 ? e / 0.5 : (e - 0.5) / 0.5;
+      const want = keys[seg].clone().lerp(keys[seg + 1], f);
+      const look = looks[seg].clone().lerp(looks[seg + 1], f);
+      if (sh.t < 40) this.camera.position.copy(want);
+      else this.camera.position.lerp(want, 1 - Math.exp(-dt * 4));
+      this.camera.lookAt(look);
+      if (k >= 1) {
+        this.show = null;
+        this.snapCamera();
+      }
+      return;
+    }
     const P = this.showPlane!;
     const B = this.showBase;
     // along the runway (x), up off it after the roll
@@ -11630,7 +11802,7 @@ export class IlmCityEngine {
     paint(0.25, 26, 0xf4f4f0, 1.6, 9);
     for (let z = -2; z <= 21; z += 1.6) paint(3, 0.5, 0x2f8f63, 0, z);
     // stand lines: a yellow lead-in line to every stand
-    for (const x of [-120, -60, 0, 60, 120]) paint(0.35, 70, 0xf2c230, x, -30);
+    for (const x of [-190, -95, 0, 95, 190]) paint(0.35, 70, 0xf2c230, x, -30);
     paint(300, 0.35, 0xf2c230, 0, -62);
     // the terminal behind you: long and glassy, with the gate's door
     const glass = this.glow(
@@ -11646,9 +11818,9 @@ export class IlmCityEngine {
     gateSign.position.set(0, 4.4, 22.4);
     g.add(gateSign);
     // jet bridges on the far stands, reaching out from the terminal
-    for (const x of [-120, 120]) {
-      b.box(3, 2.6, 30, mat(0xc9ced2), x + 8, 4.2, 6);
-      b.box(1, 4.2, 1, mat(0x8a939b), x + 8, 0, -6);
+    for (const x of [-95, 95, -190, 190]) {
+      b.box(3, 2.6, 30, mat(0xc9ced2), x, 6.2, 6);
+      b.box(1, 6.2, 1, mat(0x8a939b), x, 0, -2);
     }
 
     // a plane at a stand: nose to the east, its front door facing the terminal
@@ -11759,17 +11931,16 @@ export class IlmCityEngine {
       [0x1f3d5a, "IlmAir  ✈  إلم للطيران", "#1f3d5a"],
       [0x2f8f83, "Nakhla Air", "#2f8f83"],
     ];
+    // (a plane is 70 m long, so the stands are 95 m apart)
     const stands: [number, number, number][] = [
-      [-60, -12 - R, Math.PI / 2],
-      [60, -12 - R, Math.PI / 2],
-      [-120, -12 - R, Math.PI / 2],
-      [120, -12 - R, Math.PI / 2],
-      [-150, -95, 0.3],
-      [-90, -95, 0.3],
-      [-30, -95, 0.3],
-      [30, -95, 0.3],
-      [90, -95, 0.3],
-      [150, -95, 0.3],
+      [-95, -12 - R, Math.PI / 2],
+      [95, -12 - R, Math.PI / 2],
+      [-190, -12 - R, Math.PI / 2],
+      [190, -12 - R, Math.PI / 2],
+      [-130, -98, Math.PI / 2],
+      [-40, -98, Math.PI / 2],
+      [50, -98, Math.PI / 2],
+      [140, -98, Math.PI / 2],
     ];
     stands.forEach(([x, z, ry], i) => {
       const [c, n, ink] = fleet[i % fleet.length];

@@ -8371,6 +8371,7 @@ function CityGame({
           setPanel(null);
           e.moveInside("jetbridge", "Apron · Gate " + t.gate);
           e.guideTo("planedoor");
+          e.apronIntro();
           toast("Boarding pass scanned ✓ Walk out to the plane and up the steps.", "good");
         };
         if (flightStatus(t.depAt).boarding && !t.called) {
