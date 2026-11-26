@@ -1,3 +1,4 @@
+import { QuizFeedback, QuizNext, QuizOption, QuizProgress, QuizQuestion } from "@/components/quiz-ui";
 import { UserRound as WhoAdult, Baby as WhoChild } from "lucide-react";
 import { createUserWithEmailAndPassword as cuParent, signInWithCustomToken as sictKid, signInWithEmailAndPassword as siParent, signInWithPopup as popParent, GoogleAuthProvider as GoogleParent } from "firebase/auth";
 import { doc as dK, getDoc as gK, setDoc as sK } from "firebase/firestore";
@@ -474,28 +475,18 @@ function QuizStep({ interests, onBack, onFinish, busy }: { interests: string[]; 
   const last = index === questions.length - 1;
   const choose = (i: number) => { if (answered) return; setChoice(i); if (i === q.answer) setScore((s) => s + 1); };
   const advance = () => { if (last) { void onFinish(score); return; } setIndex(index + 1); setChoice(null); };
-
-  return <div>
+  return <div className="grid gap-4">
     <div className="flex items-center justify-between text-sm"><span className="font-mono font-bold">Q{index + 1}/{questions.length}</span><span className="text-muted-foreground">No pressure!</span></div>
-    <div className="mt-2 h-1 overflow-hidden rounded-full bg-foreground/10 sm:h-3 sm:rounded-none sm:border-2 sm:border-foreground sm:bg-transparent"><div className="h-full rounded-full bg-primary transition-[width] sm:rounded-none" style={{ width: `${((index + (answered ? 1 : 0)) / questions.length) * 100}%` }} /></div>
-    <div className="mt-5 rounded-3xl border-[1.5px] border-foreground bg-muted p-5 shadow-[0_4px_0_var(--foreground)] sm:mt-6 sm:rounded-none sm:border-2 sm:shadow-brutal">
-      <span className="inline-block rounded-full border-[1.5px] border-secondary bg-secondary/15 px-3 py-0.5 font-mono text-xs font-bold text-secondary sm:rounded-none sm:border-2 sm:border-foreground sm:bg-secondary sm:font-sans sm:uppercase sm:text-secondary-foreground">{q.topic}</span>
-      <h2 className="mt-3 text-2xl font-bold leading-snug sm:font-serif sm:text-3xl sm:font-normal sm:leading-tight">{q.q}</h2>
-      <QuizVisual kind={q.visual} compact />
+    <QuizProgress value={((index + (answered ? 1 : 0)) / questions.length) * 100} />
+    <QuizQuestion topic={q.topic} text={q.q}><QuizVisual kind={q.visual} compact /></QuizQuestion>
+    <div className="grid gap-3">{q.options.map((o, i) => <QuizOption key={o} letter={"ABCD"[i]!} text={o} disabled={answered} onClick={() => choose(i)}
+      state={answered && i === q.answer ? "correct" : answered && i === choice ? "wrong" : "idle"} />)}</div>
+    {answered && <QuizFeedback ok={choice === q.answer} text={q.why} />}
+    <div className="mt-2 grid gap-3">
+      <QuizNext label={last ? (busy ? "Creating account…" : "See my level") : "Next question"} disabled={!answered || busy} onClick={advance} />
+      {index === 0 && !answered && <button type="button" onClick={onBack} className="text-sm font-semibold underline underline-offset-4">Back</button>}
+      <button type="button" disabled={busy} onClick={() => void onFinish(null)} className="text-center text-sm font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground">Skip assessment</button>
     </div>
-    <div className="mt-5 grid gap-3">{q.options.map((o, i) => {
-      const correct = answered && i === q.answer;
-      const wrong = answered && i === choice && i !== q.answer;
-      return <button key={o} data-plain type="button" disabled={answered} onClick={() => choose(i)} className={cn("flex items-center gap-3 rounded-full border-[1.5px] border-foreground px-2 py-2 text-left font-semibold shadow-[0_3px_0_var(--foreground)] transition-transform disabled:cursor-default sm:rounded-none sm:border-2 sm:px-3 sm:py-3 sm:shadow-none", correct ? "bg-secondary text-secondary-foreground sm:shadow-brutal" : wrong ? "bg-destructive/15" : "bg-background sm:shadow-brutal-sm", !answered && "active:translate-y-0.5 sm:hover:-translate-y-0.5")}>
-        <span className={cn("grid size-9 shrink-0 place-items-center rounded-full border-[1.5px] border-current font-bold sm:rounded-none sm:border-2", correct && "bg-background text-foreground")}>{correct ? <Check className="size-4" /> : wrong ? <X className="size-4" /> : "ABCD"[i]}</span>{o}
-      </button>;
-    })}</div>
-    {answered && <p aria-live="polite" className="mt-5 rounded-2xl border-l-4 border-secondary bg-muted p-4 text-sm sm:rounded-none"><b>{choice === q.answer ? "Correct. " : "Not quite. "}</b>{q.why}</p>}
-    <div className="mt-8 flex items-center gap-3">
-      {index === 0 && !answered && <Button type="button" variant="outline" size="lg" onClick={onBack}><ArrowLeft /> Back</Button>}
-      <Button type="button" size="lg" disabled={!answered || busy} onClick={advance} className="ml-auto flex-1 sm:flex-none">{last ? (busy ? "Creating account…" : "See my level") : "Next question"} <ArrowRight /></Button>
-    </div>
-    <p className="mt-5 text-center"><button type="button" disabled={busy} onClick={() => void onFinish(null)} className="text-sm font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground">Skip assessment</button></p>
   </div>;
 }
 function WelcomeStep({ name, zone, interests, score, level }: { name: string; zone: Zone; interests: string[]; score: number | null; level: Level }) {

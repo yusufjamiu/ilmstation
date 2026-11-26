@@ -1,3 +1,4 @@
+import { QuizFeedback, QuizNext, QuizOption, QuizProgress, QuizQuestion } from "@/components/quiz-ui";
 import { doc as gpDoc, onSnapshot as gpSnap, setDoc as gpSet } from "firebase/firestore";
 import { auth as gpAuth, db as gpDb } from "@/lib/firebase";
 import { doc as fsDoc } from "firebase/firestore";
@@ -114,14 +115,10 @@ export function KidGames({ audience = "kids" }: { audience?: "kids" | "all" }) {
     </div>
     <section className="mt-4 border-2 border-foreground bg-background p-6 shadow-brutal">
       <p className="text-sm font-bold uppercase text-muted-foreground">{game.emoji} {game.title} · question {i + 1} of {qs.length}</p>
-      <h2 className="mt-2 font-serif text-4xl leading-tight" dir="auto">{q.q}</h2>
-      <div className="mt-6 grid gap-3">{q.options.map((o, k) => <button key={`${k}-${o}`} disabled={pick !== null} dir="auto" onClick={() => { setPick(k); if (k === q.answer) setScore((n) => n + 1); }}
-        className={cn("flex items-center gap-3 border-2 border-foreground p-4 text-start font-serif text-2xl shadow-brutal-sm",
-          pick === null && "bg-background hover:bg-primary",
-          pick !== null && k === q.answer && "bg-secondary text-secondary-foreground",
-          pick === k && k !== q.answer && "bg-muted line-through")}>
-        <span className="grid size-10 shrink-0 place-items-center border-2 border-foreground bg-background text-base font-bold text-foreground">{"ABCD"[k]}</span>{o}
-      </button>)}</div>
+      <div className="mt-3"><QuizQuestion text={<span dir="auto">{q.q}</span>} /></div>
+      <div className="mt-4 grid gap-3">{q.options.map((o, k) => <QuizOption key={`${k}-${o}`} letter={"ABCD"[k] ?? "•"} text={<span dir="auto" className="text-lg">{o}</span>} disabled={pick !== null}
+        onClick={() => { setPick(k); if (k === q.answer) setScore((n) => n + 1); }}
+        state={pick === null ? "idle" : k === q.answer ? "correct" : pick === k ? "wrong" : "idle"} />)}</div>
       {pick !== null && <div className="mt-5">
         <p className="text-xl font-bold">{right ? "⭐ Well done!" : "Good try! Now you know."}</p>
         {q.why && <p className="mt-2 border-l-4 border-secondary bg-muted p-3" dir="auto">{q.why}</p>}

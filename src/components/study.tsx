@@ -1,3 +1,4 @@
+import { CalendarDays as SCal } from "lucide-react";
 import { Check as QCheck, Lock as QLock, MapPin as QPin } from "lucide-react";
 import { useLanguage as useAppLangS } from "@/components/language";
 import { usePremium as useKidPremium } from "@/components/premium";
@@ -55,13 +56,13 @@ function useExam(id: string | undefined) {
 
 export function StudyScreen() {
   const { uid } = useStudyMe();
-  return <><StudyScreenInner /><StudyTestBar uid={uid} /></>;
+  return <><div data-study><StudyScreenInner /></div><StudyTestBar uid={uid} /></>;
 }
 
 function StudyScreenInner() {
   const [view, setView] = useState<View>({});
   const { cats: allCats } = useStudyCategories();
-  const { account: studyAcct } = useAuth();
+  const { account: studyAcct, ready: studyReady } = useAuth();
   const cats = allCats ? allCats.filter((c) => catFor(c, studyAcct?.zone)) : allCats;
   const { uid, progress, results } = useStudyMe();
   const voice = useVoiceLang();
@@ -73,6 +74,7 @@ function StudyScreenInner() {
   const examView = useExam(view.exam);
   const catLessons = useDocs<Lesson>("studyLessons", [], !!view.cat && studyAcct?.zone !== "kids");
   useEffect(() => { window.scrollTo?.(0, 0); }, [view]);
+  if (!studyReady) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (studyAcct?.zone === "kids") return <KidStudy cats={cats ?? []} />;
   if (!cats) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const cat = cats.find((c) => c.id === view.cat);
@@ -91,14 +93,15 @@ function StudyScreenInner() {
         <h1 className="font-serif text-4xl leading-none sm:text-5xl">What will you learn today?</h1></div>
       
     </div>
-    <div className="mt-6 grid gap-5 sm:grid-cols-2">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}
-      className={cn("flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal transition-transform", c.live ? "hover:-translate-y-0.5" : "opacity-70")}>
+    <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-5">{cats.map((c) => { const Icon = STUDY_ICONS[c.icon] ?? BookOpen; return <button key={c.id} disabled={!c.live} onClick={() => setView({ cat: c.id })}
+      className={cn("flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal transition-transform", c.live ? "col-span-2 hover:-translate-y-0.5 sm:col-span-1" : "col-span-1 opacity-70 max-sm:p-3 max-sm:shadow-brutal-sm")}>
       <div className="flex items-start justify-between gap-3">
-        <span className={cn("grid size-12 place-items-center border-2 border-foreground", c.live ? "bg-primary" : "bg-muted")}><Icon className="size-6" /></span>
-        {!c.live && <span className="flex items-center gap-1 border-2 border-foreground px-2 py-0.5 text-xs font-bold"><Lock className="size-3" /> Coming soon</span>}
+        <span className={cn("grid size-12 place-items-center border-2 border-foreground", c.live ? "bg-primary" : "bg-muted max-sm:size-9")}><Icon className={cn("size-6", !c.live && "max-sm:size-5")} /></span>
+        {!c.live && <span className="flex items-center gap-1 border-2 border-foreground px-2 py-0.5 text-xs font-bold max-sm:border-0 max-sm:p-0"><Lock className="size-3 max-sm:size-4" /> <span className="max-sm:hidden">Coming soon</span></span>}
       </div>
-      <h2 className="mt-4 font-serif text-3xl">{c.name} {c.nameAr && <span dir="rtl" className="text-xl text-muted-foreground">{c.nameAr}</span>}</h2>
-      <p className="text-sm text-muted-foreground">{c.blurb}</p>
+      <h2 className={cn("mt-4 font-serif text-3xl", !c.live && "max-sm:mt-3 max-sm:text-xl max-sm:leading-tight")}>{c.name} {c.nameAr && <span dir="rtl" className={cn("text-xl text-muted-foreground", !c.live && "max-sm:block max-sm:text-base")}>{c.nameAr}</span>}</h2>
+      <p className={cn("text-sm text-muted-foreground", !c.live && "max-sm:hidden")}>{c.blurb}</p>
+      {!c.live && <p className="mt-1 text-xs font-bold sm:hidden">Coming soon</p>}
       {c.live && <CardAction label="Open →" pulse={cats.filter((x) => x.live).length === 1} />}
     </button>; })}</div>
   </div>;
@@ -211,13 +214,17 @@ function StageView({ cat, stage, stageIdx, reached, subjects, flow, lessons, don
         {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
         <p className="mt-3 text-sm font-semibold">Finish {s.name} in {prev?.name} to open it.</p>
       </button>;
-      return <button key={s.id} onClick={() => onSubject(s.id)} className="flex flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal hover:-translate-y-0.5">
+      return <div key={s.id}><button onClick={() => onSubject(s.id)} className="flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-foreground bg-card p-3.5 text-left shadow-[0_4px_0_var(--foreground)] sm:hidden">
+        <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-primary text-[#1c1a17]"><BookOpen className="size-6" /></span>
+        <span className="min-w-0 flex-1"><b className="block truncate text-base leading-tight">{s.name}</b>{s.nameAr && <span dir="rtl" className="block text-sm text-muted-foreground">{s.nameAr}</span>}<span className="text-xs text-muted-foreground">{passed ? "Completed ✓" : `${d}/${ls.length}`}</span></span>
+        <StudyRing pct={ls.length ? (d / ls.length) * 100 : 0} /></button>
+      <button onClick={() => onSubject(s.id)} className="hidden w-full flex-col border-2 border-foreground bg-card p-5 text-left shadow-brutal hover:-translate-y-0.5 sm:flex">
         <div className="flex items-start justify-between"><span className="grid size-10 place-items-center border-2 border-foreground bg-primary"><BookOpen className="size-5" /></span>{passed && <span className="flex items-center gap-1 border-2 border-foreground bg-secondary px-2 text-xs font-bold text-secondary-foreground"><Check className="size-3" /> Completed</span>}</div>
         <h2 className="mt-3 font-serif text-3xl leading-tight">{s.name}</h2>
         {s.nameAr && <p dir="rtl" className="text-lg text-muted-foreground">{s.nameAr}</p>}
         <div className="mt-3 flex items-center gap-2"><div className="h-3 flex-1 border-2 border-foreground p-px"><div className="h-full bg-secondary" style={{ width: `${ls.length ? (d / ls.length) * 100 : 0}%` }} /></div><span className="text-xs font-bold tabular-nums">{d}/{ls.length}</span></div>
         <CardAction label={d === 0 ? "Start ▶" : d < ls.length ? "Continue ▶" : "Review →"} pulse={d < ls.length} />
-      </button>;
+      </button></div>;
     })}</div>
 
     {promo && <div className={cn("mt-8 flex flex-wrap items-center gap-4 border-2 border-foreground p-5 shadow-brutal", promoPassed ? "bg-secondary text-secondary-foreground" : "bg-primary")}>
@@ -241,6 +248,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
   const [syl, setSyl] = useState(false);
   const [pdf, setPdf] = useState(false);
   const [page, setPage] = useState(1);
+  const [planOpen, setPlanOpen] = useState(false);
   const s = subject.syllabus?.[stage];
   const list = topics(s);
   const exam = useExam(subjectExamId(subject.id, stage));
@@ -263,7 +271,14 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
     </div>
 
     {uid && flow.complete(subject.id, stage) && <CertificateCard className="mt-4" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: stageName(cat, stage), category: cat.name, date: flow.earnedAt(subject.id, stage), stars: stagesOf(cat).filter((st) => subject.stages.includes(st.id)).findIndex((st) => st.id === stage) + 1 }} />}
-    {uid && lessons.length > 0 && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
+    {uid && lessons.length > 0 && <>
+      <button onClick={() => setPlanOpen(!planOpen)} className="mt-4 flex w-full items-center gap-3 border-2 border-foreground bg-card p-3.5 text-left shadow-brutal-sm">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-[#1c1a17]"><SCal className="size-5" /></span>
+        <span className="min-w-0 flex-1"><b className="block">Plan your pace</b><span className="text-xs text-muted-foreground">{plans[`${subject.id}__${stage}`] ? "Your plan is set · tap to change" : "Set a weekly goal and reminders"}</span></span>
+        <ChevronDown className={cn("size-5 shrink-0 transition-transform", planOpen && "rotate-180")} />
+      </button>
+      {planOpen && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
+    </>}
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <LessonPath lessons={lessons} isDone={(id) => !!done[id]} firstOpen={firstOpen} levelName={stageName(cat, stage)}
@@ -371,7 +386,8 @@ function KidStudy({ cats }: { cats: Category[] }) {
 export function QuestMap() {
   const raw = useStudyCategories() as unknown;
   const all = ((Array.isArray(raw) ? raw : (raw as { cats?: Category[] } | null)?.cats) ?? []) as (Category & { live?: boolean })[];
-  const cats = all.filter((c) => c.live !== false);
+  const { account: qAcct } = useAuth();
+  const cats = all.filter((c) => c.live !== false && catFor(c, qAcct?.zone));
   const [catId, setCatId] = useState<string | undefined>(undefined);
   const [subjectId, setSubjectId] = useState<string | undefined>(undefined);
   const [lessonId, setLessonId] = useState<string | undefined>(undefined);
@@ -423,7 +439,7 @@ export function QuestMap() {
       {list.map((x, i) => { const st = status(i); const pct = pctOf(x.id); const left = i % 2 === 0;
         return <div key={x.id} className={cn("relative mb-6 flex", left ? "justify-start" : "justify-end")}>
           <button onClick={() => (st === "locked" ? toast(`Finish ${list[firstOpen]?.name ?? "the previous stop"} first`) : setSubjectId(x.id))}
-            className={cn("relative z-10 flex w-[82%] items-center gap-3 border-2 border-foreground p-3 text-left shadow-brutal transition hover:-translate-y-0.5", st === "current" ? "bg-primary" : st === "done" ? "bg-background" : "bg-muted opacity-75")}>
+            className={cn("relative z-10 flex w-[82%] items-center gap-3 border-2 border-foreground p-3 text-left shadow-brutal transition hover:-translate-y-0.5", st === "current" ? "bg-primary" : st === "done" ? "bg-background" : "bg-muted text-muted-foreground")}>
             <span className={cn("grid size-12 shrink-0 place-items-center rounded-full border-2 border-foreground font-serif text-xl", st === "done" ? "bg-secondary text-background" : st === "current" ? "bg-background" : "bg-muted")}>
               {st === "done" ? <QCheck className="size-6" /> : st === "locked" ? <QLock className="size-5" /> : i + 1}
             </span>
@@ -437,4 +453,25 @@ export function QuestMap() {
         </div>; })}
     </div>}
   </div>;
+}
+
+/* progress ring for subject rows on phones */
+function StudyRing({ pct }: { pct: number }) {
+  const r = 18, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, Math.round(pct)));
+  return <span className="relative grid size-12 shrink-0 place-items-center">
+    <svg viewBox="0 0 44 44" className="absolute inset-0 size-12 -rotate-90"><circle cx="22" cy="22" r={r} fill="none" stroke="currentColor" strokeOpacity=".12" strokeWidth="4" />
+      <circle cx="22" cy="22" r={r} fill="none" stroke="#2f7352" strokeWidth="4" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (c * v) / 100} /></svg>
+    <span className="text-[11px] font-bold tabular-nums text-[#2f7352]">{v}%</span></span>;
+}
+
+/* phones: Study cards look like the Today cards */
+if (typeof document !== "undefined" && !document.getElementById("study-m-style")) {
+  const st = document.createElement("style"); st.id = "study-m-style";
+  st.textContent = "@media (max-width:639px){"
+    + "[data-study] .shadow-brutal:not([data-plain]):not(.rounded-full),[data-study] .shadow-brutal-sm:not([data-plain]):not(.rounded-full){border-radius:16px!important;border-width:1.5px!important;box-shadow:0 4px 0 var(--foreground)!important}"
+    + "[data-study] span.bg-foreground.text-background,[data-study] button.bg-foreground.text-background{border-radius:999px!important;box-shadow:none!important}"
+    + "[data-study] .border-dashed{border-radius:16px}"
+    + "[data-study] .size-10.border-2,[data-study] .size-12.border-2{border-radius:12px;border-width:1.5px}"
+    + "}";
+  document.head.appendChild(st);
 }

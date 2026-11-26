@@ -1,3 +1,4 @@
+import { ArrowLeftRight as FTransfer, GraduationCap as FGrad } from "lucide-react";
 import { signInWithCustomToken } from "firebase/auth";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -349,7 +350,7 @@ export function FamilyScreen() {
             <input type="email" aria-label="Their IlmStation email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Their IlmStation email" className="h-11 border-2 border-foreground bg-background px-3" />
             <Button type="submit" disabled={busy || !email.trim()}><UserPlus /> Add to my plan</Button>
             <p className="text-xs text-muted-foreground sm:col-span-2">They need an IlmStation account. Kids and teens use a child seat; grown-ups use an adult seat. They’ll see your invite in their Family hub.</p>
-          </form> : <p className="text-sm text-muted-foreground">To add your family, choose a <b className="text-foreground">Family plan</b> in <b className="text-foreground">Wallet & store → Premium</b>. Everyone you add gets Premium, and you can follow your children’s progress here.</p>}
+          </form> : <p className="text-sm text-muted-foreground">To add your family, choose a <b className="text-foreground">Family plan</b> in <b className="text-foreground">You → Premium & points</b>. Everyone you add gets Premium, and you can follow your children’s progress here.</p>}
 
           {members.length > 0 && <ul className="grid gap-3 lg:grid-cols-2">{members.map((m) => {
             const k = sum[m.uid];
@@ -368,13 +369,13 @@ export function FamilyScreen() {
                   const to = window.prompt(`Transfer ${m.name}'s account to another parent.\n\nEnter their IlmStation email:`)?.trim();
                   if (!to) return;
                   void callFamily("transferChild", { childUid: m.uid, toEmail: to }).then((r) => r.ok ? toast.success("Request sent. They’ll get an email to accept.") : toast.error(r.error ?? "Couldn't send."));
-                }}>🔁 Transfer</Button>}
+                }}><FTransfer className="size-4" /> Transfer</Button>}
                 {m.managed && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
                   if (!window.confirm(`Give ${m.name} their own account?\n\nOnly for children aged 13 or older. They’ll leave your Family hub and become a Teens account, keeping all their progress.\n\nPress OK to confirm ${m.name} is 13 or older.`)) return;
                   const em = window.prompt(`Enter ${m.name}'s own email address. We'll email them a link to choose a password.`)?.trim();
                   if (!em) return;
                   void callFamily("releaseChild", { childUid: m.uid, email: em, confirm13: true }).then((r) => r.ok ? toast.success(`${m.name} now has their own account. We've emailed them.`) : toast.error(r.error ?? "Couldn't do that."));
-                }}>🎓 Own account (13+)</Button>}
+                }}><FGrad className="size-4" /> Own account (13+)</Button>}
                 {m.managed && <Button size="sm" disabled={busy} onClick={() => {
                   if (!window.confirm(`Switch this device to ${m.name}’s account? To switch back, you’ll log in again with your own password.`)) return;
                   void callFamily("childLogin", { uid: m.uid }).then(async (r) => {
@@ -598,7 +599,7 @@ function TransferInbox() {
   if (!rows.length) return null;
   const answer = (id: string, accept: boolean) => void callFamily("transferAnswer", { id, accept }).then((r) => { if (r.ok) { toast.success(accept ? "Done! The child is now in your Family hub." : "Declined."); setTimeout(() => window.location.reload(), 900); } else toast.error(r.error ?? "Couldn't do that."); });
   return <div className="mb-5 grid gap-2">{rows.map((t) => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-primary p-4 shadow-brutal-sm">
-    <span><b>🔁 Transfer request</b><br /><span className="text-sm">{t.fromName} wants to move <b>{t.childName}</b>’s account into your Family hub.</span></span>
+    <span><b className="inline-flex items-center gap-1"><FTransfer className="size-4" /> Transfer request</b><br /><span className="text-sm">{t.fromName} wants to move <b>{t.childName}</b>’s account into your Family hub.</span></span>
     <span className="flex gap-2"><Button size="sm" onClick={() => answer(t.id, true)}>Accept</Button><Button size="sm" variant="outline" onClick={() => answer(t.id, false)}>Decline</Button></span>
   </div>)}</div>;
 }

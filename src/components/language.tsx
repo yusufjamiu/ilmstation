@@ -84,10 +84,10 @@ export function LanguageSelect({ className }: { className?: string }) {
         <Globe /><span className="font-bold uppercase">{current.code}</span><ChevronDown className="size-3 opacity-70" />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-56 rounded-none border-2 border-foreground p-1 shadow-brutal">
+    <DropdownMenuContent align="end" className="max-h-[70vh] w-56 overflow-y-auto rounded-none border-2 border-foreground p-1 shadow-brutal max-sm:w-64 max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:p-2 max-sm:shadow-[0_4px_0_var(--foreground)]">
       <DropdownMenuLabel className="text-xs uppercase text-muted-foreground">Choose language</DropdownMenuLabel>
-      <DropdownMenuSeparator className="bg-foreground" />
-      {liveLangs.map((l) => <DropdownMenuItem key={l.code} onSelect={() => { set(l.code); toast.success(`✓ ${l.native}`); }} className={cn("flex cursor-pointer items-center justify-between rounded-none px-3 py-2", l.code === lang && "bg-primary text-foreground focus:bg-primary")}>
+      <DropdownMenuSeparator className="bg-foreground max-sm:bg-foreground/15" />
+      {liveLangs.map((l) => <DropdownMenuItem key={l.code} onSelect={() => { set(l.code); toast.success(`✓ ${l.native}`); }} className={cn("flex cursor-pointer items-center justify-between rounded-none px-3 py-2 max-sm:mb-0.5 max-sm:rounded-xl max-sm:py-2.5", l.code === lang && "bg-primary text-foreground focus:bg-primary")}>
         <span><span className="block font-semibold" dir={l.dir}>{l.native}</span><span className="text-xs text-muted-foreground">{l.label}</span></span>
         {l.code === lang && <Check className="size-4" />}
       </DropdownMenuItem>)}
@@ -200,4 +200,17 @@ export function addPhrase(en: string, lang: string, text: string) {
   const k = en.trim(); if (!k || !text) return;
   (DICT as Record<string, Record<string, string>>)[k] = { ...((DICT as Record<string, Record<string, string>>)[k] ?? {}), [lang]: text };
   try { sweep(document.body, read()); } catch { /* ignore */ }
+}
+
+/* phones: flat look, no shadows (except the floating bottom bar and pop-ups) */
+if (typeof document !== "undefined" && !document.getElementById("flat-style")) {
+  const st = document.createElement("style"); st.id = "flat-style";
+  const R = ":root:root:root:root:root:root:root:root";
+  st.textContent = "@media (max-width:639px){" + R + " *:not(nav):not(nav *):not([role=dialog]):not([role=dialog] *):not([role=menu]):not([role=menu] *):not([data-drawer] > *){box-shadow:none!important}}";
+  document.head.appendChild(st);
+}
+
+/* remember a Family Halaqah invite link (?halaqah=IQ-XXXX), even across login */
+if (typeof window !== "undefined") {
+  try { const c = new URLSearchParams(window.location.search).get("halaqah")?.toUpperCase() ?? ""; if (/^IQ-[A-Z0-9]{4}$/.test(c)) localStorage.setItem("iq_halaqah_invite", c); } catch { /* ignore */ }
 }

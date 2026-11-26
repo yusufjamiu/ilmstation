@@ -37,7 +37,7 @@ export function InstallBanner() {
   if (standalone || hidden || (!can && !ios)) return null;
   const close = () => { setHidden(true); try { localStorage.setItem("installHiddenUntil", String(Date.now() + 7 * 86_400_000)); } catch { /* ignore */ } };
   return <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-primary p-3 shadow-brutal-sm">
-    <span className="text-sm"><b>📲 Install IlmStation</b> on your phone for quick, full-screen access. {ios && !can && <IosSteps />}</span>
+    <span className="text-sm"><b>Install IlmStation</b> on your phone for quick, full-screen access. {ios && !can && <IosSteps />}</span>
     <span className="flex gap-2">
       {can && <button onClick={() => void install()} className="border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold">Install</button>}
       <button onClick={close} aria-label="Close" className="border-2 border-foreground bg-background px-2.5 py-1.5 text-sm font-bold">✕</button>
@@ -48,7 +48,7 @@ export function InstallBanner() {
 export function InstallCard() {
   const { can, install, standalone, ios } = useInstall();
   return <div className="mt-6 border-2 border-foreground p-5">
-    <p className="font-serif text-2xl">📲 Install the app</p>
+    <p className="font-serif text-2xl">Install the app</p>
     {standalone ? <p className="mt-1 text-sm text-muted-foreground">IlmStation is installed on this device. ✓</p>
       : can ? <><p className="mt-1 text-sm text-muted-foreground">Add IlmStation to your home screen. It opens full screen, like an app.</p><button onClick={() => void install()} className="mt-3 border-2 border-foreground bg-primary px-4 py-2 text-sm font-bold">Install IlmStation</button></>
       : ios ? <p className="mt-1 text-sm"><IosSteps /></p>

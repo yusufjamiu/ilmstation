@@ -1,3 +1,4 @@
+import { Bell as NBell, Sunrise as NSunrise, Clock as NClock, BookOpen as NBook, Flame as NFlame, BookMarked as NMark, Trophy as NTrophy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getApp } from "firebase/app";
 import { getMessaging, getToken, isSupported } from "firebase/messaging";
@@ -7,13 +8,14 @@ import { callPremium } from "@/components/premium";
 /** Settings → Notifications: turn on push, choose which ones. */
 type Prefs = { wisdom: boolean; prayer: boolean; streak: boolean; kahf: boolean; ramadan: boolean; tilawah: boolean };
 const LABELS: [keyof Prefs, string, string][] = [
-  ["wisdom", "🌅 Daily Wisdom", "Every morning at 7:30"],
-  ["prayer", "🕌 Prayer times", "At each of the five prayers"],
-  ["tilawah", "📖 Daily tilawah", "At the time you choose below"],
-  ["streak", "🔥 Streak reminder", "In the evening, if you haven't learned yet"],
-  ["kahf", "📖 Friday Al-Kahf", "Friday morning"],
-  ["ramadan", "🏆 Ramadan prize quiz", "When each day's quiz opens"],
+  ["wisdom", "Daily Wisdom", "Every morning at 7:30"],
+  ["prayer", "Prayer times", "At each of the five prayers"],
+  ["tilawah", "Daily tilawah", "At the time you choose below"],
+  ["streak", "Streak reminder", "In the evening, if you haven't learned yet"],
+  ["kahf", "Friday Al-Kahf", "Friday morning"],
+  ["ramadan", "Ramadan prize quiz", "When each day's quiz opens"],
 ];
+const NICON: Record<string, typeof NBell> = { wisdom: NSunrise, prayer: NClock, tilawah: NBook, streak: NFlame, kahf: NMark, ramadan: NTrophy };
 
 function where(): Promise<{ lat: number; lng: number } | null> {
   return new Promise((res) => {
@@ -79,7 +81,7 @@ export function NotifyCard() {
     if (!r.ok) toast.error("Couldn't save.");
   };
   return <div className="mt-6 border-2 border-foreground p-5">
-    <p className="font-serif text-2xl">🔔 Notifications</p>
+    <p className="flex items-center gap-2 font-serif text-2xl"><NBell className="size-6" /> Notifications</p>
     {state === "loading" && <p className="mt-1 text-sm text-muted-foreground">Checking…</p>}
     {state === "unsupported" && <p className="mt-1 text-sm text-muted-foreground">This browser can’t receive notifications. On iPhone, install IlmStation first (Add to Home Screen), then open it from your home screen.</p>}
     {state === "denied" && <p className="mt-1 text-sm text-muted-foreground">Notifications are blocked for IlmStation. Allow them in your phone or browser settings, then come back here.</p>}
@@ -87,8 +89,10 @@ export function NotifyCard() {
       <button disabled={busy} onClick={() => void turnOn()} className="mt-3 border-2 border-foreground bg-primary px-4 py-2 text-sm font-bold disabled:opacity-50">{busy ? "Turning on…" : "Turn on notifications"}</button></>}
     {state === "on" && prefs && <>
       <div className="mt-3 grid gap-2">{LABELS.map(([k, t, d]) => <label key={k} className="flex items-center justify-between gap-3 border-2 border-foreground p-3">
-        <span><b className="text-sm">{t}</b><br /><span className="text-xs text-muted-foreground">{k === "prayer" && !hasLoc ? "Needs your location: tap “Update” below" : d}</span></span>
-        <input type="checkbox" className="size-5" checked={prefs[k]} onChange={(e) => void toggle(k, e.target.checked)} />
+        {(() => { const I = NICON[k] ?? NBell; return <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-[#1c1a17]"><I className="size-5" /></span>; })()}
+        <span className="min-w-0 flex-1"><b className="text-sm">{t}</b><br /><span className="text-xs text-muted-foreground">{k === "prayer" && !hasLoc ? "Needs your location: tap “Update” below" : d}</span></span>
+        <input type="checkbox" className="peer sr-only" checked={prefs[k]} onChange={(e) => void toggle(k, e.target.checked)} />
+        <span aria-hidden className="relative h-7 w-12 shrink-0 rounded-full border-[1.5px] border-foreground bg-muted transition-colors after:absolute after:left-[3px] after:top-[3px] after:size-5 after:rounded-full after:bg-foreground after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:left-[22px]" />
       </label>)}</div>
       {prefs.tilawah && <div className="mt-2 grid gap-2 border-2 border-foreground bg-muted p-3">
         <label className="flex items-center justify-between gap-3 text-sm font-semibold">Tilawah time
@@ -129,7 +133,7 @@ export function NotifyPrompt() {
     catch { toast.error("Couldn't turn on notifications."); } finally { setBusy(false); later(); }
   };
   return <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-2 border-foreground bg-secondary p-3 text-secondary-foreground shadow-brutal-sm">
-    <span className="text-sm"><b>🔔 Stay on track</b><br />Get Daily Wisdom every morning and prayer time reminders.</span>
+    <span className="text-sm"><b>Stay on track</b><br />Get Daily Wisdom every morning and prayer time reminders.</span>
     <span className="flex gap-2">
       <button disabled={busy} onClick={() => void on()} className="border-2 border-foreground bg-primary px-3 py-1.5 text-sm font-bold text-foreground disabled:opacity-50">{busy ? "…" : "Turn on"}</button>
       <button onClick={later} className="border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold text-foreground">Not now</button>

@@ -128,25 +128,33 @@ export function LockedTag({ cost }: { cost: number }) {
 export function UnlockDialog({ item, onOpenChange }: { item?: { id: string; title: string; cost: number } | undefined; onOpenChange: (open: boolean) => void }) {
   const { points, unlockWithPoints, activatePremium, config } = usePremium();
   const cheapest = config.redeem.filter((o) => o.on).sort((a, b) => a.points - b.points)[0];
+  const cost = item?.cost ?? 0;
+  const row = "flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-foreground p-4 text-left disabled:opacity-50";
+  const tile = "grid size-11 shrink-0 place-items-center rounded-xl";
   return <Dialog open={!!item} onOpenChange={onOpenChange}>
-    <DialogContent className="border-2 border-foreground bg-background shadow-brutal sm:rounded-none">
-      <DialogHeader>
-        <DialogTitle className="font-serif text-3xl">Unlock “{item?.title}”</DialogTitle>
-        <DialogDescription>This is Premium. Get Premium for everything, or spend points on this one.</DialogDescription>
+    <DialogContent className="border-2 border-foreground bg-background shadow-brutal sm:rounded-none max-sm:w-[calc(100%-2rem)] max-sm:rounded-3xl max-sm:border-[1.5px] [&>button.absolute]:grid [&>button.absolute]:size-9 [&>button.absolute]:place-items-center [&>button.absolute]:rounded-full [&>button.absolute]:border-[1.5px] [&>button.absolute]:border-foreground [&>button.absolute]:opacity-100">
+      <DialogHeader className="pr-10 text-left">
+        <p className="text-xs font-bold uppercase text-muted-foreground">Premium {item?.id === "premium" ? "" : "reading"}</p>
+        <DialogTitle className="font-serif text-3xl leading-tight">{item?.title}</DialogTitle>
+        <DialogDescription>Get Premium to open everything, or use your points.</DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
-        <div className="border-2 border-foreground bg-primary p-4 shadow-brutal-sm">
-          <p className="flex items-center gap-2 font-serif text-2xl"><Crown className="size-5" /> IlmStation Premium</p>
-          <p className="mt-1 text-sm">Plans in Wallet & store → Premium.{cheapest ? ` Or ${cheapest.points.toLocaleString()} points = ${cheapest.days} days.` : ""}</p>
-          <Button className="mt-3 w-full" variant="secondary" onClick={() => { activatePremium(); onOpenChange(false); }}>Get Premium</Button>
-        </div>
-        {!!item?.cost && <div className="border-2 border-foreground p-4 shadow-brutal-sm">
-          <p className="flex items-center gap-2 font-serif text-2xl"><Sparkles className="size-5" /> Use your points</p>
-          <p className="mt-1 text-sm text-muted-foreground">{item.cost} points · you have {points}.</p>
-          <Button className="mt-3 w-full" variant="outline" disabled={points < item.cost} onClick={() => {
-            void unlockWithPoints(item.id, item.cost).then((ok) => { if (ok) { onOpenChange(false); toast.success(`Unlocked with ${item.cost} points`); } });
-          }}>{points < item.cost ? "Not enough points yet" : `Unlock for ${item.cost} points`}</Button>
-        </div>}
+        <button onClick={() => { onOpenChange(false); const go = (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo; if (go) { try { sessionStorage.setItem("iq_rewards_tab", "Premium"); } catch { /* */ } go("rewards"); } else activatePremium(); }} className={`${row} bg-primary text-[#1c1a17]`}>
+          <span className={`${tile} bg-white`}><Crown className="size-5" /></span>
+          <span className="min-w-0 flex-1"><b className="block">Get Premium</b><span className="text-sm opacity-80">Every Premium book, lesson and topic</span></span>
+          <span className="text-2xl leading-none">›</span>
+        </button>
+        {cost > 0 ? <button disabled={points < cost} onClick={() => {
+            void unlockWithPoints(item!.id, cost).then((ok) => { if (ok) { onOpenChange(false); toast.success(`Unlocked with ${cost} points`); } });
+          }} className={row}>
+          <span className={`${tile} bg-muted`}><Sparkles className="size-5" /></span>
+          <span className="min-w-0 flex-1"><b className="block">{points < cost ? `Need ${(cost - points).toLocaleString()} more points` : `Unlock with ${cost.toLocaleString()} points`}</b><span className="text-sm text-muted-foreground">Just this one · you have {points.toLocaleString()}</span></span>
+        </button>
+        : cheapest ? <button onClick={() => { try { sessionStorage.setItem("iq_rewards_tab", "Redeem"); } catch { /* */ } onOpenChange(false); const go = (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo; if (go) go("rewards"); else window.location.href = "/app?s=rewards"; }} className={row}>
+          <span className={`${tile} bg-muted`}><Sparkles className="size-5" /></span>
+          <span className="min-w-0 flex-1"><b className="block">Swap points for Premium days</b><span className="text-sm text-muted-foreground">{cheapest.points.toLocaleString()} points = {cheapest.days} days · you have {points.toLocaleString()}</span></span>
+          <span className="text-2xl leading-none">›</span>
+        </button> : null}
       </div>
     </DialogContent>
   </Dialog>;

@@ -14,39 +14,39 @@ import { cn } from "@/lib/utils";
 /* ---------- occasions ---------- */
 export type Occasion = { id: string; label: string; ar: string; en: string; design: number; messages: string[] };
 export const OCCASIONS: Occasion[] = [
-  { id: "ramadan", label: "🌙 Ramadan", ar: "رمضان كريم", en: "Ramadan Kareem", design: 8, messages: [
+  { id: "ramadan", label: "Ramadan", ar: "رمضان كريم", en: "Ramadan Kareem", design: 8, messages: [
     "May Allah accept your fasting, prayers and good deeds this Ramadan.",
     "Wishing you a blessed Ramadan full of mercy, forgiveness and barakah.",
     "May this Ramadan bring you closer to Allah and to the Qur’an." ] },
-  { id: "eid-fitr", label: "🎉 Eid al-Fitr", ar: "عيد مبارك", en: "Eid Mubarak", design: 6, messages: [
+  { id: "eid-fitr", label: "Eid al-Fitr", ar: "عيد مبارك", en: "Eid Mubarak", design: 6, messages: [
     "Taqabbal Allahu minna wa minkum. May Allah accept from us and from you.",
     "Eid Mubarak! May this Eid bring you peace, joy and barakah.",
     "Wishing you and your family a blessed Eid, full of love and mercy." ] },
-  { id: "eid-adha", label: "🐑 Eid al-Adha", ar: "عيد أضحى مبارك", en: "Eid al-Adha Mubarak", design: 12, messages: [
+  { id: "eid-adha", label: "Eid al-Adha", ar: "عيد أضحى مبارك", en: "Eid al-Adha Mubarak", design: 12, messages: [
     "Taqabbal Allahu minna wa minkum. Eid al-Adha Mubarak!",
     "May Allah accept your sacrifice and fill your home with barakah.",
     "Wishing you a blessed Eid al-Adha with family and loved ones." ] },
-  { id: "jumuah", label: "🕌 Jumu’ah", ar: "جمعة مباركة", en: "Jumu’ah Mubarak", design: 7, messages: [
+  { id: "jumuah", label: "Jumu’ah", ar: "جمعة مباركة", en: "Jumu’ah Mubarak", design: 7, messages: [
     "Don’t forget Surah al-Kahf and plenty of salawat on the Prophet ﷺ today.",
     "May Allah accept your duas on this blessed day.",
     "Jumu’ah Mubarak! May your week be full of barakah." ] },
-  { id: "nikah", label: "💍 Nikah", ar: "بارك الله لكما", en: "Barakallahu lakuma", design: 10, messages: [
+  { id: "nikah", label: "Nikah", ar: "بارك الله لكما", en: "Barakallahu lakuma", design: 10, messages: [
     "May Allah bless you both, shower His blessings on you, and unite you in goodness.",
     "Congratulations on your nikah! May your home be filled with love, mercy and sakinah.",
     "May Allah make your marriage a means to Jannah." ] },
-  { id: "baby", label: "👶 New baby", ar: "بارك الله لك في الموهوب لك", en: "Congratulations on your baby", design: 13, messages: [
+  { id: "baby", label: "New baby", ar: "بارك الله لك في الموهوب لك", en: "Congratulations on your baby", design: 13, messages: [
     "May Allah bless the gift He has given you, make the child righteous, and let you see them grow strong.",
     "Alhamdulillah! May your little one be a coolness of the eyes for you.",
     "Congratulations! May Allah make your child among the righteous." ] },
-  { id: "hajj", label: "🕋 Hajj & Umrah", ar: "حجاً مبروراً", en: "Hajj Mabrur", design: 9, messages: [
+  { id: "hajj", label: "Hajj & Umrah", ar: "حجاً مبروراً", en: "Hajj Mabrur", design: 9, messages: [
     "May Allah accept your Hajj, forgive your sins and reward your efforts.",
     "Umrah Mabrurah! May Allah accept your worship and duas.",
     "Welcome back! May Allah accept from you and keep you steadfast." ] },
-  { id: "congrats", label: "📖 Congratulations", ar: "ما شاء الله تبارك الله", en: "Congratulations", design: 6, messages: [
+  { id: "congrats", label: "Congratulations", ar: "ما شاء الله تبارك الله", en: "Congratulations", design: 6, messages: [
     "MashaAllah on completing your hifz! May the Qur’an be a light for you in this life and the next.",
     "Congratulations on your khatm! May Allah accept it from you.",
     "Congratulations on your graduation! May Allah bless your next steps." ] },
-  { id: "condolence", label: "🤲 Condolence", ar: "إنا لله وإنا إليه راجعون", en: "With sincere condolences", design: 11, messages: [
+  { id: "condolence", label: "Condolence", ar: "إنا لله وإنا إليه راجعون", en: "With sincere condolences", design: 11, messages: [
     "May Allah forgive them, have mercy on them, and grant them Jannatul Firdaws.",
     "May Allah give you patience and ease your pain. You are in our duas.",
     "To Allah belongs what He took and what He gave. May Allah grant you sabr." ] },
@@ -333,7 +333,7 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
   return <section className="mt-5 min-w-0 border-2 border-foreground bg-background p-5 shadow-brutal">
     <span ref={probeA} className="hidden font-arabic" /><span ref={probeS} className="hidden font-serif" />
     <h2 className="font-serif text-2xl">{title}</h2>
-    <div className="mt-3 flex flex-wrap gap-2">{OCCASIONS.map((o) => <button key={o.id} type="button" onClick={() => pickOccasion(o)}
+    <div className="mt-3 flex flex-wrap gap-2 max-sm:-mx-5 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-5 max-sm:pb-1 [&>button]:shrink-0">{OCCASIONS.map((o) => <button key={o.id} type="button" onClick={() => pickOccasion(o)}
       className={cn("border-2 border-foreground px-3 py-1.5 text-sm font-semibold", occ.id === o.id ? "bg-primary" : "bg-background hover:bg-muted")}>{o.label}</button>)}</div>
 
     <div className="mt-4 grid gap-5 md:grid-cols-2">
@@ -355,11 +355,11 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
 
         <input className={input} placeholder="To (optional), e.g. Mum" value={to} onChange={(e) => setTo(e.target.value)} maxLength={30} />
         <textarea className="w-full border-2 border-foreground bg-background p-3" rows={4} maxLength={220} value={message} onChange={(e) => setMessage(e.target.value)} aria-label="Your message" />
-        <div className="flex flex-wrap gap-2">{occ.messages.map((m, i) => <button key={i} type="button" onClick={() => setMessage(m)} className="border border-foreground px-2 py-1 text-xs hover:bg-muted">Message {i + 1}</button>)}</div>
+        <div className="flex flex-wrap gap-2">{occ.messages.map((m, i) => <button key={i} type="button" onClick={() => setMessage(m)} className="rounded-full border-[1.5px] border-foreground px-3 py-1.5 text-xs font-semibold hover:bg-muted">Message {i + 1}</button>)}</div>
         <input className={input} placeholder="From (your name)" value={from} onChange={(e) => setFrom(e.target.value)} maxLength={30} />
         {premium
           ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showMark} onChange={(e) => setShowMark(e.target.checked)} /> Show “Made with IlmStation” mark</label>
-          : <p className="text-xs text-muted-foreground">👑 Premium members can remove the IlmStation mark.</p>}
+          : <p className="text-xs text-muted-foreground">Premium members can remove the IlmStation mark.</p>}
         {locked
           ? <div className="border-2 border-foreground bg-primary p-3">
               <p className="text-sm font-semibold">👑 This is a Premium design.</p>
