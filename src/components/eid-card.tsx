@@ -333,7 +333,7 @@ export function CardMaker({ initial = "eid-fitr", title = "Make a card" }: { ini
   return <section className="mt-5 min-w-0 border-2 border-foreground bg-background p-5 shadow-brutal">
     <span ref={probeA} className="hidden font-arabic" /><span ref={probeS} className="hidden font-serif" />
     <h2 className="font-serif text-2xl">{title}</h2>
-    <div className="mt-3 flex flex-wrap gap-2">{OCCASIONS.map((o) => <button key={o.id} type="button" onClick={() => pickOccasion(o)}
+    <div className="mt-3 flex flex-wrap gap-2 max-sm:-mx-5 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-5 max-sm:pb-1 [&>button]:shrink-0">{OCCASIONS.map((o) => <button key={o.id} type="button" onClick={() => pickOccasion(o)}
       className={cn("border-2 border-foreground px-3 py-1.5 text-sm font-semibold", occ.id === o.id ? "bg-primary" : "bg-background hover:bg-muted")}>{o.label}</button>)}</div>
 
     <div className="mt-4 grid gap-5 md:grid-cols-2">
