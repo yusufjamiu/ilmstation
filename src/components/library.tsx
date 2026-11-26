@@ -347,7 +347,7 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
         )}
 
         {list.length === 0 ? (
-          <p className="mt-8 text-sm text-muted-foreground">{cat === "Saved" ? "Nothing saved yet. Open something and tap Save." : "Nothing matches that yet."}</p>
+          <p className="mt-8 text-sm text-muted-foreground">{cat === "Saved" ? "Nothing saved yet. Open something and tap Save." : zone === "kids" && !q ? "New books for you are coming soon! 📚" : "Nothing matches that yet."}</p>
         ) : (
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-1 sm:gap-4 md:grid-cols-2">
             {list.map((i, n) => {

@@ -141,7 +141,7 @@ type Screen = "home" | "you" | "kidrank" | "study" | "play" | "quests" | "hifz" 
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
-const KID_SCREENS = ["kidrank", "home", "kidgames", "study", "library", "settings"];
+const KID_SCREENS = ["kidrank", "home", "kidgames", "study", "library", "settings", "you"];
 const kidNav = [
   { label: "Learn & play", items: [["home", "Home", Home], ["kidrank", "Leaderboard", Trophy], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library]] },
   { label: "You", items: [["settings", "Settings", Settings]] },
@@ -187,7 +187,7 @@ export function IlmStationApp() {
   useEffect(() => { try { if (localStorage.getItem("iq_halaqah_invite")) selectScreen("halaqah"); } catch { /* ignore */ } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // let pop-ups elsewhere (like the unlock pop-up) switch pages without reloading the app
   useEffect(() => { (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo = (sc: string) => selectScreen(sc as Screen); return () => { delete (window as unknown as { __ilmGo?: unknown }).__ilmGo; }; });
-  const profileScreen: Screen = isKid ? "settings" : "community";
+  const profileScreen: Screen = "you";
   const selectScreen = (next: Screen) => { setScreen(next); setMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   // children only reach their own screens
   useEffect(() => { if (isKid && !KID_SCREENS.includes(screen)) setScreen("home"); }, [isKid, screen]);
