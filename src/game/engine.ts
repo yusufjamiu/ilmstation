@@ -55,7 +55,7 @@ import {
 import { Traffic, type Vehicle } from "./traffic";
 import { RopeRig, type RopeMode, type RopeState } from "./rope";
 import { Tennis, type Court, type TennisInput, type TennisSnap, type TennisState } from "./tennis";
-import { VEHICLE_INFO, vehicleMesh, type VehicleKind } from "./vehicles";
+import { VEHICLE_INFO, vehicleMesh, randomCarColor, type VehicleKind } from "./vehicles";
 import {
   forgetHuman,
   gesture,
@@ -99,7 +99,9 @@ export type InteriorKind =
   /** a hotel: the lobby with the reception, the lift and the stairs */
   | "hotel"
   /** your hotel room upstairs */
-  | "hotelroom";
+  | "hotelroom"
+  /** from the gate down the glass jet bridge to the plane's door, the tarmac below */
+  | "jetbridge";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -681,6 +683,7 @@ export class IlmCityEngine {
     nabawi: [],
     hotel: [],
     hotelroom: [],
+    jetbridge: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -712,6 +715,7 @@ export class IlmCityEngine {
     nabawi: new THREE.Vector3(2350, 0, 320),
     hotel: new THREE.Vector3(2550, 0, 320),
     hotelroom: new THREE.Vector3(2650, 0, 320),
+    jetbridge: new THREE.Vector3(2800, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -1026,7 +1030,11 @@ export class IlmCityEngine {
     this.interiorName = name;
     this.where = kind;
     const o = this.interiorOrigin[kind];
-    this.player.position.set(o.x, 0, o.z + (kind === "hotelroom" ? 3 : -2));
+    this.player.position.set(
+      o.x,
+      0,
+      o.z + (kind === "hotelroom" ? 3 : kind === "jetbridge" ? 10 : -2),
+    );
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
     this.marker.visible = false;
@@ -2373,6 +2381,7 @@ export class IlmCityEngine {
     this.buildCityFill();
     this.buildRingFlyover("madinah");
     this.buildRingFlyover("makkah");
+    this.buildOpenRoads();
     this.buildSaudiFill("madinah");
 
     // big roadside billboards along every expressway and Ikorodu Road
@@ -2427,7 +2436,8 @@ export class IlmCityEngine {
       boards.forEach((b, i) => {
         const f = (i + 1) / (boards.length + 1);
         const side = i % 2 ? 1 : -1;
-        const off = d.parent ? 16 : 17;
+        // beside the four-lane roads of Makkah and Madinah, set back past the ramps
+        const off = d.parent ? 16 : x0 < -3000 ? 27 : 17;
         const x = x0 + dx * f + nx * side * off,
           z = z0 + dz * f + nz * side * off;
         this.billboard(b, x, z, Math.atan2(-nx * side, -nz * side));
@@ -2973,6 +2983,7 @@ export class IlmCityEngine {
         if (Math.abs(x - d.origin.x) < H.x + 16 && Math.abs(z - d.origin.z) < H.z + 16) return true;
       }
       for (const sg of segs) if (IlmCityEngine.distToSeg(x, z, sg) < 24) return true;
+      for (const sg of this.openRoads) if (IlmCityEngine.distToSeg(x, z, sg) < 20) return true;
       for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 30) return true;
       return false;
     };
@@ -3039,6 +3050,164 @@ export class IlmCityEngine {
     }
   }
 
+  /** Roads that carry on out of town, so no main street stops dead at the sand. */
+  private openRoads: [number, number, number, number][] = [];
+  /** In Makkah and Madinah, a main street whose end joins nothing carries on out across the
+      desert until it meets another road or runs off past the horizon, lit all the way; and the
+      desert itself runs on to the horizon all round. */
+  private buildOpenRoads() {
+    const segs = this.roadSegments();
+    const b = this.worldBatch;
+    const LP = IlmCityEngine.lampParts();
+    const poleM = mat(0xdfe2de, { metalness: 0.3 });
+    const dashM = new THREE.MeshBasicMaterial({ color: PALETTE.line });
+    for (const city of ["makkah", "madinah"]) {
+      const il = DISTRICTS.filter((d) => cityOf(d) === city);
+      if (!il.length) continue;
+      const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)),
+        x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)),
+        z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)),
+        z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z));
+      // the desert on all sides, to the horizon
+      const sand = new THREE.Mesh(groundGeo(x1 - x0 + 3200, z1 - z0 + 3200, 20), mat(0xd9c49a));
+      sand.position.set((x0 + x1) / 2, -0.04, (z0 + z1) / 2);
+      sand.receiveShadow = true;
+      this.scene.add(sand);
+      const inArea = (x: number, z: number, skip: District) =>
+        DISTRICTS.some(
+          (d) =>
+            d !== skip &&
+            Math.abs(x - d.origin.x) < halfOf(d).x + 8 &&
+            Math.abs(z - d.origin.z) < halfOf(d).z + 8,
+        );
+      for (const d of il) {
+        if (d.id === "mina" || d.id === "arafat") continue;
+        const H = halfOf(d);
+        for (const dir of [-1, 1]) {
+          const ex = d.origin.x + dir * (H.x - 5),
+            ez = d.origin.z;
+          // does a road already join this end?
+          const joined = segs.some(
+            ([a, bz, c, e]) =>
+              Math.hypot(a - ex, bz - ez) < 30 ||
+              Math.hypot(c - ex, e - ez) < 30 ||
+              IlmCityEngine.distToSeg(ex + dir * 12, ez, [a, bz, c, e]) < 10,
+          );
+          if (joined) continue;
+          // run on out until it meets a road or another area, or 900 m
+          let len = 0;
+          const max = 900;
+          while (len < max) {
+            const x = ex + dir * (len + 6);
+            if (inArea(x, ez, d)) {
+              len = Math.max(0, len - 10);
+              break;
+            }
+            if (len > 20 && segs.some((sg) => IlmCityEngine.distToSeg(x, ez, sg) < 8)) break;
+            len += 6;
+          }
+          if (len < 30) continue;
+          const mx = ex + (dir * len) / 2;
+          this.openRoads.push([ex, ez, ex + dir * len, ez]);
+          const k = new THREE.Mesh(groundGeo(len, 20, 2), MAT.pavement());
+          k.position.set(mx, 0.02, ez);
+          k.receiveShadow = true;
+          b.addObject(k);
+          const r = new THREE.Mesh(groundGeo(len, 12, 4), MAT.asphalt());
+          r.position.set(mx, 0.04, ez);
+          r.receiveShadow = true;
+          b.addObject(r);
+          for (let t = 4; t < len - 2; t += 8) {
+            const m = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.25), dashM);
+            m.rotation.x = -Math.PI / 2;
+            m.position.set(ex + dir * t, 0.06, ez);
+            b.addObject(m);
+          }
+          // lamps on alternate sides, palms in between
+          for (let t = 18, i = 0; t < len - 6; t += 30, i++) {
+            const sz = i % 2 ? 8 : -8;
+            for (const m of [
+              new THREE.Mesh(LP.pole, poleM),
+              new THREE.Mesh(LP.head, this.lampMat),
+              new THREE.Mesh(LP.pool, this.poolMat),
+            ]) {
+              m.position.set(ex + dir * t, 0, ez + sz);
+              m.rotation.y = sz > 0 ? Math.PI / 2 : -Math.PI / 2;
+              b.addObject(m);
+            }
+            this.colliders.out.push({
+              x0: ex + dir * t - 0.3,
+              x1: ex + dir * t + 0.3,
+              z0: ez + sz - 0.3,
+              z1: ez + sz + 0.3,
+            });
+            b.addObject(palm(ex + dir * (t + 15), ez + (i % 2 ? -9.5 : 9.5), 0.9));
+          }
+          const t = label(`${d.highway} →`, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
+          t.position.set(ex + dir * Math.min(60, len / 2), 6.5, ez + 9);
+          this.scene.add(t);
+        }
+      }
+    }
+  }
+
+  /** The flyovers you can drive on: the ring deck and its ramps. */
+  private flyovers: {
+    x: number;
+    z: number;
+    R0: number;
+    R1: number;
+    Y: number;
+    ramps: { bx: number; bz: number; tx: number; tz: number; w: number }[];
+  }[] = [];
+  private ringCars: {
+    mesh: THREE.Object3D;
+    cx: number;
+    cz: number;
+    r: number;
+    a: number;
+    w: number;
+    y: number;
+  }[] = [];
+  private stepRingCars(dt: number) {
+    const p = this.camera.position;
+    for (const c of this.ringCars) {
+      if (Math.hypot(p.x - c.cx, p.z - c.cz) > 400) continue;
+      c.a += c.w * dt;
+      c.mesh.position.set(c.cx + Math.cos(c.a) * c.r, c.y, c.cz + Math.sin(c.a) * c.r);
+      // facing along the ring, the way it is going
+      c.mesh.rotation.y = -c.a + (c.w > 0 ? -Math.PI / 2 : Math.PI / 2);
+    }
+  }
+  /** The road surface under a point: on the ground, up a ramp or on the ring deck. `h` is how
+      high you are now, so you stay on the level you are on (over or under the flyover). */
+  private onRamp = false;
+  private surfaceAt(x: number, z: number, h: number): number | null {
+    this.onRamp = false;
+    for (const f of this.flyovers) {
+      const d = Math.hypot(x - f.x, z - f.z);
+      if (d > f.R1 + 120) continue;
+      for (const r of f.ramps) {
+        const dx = r.tx - r.bx,
+          dz = r.tz - r.bz,
+          L = Math.hypot(dx, dz);
+        const t = ((x - r.bx) * dx + (z - r.bz) * dz) / (L * L);
+        const lat = Math.abs(((x - r.bx) * dz - (z - r.bz) * dx) / L);
+        if (t < -0.02 || t > 1.06 || lat > r.w / 2 - 0.4) continue;
+        const hr = Math.max(0, Math.min(1, t)) * f.Y;
+        this.onRamp = true;
+        if (Math.abs(hr - h) < 1.6) return hr;
+        if (h < 0.5 && hr > 1.2) return null; // the side of the ramp is a wall
+      }
+      if (h > f.Y - 1.6) return d > f.R0 + 1 && d < f.R1 - 1 ? f.Y : null;
+    }
+    return h > 1.6 ? null : 0;
+  }
+  /** On the flyover you can't get out of the car. */
+  onFlyover() {
+    return this.driving && this.car.position.y > 0.5;
+  }
+
   /** The raised ring road round the heart of Makkah and Madinah: a four-lane flyover on
       pillars, high over the roundabout and the expressways, lit along its parapets. */
   private buildRingFlyover(city: string) {
@@ -3049,6 +3218,7 @@ export class IlmCityEngine {
       R1 = 72,
       Y = 9; // inner and outer edge, deck height
     const concrete = this.glow(new THREE.MeshStandardMaterial({ color: 0xdcd6ca, flatShading: true }), 0.35, 0xfff0d8);
+    const white = mat(0xf4f4f0);
     const under = this.glow(new THREE.MeshStandardMaterial({ color: 0xb9b2a5, flatShading: true }), 0.25, 0xfff0d8);
     // the deck: a ring slab
     const shape = new THREE.Shape();
@@ -3062,15 +3232,102 @@ export class IlmCityEngine {
     const top = new THREE.RingGeometry(R0, R1, 96, 1);
     top.rotateX(-Math.PI / 2);
     b.add(top, MAT.asphalt(), c.x, Y + 0.02, c.z, 0, false);
-    // parapets, with a green band that glows after dark
+    // the ramps: one beside each expressway, from the road up to the outer lane of the ring
+    const ramps: { bx: number; bz: number; tx: number; tz: number; w: number }[] = [];
+    const RW = 8,
+      RL = 82;
+    for (const d of DISTRICTS.filter((q) => !q.parent && cityOf(q) === city)) {
+      const [ax, az] = this.roadEnd(d);
+      const len = Math.hypot(ax - c.x, az - c.z);
+      if (len < 24 + 66 + RL + 10) continue;
+      const ux = (ax - c.x) / len,
+        uz = (az - c.z) / len;
+      // to the right of the road as you drive in, just off its pavement
+      const px = -uz,
+        pz = ux,
+        off = 19.5;
+      const top = Math.sqrt((R1 - 3) ** 2 - off ** 2);
+      const T = { x: c.x + ux * top + px * off, z: c.z + uz * top + pz * off };
+      const B = { x: c.x + ux * (top + RL) + px * off, z: c.z + uz * (top + RL) + pz * off };
+      ramps.push({ bx: B.x, bz: B.z, tx: T.x, tz: T.z, w: RW });
+      // the sloping deck, its parapets, edge lines and the pillars under it
+      const ry = Math.atan2(T.x - B.x, T.z - B.z);
+      const slope = Math.atan2(Y, RL);
+      const L = Math.hypot(RL, Y);
+      const mx = (B.x + T.x) / 2,
+        mz = (B.z + T.z) / 2;
+      const slab = new THREE.BoxGeometry(RW, 1, L);
+      slab.rotateX(-slope);
+      b.add(slab, under, mx, Y / 2 - 0.5, mz, ry);
+      const surf = new THREE.PlaneGeometry(RW, L);
+      surf.rotateX(-Math.PI / 2);
+      surf.rotateX(-slope);
+      b.add(surf, MAT.asphalt(), mx, Y / 2 + 0.03, mz, ry, false);
+      for (const sx of [-RW / 2 + 0.2, RW / 2 - 0.2]) {
+        const wall = new THREE.BoxGeometry(0.4, 1.1, L);
+        wall.rotateX(-slope);
+        wall.translate(sx, 0, 0);
+        b.add(wall, concrete, mx, Y / 2 + 0.55, mz, ry);
+        const line = new THREE.PlaneGeometry(0.22, L);
+        line.rotateX(-Math.PI / 2);
+        line.rotateX(-slope);
+        line.translate(sx * 0.85, 0, 0);
+        b.add(line, white, mx, Y / 2 + 0.06, mz, ry, false);
+      }
+      for (let k = 1; k < 5; k++) {
+        const f = k / 5;
+        const h = f * Y;
+        if (h < 2.2) continue;
+        const x = B.x + (T.x - B.x) * f,
+          z = B.z + (T.z - B.z) * f;
+        b.add(new THREE.BoxGeometry(RW - 2, h - 0.6, 1.4), concrete, x, (h - 0.6) / 2, z, ry);
+      }
+      const sign = label(city === "makkah" ? "↗ Third Ring Road" : "↗ King Faisal Ring Road", {
+        size: 0.9,
+        bg: "rgba(31,111,99,0.92)",
+      });
+      sign.position.set(B.x + (T.x - B.x) * 0.08, 4.2, B.z + (T.z - B.z) * 0.08);
+      this.scene.add(sign);
+    }
+    // parapets, with a green band that glows after dark (open where the ramps join)
     const green = this.glow(new THREE.MeshStandardMaterial({ color: 0x2f8f63 }), 1.4, 0x3fe08a);
+    const gaps = ramps
+      .map((r) => Math.atan2(r.tx - c.x, r.tz - c.z))
+      .map((t) => (t + Math.PI * 2) % (Math.PI * 2))
+      .sort((p, q) => p - q);
+    const half = (RW / 2 + 0.8) / R1;
+    const arcs: [number, number][] = [];
+    if (!gaps.length) arcs.push([0, Math.PI * 2]);
+    gaps.forEach((g0, i) => {
+      const g1 = i + 1 < gaps.length ? gaps[i + 1] : gaps[0] + Math.PI * 2;
+      arcs.push([g0 + half, g1 - g0 - half * 2]);
+    });
     for (const r of [R0 + 0.3, R1 - 0.3]) {
-      b.add(new THREE.CylinderGeometry(r, r, 1.2, 96, 1, true), concrete, c.x, Y + 0.6, c.z);
-      b.add(new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.3, 96, 1, true), green, c.x, Y - 0.7, c.z);
+      const segs2: [number, number][] = r > R0 + 1 ? arcs : [[0, Math.PI * 2]];
+      for (const [t0, tl] of segs2) {
+        b.add(new THREE.CylinderGeometry(r, r, 1.2, 64, 1, true, t0, tl), concrete, c.x, Y + 0.6, c.z);
+        b.add(new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.3, 64, 1, true, t0, tl), green, c.x, Y - 0.7, c.z);
+      }
+    }
+    this.flyovers.push({ x: c.x, z: c.z, R0, R1, Y, ramps });
+    // cars going round the ring, in both directions
+    for (let i = 0; i < 10; i++) {
+      const dir = i % 2 ? 1 : -1;
+      const m = vehicleMesh(i % 4 === 0 ? "suv" : "sedan", randomCarColor(Math.random));
+      m.castShadow = true;
+      this.scene.add(m);
+      this.ringCars.push({
+        mesh: m,
+        cx: c.x,
+        cz: c.z,
+        r: dir > 0 ? R1 - 4.2 : R0 + 4.2,
+        a: (i / 10) * Math.PI * 2,
+        w: (dir * (9 + (i % 3) * 2)) / ((R0 + R1) / 2),
+        y: Y,
+      });
     }
     // lane lines: a dashed white ring between the two lanes each way, a yellow one in the middle
-    const white = mat(0xf4f4f0),
-      yellow = mat(PALETTE.line);
+    const yellow = mat(PALETTE.line);
     for (let i = 0; i < 120; i++) {
       const a = (i / 120) * Math.PI * 2;
       for (const [r, m] of [
@@ -3191,13 +3448,14 @@ export class IlmCityEngine {
     // a footbridge over the middle of a long expressway (Makkah and Madinah)
     if (len > 160 && x0 < -3000) {
       const fb = new THREE.Group();
-      fb.position.copy(g.position);
+      // three-quarters of the way out, clear of the ramps up to the ring road
+      fb.position.set(x0 + dx * 0.8, 0, z0 + dz * 0.8);
       fb.rotation.y = g.rotation.y;
       const towers = this.footbridge(this.worldBatch, 0, 0, 34, true, fb);
       const a = g.rotation.y;
       for (const t of towers) {
-        const wx = g.position.x + t.x * Math.cos(a) + t.z * Math.sin(a),
-          wz = g.position.z - t.x * Math.sin(a) + t.z * Math.cos(a);
+        const wx = fb.position.x + t.x * Math.cos(a) + t.z * Math.sin(a),
+          wz = fb.position.z - t.x * Math.sin(a) + t.z * Math.cos(a);
         this.colliders.out.push({ x0: wx - 1.8, x1: wx + 1.8, z0: wz - 1.8, z1: wz + 1.8 });
       }
     }
@@ -11220,6 +11478,191 @@ export class IlmCityEngine {
   private terminalStaff: THREE.Object3D[] = [];
   private departures: { set: (lines: string[]) => void } | null = null;
 
+  private termSeats: { x: number; z: number; taken: boolean }[] = [];
+  /** Sit in a free seat in the terminal while you wait for boarding. */
+  sitTerminal() {
+    if (this.where !== "terminal") return false;
+    const o = this.interiorOrigin.terminal;
+    const p = this.player.position;
+    const free = this.termSeats
+      .filter((s) => !s.taken)
+      .sort(
+        (a, b) =>
+          Math.hypot(o.x + a.x - p.x, o.z + a.z - p.z) - Math.hypot(o.x + b.x - p.x, o.z + b.z - p.z),
+      )[0];
+    if (!free) return false;
+    const back = { x: p.x, z: p.z + 0.9, rot: this.player.rotation.y };
+    this.player.position.set(o.x + free.x, 0, o.z + free.z);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "chair");
+    this.acting = { ...back, scene: this.where };
+    this.tapTarget = null;
+    this.marker.visible = false;
+    return true;
+  }
+
+  /** The jet bridge: a glass tunnel from the gate to the plane's open door, high over the
+      tarmac, with the ground crew, the baggage carts and the other planes outside. */
+  private buildJetBridge() {
+    const o = this.interiorOrigin.jetbridge;
+    const g = new THREE.Group();
+    g.position.copy(o);
+    g.userData.indoors = true;
+    this.scene.add(g);
+    const W = 3.4,
+      L = 24;
+    // the floor, the roof and the glass sides of the tunnel
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L), mat(0x4a5a6a));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0.01, 0);
+    floor.receiveShadow = true;
+    g.add(floor);
+    g.add(box(W + 0.4, 0.5, L, 0x9aa3ab, 0, -0.5, 0)); // underside
+    // a glass roof on a frame, so you can see out and down
+    const roof = new THREE.Mesh(
+      new THREE.PlaneGeometry(W, L),
+      new THREE.MeshStandardMaterial({ color: 0xbfe2f0, transparent: true, opacity: 0.18, side: THREE.DoubleSide }),
+    );
+    roof.rotation.x = -Math.PI / 2;
+    roof.position.y = 2.9;
+    g.add(roof);
+    for (let z = -L / 2; z <= L / 2; z += 3) g.add(box(W + 0.3, 0.14, 0.14, 0x8a939b, 0, 2.85, z));
+    const glass = new THREE.MeshStandardMaterial({
+      color: 0xbfe2f0,
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+    });
+    for (const sx of [-W / 2, W / 2]) {
+      const gl = new THREE.Mesh(new THREE.PlaneGeometry(L, 2.7), glass);
+      gl.rotation.y = Math.PI / 2;
+      gl.position.set(sx, 1.45, 0);
+      g.add(gl);
+      for (let z = -L / 2; z <= L / 2; z += 3) g.add(box(0.12, 2.8, 0.12, 0x8a939b, sx, 0, z));
+      g.add(box(0.14, 0.12, L, 0x8a939b, sx, 2.75, 0));
+      g.add(box(0.14, 0.9, L, 0x8a939b, sx, 0, 0)); // the low wall
+    }
+    // ceiling lights
+    for (let z = -L / 2 + 2; z < L / 2; z += 4) {
+      const lt = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.4), this.lampMat);
+      lt.position.set(0, 2.72, z);
+      g.add(lt);
+    }
+    this.lampMat.emissiveIntensity = Math.max(this.lampMat.emissiveIntensity, 0.6);
+    // the terminal behind you: a glass wall with the gate sign
+    g.add(box(30, 5.4, 0.6, 0xd9dde0, 0, -5.4, L / 2 + 0.4));
+    const gateSign = label("Gate 3 · IlmAir", { size: 0.6, bg: "rgba(31,61,90,0.92)" });
+    gateSign.position.set(0, 2.4, L / 2 - 0.2);
+    g.add(gateSign);
+    // the tarmac far below, with its markings
+    const TY = -5.4;
+    const tarmac = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), mat(0x6b6f72));
+    tarmac.rotation.x = -Math.PI / 2;
+    tarmac.position.y = TY;
+    tarmac.receiveShadow = true;
+    g.add(tarmac);
+    const yellow = mat(0xf2c230);
+    for (const [w, d, x, z] of [
+      [0.4, 160, 22, -40],
+      [160, 0.4, 0, -60],
+      [0.4, 60, -30, 20],
+    ])
+      g.add(box(w, 0.04, d, 0xf2c230, x, TY + 0.02, z));
+    void yellow;
+    // the plane, its door open at the end of the bridge (nose to the east)
+    const P = planeMesh(0x1f3d5a);
+    const S = 2.6;
+    P.scale.setScalar(S);
+    P.rotation.y = Math.PI / 2;
+    const R = 1.5 * S;
+    P.position.set(-6 * S, TY, -L / 2 - R + 0.2);
+    // lift the body so its door sill is level with the bridge floor
+    P.position.y = 0.2 - 2.6 * S + R * 0.3;
+    g.add(P);
+    // the open door: a dark doorway in the side, the door swung back against the body
+    g.add(box(1.5, 2.3, 0.3, 0x1b2026, 0, 0, -L / 2 - 0.05));
+    g.add(box(1.4, 2.2, 0.15, 0xf4f6f8, -1.3, 0.05, -L / 2 + 0.3));
+    const cabinGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.1), this.lampMat);
+    cabinGlow.position.set(0, 1.08, -L / 2 + 0.11);
+    g.add(cabinGlow);
+    // the cabin crew waiting at the door
+    const crew = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 5 });
+    crew.position.set(0.9, 0, -L / 2 + 1.2);
+    crew.rotation.y = Math.PI * 0.9;
+    g.add(crew);
+    this.terminalStaff.push(crew);
+    // the plane's wheels on the tarmac
+    // the landing gear: two main legs under the wings, one under the nose
+    const bodyY = P.position.y + 2.6 * S;
+    for (const [x, zz] of [
+      [-13, -2.6],
+      [-13, 2.6],
+      [9, 0],
+    ]) {
+      const cz = -L / 2 - R + zz;
+      const leg = cyl(0.25, 0.25, bodyY - R * 0.8 - TY, 0x9aa0a6, 8);
+      leg.position.set(x, (bodyY - R * 0.8 + TY) / 2, cz);
+      g.add(leg);
+      for (const dz of [-0.45, 0.45]) {
+        const wh = cyl(0.7, 0.7, 0.4, 0x1b1d20, 12);
+        wh.rotation.x = Math.PI / 2;
+        wh.position.set(x, TY + 0.7, cz + dz);
+        g.add(wh);
+      }
+    }
+    // down below: a tug pulling baggage carts, a fuel truck, the ground crew in orange vests
+    const tug = box(2.4, 1.2, 1.6, 0xf2c230, 8, TY, -8);
+    g.add(tug);
+    for (let i = 0; i < 3; i++) {
+      g.add(box(2.2, 0.5, 1.4, 0x8a939b, 10.8 + i * 2.6, TY + 0.4, -8));
+      g.add(box(1.8, 0.7, 1.1, [0x3a3f46, 0x7d2f3a, 0x2f4a7a][i], 10.8 + i * 2.6, TY + 0.9, -8));
+    }
+    g.add(box(6, 2.4, 2.4, 0xf4f4f0, -14, TY, 6), box(2, 2, 2.4, 0x1f6f63, -10.4, TY, 6));
+    for (const [x, z, r] of [
+      [6, -10.5, 0.4],
+      [12, -6, 2.4],
+      [-4, -4, -0.6],
+    ]) {
+      const w = person(0xf28a1e, { cap: 0xf28a1e, seed: Math.round(x * 3) });
+      w.position.set(x, TY, z);
+      w.rotation.y = r;
+      g.add(w);
+    }
+    // another plane waiting on the far stand, and the control tower
+    const P2 = planeMesh(0x1d6b3a);
+    P2.scale.setScalar(S);
+    P2.position.set(70, TY, -70);
+    P2.rotation.y = -0.6;
+    g.add(P2);
+    const tower = cyl(2.2, 2.6, 30, 0xe9e4d8, 10);
+    tower.position.set(-80, TY + 15, -90);
+    g.add(tower);
+    const cab = cyl(5, 4, 4, 0x2a3a44, 10);
+    cab.position.set(-80, TY + 32, -90);
+    g.add(cab);
+    // walls of the tunnel
+    this.addCollider("jetbridge", o.x - 9, o.x - W / 2 + 0.3, o.z - L, o.z + L);
+    this.addCollider("jetbridge", o.x + W / 2 - 0.3, o.x + 9, o.z - L, o.z + L);
+    this.addCollider("jetbridge", o.x - 9, o.x + 9, o.z + L / 2 - 0.2, o.z + L);
+    this.addCollider("jetbridge", o.x - 9, o.x + 9, o.z - L, o.z - L / 2 + 0.2);
+    this.zones.push({
+      id: "planedoor",
+      label: "Board the plane",
+      x: o.x,
+      z: o.z - L / 2 + 1.4,
+      r: 1.6,
+      scene: "jetbridge",
+    });
+    this.zones.push({
+      id: "jetback",
+      label: "Back to the gate",
+      x: o.x,
+      z: o.z + L / 2 - 0.9,
+      r: 1.2,
+      scene: "jetbridge",
+    });
+  }
+
   private buildAirport() {
     // The terminal: check-in desks at the back, a security arch, seats, and the gate
     {
@@ -11362,6 +11805,49 @@ export class IlmCityEngine {
         }
       this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 2.6, o.z + 3.4);
       this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 5.6, o.z + 6.4);
+      // more seats by the gate, and passengers waiting in most of them with their bags
+      for (let k = 0; k < 6; k++) {
+        const st = new THREE.Group();
+        st.add(B(0.8, 0.5, 0.8, 0x2f6fb0, 0, 0, 0), B(0.8, 0.7, 0.12, 0x2f6fb0, 0, 0.5, -0.35));
+        st.position.set(8 + k, 0, 8.6);
+        g.add(st);
+      }
+      this.addCollider("terminal", o.x + 7.5, o.x + 13.5, o.z + 8.2, o.z + 9);
+      this.termSeats = [];
+      for (let r = 0; r < 2; r++)
+        for (let k = 0; k < 6; k++) this.termSeats.push({ x: -14 + k, z: 3 + r * 3, taken: false });
+      for (let k = 0; k < 6; k++) this.termSeats.push({ x: 8 + k, z: 8.6, taken: false });
+      this.termSeats.forEach((seat, i) => {
+        if (i % 3 === 1 || i === 15) return; // empty seats to sit in
+        seat.taken = true;
+        const female = i % 2 === 0;
+        const p = person([0xf4f1ea, 0x2f4a7a, 0x6d4a2b, 0x2f6f4f, 0x1d1f22, 0x7d2f3a][i % 6], {
+          seed: i + 20,
+          ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0xf4f1ea][i % 4] } : {}),
+        });
+        p.position.set(seat.x, 0, seat.z);
+        p.userData.indoors = true;
+        g.add(p);
+        poseHuman(p, "chair");
+        // a cabin bag by their feet
+        g.add(B(0.4, 0.55, 0.25, [0x3a3f46, 0x7d2f3a, 0x2f4a7a][i % 3], seat.x + 0.55, 0, seat.z + 0.3));
+      });
+      this.zones.push({
+        id: "termseat",
+        label: "Sit and wait",
+        x: o.x - 11,
+        z: o.z + 4.5,
+        r: 2.6,
+        scene: "terminal",
+      });
+      this.zones.push({
+        id: "termseat",
+        label: "Sit and wait",
+        x: o.x + 10.5,
+        z: o.z + 7.2,
+        r: 2.2,
+        scene: "terminal",
+      });
       // the gate: a glass wall with the plane outside, and the boarding desk
       const glass = new THREE.Mesh(
         new THREE.PlaneGeometry(12, 4.4),
@@ -11394,6 +11880,7 @@ export class IlmCityEngine {
         scene: "terminal",
       });
     }
+    this.buildJetBridge();
     // The cabin: a long aisle between rows of seats, windows on both sides, the galley at
     // the front. Business class is the first four rows.
     {
@@ -12272,6 +12759,9 @@ export class IlmCityEngine {
         ? new THREE.Vector3(ax, portrait ? 7 : 5.5, portrait ? 7.5 : 6.5)
         : new THREE.Vector3(ax, portrait ? 8 : 6, portrait ? 9 : 7.5);
     }
+    // down the jet bridge: low behind you, looking along the tunnel to the plane's door
+    if (this.where === "jetbridge")
+      return portrait ? new THREE.Vector3(0, 6.5, 9) : new THREE.Vector3(0, 5.2, 8);
     if (this.where !== "out" && !this.cine)
       return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
@@ -13122,6 +13612,7 @@ export class IlmCityEngine {
     this.stepJob(dt, performance.now() / 1000);
     this.stepTraffic(dt);
     this.stepTawaf(dt);
+    if (this.ringCars.length) this.stepRingCars(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
     // only draw areas near the camera
@@ -13466,17 +13957,21 @@ export class IlmCityEngine {
     this.carHeading -= v.x * 1.9 * grip * Math.sign(this.carSpeed || 1) * dt;
     const nx = this.car.position.x + Math.cos(this.carHeading) * this.carSpeed * dt;
     const nz = this.car.position.z - Math.sin(this.carHeading) * this.carSpeed * dt;
-    const crash = this.hitsTraffic(nx, nz);
-    if (this.free(nx, nz, 1.8) && !crash) {
+    // up the ramps and round the ring deck: the road can be above the ground
+    const sh = this.flyovers.length ? this.surfaceAt(nx, nz, this.car.position.y) : 0;
+    const up = sh !== null && (sh > 1 || this.onRamp);
+    const crash = !up && this.hitsTraffic(nx, nz);
+    if (sh !== null && (up || this.free(nx, nz, 1.8)) && !crash) {
       this.car.position.x = nx;
       this.car.position.z = nz;
+      this.car.position.y = sh;
     } else {
       // smashing into another vehicle at speed is an accident
       if (crash && Math.abs(this.carSpeed) > 9) this.incident("crash");
       this.carSpeed *= -0.3;
     }
     this.car.rotation.y = this.carHeading;
-    this.player.position.set(this.car.position.x, 0, this.car.position.z);
+    this.player.position.set(this.car.position.x, this.car.position.y, this.car.position.z);
     // knocking down someone on foot
     if (Math.abs(this.carSpeed) > 6) {
       const cx = this.car.position.x,
@@ -13684,6 +14179,20 @@ export class IlmCityEngine {
     const c = this.clock;
     if (!c) return;
     if (this.sky) this.sky.visible = this.where === "out";
+    if (this.where === "jetbridge") {
+      // the glass bridge: the sky and the tarmac outside, day or night
+      const dk = darkness(c);
+      const sky = new THREE.Color(0x9fd3e8).lerp(new THREE.Color(0x0e1a33), dk);
+      this.sun.castShadow = false;
+      this.sun.intensity = 2 * (1 - dk) + 0.4;
+      this.sun.color.set(0xffe8c8);
+      this.hemi.intensity = 1.2 - dk * 0.4;
+      this.hemi.color.set(0xdde9f2);
+      this.scene.background = sky;
+      (this.scene.fog as THREE.Fog).color.copy(sky);
+      this.lampMat.emissiveIntensity = dk * 2.6;
+      return;
+    }
     if (this.where !== "out") {
       this.sun.castShadow = false;
       this.sun.intensity = 0.5;

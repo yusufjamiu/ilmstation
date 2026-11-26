@@ -1102,6 +1102,15 @@ function CityGame({
   /** your plane ticket, from buying it to landing: check in, security, board */
   const ticketRef = useRef<Ticket | null>(null);
   const [flight, setFlight] = useState<Ticket | null>(null);
+  // the departures board keeps its times and statuses up to date while you're in the terminal
+  useEffect(() => {
+    const id = setInterval(() => {
+      const e = engine.current,
+        t = ticketRef.current;
+      if (e && t && e.scenePlace() === "terminal") e.setDepartures(boardLines(t.from, t));
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
   const busRef = useRef<BusTrip | null>(null);
   const [busTrip, setBusTrip] = useState<BusTrip | null>(null);
   const talkingRef = useRef<number | null>(null);
@@ -2630,6 +2639,8 @@ function CityGame({
   // for testing in development: start a trip from the browser console
   if (import.meta.env.DEV && typeof window !== "undefined")
     (window as unknown as { __trip?: typeof startTrip }).__trip = startTrip;
+  if (import.meta.env.DEV && typeof window !== "undefined")
+    (window as unknown as { __ticket?: typeof ticketRef }).__ticket = ticketRef;
   const openOutings = useCallback(
     (phone = false, tab = "now") => {
       const e = engine.current;
@@ -2646,6 +2657,25 @@ function CityGame({
             coins={saveRef.current.coins}
             has={(id) => !!engine.current?.hasZone(id)}
             tab0={tab}
+            flights={
+              <FlightsBook
+                from={cityOf(districtById(here))}
+                coins={saveRef.current.coins}
+                onBook={(dest, business, depAt) => {
+                  if (ticketRef.current) {
+                    toast(
+                      `You already have a ticket: ${ticketRef.current.flight} to ${ticketRef.current.destName} at ${hhmm(ticketRef.current.depAt)}.`,
+                      "warn",
+                    );
+                    return;
+                  }
+                  bookFlightRef.current(cityOf(districtById(here)), dest, business, {
+                    depAt,
+                    phone: true,
+                  });
+                }}
+              />
+            }
             onGo={(area, prefix) => {
               if (!prefix) {
                 if (area === here) toast("You are already here.");
@@ -2665,6 +2695,8 @@ function CityGame({
   );
   const openOutingsRef = useRef(openOutings);
   openOutingsRef.current = openOutings;
+  if (import.meta.env.DEV && typeof window !== "undefined")
+    (window as unknown as { __outings?: typeof openOutingsRef }).__outings = openOutingsRef;
 
   // new day resets the daily salah tracker
   useEffect(() => {
@@ -3512,6 +3544,168 @@ function CityGame({
     const p = saveRef.current.profile;
     if (p) engine.current?.setPlayerLook({ ...p, ihram: on && !p.female });
   }, []);
+  /** Buy a flight: at the airport you go straight into the terminal; on the phone (through
+      OutingStation) you get an e-ticket and make your own way to the airport in time. */
+  const bookFlightRef = useRef<
+    (city: string, dest: string, business: boolean, opts: { depAt?: number; phone?: boolean }) => void
+  >(() => {});
+  bookFlightRef.current = (
+    city: string,
+    dest: string,
+    business: boolean,
+    opts: { depAt?: number; phone?: boolean },
+  ) => {
+    const e = engine.current;
+    if (!e) return;
+          const price = flightPrice(city, dest, business);
+          if (saveRef.current.coins < price) {
+            setPanel({
+              kind: "info",
+              title: "Not enough money",
+              body: (
+                <NoPointsView
+                  price={price}
+                  points={saveRef.current.coins}
+                  onTopUp={() => openWalletRef.current("buy")}
+                />
+              ),
+            });
+            return;
+          }
+          const port = DISTRICTS.find(
+            (d) => cityOf(d) === dest && d.landmarks.some((l) => l.kind === "airport"),
+          );
+          if (!port) return;
+          setPanel(null);
+          update((x) => ({ ...x, coins: x.coins - price }));
+          const arrive = () => {
+            engine.current?.arriveAt("airport:" + dest);
+            setTravelling(null);
+            setDriving(false);
+            setInside(false);
+            update((x) => ({ ...x, district: port.id, pos: undefined }));
+            setArriving(
+              `${WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name} · ${port.name}`,
+            );
+            setTimeout(() => setArriving(null), 4500);
+          };
+          // into the terminal: check in, go through security, board at the gate. Everyone on
+          // the same route has the same flight number, so players flying together meet.
+          const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
+          const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
+          const no = flightNo(city, dest);
+          const depAt =
+            opts.depAt ?? departures(city, dest, Date.now() + 10 * 60000, 1)[0];
+          const seatN = Math.floor(Math.random() * 1000);
+          const open = (umrah: boolean) => {
+            setPanel(null);
+            ticketRef.current = {
+              from: city,
+              depAt,
+              dest,
+              destName,
+              fromName,
+              business,
+              flight: `IA ${no}`,
+              seat: e.seatFor(business, seatN).label,
+              seatN,
+              gate: "3",
+              step: "checkin",
+              umrah,
+              arrive: () => {
+                arrive();
+                if (umrah) {
+                  wearIhram(true);
+                  setTimeout(
+                    () =>
+                      toast(
+                        "Welcome to the Hajj Terminal! You are in ihram: go to Al-Masjid Al-Haram for tawaf.",
+                        "good",
+                      ),
+                    2500,
+                  );
+                }
+              },
+            };
+            if (opts.phone) {
+              // an e-ticket on your phone: now get to the airport before boarding
+              const portHere = DISTRICTS.find(
+                (d) => cityOf(d) === city && d.landmarks.some((l) => l.kind === "airport"),
+              );
+              setPanel({
+                kind: "info",
+                title: "🎫 Your e-ticket",
+                body: (
+                  <div className="space-y-3 text-[14px]">
+                    <p>
+                      <b>IA {no}</b> to <b>{destName}</b>, departing <b>{hhmm(depAt)}</b> from{" "}
+                      {fromName} Airport, Gate 3. Boarding opens at {hhmm(depAt - 8 * 60000)}.
+                      {umrah ? " Put on your ihram in the airport prayer room first." : ""}
+                    </p>
+                    <p className="text-[12.5px] opacity-70">
+                      Paid with OutingStation: −{N(price)}. Be at the airport in good time.
+                    </p>
+                    {portHere && portHere.id !== e.districtId() && (
+                      <button
+                        onClick={() =>
+                          tripRef.current(portHere.id, false, `airport:${city}`, false, "taxi")
+                        }
+                        className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                      >
+                        🚕 Taxi to the airport · {N(TAXI_FARE.city)}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setPanel(null)}
+                      className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+                    >
+                      OK
+                    </button>
+                  </div>
+                ),
+              });
+              return;
+            }
+            e.enterInterior("terminal", `${fromName} Airport`);
+            setInside(true);
+            tuneRef.current();
+            e.setDepartures(boardLines(city, ticketRef.current));
+            e.guideTo(umrah ? "ihramroom" : "checkin");
+            toast(
+              umrah
+                ? `Ticket to ${destName}, ${hhmm(depAt)}: −${N(price)}. First, put on your ihram in the prayer room.`
+                : `${business ? "Business class" : "Economy"} ticket to ${destName}, departing ${hhmm(depAt)}: −${N(price)}. Check in at the IlmAir desk.`,
+              "good",
+            );
+          };
+          const sv = saveRef.current;
+          if (dest === "makkah" && !sv.umrah?.stage && !hajjIhram(sv.hajj?.stage))
+            setPanel({
+              kind: "info",
+              title: "Going to Makkah",
+              body: (
+                <div className="space-y-3 text-[14px]">
+                  <p>
+                    Are you going for Umrah? The plane passes the miqat before Jeddah, so you put on
+                    ihram here at the airport and make the intention on the plane.
+                  </p>
+                  <button
+                    onClick={() => open(true)}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                  >
+                    🤍 Yes, for Umrah
+                  </button>
+                  <button
+                    onClick={() => open(false)}
+                    className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+                  >
+                    No, just visiting
+                  </button>
+                </div>
+              ),
+            });
+          else open(false);
+  };
   /** Walk to a place for the rites, travelling to its area first if needed. */
   const goRite = useCallback((area: string, zone: string) => {
     const here = engine.current?.districtId();
@@ -8036,6 +8230,10 @@ function CityGame({
         return;
       }
       if (id === "car-exit") {
+        if (e.onFlyover()) {
+          toast("No stopping on the flyover. Drive down a ramp first.", "warn");
+          return;
+        }
         e.exitCar();
         setDriving(false);
         return;
@@ -8125,9 +8323,62 @@ function CityGame({
           e.guideTo(t.step);
           return;
         }
+        // missed it: the airline puts you on the next plane
+        if (flightStatus(t.depAt).gone) {
+          t.depAt = departures(t.from, t.dest, Date.now() + 9 * 60000, 1)[0];
+          e.setDepartures(boardLines(t.from, t));
+          toast(`You missed ${t.flight}. IlmAir moved you to the ${hhmm(t.depAt)} flight, free.`, "warn");
+        }
+        const board = () => {
+          setPanel(null);
+          e.moveInside("jetbridge", "Jet bridge · Gate " + t.gate);
+          e.guideTo("planedoor");
+          toast("Boarding pass scanned ✓ Walk down the jet bridge to the plane.", "good");
+        };
+        if (flightStatus(t.depAt).boarding) {
+          board();
+          return;
+        }
+        e.sitTerminal();
+        setPanel({
+          kind: "info",
+          title: `🪑 Gate ${t.gate} · waiting to board`,
+          body: <GateWait t={t} onBoard={board} />,
+        });
+        return;
+      }
+      if (id === "termseat") {
+        const t = ticketRef.current;
+        e.sitTerminal();
+        if (t && t.step === "board") {
+          onActionRef.current("gate");
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "🪑 A seat in the terminal",
+          body: (
+            <p className="text-[14px]">
+              {t
+                ? `Your flight ${t.flight} to ${t.destName} leaves at ${hhmm(t.depAt)}. ${t.step === "checkin" ? "Check in at the IlmAir desk first." : "Go through security, then wait at Gate " + t.gate + "."}`
+                : "A quiet seat. Travellers wait here for their flights."}
+            </p>
+          ),
+        });
+        return;
+      }
+      if (id === "planedoor") {
+        const t = ticketRef.current;
+        if (!t) return;
+        toast(`"Welcome aboard! Seat ${t.seat} is ${t.business ? "in business class, at the front" : "down the aisle"}."`, "good");
         e.enterCabin(t.business, t.seatN);
         setInside(true);
         setFlight(t);
+        return;
+      }
+      if (id === "jetback") {
+        e.moveInside("terminal", e.placeName());
+        e.guideTo("gate");
         return;
       }
       if (id.startsWith("airport:")) {
@@ -8137,137 +8388,24 @@ function CityGame({
           const t = ticketRef.current;
           e.enterInterior("terminal", `${t.fromName} Airport`);
           setInside(true);
-          e.guideTo(t.step === "checkin" ? "checkin" : t.step === "security" ? "security" : "gate");
-          toast(`Your flight to ${t.destName} is waiting. Follow the arrow.`);
+          e.setDepartures(boardLines(t.from, t));
+          const goTo =
+            t.umrah && !t.dressed
+              ? "ihramroom"
+              : t.step === "checkin"
+                ? "checkin"
+                : t.step === "security"
+                  ? "security"
+                  : "gate";
+          e.guideTo(goTo);
+          toast(
+            `Your flight ${t.flight} to ${t.destName} leaves at ${hhmm(t.depAt)}. Follow the arrow.`,
+          );
           return;
         }
-        const homeCountry = WORLD_CITIES.find((w) => w.id === city)?.country ?? "Nigeria";
-        const priceTo = (dest: string, business: boolean) => {
-          const abroad =
-            (WORLD_CITIES.find((w) => w.id === dest)?.country ?? "Nigeria") !== homeCountry;
-          return abroad
-            ? business
-              ? INTERCITY.abroadBusiness
-              : INTERCITY.abroad
-            : business
-              ? INTERCITY.business
-              : INTERCITY.fly;
-        };
-        const fly = (dest: string, business: boolean) => {
-          const price = priceTo(dest, business);
-          if (saveRef.current.coins < price) {
-            setPanel({
-              kind: "info",
-              title: "Not enough money",
-              body: (
-                <NoPointsView
-                  price={price}
-                  points={saveRef.current.coins}
-                  onTopUp={() => openWalletRef.current("buy")}
-                />
-              ),
-            });
-            return;
-          }
-          const port = DISTRICTS.find(
-            (d) => cityOf(d) === dest && d.landmarks.some((l) => l.kind === "airport"),
-          );
-          if (!port) return;
-          setPanel(null);
-          update((x) => ({ ...x, coins: x.coins - price }));
-          const arrive = () => {
-            engine.current?.arriveAt("airport:" + dest);
-            setTravelling(null);
-            setDriving(false);
-            setInside(false);
-            update((x) => ({ ...x, district: port.id, pos: undefined }));
-            setArriving(
-              `${WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name} · ${port.name}`,
-            );
-            setTimeout(() => setArriving(null), 4500);
-          };
-          // into the terminal: check in, go through security, board at the gate. Everyone on
-          // the same route has the same flight number, so players flying together meet.
-          const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
-          const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
-          let hsh = 7;
-          for (const ch of city + ">" + dest) hsh = (hsh * 31 + ch.charCodeAt(0)) % 100003;
-          const no = 100 + (hsh % 800);
-          const seatN = Math.floor(Math.random() * 1000);
-          const open = (umrah: boolean) => {
-            setPanel(null);
-            ticketRef.current = {
-              dest,
-              destName,
-              fromName,
-              business,
-              flight: `IA ${no}`,
-              seat: e.seatFor(business, seatN).label,
-              seatN,
-              gate: "3",
-              step: "checkin",
-              umrah,
-              arrive: () => {
-                arrive();
-                if (umrah) {
-                  wearIhram(true);
-                  setTimeout(
-                    () =>
-                      toast(
-                        "Welcome to the Hajj Terminal! You are in ihram: go to Al-Masjid Al-Haram for tawaf.",
-                        "good",
-                      ),
-                    2500,
-                  );
-                }
-              },
-            };
-            e.enterInterior("terminal", `${fromName} Airport`);
-            setInside(true);
-            tuneRef.current();
-            e.setDepartures([
-              `IA ${no}  ${destName.padEnd(10).slice(0, 10)} Gate 3  Check-in`,
-              "IA 214  Kano       Gate 1  On time",
-              "IA 101  Abuja      Gate 2  On time",
-              "IA 777  Jeddah     Gate 4  On time",
-              "IA 778  Madinah    Gate 4  On time",
-            ]);
-            e.guideTo(umrah ? "ihramroom" : "checkin");
-            toast(
-              umrah
-                ? `Ticket to ${destName}: −${N(price)}. First, put on your ihram in the prayer room.`
-                : `${business ? "Business class" : "Economy"} ticket to ${destName}: −${N(price)}. Check in at the IlmAir desk.`,
-              "good",
-            );
-          };
-          const sv = saveRef.current;
-          if (dest === "makkah" && !sv.umrah?.stage && !hajjIhram(sv.hajj?.stage))
-            setPanel({
-              kind: "info",
-              title: "Going to Makkah",
-              body: (
-                <div className="space-y-3 text-[14px]">
-                  <p>
-                    Are you going for Umrah? The plane passes the miqat before Jeddah, so you put on
-                    ihram here at the airport and make the intention on the plane.
-                  </p>
-                  <button
-                    onClick={() => open(true)}
-                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
-                  >
-                    🤍 Yes, for Umrah
-                  </button>
-                  <button
-                    onClick={() => open(false)}
-                    className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
-                  >
-                    No, just visiting
-                  </button>
-                </div>
-              ),
-            });
-          else open(false);
-        };
+        const priceTo = (dest: string, business: boolean) => flightPrice(city, dest, business);
+        const fly = (dest: string, business: boolean) =>
+          bookFlightRef.current(city, dest, business, {});
         setPanel({
           kind: "info",
           title: "✈️ Flights",
@@ -14535,6 +14673,7 @@ const OUTING_TABS = [
   { id: "campus", label: "Campus & MSSN" },
   { id: "shop", label: "Markets" },
   { id: "travel", label: "🚌 Travel" },
+  { id: "flights", label: "✈️ Flights" },
 ] as const;
 function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
   const out: Outing[] = [];
@@ -14647,7 +14786,9 @@ function OutingView({
   has,
   tab0,
   onGo,
+  flights,
 }: {
+  flights?: React.ReactNode;
   tab0?: string;
   here: string;
   has: (id: string) => boolean;
@@ -14681,7 +14822,8 @@ function OutingView({
           </button>
         ))}
       </div>
-      {list.length === 0 && tab !== "travel" && (
+      {tab === "flights" && flights}
+      {list.length === 0 && tab !== "travel" && tab !== "flights" && (
         <p className="text-[13px] opacity-70">
           Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
         </p>
@@ -18041,6 +18183,9 @@ function PhoneView({
 }
 
 type Ticket = {
+  /** the city flown from, and when the plane leaves (ms) */
+  from: string;
+  depAt: number;
   dest: string;
   destName: string;
   fromName: string;
@@ -18055,6 +18200,174 @@ type Ticket = {
   dressed?: boolean;
   arrive: () => void;
 };
+
+/* ---------------- the timetable: every route flies every 10 minutes ---------------- */
+const FLIGHT_EVERY = 10;
+const routeHash = (from: string, to: string) => {
+  let h = 7;
+  for (const ch of from + ">" + to) h = (h * 31 + ch.charCodeAt(0)) % 100003;
+  return h;
+};
+const flightNo = (from: string, to: string) => 100 + (routeHash(from, to) % 800);
+/** The next departures on a route, at or after `after` (ms). */
+function departures(from: string, to: string, after: number, n = 3) {
+  const out: number[] = [];
+  const d = new Date(after);
+  d.setSeconds(0, 0);
+  if (d.getTime() < after) d.setMinutes(d.getMinutes() + 1);
+  const off = routeHash(from, to) % FLIGHT_EVERY;
+  for (let i = 0; out.length < n && i < 24 * 60; i++) {
+    if ((d.getHours() * 60 + d.getMinutes()) % FLIGHT_EVERY === off) out.push(d.getTime());
+    d.setMinutes(d.getMinutes() + 1);
+  }
+  return out;
+}
+/** Boarding opens 8 minutes before the plane leaves and closes as it goes. */
+function flightStatus(depAt: number, now = Date.now()) {
+  const m = (depAt - now) / 60000;
+  if (m > 8) return { label: "On time", boarding: false, gone: false, m };
+  if (m > 1.5) return { label: "Boarding", boarding: true, gone: false, m };
+  if (m > -0.5) return { label: "Final call", boarding: true, gone: false, m };
+  return { label: "Departed", boarding: false, gone: true, m };
+}
+const hhmm = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+function flightPrice(from: string, dest: string, business: boolean) {
+  const home = WORLD_CITIES.find((w) => w.id === from)?.country ?? "Nigeria";
+  const abroad = (WORLD_CITIES.find((w) => w.id === dest)?.country ?? "Nigeria") !== home;
+  return abroad
+    ? business
+      ? INTERCITY.abroadBusiness
+      : INTERCITY.abroad
+    : business
+      ? INTERCITY.business
+      : INTERCITY.fly;
+}
+/** The departures board: the next plane to each city, with yours marked. */
+function boardLines(from: string, t: Ticket | null) {
+  const now = Date.now();
+  const rows = WORLD_CITIES.filter((c) => c.live && c.id !== from).map((c) => {
+    const dep =
+      t && t.dest === c.id ? t.depAt : departures(from, c.id, now - 30000, 1)[0];
+    const gate = t && t.dest === c.id ? t.gate : String(1 + (routeHash(from, c.id) % 4));
+    return { dep, line: `IA ${flightNo(from, c.id)}  ${c.name.padEnd(9).slice(0, 9)} ${hhmm(dep)}  G${gate}  ${flightStatus(dep, now).label}${t && t.dest === c.id ? "  ◀" : ""}` };
+  });
+  return rows.sort((a, b) => a.dep - b.dep).map((r) => r.line);
+}
+
+/** At the gate: sit and wait, with the time to boarding counting down. */
+function GateWait({ t, onBoard }: { t: Ticket; onBoard: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const st = flightStatus(t.depAt, now);
+  const toBoard = Math.max(0, t.depAt - 8 * 60000 - now);
+  const mm = Math.floor(toBoard / 60000),
+    ss = Math.floor((toBoard % 60000) / 1000);
+  return (
+    <div className="space-y-3 text-[14px]">
+      <div className="rounded-2xl bg-[#0f1a24] p-4 font-mono text-[#e6b84a]">
+        <div className="text-[12px] opacity-70">IlmAir · Gate {t.gate}</div>
+        <div className="text-[18px] font-bold">
+          {t.flight} to {t.destName}
+        </div>
+        <div className="mt-1 text-[#cfe3ef]">
+          Departs {hhmm(t.depAt)} · Seat {t.seat} · {st.label}
+        </div>
+      </div>
+      {st.boarding ? (
+        <>
+          <p>
+            📢 <i>"Ladies and gentlemen, flight {t.flight} to {t.destName} is now boarding at Gate{" "}
+            {t.gate}. Please have your boarding pass ready."</i>
+          </p>
+          <button
+            onClick={onBoard}
+            className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white"
+          >
+            🛫 Board now
+          </button>
+        </>
+      ) : (
+        <p>
+          You're sitting at the gate with the other passengers. Boarding opens in{" "}
+          <b>
+            {mm}:{String(ss).padStart(2, "0")}
+          </b>
+          . Make du'a for the journey, read some Qur'an, or look around the terminal.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Book a flight on OutingStation: the next three planes to each city from your airport. */
+function FlightsBook({
+  from,
+  coins,
+  onBook,
+}: {
+  from: string;
+  coins: number;
+  onBook: (dest: string, business: boolean, depAt: number) => void;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 20000);
+    return () => clearInterval(id);
+  }, []);
+  const hasPort = DISTRICTS.some(
+    (d) => cityOf(d) === from && d.landmarks.some((l) => l.kind === "airport"),
+  );
+  if (!hasPort)
+    return (
+      <p className="text-[13px] opacity-70">
+        There's no airport in this city. Take the inter-city bus to a city with one.
+      </p>
+    );
+  const fromName = WORLD_CITIES.find((w) => w.id === from)?.name ?? "";
+  return (
+    <div className="space-y-2">
+      <p className="text-[12.5px] opacity-75">
+        Flights from {fromName} Airport. Pay here, then get to the airport before boarding (8
+        minutes before take-off). You have {N(coins)}.
+      </p>
+      {WORLD_CITIES.filter((c) => c.live && c.id !== from).map((c) => {
+        const deps = departures(from, c.id, now + 15 * 60000, 3);
+        return (
+          <div key={c.id} className="rounded-xl bg-white p-3 shadow-sm">
+            <div className="flex items-baseline justify-between">
+              <b>✈️ {c.name}</b>
+              <span className="text-[12px] opacity-60">IA {flightNo(from, c.id)}</span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              {deps.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => onBook(c.id, false, d)}
+                  className="rounded-lg bg-[#2f4a7a] px-2 py-2 text-[12.5px] font-bold text-white"
+                >
+                  {hhmm(d)}
+                  <div className="text-[11px] font-normal opacity-85">
+                    {N(flightPrice(from, c.id, false))}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => onBook(c.id, true, deps[0])}
+              className="mt-1.5 w-full rounded-lg bg-[#e6b84a] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05]"
+            >
+              Business class at {hhmm(deps[0])} · {N(flightPrice(from, c.id, true))}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** The boarding pass the check-in agent prints for you. */
 function BoardingPass({ t, name, onGo }: { t: Ticket; name: string; onGo: () => void }) {
@@ -18088,8 +18401,10 @@ function BoardingPass({ t, name, onGo }: { t: Ticket; name: string; onGo: () => 
             <b>{t.destName}</b>
           </div>
           <div>
-            <div className="opacity-60">Gate</div>
-            <b>{t.gate}</b>
+            <div className="opacity-60">Gate · departs</div>
+            <b>
+              {t.gate} · {hhmm(t.depAt)}
+            </b>
           </div>
           <div>
             <div className="opacity-60">Seat</div>
