@@ -273,7 +273,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
     {uid && lessons.length > 0 && <>
       <button onClick={() => setPlanOpen(!planOpen)} className="mt-4 flex w-full items-center gap-3 border-2 border-foreground bg-card p-3.5 text-left shadow-brutal-sm">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-[#1c1a17]"><SCal className="size-5" /></span>
-        <span className="min-w-0 flex-1"><b className="block">Plan your pace</b><span className="text-xs text-muted-foreground">{plans[`${subject.id}__${stage}`] ? "Your plan is set · tap to change" : "Pick how many lessons a week, and get reminders"}</span></span>
+        <span className="min-w-0 flex-1"><b className="block">Plan your pace</b><span className="text-xs text-muted-foreground">{plans[`${subject.id}__${stage}`] ? "Your plan is set · tap to change" : "Set a weekly goal and reminders"}</span></span>
         <ChevronDown className={cn("size-5 shrink-0 transition-transform", planOpen && "rotate-180")} />
       </button>
       {planOpen && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
