@@ -11740,7 +11740,8 @@ export class IlmCityEngine {
     P.rotation.set(0, Math.PI / 2, 0);
     P.rotateX(-pitch);
     // the camera runs alongside, a little behind, so you see the whole plane
-    const want = new THREE.Vector3(B.x + x - 34, B.y + 4 + y * 0.7, B.z + 30);
+    // (from the far side of the runway, clear of the parked planes)
+    const want = new THREE.Vector3(B.x + x - 34, B.y + 4 + y * 0.7, B.z - 32);
     if (sh.t < 40) this.camera.position.copy(want);
     else this.camera.position.lerp(want, 1 - Math.exp(-dt * 3));
     this.camera.lookAt(B.x + x + 6, B.y + y + 5, B.z);
