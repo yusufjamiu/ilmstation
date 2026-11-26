@@ -1,3 +1,4 @@
+import { ChevronDown as RChev } from "lucide-react";
 import { usePremium as usePremiumR } from "@/components/premium";
 import { awardXp } from "@/lib/xp";
 import { useEffect, useState } from "react";
@@ -219,6 +220,8 @@ export function RamadanScreen() {
   const [uid, setUid] = useState<string | null>(null);
   const [prog, setProg] = useState<Prog>({});
   const [openDay, setOpenDay] = useState<number | null>(null);
+  const [showJuz, setShowJuz] = useState(false);
+  const [showQuest, setShowQuest] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null)), []);
   useEffect(() => {
@@ -320,15 +323,21 @@ export function RamadanScreen() {
       </Box>
 
       <Box title="Qur’an khatm" tag={`${juz.length} of 30 juz`}>
+        <div className="h-2 overflow-hidden rounded-full border border-foreground/30"><div className="h-full bg-secondary" style={{ width: `${(juz.length / 30) * 100}%` }} /></div>
+        <button type="button" onClick={() => setShowJuz(!showJuz)} className="mt-3 flex w-full items-center justify-between text-sm font-bold">{showJuz ? "Hide juz" : "Tick off a juz"}<RChev className={cn("size-4 transition-transform", showJuz && "rotate-180")} /></button>
+        {showJuz && <div className="mt-3">
         <div className="grid grid-cols-6 gap-2">{Array.from({ length: 30 }, (_, i) => i + 1).map((n) => { const on = juz.includes(n); return <button key={n} type="button" aria-label={`Juz ${n}`}
           onClick={() => save({ years: { [y]: { juz: on ? juz.filter((x) => x !== n) : [...juz, n].sort((a, b) => a - b) } } })}
           className={cn("grid aspect-square place-items-center border-2 border-foreground text-sm font-semibold", on ? "bg-secondary text-secondary-foreground" : "bg-background hover:bg-muted")}>{n}</button>; })}</div>
-        <p className="mt-3 text-sm text-muted-foreground">One juz a day finishes the Qur’an in Ramadan. Tap a juz when you finish it.</p>
+        <p className="mt-3 text-sm text-muted-foreground">One juz a day finishes the Qur’an in Ramadan. Tap a juz when you finish it.</p></div>}
       </Box>
     </div>
 
     <Box className="mt-5" title="30-day quest" tag={r.day > 0 || r.day === -1 ? `${quest.length} done` : "Unlocks daily in Ramadan"}>
-      <div className="grid grid-cols-6 gap-2 sm:grid-cols-10">{Array.from({ length: config.days }, (_, i) => i + 1).map((n) => {
+      <div className="h-2 overflow-hidden rounded-full border border-foreground/30"><div className="h-full bg-secondary" style={{ width: `${(quest.length / config.days) * 100}%` }} /></div>
+      {r.day > 0 && !quest.includes(r.day) && <button type="button" onClick={() => setOpenDay(r.day)} className="mt-3 flex w-full items-center justify-between rounded-xl bg-primary px-3 py-2.5 text-left font-bold text-[#1c1a17]">Today: Day {r.day}<span>Start ▶</span></button>}
+      <button type="button" onClick={() => setShowQuest(!showQuest)} className="mt-3 flex w-full items-center justify-between text-sm font-bold">{showQuest ? "Hide days" : `See all ${config.days} days`}<RChev className={cn("size-4 transition-transform", showQuest && "rotate-180")} /></button>
+      {showQuest && <div className="mt-3 grid grid-cols-6 gap-2 sm:grid-cols-10">{Array.from({ length: config.days }, (_, i) => i + 1).map((n) => {
         const open = r.day > 0 && n === r.day; // only today
         const done = quest.includes(n);
         return <button key={n} type="button" disabled={!open} onClick={() => setOpenDay(n)}
@@ -337,7 +346,7 @@ export function RamadanScreen() {
             openDay === n && "ring-2 ring-ring ring-offset-2")}>
           {open || done ? n : <Lock className="size-3.5" />}
         </button>;
-      })}</div>
+      })}</div>}
       {openDay != null && <DayQuest key={openDay} n={openDay} steps={year.steps?.[String(openDay)] ?? []} result={year.scores?.[String(openDay)]}
         onClose={() => setOpenDay(null)} onStep={(s) => markStep(openDay, s)} onFinish={(res) => finishDay(openDay, res)} />}
     </Box>
