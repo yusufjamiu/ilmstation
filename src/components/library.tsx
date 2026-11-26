@@ -57,7 +57,7 @@ function useLibraryItems(): LibraryItem[] {
   useEffect(() => onSnapshot(query(collection(db, "library"), where("status", "==", "published")),
     (snap) => setRemote(snap.docs.map((d) => ({ ...(d.data() as Omit<LibraryItem, "id">), id: d.id })).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))),
     () => setRemote([])), []);
-  return useMemo(() => [...remote, ...LIBRARY.filter((i) => !remote.some((r) => r.id === i.id))], [remote]);
+  return useMemo(() => [...remote, ...LIBRARY.filter((i) => !remote.some((r) => r.id === i.id) && (i.body?.length || i.pdfUrl || (i.audioStatus === "available" && i.audio?.length)))], [remote]);
 }
 
 /** Each book's average rating (kept up to date by the server). */
@@ -316,18 +316,15 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
         <div className="relative"><Search className="absolute left-3 top-3 size-4" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full border-2 border-foreground bg-background pl-10" placeholder="Search titles and authors" />
         </div>
-        <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Category" className="mt-3 h-11 w-full border-2 border-foreground bg-background px-3 font-semibold sm:hidden">
-          {["All", ...chips, "Saved"].map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <div className="mt-3 hidden flex-wrap gap-2 sm:flex">
+        <div className="mt-3 flex gap-2 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-1 sm:flex-wrap">
           {["All", ...chips, "Saved"].map((c) => (
-            <Button key={c} size="sm" variant={cat === c ? "secondary" : "outline"} onClick={() => setCat(c)}>{c}</Button>
+            <Button key={c} size="sm" className="shrink-0" variant={cat === c ? "secondary" : "outline"} onClick={() => setCat(c)}>{c}</Button>
           ))}
         </div>
 
         {!premium && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-2 border-foreground bg-primary p-5 shadow-brutal">
-            <div className="flex-1"><p className="font-serif text-2xl">Premium readings</p><p className="text-sm">Longer, deeper studies. Read them all with Premium, or unlock one at a time with points.</p></div>
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-2 border-foreground bg-primary p-5 text-[#1c1a17] shadow-brutal max-sm:flex-nowrap max-sm:p-3.5">
+            <div className="min-w-0 flex-1"><p className="font-serif text-2xl max-sm:text-xl">Premium readings</p><p className="text-sm max-sm:hidden">Longer, deeper studies. Read them all with Premium, or unlock one at a time with points.</p></div>
             <Button variant="secondary" onClick={() => setLocked({ id: "premium", title: "IlmStation Premium", cost: 1200 })}><Crown /> See Premium</Button>
           </div>
         )}
@@ -339,7 +336,7 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
               {continuing.map((i) => {
                 const p = state.progress[i.id]!;
                 return (
-                  <button key={i.id} onClick={() => openItem(i)} className="w-[85%] shrink-0 snap-start border-2 border-foreground p-4 text-left shadow-brutal md:w-auto">
+                  <button key={i.id} onClick={() => openItem(i)} className={cn("shrink-0 snap-start border-2 border-foreground p-4 text-left shadow-brutal md:w-auto", continuing.length === 1 ? "w-full" : "w-[85%]")}>
                     <span className="flex gap-3">{i.coverUrl && <img src={i.coverUrl} alt="" className="h-16 w-11 shrink-0 border border-foreground object-cover" />}<span className="min-w-0"><span className="block font-serif text-xl">{i.title}</span><span className="text-xs text-muted-foreground">{i.pdfUrl ? `Page ${p.pos + 1} of ${p.total}` : `${Math.round(((p.pos + 1) / p.total) * 100)}% read`}</span></span></span>
                     <span className="mt-3 block h-2 border border-foreground"><span className="block h-full bg-secondary" style={{ width: `${Math.round(((p.pos + 1) / p.total) * 100)}%` }} /></span>
                   </button>
@@ -352,13 +349,15 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
         {list.length === 0 ? (
           <p className="mt-8 text-sm text-muted-foreground">{cat === "Saved" ? "Nothing saved yet. Open something and tap Save." : "Nothing matches that yet."}</p>
         ) : (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-1 sm:gap-4 md:grid-cols-2">
             {list.map((i, n) => {
               const free = canOpen(i);
               const done = state.finished.includes(i.id);
               return (
-                <button key={i.id} onClick={() => openItem(i)} className={cn("relative border-2 border-foreground p-6 text-left shadow-brutal", n === 0 && cat === "All" && !q && "bg-primary", !free && "bg-muted")}>
-                  <span className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase">
+                <button key={i.id} onClick={() => openItem(i)} className={cn("relative flex flex-col border-2 border-foreground p-6 text-left shadow-brutal max-sm:p-2.5", n === 0 && cat === "All" && !q && "bg-primary max-sm:bg-background", !free && "bg-muted")}>
+                  {!i.coverUrl && <span className="grid aspect-[2/3] w-full place-items-center rounded-xl bg-primary/30 p-3 text-center font-serif text-lg leading-tight sm:hidden">{i.title}</span>}
+                  {!free && <span className="absolute right-4 top-4 grid size-8 place-items-center rounded-full bg-[#1c1a17] text-white sm:hidden"><LockKeyhole className="size-4" /></span>}
+                  <span className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase max-sm:hidden">
                     {i.cats[0]} · {i.kind === "book" ? "Book" : `${i.mins} min`}
                     {i.tier === "premium" && (free ? <PremiumTag /> : <LockedTag cost={i.cost} />)}{i.tier === "premium" && !free && i.minLevel ? <span className="ml-1 text-[10px] font-bold uppercase">Free at level {i.minLevel}</span> : null}
                     {done && <span className="border border-foreground px-1">Finished</span>}
@@ -366,11 +365,11 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
                     {i.audioStatus === "available" && <span className="inline-flex items-center gap-1 border border-foreground px-1"><Headphones className="size-3" /> Audio{(i as { audioTier?: string }).audioTier === "premium" && i.tier !== "premium" ? " 👑" : ""}</span>}
                     {i.audioStatus === "soon" && <span className="border border-foreground px-1">Audio soon</span>}
                   </span>
-                  {i.coverUrl && <img src={i.coverUrl} alt="" loading="lazy" className="mt-3 h-40 w-28 border-2 border-foreground object-cover" />}
-                  <h2 className={cn("mt-3 font-serif text-3xl", !free && "opacity-70")}>{i.title}</h2>
-                  {i.author && <p className="mt-1 text-sm text-muted-foreground">{i.author}</p>}
+                  {i.coverUrl && <img src={i.coverUrl} alt="" loading="lazy" className="mt-3 h-40 w-28 border-2 border-foreground object-cover max-sm:mt-0 max-sm:aspect-[2/3] max-sm:h-auto max-sm:w-full max-sm:rounded-xl max-sm:border-0" />}
+                  <h2 className={cn("mt-3 font-serif text-3xl max-sm:mt-2 max-sm:line-clamp-2 max-sm:text-base max-sm:leading-tight", !free && "opacity-70")}>{i.title}</h2>
+                  {i.author && <p className="mt-1 text-sm text-muted-foreground max-sm:line-clamp-1 max-sm:text-xs">{i.author}</p>}
                   {stats[i.id]?.count ? <p className="mt-1 text-sm font-semibold">★ {stats[i.id]!.avg.toFixed(1)} <span className="font-normal text-muted-foreground">({stats[i.id]!.count})</span></p> : null}
-                  <span className="mt-5 flex items-center text-sm font-bold">
+                  <span className="mt-5 flex items-center text-sm font-bold max-sm:mt-auto max-sm:pt-2 max-sm:text-xs">
                     {free ? <>{i.kind === "book" ? "Open book" : "Read article"} <ChevronRight className="size-4" /></> : <><LockKeyhole className="mr-1 size-4" /> Unlock to read</>}
                   </span>
                 </button>
