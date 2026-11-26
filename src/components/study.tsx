@@ -468,7 +468,7 @@ function StudyRing({ pct }: { pct: number }) {
 if (typeof document !== "undefined" && !document.getElementById("study-m-style")) {
   const st = document.createElement("style"); st.id = "study-m-style";
   st.textContent = "@media (max-width:639px){"
-    + "[data-study] .shadow-brutal:not([data-plain]),[data-study] .shadow-brutal-sm:not([data-plain]){border-radius:16px!important;border-width:1.5px!important;box-shadow:0 4px 0 var(--foreground)!important}"
+    + "[data-study] .shadow-brutal:not([data-plain]):not(.rounded-full),[data-study] .shadow-brutal-sm:not([data-plain]):not(.rounded-full){border-radius:16px!important;border-width:1.5px!important;box-shadow:0 4px 0 var(--foreground)!important}"
     + "[data-study] span.bg-foreground.text-background,[data-study] button.bg-foreground.text-background{border-radius:999px!important;box-shadow:none!important}"
     + "[data-study] .border-dashed{border-radius:16px}"
     + "[data-study] .size-10.border-2,[data-study] .size-12.border-2{border-radius:12px;border-width:1.5px}"

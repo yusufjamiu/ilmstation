@@ -627,7 +627,7 @@ if (typeof document !== "undefined" && !document.getElementById("topbar-style"))
 /* phones: soft, rounded look on every page */
 if (typeof document !== "undefined" && !document.getElementById("soft-style")) {
   const st = document.createElement("style"); st.id = "soft-style";
-  const X = ":not([data-plain]):not([data-plain] *)";
+  const X = ":not(.rounded-full):not([data-plain]):not([data-plain] *)";
   st.textContent = "@media (max-width:639px){"
     + "[data-soft] .shadow-brutal" + X + ",[data-soft] .shadow-brutal-sm" + X + "{border-radius:16px!important;border-width:1.5px!important;box-shadow:0 4px 0 var(--foreground)!important}"
     + "[data-soft] span.bg-foreground.text-background" + X + ",[data-soft] button.bg-foreground.text-background" + X + "{border-radius:999px!important;box-shadow:none!important}"
