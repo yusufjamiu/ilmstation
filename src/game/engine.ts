@@ -1592,7 +1592,10 @@ export class IlmCityEngine {
         if (!north && cz + 10 > southEdge - 3) continue;
         for (let x = -(H.x - 26); x <= H.x - 26; x += 24) {
           if (Math.abs(x) < 16) continue;
-          if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
+          // the Islamic University: no shops at the entrance, gardens either side of the gate
+          // (decided before the space check: the gate now stands forward into these plots)
+          const atGate = ium && sz === 0 && north && (x === -42 || x === -18);
+          if (!atGate && !this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
           if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
           const id = `${D.id}-${num}`;
           const r1 = rnd();
@@ -1607,8 +1610,6 @@ export class IlmCityEngine {
             rnd();
             toLet = true;
           }
-          // the Islamic University: no shops at the entrance, gardens either side of the gate
-          const atGate = ium && sz === 0 && north && (x === -42 || x === -18);
           if (
             atGate ||
             (play &&
@@ -5488,8 +5489,8 @@ export class IlmCityEngine {
     wall(x0, zb, x1, zb);
     if (ium) {
       // the Islamic University's gate: two striped arches, a domed block on each side
-      // set back so nothing stands past the wall line (the street's lots stay as they were)
-      const gz = z - ium.front - 0.2;
+      // a little in front of the wall line, so it greets you from the main road
+      const gz = z - ium.front + 6;
       ium.group.position.set(0, 0, gz);
       g.add(ium.group);
       for (const q of ium.colliders) this.addCollider("out", q.x0, q.x1, gz + q.z0, gz + q.z1);
