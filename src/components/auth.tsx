@@ -111,10 +111,14 @@ async function fetchProfile(uid: string): Promise<Account | null> {
   return profile;
 }
 
+/* the logged-in account, remembered between pages so no page starts empty */
+let authCache: { uid: string; user: User; account: Account | null } | null = null;
+
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [account, setAccount] = useState<Account | null>(null);
-  const [ready, setReady] = useState(false);
+  const cached = authCache && auth.currentUser?.uid === authCache.uid ? authCache : null;
+  const [user, setUser] = useState<User | null>(cached?.user ?? null);
+  const [account, setAccount] = useState<Account | null>(cached?.account ?? null);
+  const [ready, setReady] = useState(!!cached);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -122,8 +126,10 @@ export function useAuth() {
       setUser(u);
       if (u) {
         const profile = await fetchProfile(u.uid);
+        authCache = { uid: u.uid, user: u, account: profile };
         setAccount(profile);
       } else {
+        authCache = null;
         setAccount(null);
       }
       setReady(true);

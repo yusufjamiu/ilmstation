@@ -62,7 +62,7 @@ export function StudyScreen() {
 function StudyScreenInner() {
   const [view, setView] = useState<View>({});
   const { cats: allCats } = useStudyCategories();
-  const { account: studyAcct } = useAuth();
+  const { account: studyAcct, ready: studyReady } = useAuth();
   const cats = allCats ? allCats.filter((c) => catFor(c, studyAcct?.zone)) : allCats;
   const { uid, progress, results } = useStudyMe();
   const voice = useVoiceLang();
@@ -74,6 +74,7 @@ function StudyScreenInner() {
   const examView = useExam(view.exam);
   const catLessons = useDocs<Lesson>("studyLessons", [], !!view.cat && studyAcct?.zone !== "kids");
   useEffect(() => { window.scrollTo?.(0, 0); }, [view]);
+  if (!studyReady) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (studyAcct?.zone === "kids") return <KidStudy cats={cats ?? []} />;
   if (!cats) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const cat = cats.find((c) => c.id === view.cat);

@@ -261,7 +261,7 @@ function Reader({ item, state, setState, onBack, onShare }: {
 }
 
 export function LibraryScreen({ onShare }: { onShare: () => void }) {
-  const { account } = useAuth();
+  const { account, ready: authReady } = useAuth();
   const { premium, points, canAccess } = usePremium();
   const myLevel = levelFor(useMyXp(), useLevels()).n;
   const canOpen = (i: LibraryItem) => canAccess(i.id, i.tier) || (!!i.minLevel && myLevel >= i.minLevel);
@@ -278,8 +278,8 @@ export function LibraryScreen({ onShare }: { onShare: () => void }) {
   const bands = bandsFor(zone);
 
   const visible = useMemo(
-    () => all.filter((i) => bands.includes(i.age) && (!i.audience || i.audience === gender)),
-    [all, zone, gender], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (!authReady ? [] : all.filter((i) => bands.includes(i.age) && (!i.audience || i.audience === gender))),
+    [all, zone, gender, authReady], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const chips = useMemo(
     () => [...CATEGORIES].filter((c) => (!CORNERS[c] || CORNERS[c] === gender) && visible.some((i) => i.cats.includes(c))).sort((a, b) => a.localeCompare(b)),
