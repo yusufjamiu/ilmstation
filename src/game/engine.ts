@@ -597,7 +597,7 @@ export function planeMesh(stripe: number) {
 }
 
 /** The IlmAir airliner up close: windows along the body, the doors and the name. */
-export function airliner(stripe: number, name = "IlmAir  ✈  إلم للطيران", ink = "#1f3d5a") {
+export function airliner(stripe: number, name = "IlmAir  ✈  علم للطيران", ink = "#1f3d5a") {
   const g = planeMesh(stripe);
   const dark = mat(0x1b2630);
   const wins: THREE.BufferGeometry[] = [];
@@ -11843,7 +11843,7 @@ export class IlmCityEngine {
       return P;
     };
     // your plane at stand 3, right in front of the gate
-    const mine = parked(-8.3 * S, -12 - R, 0x1f3d5a, "IlmAir  ✈  إلم للطيران", "#1f3d5a");
+    const mine = parked(-8.3 * S, -12 - R, 0x1f3d5a, "IlmAir  ✈  علم للطيران", "#1f3d5a");
     g.add(mine);
     this.minePlane = mine;
     const bodyY = 1.2 + 2.6 * S; // the middle of the body
@@ -11929,7 +11929,7 @@ export class IlmCityEngine {
       [0xc9a227, "Sahara Wings", "#8a6a1c"],
       [0x7d2f3a, "Oasis Airways", "#7d2f3a"],
       [0x2c6db0, "Crescent Air", "#2c6db0"],
-      [0x1f3d5a, "IlmAir  ✈  إلم للطيران", "#1f3d5a"],
+      [0x1f3d5a, "IlmAir  ✈  علم للطيران", "#1f3d5a"],
       [0x2f8f83, "Nakhla Air", "#2f8f83"],
     ];
     // (a plane is 70 m long, so the stands are 95 m apart)
@@ -12363,7 +12363,7 @@ export class IlmCityEngine {
       }
       g.add(new THREE.Mesh(mergeGeometries(backs)!, scrM));
       this.cabinScreen = { canvas: cv, tex };
-      this.setCabinScreen({ title: "Welcome aboard", lines: ["IlmAir · إلم للطيران"] });
+      this.setCabinScreen({ title: "Welcome aboard", lines: ["IlmAir · علم للطيران"] });
       const tag = label("IlmAir", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
       tag.position.set(0, 3.6, -D / 2 + 1);
       g.add(tag);
