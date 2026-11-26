@@ -111,6 +111,7 @@ import {
   AD_EMAIL,
   BILLBOARDS,
   BUS_FARE,
+  TAXI_FARE,
   WORLD_CITIES,
   DEFAULT_AREA,
   cityLive,
@@ -2353,9 +2354,18 @@ function CityGame({
 
   /** Ride to another area (bus fare, or free in your car); optionally walk to a place on arrival. */
   const startTrip = useCallback(
-    (to: string, byCar: boolean, then?: string, byTrain = false) => {
+    (
+      to: string,
+      byCar: boolean,
+      then?: string,
+      byTrain = false,
+      /** "taxi": a city taxi drives you there; "coach": the road coach, not the train */
+      mode?: "taxi" | "coach",
+    ) => {
       const e = engine.current;
       if (!e) return;
+      const taxi = mode === "taxi";
+      if (taxi) byCar = false;
       // on a bus: get off at the next stop first, then travel
       if (e.isRiding()) {
         e.getOffNext();
@@ -2373,7 +2383,10 @@ function CityGame({
         );
         return;
       }
-      const train = (far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain;
+      const train =
+        !taxi &&
+        mode !== "coach" &&
+        ((far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain);
       // in your own car the trip uses petrol from the tank; with too little in it you buy
       // fuel on the way, which costs more than at a filling station
       const litres = far ? FUEL.far : FUEL.trip;
@@ -2384,8 +2397,11 @@ function CityGame({
       const sv0 = saveRef.current;
       const bikeNow = sv0.cycling ? bikeHere(sv0, here) : null;
       const bikeAlong = !!bikeNow && !bikeNow.hired && !far && !train && !!bikeHere(sv0, to);
-      const fare =
-        (byCar
+      const fare = taxi
+        ? far
+          ? TAXI_FARE.far
+          : TAXI_FARE.city
+        : (byCar
           ? fromTank
             ? 0
             : far
@@ -2407,7 +2423,7 @@ function CityGame({
       }
       if (!byCar && saveRef.current.coins < fare) {
         toast(
-          `The ${train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
+          `The ${taxi ? "taxi" : train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
           "warn",
         );
         return;
@@ -2417,7 +2433,7 @@ function CityGame({
       const station = train && !byCar ? d.landmarks.find((l) => l.kind === "station") : undefined;
       arriveRef.current = () => {
         // by train you step off at the station; otherwise the bus or car drives in
-        if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar);
+        if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar, taxi);
         // ihram is worn in Saudi Arabia while a pilgrimage is under way, not back home
         {
           const sv1 = saveRef.current;
@@ -2466,7 +2482,7 @@ function CityGame({
       };
       const go = () => {
         // by bus you sit inside it, with the other passengers, while the road goes by
-        if (!byCar && !train) {
+        if (!byCar && !train && !taxi) {
           const seat = e.enterCoach(Math.floor(Math.random() * 1000));
           setInside(true);
           const bt = { from: here, to, toName: districtById(to).name, seat, far };
@@ -2474,7 +2490,7 @@ function CityGame({
           setBusTrip(bt);
           return;
         }
-        setTravelling({ from: here, to, byCar, train: train && !byCar });
+        setTravelling({ from: here, to, byCar: byCar || taxi, train: train && !byCar });
       };
       // Madinah to Makkah passes Dhul Hulayfah (Masjid Abyar Ali), the miqat of Madinah
       const sv2 = saveRef.current;
@@ -2525,6 +2541,92 @@ function CityGame({
   );
   const tripRef = useRef(startTrip);
   tripRef.current = startTrip;
+  /** In ihram at the miqat: on to Makkah by taxi to the airport and a flight to Jeddah, or by
+      the cheaper road coach straight to Makkah. */
+  const openToMakkah = useCallback(() => {
+    const e = engine.current;
+    if (!e) return;
+    const go = (fn: () => void) => {
+      setPanel(null);
+      if (e.scenePlace() !== "out") {
+        e.exitInterior();
+        setInside(false);
+      }
+      setTimeout(fn, 400);
+    };
+    const coins = saveRef.current.coins;
+    const canFly = coins >= TAXI_FARE.city + INTERCITY.fly + TAXI_FARE.city;
+    setPanel({
+      kind: "info",
+      title: "🕋 On to Makkah",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>
+            <b>Labbayk Allahumma 'Umrah.</b> Keep saying the talbiyah on the way. How will you
+            travel to Makkah?
+          </p>
+          <button
+            onClick={() =>
+              go(() => tripRef.current("madinahairport", false, "airport:madinah", false, "taxi"))
+            }
+            className={`w-full rounded-xl px-4 py-3 text-left font-bold text-white ${canFly ? "bg-[#1f6f63]" : "bg-[#1f6f63]/60"}`}
+          >
+            🚕 Taxi to Madinah Airport · {N(TAXI_FARE.city)}
+            <div className="text-[12px] font-normal opacity-90">
+              Then fly to Jeddah ({N(INTERCITY.fly)}) and take a taxi from Jeddah Airport to
+              Makkah ({N(TAXI_FARE.city)}). Fast.
+            </div>
+          </button>
+          <button
+            onClick={() => go(() => tripRef.current("haram", false, undefined, false, "coach"))}
+            className="w-full rounded-xl bg-[#c9a227] px-4 py-3 text-left font-bold text-[#10201e]"
+          >
+            🚌 Coach to Makkah · {N(INTERCITY.bus)}
+            <div className="text-[12px] font-normal opacity-90">
+              Cheaper: straight down the Hijrah Road to Makkah, about five hours.
+            </div>
+          </button>
+          {!canFly && (
+            <p className="text-[12px] opacity-70">
+              Flying costs about {N(TAXI_FARE.city * 2 + INTERCITY.fly)} in all. You have{" "}
+              {N(coins)}.
+            </p>
+          )}
+        </div>
+      ),
+    });
+  }, []);
+  const openToMakkahRef = useRef(openToMakkah);
+  openToMakkahRef.current = openToMakkah;
+  /** Landed at Jeddah: a taxi to Makkah waits outside arrivals. */
+  const openJeddahTaxi = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🚕 Taxi to Makkah",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>
+            Welcome to Jeddah. The taxis wait outside arrivals: about an hour to the Haram in
+            Makkah.
+          </p>
+          <button
+            onClick={() => tripRef.current("haram", false, "door:masjid:masjid-al-haram", false, "taxi")}
+            className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+          >
+            🚕 To Makkah · Al-Masjid Al-Haram · {N(TAXI_FARE.city)}
+          </button>
+          <button
+            onClick={() => setPanel(null)}
+            className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+          >
+            Not now
+          </button>
+        </div>
+      ),
+    });
+  }, []);
+  const openJeddahTaxiRef = useRef(openJeddahTaxi);
+  openJeddahTaxiRef.current = openJeddahTaxi;
   // for testing in development: start a trip from the browser console
   if (import.meta.env.DEV && typeof window !== "undefined")
     (window as unknown as { __trip?: typeof startTrip }).__trip = startTrip;
@@ -7055,50 +7157,76 @@ function CityGame({
         return;
       }
       // the miqat of Madinah: put on ihram here and make the intention for Umrah
-      if (id === "office:miqat-ihram") {
+      // the miqat of Madinah: ghusl and ihram in the bath halls round the masjid, then two
+      // rak'ahs inside, then the intention for Umrah
+      if (id === "office:miqat-ihram" || id.startsWith("miqat:ghusl")) {
         const sv = saveRef.current;
+        const fem = female();
+        if (sv.umrah?.stage === "ihram") {
+          toast("You're in ihram. Now go into the masjid and pray two rak'ahs.");
+          e.guideTo("door:masjid:masjid-dhulhulayfah");
+          return;
+        }
         if (sv.umrah?.stage || hajjIhram(sv.hajj?.stage)) {
-          toast("You're in ihram. Take the bus to Makkah from the bus stop, saying the talbiyah.");
+          openToMakkahRef.current();
+          return;
+        }
+        if (id === "office:miqat-ihram") {
+          toast(
+            "Ihram cloths, sandals and unscented soap. Make ghusl and change in the bath halls inside the masjid's walls.",
+          );
+          e.guideTo(fem ? "miqat:ghusl:f" : "miqat:ghusl:m");
+          return;
+        }
+        if ((id === "miqat:ghusl:m") === fem) {
+          toast(fem ? "This side is for brothers. The sisters' side is across the courtyard." : "This side is for sisters. The brothers' side is across the courtyard.");
+          e.guideTo(fem ? "miqat:ghusl:f" : "miqat:ghusl:m");
           return;
         }
         setPanel({
           kind: "info",
-          title: "Dhul Hulayfah · the miqat",
+          title: fem ? "🚿 Sisters · ghusl and ihram" : "🚿 Brothers · ghusl and ihram",
           body: (
             <div className="space-y-3 text-[14px]">
               <p>
                 This is <b>Dhul Hulayfah</b> (Abyar Ali), the miqat the Prophet ﷺ set for the people
-                of Madinah. Pilgrims going to Makkah for Umrah or Hajj put on ihram here.
+                of Madinah. Here pilgrims make ghusl, put on ihram, pray two rak'ahs and make the
+                intention.
               </p>
+              <ul className="list-disc space-y-1 pl-5 text-[13px]">
+                <li>Make ghusl, the full bath, with unscented soap.</li>
+                {fem ? (
+                  <li>Wear your usual modest clothes; the face and hands stay uncovered.</li>
+                ) : (
+                  <li>Put on the two white sheets: the izar round the waist, the rida over the shoulders.</li>
+                )}
+                <li>Perfume the body before ihram (not the clothes), and no perfume after.</li>
+              </ul>
               <button
                 onClick={() =>
                   setPanel({
                     kind: "busy",
-                    title: female()
-                      ? "Making ghusl and getting ready"
-                      : "Making ghusl and putting on ihram",
+                    title: fem ? "Making ghusl and getting ready" : "Making ghusl and putting on ihram",
                     ms: 3500,
                     done: () => {
-                      const p = saveRef.current.profile;
-                      if (p) e.setPlayerLook({ ...p, ihram: !p.female });
+                      wearIhram(true);
                       update((x) => ({
                         ...x,
-                        umrah: { done: x.umrah?.done ?? 0, stage: "enter" },
+                        wudu: true,
+                        umrah: { done: x.umrah?.done ?? 0, stage: "ihram" },
                       }));
-                      sayDhikr("niyyahUmrah", () =>
-                        sayDhikr("talbiyah", () =>
-                          toast(
-                            "You're in ihram for Umrah. Take the bus to Makkah from the bus stop, or fly from the airport.",
-                            "good",
-                          ),
-                        ),
+                      saveRef.current = { ...saveRef.current, wudu: true };
+                      e.guideTo("door:masjid:masjid-dhulhulayfah");
+                      toast(
+                        "Ready. Don't make the intention yet: first go into the masjid and pray two rak'ahs.",
+                        "good",
                       );
                     },
                   })
                 }
                 className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
               >
-                🤍 Put on ihram and make the intention for Umrah
+                🚿 Make ghusl and {fem ? "get ready" : "put on ihram"}
               </button>
             </div>
           ),
@@ -7343,6 +7471,27 @@ function CityGame({
           title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Taxi",
           body: (
             <div className="space-y-2">
+              {(() => {
+                // the taxi also goes further: to the airport, or from Jeddah Airport to Makkah
+                const city = cityOf(districtById(area));
+                const far: [string, string, string | undefined][] =
+                  area === "jeddahairport"
+                    ? [["haram", "Makkah · Al-Masjid Al-Haram", "door:masjid:masjid-al-haram"]]
+                    : city === "madinah" && area !== "madinahairport"
+                      ? [["madinahairport", "Madinah Airport", "airport:madinah"]]
+                      : city === "makkah" && districtById(area).holy && !NO_TRAFFIC.has(area)
+                        ? [["jeddahairport", "Jeddah Airport", "airport:makkah"]]
+                        : [];
+                return far.map(([to, name, then]) => (
+                  <button
+                    key={to}
+                    onClick={() => tripRef.current(to, false, then, false, "taxi")}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-white"
+                  >
+                    🚕 {name} · {N(TAXI_FARE.city)}
+                  </button>
+                ));
+              })()}
               <p className="text-[13px] opacity-75">
                 Any place in {fullName(districtById(area))} for {N(kfare)}.
               </p>
@@ -7494,6 +7643,55 @@ function CityGame({
           sayDhikr("enterMasjid");
         }
         tuneRef.current();
+        if (lid === "masjid-dhulhulayfah") {
+          const st = saveRef.current.umrah?.stage;
+          if (st === "ihram") {
+            setPanel({
+              kind: "info",
+              title: "Two rak'ahs before ihram",
+              body: (
+                <div className="space-y-3 text-[14px]">
+                  <p>
+                    The Prophet ﷺ prayed here at Dhul Hulayfah before he began his ihram. Pray two
+                    rak'ahs, then make the intention for Umrah.
+                  </p>
+                  <button
+                    onClick={() => {
+                      afterPrayerRef.current = () =>
+                        sayDhikr("niyyahUmrah", () =>
+                          sayDhikr("talbiyah", () => {
+                            update((x) => ({
+                              ...x,
+                              umrah: { done: x.umrah?.done ?? 0, stage: "enter" },
+                            }));
+                            toast(
+                              "You're in ihram for Umrah. Keep away from what ihram forbids. Now go outside and travel to Makkah.",
+                              "good",
+                            );
+                            setTimeout(() => openToMakkahRef.current(), 900);
+                          }),
+                        );
+                      startPrayer(true, "Two rak'ahs before ihram");
+                    }}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                  >
+                    🤲 Pray two rak'ahs
+                  </button>
+                </div>
+              ),
+            });
+            return;
+          }
+          if (st === "enter") {
+            openToMakkahRef.current();
+            return;
+          }
+          if (!st && !hajjIhram(saveRef.current.hajj?.stage)) {
+            toast(
+              "Going for Umrah? First make ghusl and put on ihram in the bath halls round the courtyard, then come back and pray two rak'ahs.",
+            );
+          }
+        }
         const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
         if (ms.open && ms.prayer) {
@@ -10155,6 +10353,10 @@ function CityGame({
             ticketRef.current = null;
             setFlight(null);
             t.arrive();
+            // landed in Jeddah: the taxi to Makkah waits outside arrivals
+            setTimeout(() => {
+              if (engine.current?.districtId() === "jeddahairport") openJeddahTaxiRef.current();
+            }, 3500);
           }}
         />
       )}

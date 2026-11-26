@@ -3127,6 +3127,7 @@ export class IlmCityEngine {
     else if (l.kind === "jamarat") this.buildJamarat(l, sz, D);
     else if (l.kind === "rahmah") this.buildRahmah(l, D, sz);
     else if (l.kind === "clocktower") this.buildClockTower(l.x, sz - 30, l.name);
+    else if (l.kind === "masjid" && l.id === "masjid-dhulhulayfah") this.buildMiqatMosque(l, sz);
     else if (l.kind === "masjid") {
       this.buildMasjid(l.x, sz - 23, l);
       // the famous mosques of Madinah keep their own shape: minarets and white domes
@@ -7846,7 +7847,7 @@ export class IlmCityEngine {
     const [px, pz] = spot ?? [x, z];
     this.player.position.set(px, 0, pz);
   }
-  travel(id: string, byCar: boolean) {
+  travel(id: string, byCar: boolean, taxi = false) {
     const D = districtById(id);
     this.ensureCity(cityOf(D));
     // your car stays at home: there's none in Makkah or Madinah
@@ -7885,8 +7886,13 @@ export class IlmCityEngine {
     }
     // then along the main road in its lane (z = 3), stopping at the bus stop: no pavements
     const inEnd = fromN || fromS ? null : W(dside * (Hx - 6), 3);
-    if (byCar) {
-      vehicle = this.car;
+    if (byCar || taxi) {
+      if (taxi) {
+        // a city taxi brings you in and drops you by the road; your own car stays put
+        vehicle = new THREE.Group();
+        vehicle.add(vehicleMesh("keke", 0xf2c230, !!D.holy || saudiCity(D)));
+        this.scene.add(vehicle);
+      } else vehicle = this.car;
       path = fromN
         ? [start, W(-3, -8), W(-8, 3), W(-12, 8.4), W(-16, 9.8)]
         : fromS
@@ -7905,7 +7911,7 @@ export class IlmCityEngine {
     // face the first stretch of road
     vehicle.rotation.y = Math.atan2(-(path[1].z - path[0].z), path[1].x - path[0].x);
     this.player.position.copy(path[0]);
-    this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
+    this.cine = { vehicle, path, k: 1, byCar: byCar && !taxi, taxi, hold: 0.6 };
     this.ev.onCinematic?.(true);
     this.applyLight();
     this.snapCamera();
@@ -7916,6 +7922,7 @@ export class IlmCityEngine {
     path: THREE.Vector3[];
     k: number;
     byCar: boolean;
+    taxi?: boolean;
     hold: number;
   } | null = null;
 
@@ -7951,7 +7958,12 @@ export class IlmCityEngine {
     const c = this.cine!;
     this.cine = null;
     const o = this.district.origin;
-    if (c.byCar) {
+    if (c.taxi) {
+      // step out of the taxi onto the pavement; it drives off
+      const v = c.vehicle;
+      this.standAt(o.x - 16, o.z + 13, v.position);
+      setTimeout(() => v.removeFromParent(), 2500);
+    } else if (c.byCar) {
       this.carHeading = Math.PI;
       this.car.rotation.y = Math.PI;
       this.standAt(o.x - 16, o.z + 13, this.car.position);
@@ -8747,6 +8759,502 @@ export class IlmCityEngine {
     plaza.position.set(cx, 0.03, cz + D / 2 + 3.6);
     plaza.receiveShadow = true;
     this.dg.add(plaza);
+  }
+
+  /** A texture drawn on a canvas, repeating across. */
+  private paintTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    draw(cv.getContext("2d")!);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    t.wrapS = THREE.RepeatWrapping;
+    return t;
+  }
+
+  /** Masjid Dhul Hulayfah (Abyar Ali), the miqat of Madinah: a great walled compound in sand
+      and rose stone with crenellated walls, arched lattice windows and red doors; the gate with
+      its twin domed towers; bath halls with white vaulted roofs all round, where pilgrims make
+      ghusl and put on ihram; a vaulted walkway; and in the middle the mosque itself round its
+      open courtyard, with its white domes and its tall stepped minaret. */
+  private buildMiqatMosque(l: Landmark, sz: number) {
+    const OW = 88,
+      OD = 70,
+      WH = 7; // outer wall height
+    const cx = l.x,
+      front = sz - 12,
+      cz = front - OD / 2;
+    const b = new Batch();
+    const std = (o: THREE.MeshStandardMaterialParameters) =>
+      new THREE.MeshStandardMaterial({ roughness: 0.9, ...o });
+    // the walls: warm sand fading to rose at the foot, a row of arched lattice windows, and
+    // a red door in every other bay (one tile = two bays, 12 m wide, 7 m tall)
+    const wallTex = this.paintTex(256, 150, (c) => {
+      const gr = c.createLinearGradient(0, 0, 0, 150);
+      gr.addColorStop(0, "#f2dcc0");
+      gr.addColorStop(0.6, "#efcfb2");
+      gr.addColorStop(1, "#e6a892");
+      c.fillStyle = gr;
+      c.fillRect(0, 0, 256, 150);
+      c.fillStyle = "#e3c7a6";
+      c.fillRect(0, 0, 256, 8);
+      for (const x of [64, 192]) {
+        // the arched window with its lattice
+        c.fillStyle = "#cdb193";
+        c.beginPath();
+        c.moveTo(x - 17, 70);
+        c.lineTo(x - 17, 46);
+        c.arc(x, 46, 17, Math.PI, 0);
+        c.lineTo(x + 17, 70);
+        c.fill();
+        c.fillStyle = "#77706a";
+        c.beginPath();
+        c.moveTo(x - 13, 67);
+        c.lineTo(x - 13, 46);
+        c.arc(x, 46, 13, Math.PI, 0);
+        c.lineTo(x + 13, 67);
+        c.fill();
+        c.strokeStyle = "#cbbfae";
+        c.lineWidth = 1.2;
+        for (let k = -13; k <= 13; k += 4) {
+          c.beginPath();
+          c.moveTo(x + k, 34);
+          c.lineTo(x + k, 67);
+          c.stroke();
+        }
+        for (let y = 38; y < 67; y += 4) {
+          c.beginPath();
+          c.moveTo(x - 13, y);
+          c.lineTo(x + 13, y);
+          c.stroke();
+        }
+      }
+      // the red door with its small arch and its steps
+      const dx = 192;
+      c.fillStyle = "#e9d2b8";
+      c.fillRect(dx - 12, 92, 24, 50);
+      c.fillStyle = "#c2302a";
+      c.fillRect(dx - 8, 104, 16, 38);
+      c.strokeStyle = "#8a1f1a";
+      c.lineWidth = 1.5;
+      c.strokeRect(dx - 8, 104, 16, 38);
+      c.beginPath();
+      c.moveTo(dx, 104);
+      c.lineTo(dx, 142);
+      c.stroke();
+      c.fillStyle = "#d9b9a0";
+      c.fillRect(dx - 15, 142, 30, 4);
+      c.fillRect(dx - 19, 146, 38, 4);
+    });
+    // the mosque's own walls: round medallions above, small arched windows, red doors below
+    const mosqueTex = this.paintTex(256, 192, (c) => {
+      const gr = c.createLinearGradient(0, 0, 0, 192);
+      gr.addColorStop(0, "#f2dcc2");
+      gr.addColorStop(1, "#e9b9a0");
+      c.fillStyle = gr;
+      c.fillRect(0, 0, 256, 192);
+      for (const x of [32, 96, 160, 224]) {
+        c.strokeStyle = "#d4b293";
+        c.lineWidth = 3;
+        c.beginPath();
+        c.arc(x, 52, 17, 0, Math.PI * 2);
+        c.stroke();
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.arc(x, 52, 11, 0, Math.PI * 2);
+        c.stroke();
+        c.fillStyle = "#cfa98a";
+        c.fillRect(x - 6, 92, 12, 22);
+        c.beginPath();
+        c.arc(x, 92, 6, Math.PI, 0);
+        c.fill();
+      }
+      for (const x of [64, 192]) {
+        c.fillStyle = "#c2302a";
+        c.fillRect(x - 9, 140, 18, 44);
+        c.strokeStyle = "#8a1f1a";
+        c.strokeRect(x - 9, 140, 18, 44);
+        c.beginPath();
+        c.moveTo(x, 140);
+        c.lineTo(x, 184);
+        c.stroke();
+      }
+      c.fillStyle = "#e3c4a6";
+      c.fillRect(0, 184, 256, 8);
+    });
+    // the walkway: open pointed arches on square piers (one bay 4 m wide, 6 m tall)
+    const walkTex = this.paintTex(128, 192, (c) => {
+      c.fillStyle = "#f0dcc4";
+      c.fillRect(0, 0, 128, 192);
+      c.fillStyle = "#e2c4a8";
+      c.fillRect(0, 0, 128, 14);
+      c.globalCompositeOperation = "destination-out";
+      c.beginPath();
+      c.moveTo(18, 192);
+      c.lineTo(18, 90);
+      c.quadraticCurveTo(18, 40, 64, 28);
+      c.quadraticCurveTo(110, 40, 110, 90);
+      c.lineTo(110, 192);
+      c.fill();
+      c.globalCompositeOperation = "source-over";
+      c.fillStyle = "#6b5f57";
+      c.fillRect(0, 150, 18, 42);
+      c.fillRect(110, 150, 18, 42);
+    });
+    // the gate: a great arch between two smaller ones (16 m wide, 12 m tall)
+    const gateTex = this.paintTex(256, 192, (c) => {
+      c.fillStyle = "#f1dbc1";
+      c.fillRect(0, 0, 256, 192);
+      c.fillStyle = "#e6a892";
+      c.fillRect(0, 150, 256, 42);
+      const arch = (x: number, w: number, top: number) => {
+        c.beginPath();
+        c.moveTo(x - w / 2, 192);
+        c.lineTo(x - w / 2, top + w / 2);
+        c.arc(x, top + w / 2, w / 2, Math.PI, 0);
+        c.lineTo(x + w / 2, 192);
+        c.closePath();
+      };
+      c.fillStyle = "#d9bc9c";
+      arch(128, 122, 46);
+      c.fill();
+      c.fillStyle = "#4a3a33";
+      arch(30, 24, 128);
+      c.fill();
+      arch(226, 24, 128);
+      c.fill();
+      for (const [x, y] of [
+        [30, 92],
+        [226, 92],
+      ]) {
+        c.strokeStyle = "#cfae8f";
+        c.lineWidth = 3;
+        c.beginPath();
+        c.arc(x, y, 13, 0, Math.PI * 2);
+        c.stroke();
+      }
+      for (let i = 0; i < 4; i++) {
+        c.fillStyle = "#cfae8f";
+        c.fillRect(96 + i * 18, 14, 10, 20);
+      }
+      c.globalCompositeOperation = "destination-out";
+      arch(128, 108, 56);
+      c.fill();
+      c.globalCompositeOperation = "source-over";
+    });
+    const brickTex = this.paintTex(128, 128, (c) => {
+      c.fillStyle = "#c98f80";
+      c.fillRect(0, 0, 128, 128);
+      for (let y = 0; y < 128; y += 16)
+        for (let x = (y / 16) % 2 ? -16 : 0; x < 128; x += 32) {
+          c.fillStyle = ["#d39a8a", "#c48474", "#cc9283", "#bd7e70"][((x + y) / 16) & 3];
+          c.fillRect(x + 1, y + 1, 30, 14);
+        }
+    });
+    brickTex.wrapT = THREE.RepeatWrapping;
+    brickTex.repeat.set(OW / 4, OD / 4);
+    // after dark the stone is floodlit warm, the arches glow and the domes shine white
+    const wallM = this.glow(std({ map: wallTex }), 0.55, 0xffe6c8, wallTex);
+    const mosqueM = this.glow(std({ map: mosqueTex }), 0.55, 0xffe6c8, mosqueTex);
+    const walkM = this.glow(
+      std({ map: walkTex, alphaTest: 0.5, side: THREE.DoubleSide }),
+      0.6,
+      0xffe2b8,
+      walkTex,
+    );
+    const gateM = this.glow(
+      std({ map: gateTex, alphaTest: 0.5, side: THREE.DoubleSide }),
+      0.6,
+      0xffe2b8,
+      gateTex,
+    );
+    const stoneM = this.glow(std({ color: 0xefd6ba, flatShading: true }), 0.45, 0xffe2c0);
+    const roofM = this.glow(std({ color: 0xead2b6, flatShading: true }), 0.25, 0xffe2c0);
+    const vaultM = this.glow(std({ color: 0xf6f3ee }), 0.5, 0xffffff);
+    const domeM = this.glow(std({ color: 0xf7f4ee, roughness: 0.6 }), 0.6, 0xffffff);
+    const warmM = this.glow(std({ color: 0xf7d9a6 }), 1.4, 0xffc070); // lamp-lit vault ceilings
+    const goldM = this.glow(std({ color: 0xc9a227, metalness: 0.5, roughness: 0.35 }), 1, 0xffc850);
+    const greenM = this.glow(std({ color: 0x2f8f78 }), 0.6, 0x40d0a0);
+    const darkM = std({ color: 0x4a3a33 });
+    const floorM = this.glow(std({ map: brickTex }), 0.25, 0xffd8c8, brickTex);
+
+    // a wall face: its texture repeated once every `bay` metres
+    const face = (len: number, h: number, bay: number, m: THREE.Material, x: number, y: number, z: number, ry: number) => {
+      const geo = new THREE.PlaneGeometry(len, h);
+      const n = Math.max(1, Math.round(len / bay));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, y, z, ry, false);
+    };
+    // crenellations along a wall top, from (x0, z0) to (x1, z1)
+    const merlons = (x0: number, z0: number, x1: number, z1: number, y: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0),
+        n = Math.floor(len / 1.2);
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        b.box(0.55, 0.7, 0.55, stoneM, cx + x0 + (x1 - x0) * t, y, cz + z0 + (z1 - z0) * t);
+      }
+    };
+    const X = (x: number) => cx + x,
+      Z = (z: number) => cz + z;
+    const hw = OW / 2,
+      hd = OD / 2,
+      T = 1.2, // wall thickness
+      GW = 6.4; // the gate opening
+    // the brick-paved courtyard
+    const yard = new THREE.Mesh(new THREE.PlaneGeometry(OW - 2, OD - 2), floorM);
+    yard.rotation.x = -Math.PI / 2;
+    yard.position.set(cx, 0.04, cz);
+    yard.receiveShadow = true;
+    this.dg.add(yard);
+    // the outer walls, with the gate gap in the front one
+    const wallSeg = (x0: number, x1: number, z0: number, z1: number) => {
+      b.box(x1 - x0, WH, z1 - z0, stoneM, X((x0 + x1) / 2), 0, Z((z0 + z1) / 2));
+      this.addCollider("out", X(x0), X(x1), Z(z0), Z(z1));
+    };
+    wallSeg(-hw, -GW / 2, hd - T, hd);
+    wallSeg(GW / 2, hw, hd - T, hd);
+    wallSeg(-hw, hw, -hd, -hd + T);
+    wallSeg(-hw, -hw + T, -hd, hd);
+    wallSeg(hw - T, hw, -hd, hd);
+    // their outer faces (front in two pieces round the gate)
+    const fl = hw - GW / 2;
+    face(fl, WH, 12, wallM, X(-hw + fl / 2), WH / 2, Z(hd + 0.03), 0);
+    face(fl, WH, 12, wallM, X(hw - fl / 2), WH / 2, Z(hd + 0.03), 0);
+    face(OW, WH, 12, wallM, X(0), WH / 2, Z(-hd - 0.03), Math.PI);
+    face(OD, WH, 12, wallM, X(-hw - 0.03), WH / 2, Z(0), -Math.PI / 2);
+    face(OD, WH, 12, wallM, X(hw + 0.03), WH / 2, Z(0), Math.PI / 2);
+    merlons(-hw, hd - 0.6, -GW / 2 - 4, hd - 0.6, WH);
+    merlons(GW / 2 + 4, hd - 0.6, hw, hd - 0.6, WH);
+    merlons(-hw, -hd + 0.6, hw, -hd + 0.6, WH);
+    merlons(-hw + 0.6, -hd, -hw + 0.6, hd, WH);
+    merlons(hw - 0.6, -hd, hw - 0.6, hd, WH);
+
+    // the gate: a tall block with the great arch, and two domed towers on top
+    const GB = 16,
+      GH = 11.5;
+    face(GB, GH, GB, gateM, X(0), GH / 2, Z(hd + 0.6), 0);
+    face(GB, GH, GB, gateM, X(0), GH / 2, Z(hd - 2.6), 0);
+    b.box(GB, 0.6, 3.4, roofM, X(0), GH - 0.3, Z(hd - 1));
+    for (const s of [-1, 1]) {
+      b.box(4.8, GH, 3.4, stoneM, X(s * (GB / 2 - 2.4)), 0, Z(hd - 1));
+      this.addCollider(
+        "out",
+        X(s < 0 ? -GB / 2 : GW / 2),
+        X(s < 0 ? -GW / 2 : GB / 2),
+        Z(hd - 2.7),
+        Z(hd + 0.7),
+      );
+      // the little towers: a square shaft, a gallery, an open lantern and a white dome
+      const tx = X(s * (GB / 2 - 2.4));
+      const tz = Z(hd - 1);
+      b.box(2.8, 3.6, 2.8, stoneM, tx, GH, tz);
+      b.box(3.4, 0.4, 3.4, roofM, tx, GH + 3.6, tz);
+      b.add(new THREE.CylinderGeometry(1.2, 1.2, 2.4, 8), stoneM, tx, GH + 5.2, tz);
+      b.add(new THREE.CylinderGeometry(1.25, 1.25, 1.4, 8), darkM, tx, GH + 5.2, tz);
+      b.add(new THREE.SphereGeometry(1.3, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), domeM, tx, GH + 6.4, tz);
+      b.add(new THREE.ConeGeometry(0.1, 1, 5), goldM, tx, GH + 8.1, tz);
+    }
+    merlons(-GB / 2, hd + 0.6, GB / 2, hd + 0.6, GH);
+
+    // the bath halls round three sides: ghusl and changing rooms under white vaulted roofs
+    const HD = 9,
+      HH = 5.5;
+    const vaults = (
+      x0: number,
+      x1: number,
+      z0: number,
+      z1: number,
+      alongX: boolean,
+      y = HH + 0.4,
+    ) => {
+      // half-cylinders side by side, each running across the hall
+      const len = alongX ? x1 - x0 : z1 - z0,
+        span = alongX ? z1 - z0 : x1 - x0,
+        n = Math.floor(len / 3.2);
+      for (let i = 0; i < n; i++) {
+        const t = x0 + ((i + 0.5) / n) * (x1 - x0),
+          u = z0 + ((i + 0.5) / n) * (z1 - z0);
+        const geo = new THREE.CylinderGeometry(1.45, 1.45, span - 0.6, 10, 1, false, 0, Math.PI);
+        geo.rotateZ(Math.PI / 2);
+        if (alongX) geo.rotateY(Math.PI / 2);
+        b.add(geo, vaultM, alongX ? X(t) : X((x0 + x1) / 2), y, alongX ? Z((z0 + z1) / 2) : Z(u));
+      }
+    };
+    const hall = (x0: number, x1: number, z0: number, z1: number, alongX: boolean) => {
+      b.box(x1 - x0, HH, z1 - z0, stoneM, X((x0 + x1) / 2), 0, Z((z0 + z1) / 2));
+      b.box(x1 - x0, 0.4, z1 - z0, roofM, X((x0 + x1) / 2), HH, Z((z0 + z1) / 2));
+      vaults(x0, x1, z0, z1, alongX);
+      this.addCollider("out", X(x0), X(x1), Z(z0), Z(z1));
+    };
+    const iw = -hw + T,
+      ie = hw - T,
+      inn = -hd + T,
+      isf = hd - T;
+    hall(iw, iw + HD, inn, isf - 6, false); // west: the brothers
+    hall(ie - HD, ie, inn, isf - 6, false); // east: the sisters
+    hall(iw + HD, ie - HD, inn, inn + HD, true); // north: wudu and toilets
+    // their faces to the courtyard
+    face(isf - 6 - inn, HH, 12, wallM, X(iw + HD + 0.03), HH / 2, Z((inn + isf - 6) / 2), Math.PI / 2);
+    face(isf - 6 - inn, HH, 12, wallM, X(ie - HD - 0.03), HH / 2, Z((inn + isf - 6) / 2), -Math.PI / 2);
+    face(ie - iw - HD * 2, HH, 12, wallM, X(0), HH / 2, Z(inn + HD + 0.03), 0);
+    // signs and doors: ghusl and ihram for brothers on the west, sisters on the east
+    const signM = (text: string, x: number, z: number, ry: number) => {
+      const t = label(text, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
+      t.position.set(x, HH + 1.6, z);
+      t.rotation.y = ry;
+      this.dg.add(t);
+    };
+    const hallMid = (inn + isf - 6) / 2;
+    for (const dz of [-14, 0, 14]) {
+      b.box(0.3, 3, 2, std({ color: 0xc2302a }), X(iw + HD + 0.15), 0, Z(hallMid + dz));
+      b.box(0.3, 3, 2, std({ color: 0xc2302a }), X(ie - HD - 0.15), 0, Z(hallMid + dz));
+    }
+    this.zones.push({
+      id: "miqat:ghusl:m",
+      label: "Brothers: ghusl and ihram",
+      x: X(iw + HD + 2.6) + this.ox,
+      z: Z(hallMid) + this.oz,
+      r: 3.4,
+      scene: "out",
+    });
+    this.zones.push({
+      id: "miqat:ghusl:f",
+      label: "Sisters: ghusl and ihram",
+      x: X(ie - HD - 2.6) + this.ox,
+      z: Z(hallMid) + this.oz,
+      r: 3.4,
+      scene: "out",
+    });
+    signM("🚿 Brothers · Ghusl & Ihram", X(iw + HD + 0.4), Z(hallMid), 0);
+    signM("🚿 Sisters · Ghusl & Ihram", X(ie - HD - 0.4), Z(hallMid), 0);
+    signM("💧 Wudu & Toilets", X(0), Z(inn + HD + 0.5), 0);
+
+    // the vaulted walkway inside the front wall, lit warm under its arches at night
+    const WD = 5,
+      WAH = 6;
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? iw + HD : GW / 2 + 4,
+        x1 = s < 0 ? -GW / 2 - 4 : ie - HD;
+      const len = x1 - x0,
+        mx = (x0 + x1) / 2;
+      face(len, WAH, 4, walkM, X(mx), WAH / 2, Z(isf - WD), 0);
+      b.box(len, 0.5, WD, roofM, X(mx), WAH, Z(isf - WD / 2));
+      // the warm ceiling seen through the arches
+      const ceil = new THREE.PlaneGeometry(len, WD);
+      ceil.rotateX(Math.PI / 2);
+      b.add(ceil, warmM, X(mx), WAH - 0.05, Z(isf - WD / 2), 0, false);
+      vaults(x0, x1, isf - WD, isf, true, WAH + 0.5);
+      merlons(x0, isf - WD + 0.2, x1, isf - WD + 0.2, WAH + 0.5);
+    }
+
+    // the mosque in the middle: four wings round an open courtyard
+    const MW = 40,
+      MD = 34,
+      MH = 9,
+      mz = -4; // its centre, a little back from the middle
+    const CW = 14,
+      CD = 12; // the courtyard
+    const mf = mz + MD / 2; // its front
+    const wing = (x0: number, x1: number, z0: number, z1: number) => {
+      b.box(x1 - x0, MH, z1 - z0, stoneM, X((x0 + x1) / 2), 0, Z((z0 + z1) / 2));
+      b.box(x1 - x0, 0.5, z1 - z0, roofM, X((x0 + x1) / 2), MH, Z((z0 + z1) / 2));
+    };
+    wing(-MW / 2, MW / 2, mz - MD / 2, mz - CD / 2); // the prayer hall at the back (qiblah)
+    wing(-MW / 2, MW / 2, mz + CD / 2, mf);
+    wing(-MW / 2, -CW / 2, mz - CD / 2, mz + CD / 2);
+    wing(CW / 2, MW / 2, mz - CD / 2, mz + CD / 2);
+    this.addCollider("out", X(-MW / 2), X(MW / 2), Z(mz - MD / 2), Z(mf));
+    face(MW, MH, 16, mosqueM, X(0), MH / 2, Z(mf + 0.03), 0);
+    face(MW, MH, 16, mosqueM, X(0), MH / 2, Z(mz - MD / 2 - 0.03), Math.PI);
+    face(MD, MH, 16, mosqueM, X(-MW / 2 - 0.03), MH / 2, Z(mz), -Math.PI / 2);
+    face(MD, MH, 16, mosqueM, X(MW / 2 + 0.03), MH / 2, Z(mz), Math.PI / 2);
+    // the courtyard's inner faces: arcades with a green-tiled eave
+    face(CW, MH, 4, walkM, X(0), MH / 2, Z(mz - CD / 2 - 0.03), 0);
+    face(CW, MH, 4, walkM, X(0), MH / 2, Z(mz + CD / 2 + 0.03), Math.PI);
+    face(CD, MH, 4, walkM, X(-CW / 2 - 0.03), MH / 2, Z(mz), Math.PI / 2);
+    face(CD, MH, 4, walkM, X(CW / 2 + 0.03), MH / 2, Z(mz), -Math.PI / 2);
+    for (const [w, d, x, z] of [
+      [CW + 2, 1.2, 0, mz - CD / 2 + 0.4],
+      [CW + 2, 1.2, 0, mz + CD / 2 - 0.4],
+      [1.2, CD, -CW / 2 + 0.4, mz],
+      [1.2, CD, CW / 2 - 0.4, mz],
+    ])
+      b.box(w, 0.3, d, greenM, X(x), MH - 1.6, Z(z));
+    // the courtyard floor and its little white dome
+    b.box(CW, 0.1, CD, floorM, X(0), 0.02, Z(mz));
+    b.add(new THREE.CylinderGeometry(1.8, 1.8, 1.6, 12), stoneM, X(0), 0.8, Z(mz));
+    b.add(new THREE.SphereGeometry(2, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2), domeM, X(0), 1.6, Z(mz));
+    // white vaulted roofs over the wings
+    vaults(-MW / 2 + 1, MW / 2 - 1, mz - MD / 2 + 0.5, mz - CD / 2 - 0.5, true, MH + 0.5);
+    vaults(-MW / 2 + 1, MW / 2 - 1, mz + CD / 2 + 0.5, mf - 0.5, true, MH + 0.5);
+    vaults(-MW / 2 + 1, -CW / 2 - 1, mz - CD / 2 + 0.5, mz + CD / 2 - 0.5, false, MH + 0.5);
+    vaults(CW / 2 + 1, MW / 2 - 1, mz - CD / 2 + 0.5, mz + CD / 2 - 0.5, false, MH + 0.5);
+    // (their tops sit on the wing roofs, which are higher than the halls)
+    // the row of small domes over the prayer hall, and the big dome over the mihrab
+    for (let i = -3; i <= 3; i++) {
+      if (i === 0) continue;
+      b.add(new THREE.SphereGeometry(1.6, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), domeM, X(i * 4.6), MH + 0.5, Z(mz - CD / 2 - 1.2));
+    }
+    b.add(new THREE.CylinderGeometry(3.2, 3.2, 2.4, 16), stoneM, X(0), MH + 1.7, Z(mz - MD / 2 + 5));
+    b.add(new THREE.SphereGeometry(3.4, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), domeM, X(0), MH + 2.9, Z(mz - MD / 2 + 5));
+    b.add(new THREE.ConeGeometry(0.15, 1.6, 6), goldM, X(0), MH + 7.1, Z(mz - MD / 2 + 5));
+    merlons(-MW / 2, mf - 0.3, MW / 2, mf - 0.3, MH + 0.5);
+    merlons(-MW / 2, mz - MD / 2 + 0.3, MW / 2, mz - MD / 2 + 0.3, MH + 0.5);
+    merlons(-MW / 2 + 0.3, mz - MD / 2, -MW / 2 + 0.3, mf, MH + 0.5);
+    merlons(MW / 2 - 0.3, mz - MD / 2, MW / 2 - 0.3, mf, MH + 0.5);
+    // the mosque's main door, facing the gate
+    b.box(5, 6, 0.4, std({ color: 0xc2302a }), X(0), 0, Z(mf + 0.2));
+    b.box(6.4, 0.8, 0.6, stoneM, X(0), 6, Z(mf + 0.3));
+
+    // the tall minaret at the front corner: stepped square stages, a gallery, an arched
+    // lantern and a small white dome, the landmark seen from far down Hijrah Road
+    const mx = X(-MW / 2 - 3.5),
+      mzz = Z(mf - 3);
+    b.box(7.5, 24, 7.5, stoneM, mx, 0, mzz);
+    b.box(8.3, 0.6, 8.3, roofM, mx, 24, mzz);
+    b.box(5.4, 12, 5.4, stoneM, mx, 24.6, mzz);
+    b.box(6.2, 0.6, 6.2, roofM, mx, 36.6, mzz);
+    b.add(new THREE.CylinderGeometry(2.1, 2.3, 6, 10), stoneM, mx, 40.2, mzz);
+    b.add(new THREE.CylinderGeometry(2.9, 2.9, 0.5, 12), roofM, mx, 43.4, mzz);
+    b.add(new THREE.CylinderGeometry(1.7, 1.7, 3.2, 10), stoneM, mx, 45.3, mzz);
+    b.add(new THREE.CylinderGeometry(1.75, 1.75, 1.8, 10), darkM, mx, 45.3, mzz);
+    b.add(new THREE.SphereGeometry(1.8, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), domeM, mx, 46.9, mzz);
+    b.add(new THREE.ConeGeometry(0.12, 1.4, 5), goldM, mx, 49.3, mzz);
+    // its slit windows
+    for (const y of [6, 12, 18]) b.box(0.8, 2, 0.1, darkM, mx, y, mzz + 3.8);
+    for (const y of [28, 32]) b.box(0.7, 1.8, 0.1, darkM, mx, y, mzz + 2.75);
+    // a ring of lamps under its gallery, bright at night
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(2.7, 2.7, 0.3, 14), this.lampMat);
+    ring.position.set(mx, 43, mzz);
+    this.dg.add(ring);
+    this.addCollider("out", mx - 3.8, mx + 3.8, mzz - 3.8, mzz + 3.8);
+
+    for (const m of b.build()) this.dg.add(m);
+    // nothing else is planted or built inside the compound
+    this.reserved.push({
+      x0: this.ox + X(-hw - 1),
+      x1: this.ox + X(hw + 1),
+      z0: this.oz + Z(-hd - 1),
+      z1: this.oz + Z(hd + 1),
+    });
+    // enter the mosque by its main door
+    this.zones.push({
+      id: `door:masjid:${l.id}`,
+      label: `Enter ${l.name}`,
+      x: X(0) + this.ox,
+      z: Z(mf + 2.6) + this.oz,
+      r: 3.2,
+      scene: "out",
+    });
+    const t = label("Masjid Dhul Hulayfah · مسجد ذي الحليفة", { size: 1.1, bg: "rgba(31,111,99,0.92)" });
+    t.position.set(X(0), GH + 2.4, Z(hd + 1));
+    this.dg.add(t);
+    const t2 = label("Pray two rak'ahs, then make the intention", { size: 0.75 });
+    t2.position.set(X(0), 8, Z(mf + 1));
+    this.dg.add(t2);
   }
 
   private buildSchool(cx: number, cz: number, l: Landmark) {

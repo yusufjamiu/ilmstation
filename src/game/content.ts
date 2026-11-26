@@ -4346,6 +4346,9 @@ export const regionOf = (d: District) => rootOf(d).region ?? rootOf(d).name;
 export const fullName = (d: District) =>
   d.parent || d.region ? `${d.name}, ${regionOf(d)}` : d.name;
 export const BUS_FARE = 5;
+/** A city taxi to another area: across the city, or to the next city (Jeddah Airport to Makkah is
+    one city in the game). */
+export const TAXI_FARE = { city: 30, far: 150 };
 
 export const BILLBOARDS: Billboard[] = [
   {
