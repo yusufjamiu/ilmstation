@@ -1,3 +1,4 @@
+import { CalendarDays as SCal } from "lucide-react";
 import { Check as QCheck, Lock as QLock, MapPin as QPin } from "lucide-react";
 import { useLanguage as useAppLangS } from "@/components/language";
 import { usePremium as useKidPremium } from "@/components/premium";
@@ -246,6 +247,7 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
   const [syl, setSyl] = useState(false);
   const [pdf, setPdf] = useState(false);
   const [page, setPage] = useState(1);
+  const [planOpen, setPlanOpen] = useState(false);
   const s = subject.syllabus?.[stage];
   const list = topics(s);
   const exam = useExam(subjectExamId(subject.id, stage));
@@ -268,7 +270,14 @@ function SubjectView({ cat, stage, subject, lessons, done, results, uid, flow, p
     </div>
 
     {uid && flow.complete(subject.id, stage) && <CertificateCard className="mt-4" info={{ uid, subject: subject.name, subjectAr: subject.nameAr, level: stageName(cat, stage), category: cat.name, date: flow.earnedAt(subject.id, stage), stars: stagesOf(cat).filter((st) => subject.stages.includes(st.id)).findIndex((st) => st.id === stage) + 1 }} />}
-    {uid && lessons.length > 0 && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
+    {uid && lessons.length > 0 && <>
+      <button onClick={() => setPlanOpen(!planOpen)} className="mt-4 flex w-full items-center gap-3 border-2 border-foreground bg-card p-3.5 text-left shadow-brutal-sm">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-[#1c1a17]"><SCal className="size-5" /></span>
+        <span className="min-w-0 flex-1"><b className="block">Plan your pace</b><span className="text-xs text-muted-foreground">{plans[`${subject.id}__${stage}`] ? "Your plan is set · tap to change" : "Pick how many lessons a week, and get reminders"}</span></span>
+        <ChevronDown className={cn("size-5 shrink-0 transition-transform", planOpen && "rotate-180")} />
+      </button>
+      {planOpen && <StudyPlanCard uid={uid} planKey={`${subject.id}__${stage}`} plan={plans[`${subject.id}__${stage}`]} subject={subject.name} level={stageName(cat, stage)} total={lessons.length} doneNow={lessons.filter((l) => done[l.id]).length} />}
+    </>}
     <h2 className="mt-6 font-serif text-2xl">Lessons</h2>
     {lessons.length === 0 ? <p className="mt-2 border-2 border-dashed border-foreground p-4 text-sm text-muted-foreground">Lessons are being prepared. Check back soon.</p>
       : <LessonPath lessons={lessons} isDone={(id) => !!done[id]} firstOpen={firstOpen} levelName={stageName(cat, stage)}
