@@ -5826,6 +5826,439 @@ export class IlmCityEngine {
     side(east + IN, (east - IN) / 2, IN - D / 2, Math.PI); // south, facing north
     for (const m of b.build()) g.add(m);
   }
+  /** The outer face of the Haram, after the classic picture of its gates: warm carved stone on
+      a dark basalt base, two storeys of pointed arches with lattice screens, crenellations,
+      rows of domes on the roof, five great gates (each a tall portal under a dome with little
+      domed kiosks at its corners and the gate's name in gold) and a domed tower at every corner.
+      After dark the lattices and portals glow gold. */
+  private buildHaramOuter(g: THREE.Group, C: { x: number; z: number }, OUT: number, IN: number, H: number) {
+    const redraws: (() => void)[] = [];
+    const make = (w: number, h: number, draw: (c: CanvasRenderingContext2D) => void, clamp = false) => {
+      const cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = h;
+      const t = new THREE.CanvasTexture(cv);
+      const paint = () => {
+        const c = cv.getContext("2d")!;
+        c.clearRect(0, 0, w, h);
+        draw(c);
+        t.needsUpdate = true;
+      };
+      paint();
+      redraws.push(paint);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      t.wrapS = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+      return t;
+    };
+    const AR = '"Amiri", "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif';
+    const ar = (c: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, maxW: number, fill: string) => {
+      c.save();
+      c.direction = "rtl";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.font = `700 ${size}px ${AR}`;
+      const w = c.measureText(text).width;
+      c.translate(x, y);
+      c.scale(w > maxW ? maxW / w : 1, 1);
+      c.fillStyle = fill;
+      c.fillText(text, 0, 0);
+      c.restore();
+    };
+    // warm limestone laid in courses
+    const stone = (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, night: boolean, course = 20) => {
+      const gr = c.createLinearGradient(0, y, 0, y + h);
+      gr.addColorStop(0, night ? "#7a6e5c" : "#efe3ca");
+      gr.addColorStop(1, night ? "#6c604f" : "#e2d1b1");
+      c.fillStyle = gr;
+      c.fillRect(x, y, w, h);
+      c.strokeStyle = night ? "rgba(40,30,20,0.18)" : "rgba(150,120,80,0.16)";
+      c.lineWidth = 1.5;
+      for (let yy = y + course, row = 0; yy < y + h; yy += course, row++) {
+        c.beginPath();
+        c.moveTo(x, yy);
+        c.lineTo(x + w, yy);
+        for (let xx = x + (row % 2 ? 22 : 54); xx < x + w; xx += 64) {
+          c.moveTo(xx, yy - course);
+          c.lineTo(xx, yy);
+        }
+        c.stroke();
+      }
+    };
+    const basalt = (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
+      c.fillStyle = "#4e4943";
+      c.fillRect(x, y, w, h);
+      c.strokeStyle = "rgba(150,140,125,0.35)";
+      c.lineWidth = 2;
+      for (let yy = y + 24, row = 0; yy < y + h; yy += 24, row++) {
+        c.beginPath();
+        c.moveTo(x, yy);
+        c.lineTo(x + w, yy);
+        c.stroke();
+      }
+      for (let yy = y, row = 0; yy < y + h; yy += 24, row++)
+        for (let xx = x + (row % 2 ? 18 : 50); xx < x + w; xx += 64) {
+          c.beginPath();
+          c.moveTo(xx, yy);
+          c.lineTo(xx, Math.min(y + h, yy + 24));
+          c.stroke();
+        }
+      c.fillStyle = "#c9b48c";
+      c.fillRect(x, y, w, 5);
+    };
+    // a pointed arch from x0 to x1, its apex at yTop, its sides down to yBot
+    const arch = (c: CanvasRenderingContext2D, x0: number, x1: number, yTop: number, yBot: number) => {
+      const r = (x1 - x0) / 2,
+        cx = x0 + r,
+        sp = yTop + r * 1.35;
+      c.beginPath();
+      c.moveTo(x0, yBot);
+      c.lineTo(x0, sp);
+      c.quadraticCurveTo(x0, sp - r * 1.05, cx, yTop);
+      c.quadraticCurveTo(x1, sp - r * 1.05, x1, sp);
+      c.lineTo(x1, yBot);
+      c.closePath();
+    };
+    // a lattice screen (mashrabiya): dark wood by day, lit gold from inside after dark
+    const lattice = (c: CanvasRenderingContext2D, x0: number, x1: number, yTop: number, yBot: number, night: boolean) => {
+      c.save();
+      arch(c, x0, x1, yTop, yBot);
+      const gr = c.createLinearGradient(0, yTop, 0, yBot);
+      gr.addColorStop(0, night ? "#ffe6a6" : "#4a3826");
+      gr.addColorStop(1, night ? "#ffbf5e" : "#2e2219");
+      c.fillStyle = gr;
+      c.fill();
+      c.clip();
+      c.strokeStyle = night ? "rgba(150,90,30,0.55)" : "rgba(214,180,110,0.55)";
+      c.lineWidth = 2;
+      for (let k = -40; k < 40; k++) {
+        c.beginPath();
+        c.moveTo(x0 + k * 12, yTop);
+        c.lineTo(x0 + k * 12 + (yBot - yTop), yBot);
+        c.moveTo(x0 + k * 12, yTop);
+        c.lineTo(x0 + k * 12 - (yBot - yTop), yBot);
+        c.stroke();
+      }
+      c.restore();
+      arch(c, x0, x1, yTop, yBot);
+      c.strokeStyle = night ? "#b88a3c" : "#c9a24a";
+      c.lineWidth = 3;
+      c.stroke();
+    };
+    // the muqarnas cornice: a row of little arches under the parapet
+    const cornice = (c: CanvasRenderingContext2D, w: number, y: number, night: boolean) => {
+      c.fillStyle = night ? "#6e6250" : "#d9c6a0";
+      c.fillRect(0, y, w, 22);
+      c.fillStyle = night ? "#4c4234" : "#b89d70";
+      for (let x = 0; x < w; x += 16) {
+        c.beginPath();
+        c.moveTo(x, y + 22);
+        c.quadraticCurveTo(x + 8, y + 6, x + 16, y + 22);
+        c.fill();
+      }
+      c.fillStyle = night ? "#8a7a62" : "#f3e8d0";
+      c.fillRect(0, y + 22, w, 4);
+    };
+    // one bay of the outer wall: 8 m wide, H (21 m) tall, at 32 px a metre
+    const bayDraw = (night: boolean) => (c: CanvasRenderingContext2D) => {
+      const BW = 256,
+        BH = 672;
+      stone(c, 0, 0, BW, BH, night);
+      cornice(c, BW, 0, night);
+      // pilasters between bays
+      c.fillStyle = night ? "#84775f" : "#f4ead6";
+      c.fillRect(0, 26, 10, BH);
+      c.fillRect(BW - 10, 26, 10, BH);
+      // the upper storey: a tall lattice window in a carved frame
+      c.fillStyle = night ? "#5e5444" : "#d4bf98";
+      arch(c, 70, 186, 74, 282);
+      c.fill();
+      lattice(c, 82, 174, 92, 272, night);
+      // a carved band between the storeys, a gold zigzag along it
+      c.fillStyle = night ? "#6a5e4c" : "#d1bb90";
+      c.fillRect(0, 302, BW, 22);
+      c.strokeStyle = night ? "#e0b45c" : "#b89040";
+      c.lineWidth = 2;
+      c.beginPath();
+      for (let x = 0; x <= BW; x += 16) c.lineTo(x, 302 + (x % 32 ? 18 : 4));
+      c.stroke();
+      // the ground storey: a deep arch with a lattice screen
+      c.fillStyle = night ? "#5e5444" : "#d4bf98";
+      arch(c, 44, 212, 350, 572);
+      c.fill();
+      lattice(c, 58, 198, 368, 572, night);
+      basalt(c, 0, 572, BW, 100);
+    };
+    const bay = make(256, 672, bayDraw(false));
+    const bayNight = make(256, 672, bayDraw(true));
+    // a gate's portal: W m wide, 29 m tall, at 20 px a metre, with an arch A m wide. An open
+    // portal has its arch cut out, to walk through.
+    const HP = H + 8;
+    const portalDraw = (W: number, A: number, open: boolean, arName: string, night: boolean) => (
+      c: CanvasRenderingContext2D,
+    ) => {
+      const PW = W * 20,
+        PH = HP * 20,
+        cx = PW / 2;
+      stone(c, 0, 0, PW, PH, night, 18);
+      cornice(c, PW, 0, night);
+      // the tall frame round the portal (pishtaq) with a gold line
+      c.fillStyle = night ? "#6a5e4c" : "#d8c49c";
+      c.fillRect(22, 30, PW - 44, PH - 30);
+      stone(c, 38, 46, PW - 76, PH - 46, night, 18);
+      c.strokeStyle = night ? "#f0c060" : "#c9a24a";
+      c.lineWidth = 4;
+      c.strokeRect(30, 38, PW - 60, PH - 38);
+      // the name of the gate in gold on a dark panel
+      c.fillStyle = "#2a2118";
+      c.fillRect(56, 50, PW - 112, 56);
+      c.strokeStyle = night ? "#ffd070" : "#c9a24a";
+      c.lineWidth = 3;
+      c.strokeRect(60, 54, PW - 120, 48);
+      ar(c, arName, cx, 80, 40, PW - 150, night ? "#ffe08a" : "#e3c060");
+      // the great arch in pale and ochre stones
+      const r = A * 10,
+        apex = 150,
+        sp = apex + r * 1.35;
+      c.save();
+      arch(c, cx - r - 18, cx + r + 18, apex - 24, PH);
+      c.clip();
+      for (let k = 0; k < 18; k++) {
+        c.beginPath();
+        c.moveTo(cx, sp);
+        c.arc(cx, sp, 600, Math.PI + (k / 18) * Math.PI, Math.PI + ((k + 1) / 18) * Math.PI);
+        c.closePath();
+        c.fillStyle = k % 2 ? (night ? "#8c6030" : "#b8803f") : night ? "#8a7c66" : "#f3e8d0";
+        c.fill();
+      }
+      c.fillStyle = night ? "#8a7c66" : "#f3e8d0";
+      c.fillRect(cx - r - 18, sp, 2 * r + 36, PH - sp);
+      c.restore();
+      // little niches beside the arch, where there is room
+      const side = (PW - 76 - 2 * r - 36) / 2;
+      if (side > 50)
+        for (const nx of [38 + side / 2, PW - 38 - side / 2])
+          for (const [t, b] of [
+            [180, 300],
+            [340, 470],
+          ]) {
+            const hw = Math.min(26, side / 2 - 10);
+            lattice(c, nx - hw, nx + hw, t, b, night);
+          }
+      if (open) {
+        c.globalCompositeOperation = "destination-out";
+        arch(c, cx - r, cx + r, apex, PH);
+        c.fill();
+        c.globalCompositeOperation = "source-over";
+      } else {
+        // a lattice over the great door, and the door's two leaves studded with gold
+        lattice(c, cx - r, cx + r, apex, PH, night);
+        const dt = PH - 170;
+        c.fillStyle = "#5a3c20";
+        c.fillRect(cx - r + 14, dt, 2 * r - 28, PH - dt);
+        c.fillStyle = night ? "#ffd070" : "#d4ad3c";
+        for (let y = dt + 12; y < PH - 6; y += 16)
+          for (let x = cx - r + 24; x < cx + r - 20; x += 16) c.fillRect(x, y, 3, 3);
+        c.fillRect(cx - 2, dt, 4, PH - dt);
+        c.strokeStyle = night ? "#ffd070" : "#c9a24a";
+        c.lineWidth = 4;
+        c.strokeRect(cx - r + 14, dt, 2 * r - 28, PH - dt);
+      }
+      basalt(c, 0, PH - 40, cx - r - 18, 40);
+      basalt(c, cx + r + 18, PH - 40, PW - cx - r - 18, 40);
+    };
+    const std = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial({ roughness: 0.85, ...o });
+    const bayMat = this.glow(std({ map: bay }), 0.9, 0xffffff, bayNight);
+    const stoneM = this.glow(std({ color: 0xe8dbbf }), 0.35, 0xffe2b8);
+    const ledgeM = this.glow(std({ color: 0xd6c29c }), 0.35, 0xffe2b8);
+    const domeM = this.glow(std({ color: 0xeee6d6, roughness: 0.6 }), 0.45, 0xfff0d8);
+    const goldM = this.glow(std({ color: 0xd4ad3c, metalness: 0.6, roughness: 0.35 }), 1.2, 0xffc850);
+    const b = new Batch();
+    const facePlane = (len: number, h: number, m: THREE.Material, x: number, y: number, z: number, ry: number, bayW = 8) => {
+      const geo = new THREE.PlaneGeometry(len, h);
+      const n = Math.max(1, Math.round(len / bayW));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, y, z, ry, false);
+    };
+    // a pointed dome
+    const domeGeo = (R: number, Hd: number) => {
+      const pts: THREE.Vector2[] = [];
+      for (let i = 0; i <= 10; i++) {
+        const a = (i / 10) * (Math.PI / 2);
+        pts.push(new THREE.Vector2(R * Math.cos(a) * (1 + 0.07 * Math.sin(a * 2)), Hd * Math.sin(a)));
+      }
+      pts.push(new THREE.Vector2(0.001, Hd + R * 0.22));
+      return new THREE.LatheGeometry(pts, 20);
+    };
+    const dome = (R: number, x: number, y: number, z: number, drum = true) => {
+      if (drum) {
+        b.add(new THREE.CylinderGeometry(R * 1.02, R * 1.02, R * 0.45, 20), ledgeM, x, y + R * 0.225, z);
+        y += R * 0.45;
+      }
+      b.add(domeGeo(R, R * 0.95), domeM, x, y, z);
+      b.add(new THREE.ConeGeometry(R * 0.07, R * 0.6, 6), goldM, x, y + R * 1.15 + R * 0.25, z);
+    };
+    // a little domed kiosk on a roof corner
+    const kiosk = (x: number, y: number, z: number, r = 1.3) => {
+      b.add(new THREE.CylinderGeometry(r, r * 1.1, r * 2.4, 8), stoneM, x, y + r * 1.2, z);
+      b.add(new THREE.CylinderGeometry(r * 1.25, r * 1.25, 0.3, 8), ledgeM, x, y + r * 2.4 + 0.15, z);
+      dome(r, x, y + r * 2.4 + 0.3, z, false);
+    };
+    const merlons = (x0: number, z0: number, x1: number, z1: number, y: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const ry = Math.atan2(-(z1 - z0), x1 - x0);
+      const n = Math.floor(len / 2.4);
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        b.box(1.2, 1.3, 0.7, ledgeM, x0 + (x1 - x0) * t, y, z0 + (z1 - z0) * t, ry);
+      }
+    };
+    // the outer walls: carved bays on every outside face, crenellations along the top
+    const E = 0.06;
+    facePlane(OUT * 2, H, bayMat, 0, H / 2, -OUT - E, Math.PI);
+    facePlane(OUT * 2, H, bayMat, -OUT - E, H / 2, 0, -Math.PI / 2);
+    facePlane(OUT * 2, H, bayMat, OUT + E, H / 2, 0, Math.PI / 2);
+    facePlane(OUT - 9, H, bayMat, -(OUT + 9) / 2, H / 2, OUT + E, 0);
+    facePlane(OUT - 9, H, bayMat, (OUT + 9) / 2, H / 2, OUT + E, 0);
+    const top = H + 1.2;
+    merlons(-OUT, -OUT - 0.1, OUT, -OUT - 0.1, top);
+    merlons(-OUT - 0.1, -OUT, -OUT - 0.1, OUT, top);
+    merlons(OUT + 0.1, -OUT, OUT + 0.1, OUT, top);
+    merlons(-OUT, OUT + 0.1, -9, OUT + 0.1, top);
+    merlons(9, OUT + 0.1, OUT, OUT + 0.1, top);
+    // the gates. Local +z points out of the Haram.
+    type Gate = { en: string; ar: string; x: number; z: number; ry: number; W: number; A: number; open?: boolean };
+    const gates: Gate[] = [
+      { en: "KING ABDULAZIZ GATE", ar: "باب الملك عبد العزيز", x: 0, z: OUT, ry: 0, W: 26, A: 17.6, open: true },
+      { en: "KING FAHD GATE", ar: "باب الملك فهد", x: -OUT, z: 0, ry: -Math.PI / 2, W: 22, A: 10 },
+      { en: "UMRAH GATE", ar: "باب العمرة", x: -OUT, z: -52, ry: -Math.PI / 2, W: 18, A: 8 },
+      { en: "KING ABDULLAH GATE", ar: "باب الملك عبد الله", x: 0, z: -OUT, ry: Math.PI, W: 24, A: 11 },
+      { en: "BAB AS-SALAM", ar: "باب السلام", x: OUT, z: 22, ry: Math.PI / 2, W: 20, A: 9 },
+    ];
+    const P = 7; // how far a gate stands out from the wall
+    const pos = new THREE.Vector3(),
+      q = new THREE.Quaternion(),
+      one = new THREE.Vector3(1, 1, 1),
+      up = new THREE.Vector3(0, 1, 0);
+    // world box of a local rectangle, for a collider
+    const solid = (gt: Gate, lx0: number, lx1: number, lz0: number, lz1: number) => {
+      const c = Math.round(Math.cos(gt.ry)),
+        s = Math.round(Math.sin(gt.ry));
+      const xs: number[] = [],
+        zs: number[] = [];
+      for (const lx of [lx0, lx1])
+        for (const lz of [lz0, lz1]) {
+          xs.push(gt.x + lx * c + lz * s);
+          zs.push(gt.z - lx * s + lz * c);
+        }
+      this.addCollider("out", C.x + Math.min(...xs), C.x + Math.max(...xs), C.z + Math.min(...zs), C.z + Math.max(...zs));
+    };
+    for (const gt of gates) {
+      b.base.compose(pos.set(gt.x, 0, gt.z), q.setFromAxisAngle(up, gt.ry), one);
+      const W = gt.W;
+      const pd = portalDraw(W, gt.A, !!gt.open, gt.ar, false),
+        pn = portalDraw(W, gt.A, !!gt.open, gt.ar, true);
+      const day = make(W * 20, HP * 20, pd, true),
+        night = make(W * 20, HP * 20, pn, true);
+      const pm = this.glow(
+        std({ map: day, ...(gt.open ? { alphaTest: 0.5, side: THREE.DoubleSide } : {}) }),
+        1.0,
+        0xffffff,
+        night,
+      );
+      const geo = new THREE.PlaneGeometry(W, HP);
+      if (gt.open) {
+        // two piers either side of the passage, a roof over it and the dome on top
+        const pw = (W - gt.A) / 2 - 0.2;
+        for (const sx of [-1, 1]) {
+          b.box(pw, HP, P + 1, stoneM, sx * (W / 2 - pw / 2), 0, P / 2 - 0.5);
+          solid(gt, sx > 0 ? W / 2 - pw : -W / 2, sx > 0 ? W / 2 : -W / 2 + pw, -1, P);
+        }
+        b.box(W, HP - H + 1, P + 1, stoneM, 0, H - 1, P / 2 - 0.5);
+        // the covered way through the wall
+        b.box(18, 1.2, OUT - IN, stoneM, 0, H - 1.2, -(OUT - IN) / 2);
+      } else {
+        b.box(W, HP, P + 1, stoneM, 0, 0, P / 2 - 0.5);
+        solid(gt, -W / 2, W / 2, -1, P + 3);
+        // three broad steps up to the door
+        for (let i = 0; i < 3; i++) b.box(gt.A + 4 - i * 1.2, 0.25 * (i + 1), 3 - i * 0.9, ledgeM, 0, 0, P + 1.5 - i * 0.45);
+      }
+      b.add(geo, pm, 0, HP / 2, P + 0.05, 0, false);
+      b.box(W + 1, 1, P + 2, ledgeM, 0, HP, P / 2 - 0.5);
+      merlons(-W / 2, P + 0.6, W / 2, P + 0.6, HP + 1);
+      // the dome over the gate and a kiosk at each corner of its roof
+      const R = Math.min(W * 0.3, 7);
+      b.add(new THREE.CylinderGeometry(R + 0.8, R + 1.2, 1.4, 20), ledgeM, 0, HP + 1.7, P / 2 - 1);
+      dome(R, 0, HP + 2.4, P / 2 - 1);
+      for (const sx of [-1, 1]) for (const lz of [0, P - 0.5]) kiosk(sx * (W / 2 - 1.4), HP + 1, lz);
+      b.base.identity();
+      // the gate's name on a blue board, as on the signposts
+      const sign = this.signBoard(gt.en, Math.min(W - 6, 15), 1.3, "#13294b", "#f3d27a");
+      const sp = new THREE.Vector3(0, HP - 6.2, P + 0.12).applyAxisAngle(up, gt.ry);
+      sign.position.set(gt.x + sp.x, sp.y, gt.z + sp.z);
+      sign.rotation.y = gt.ry;
+      g.add(sign);
+      const cr = crescent();
+      cr.scale.setScalar(1.6);
+      const cp = new THREE.Vector3(0, HP + 2.4 + R * 1.62, P / 2 - 1).applyAxisAngle(up, gt.ry);
+      cr.position.set(gt.x + cp.x, cp.y, gt.z + cp.z);
+      cr.rotation.y = gt.ry;
+      g.add(cr);
+    }
+    // a domed tower at every corner (the minarets rise from them)
+    for (const [sx, sz2] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ]) {
+      const x = sx * OUT,
+        z = sz2 * OUT,
+        T = 14,
+        TH = H + 5;
+      b.box(T, TH, T, stoneM, x, 0, z);
+      facePlane(T, H, bayMat, x, H / 2, z + sz2 * (T / 2 + E), sz2 > 0 ? 0 : Math.PI, 7);
+      facePlane(T, H, bayMat, x + sx * (T / 2 + E), H / 2, z, sx > 0 ? Math.PI / 2 : -Math.PI / 2, 7);
+      b.box(T + 1, 0.9, T + 1, ledgeM, x, TH, z);
+      for (const kx of [-1, 1]) for (const kz of [-1, 1]) kiosk(x + kx * (T / 2 - 1.3), TH + 0.9, z + kz * (T / 2 - 1.3), 1.1);
+      this.addCollider("out", C.x + x - T / 2, C.x + x + T / 2, C.z + z - T / 2, C.z + z + T / 2);
+    }
+    // rows of domes along the roofs, kept clear of the gates and corners
+    const mid = (OUT + IN) / 2;
+    const roofDomes = (along: "x" | "z", fixed: number, skip: number[], from = -OUT + 16, to = OUT - 16) => {
+      for (let t = from; t <= to; t += 13) {
+        if (skip.some((s) => Math.abs(t - s) < 17)) continue;
+        if (along === "x") dome(3, t, H + 1.2, fixed);
+        else dome(3, fixed, H + 1.2, t);
+      }
+    };
+    roofDomes("x", -mid, [0]);
+    roofDomes("z", -mid, [0, -52], -IN + 2, IN - 2);
+    roofDomes("z", mid, [22], -IN + 2, IN - 2);
+    roofDomes("x", mid, [0]);
+    // two domed kiosks on the plaza before the King Abdulaziz Gate
+    for (const sx of [-1, 1]) {
+      const x = sx * 44,
+        z = OUT + 18;
+      b.add(new THREE.CylinderGeometry(4, 4.2, 6, 8), stoneM, x, 3, z);
+      b.add(new THREE.CylinderGeometry(4.6, 4.6, 0.6, 8), ledgeM, x, 6.3, z);
+      dome(3.6, x, 6.6, z);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        kiosk(x + Math.cos(a) * 4, 6.6, z + Math.sin(a) * 4, 0.7);
+      }
+      this.addCollider("out", C.x + x - 4.2, C.x + x + 4.2, C.z + z - 4.2, C.z + z + 4.2);
+    }
+    for (const m of b.build()) g.add(m);
+    if (typeof document !== "undefined" && document.fonts)
+      document.fonts
+        .load('700 30px "Amiri"', "باب")
+        .then((f) => {
+          if (f.length) for (const r of redraws) r();
+        })
+        .catch(() => {});
+  }
   /** Al-Masjid Al-Haram: the colonnades round an open courtyard with the Kaaba in the middle,
       Maqam Ibrahim, the Zamzam taps, Safa and Marwah, tall minarets and the clock tower. */
   private buildHaram(l: Landmark, D: District) {
@@ -5838,9 +6271,30 @@ export class IlmCityEngine {
     g.position.set(C.x, 0, C.z);
     const white = 0xf3f0e7;
     // the marble courtyard (mataf) and the outer plaza
+    // polished marble slabs, 3 m square, with grey borders
+    const slab = this.paintTex(256, 256, (c) => {
+      c.fillStyle = "#eeeae1";
+      c.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 9; i++) {
+        c.strokeStyle = `rgba(150,140,125,${0.05 + (i % 3) * 0.03})`;
+        c.lineWidth = 1 + (i % 2);
+        c.beginPath();
+        c.moveTo((i * 53) % 256, 0);
+        c.bezierCurveTo(60 + i * 20, 90, 200 - i * 15, 160, (i * 97) % 256, 256);
+        c.stroke();
+      }
+      c.strokeStyle = "#cbc3b3";
+      c.lineWidth = 6;
+      c.strokeRect(0, 0, 256, 256);
+      c.strokeStyle = "#ded6c6";
+      c.lineWidth = 2;
+      c.strokeRect(14, 14, 228, 228);
+    });
+    slab.wrapT = THREE.RepeatWrapping;
+    slab.repeat.set((OUT * 2 + 30) / 3, (OUT * 2 + 40) / 3);
     const plaza = new THREE.Mesh(
       new THREE.PlaneGeometry(OUT * 2 + 30, OUT * 2 + 40),
-      mat(0xe9e4d8),
+      this.glow(new THREE.MeshStandardMaterial({ map: slab, roughness: 0.45 }), 0.1, 0xfff0d8, slab),
     );
     plaza.rotation.x = -Math.PI / 2;
     plaza.position.set(0, 0.025, 8);
@@ -5870,9 +6324,9 @@ export class IlmCityEngine {
     g.add(ring);
     // the colonnades: four wings, with the King Abdulaziz Gate on the south
     const wingMat = this.glow(
-      new THREE.MeshStandardMaterial({ color: white, roughness: 0.9, flatShading: true }),
-      0.45,
-      0xfff4e0,
+      new THREE.MeshStandardMaterial({ color: 0xe6d8bc, roughness: 0.9, flatShading: true }),
+      0.4,
+      0xffe6c0,
     );
     const minaretMat = this.glow(
       new THREE.MeshStandardMaterial({ color: white, roughness: 0.8 }),
@@ -5898,27 +6352,11 @@ export class IlmCityEngine {
     wing(IN, OUT, -IN, IN); // east
     wing(-OUT, -9, IN, OUT); // south, left of the gate
     wing(9, OUT, IN, OUT); // south, right of the gate
-    // arches facing the courtyard and the street
-    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
-    const arches = (y: number, z: number, x0: number, x1: number, n: number, face: number) => {
-      for (let i = 0; i < n; i++) {
-        const x = x0 + ((i + 0.5) * (x1 - x0)) / n;
-        const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.2), archMat);
-        a.position.set(x, y, z + face * 0.06);
-        if (face < 0) a.rotation.y = Math.PI;
-        g.add(a);
-      }
-    };
-    arches(3, OUT, -OUT + 2, -11, 12, 1);
-    arches(3, OUT, 11, OUT - 2, 12, 1);
     // the courtyard sides: tall white arcades on three storeys, and in front of them the
     // old Ottoman arcade of sand-coloured arches under rows of little domes
     this.buildHaramArcades(g, IN, H);
-    // the gate: an arch with two minarets
-    g.add(box(20, 2.4, 6, 0xd9cfb8, 0, H - 1.2, OUT - 3));
-    const gateSign = this.signBoard("KING ABDULAZIZ GATE", 16, 1.1, "#5a4a2a", "#f3e2b0");
-    gateSign.position.set(0, H - 3, OUT + 0.1);
-    g.add(gateSign);
+    // the outside: carved stone walls, the great domed gates and the corner towers
+    this.buildHaramOuter(g, C, OUT, IN, H);
     const minaret = (x: number, z: number, h: number) => {
       const shaft = cyl(1.6, 2, h, 0xf3f0e7, 8);
       shaft.material = minaretMat;
@@ -5942,8 +6380,11 @@ export class IlmCityEngine {
       g.add(c);
       this.addCollider("out", C.x + x - 2.2, C.x + x + 2.2, C.z + z - 2.2, C.z + z + 2.2);
     };
-    minaret(-12, OUT + 2, 62);
-    minaret(12, OUT + 2, 62);
+    // twin minarets at the King Abdulaziz Gate and at the King Fahd Gate
+    minaret(-16, OUT + 5, 62);
+    minaret(16, OUT + 5, 62);
+    minaret(-OUT - 5, -14, 62);
+    minaret(-OUT - 5, 14, 62);
     for (const [x, z] of [
       [-OUT, -OUT],
       [OUT, -OUT],
@@ -6212,7 +6653,7 @@ export class IlmCityEngine {
       g.add(drum);
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(5, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-        mat(0xd9d4c8),
+        this.glow(new THREE.MeshStandardMaterial({ color: 0xeee6d6, roughness: 0.6 }), 0.45, 0xfff0d8),
       );
       dome.position.set(cx, H + 2, z);
       g.add(dome);
