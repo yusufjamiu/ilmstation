@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { iumCollege, iumGarden, iumGate, iumHostel, takeIumGlow } from "./ium";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BILLBOARDS,
@@ -3769,7 +3770,9 @@ export class IlmCityEngine {
           : l.kind === "mansion"
             ? mansion(b, o)
             : l.kind === "faculty"
-              ? faculty(b, o)
+              ? D.campus?.arabic
+                ? iumCollege(b, o)
+                : faculty(b, o)
               : l.kind === "field"
                 ? (() => {
                     const f = field(b, o);
@@ -5461,11 +5464,27 @@ export class IlmCityEngine {
       );
     };
     // the front wall, open at the gate on the cross road
-    wall(x0, z, -11.3, z);
-    wall(11.3, z, x1, z);
+    const ium = c.arabic ? iumGate(c.arabic) : null;
+    const gw = ium ? ium.halfWidth : 11.3;
+    wall(x0, z, -gw, z);
+    wall(gw, z, x1, z);
     wall(x0, z, x0, zb);
     wall(x1, z, x1, zb);
     wall(x0, zb, x1, zb);
+    if (ium) {
+      // the Islamic University's gate: two striped arches, a domed block on each side
+      // set back so nothing stands past the wall line (the street's lots stay as they were)
+      const gz = z - ium.front - 0.2;
+      ium.group.position.set(0, 0, gz);
+      g.add(ium.group);
+      for (const q of ium.colliders) this.addCollider("out", q.x0, q.x1, gz + q.z0, gz + q.z1);
+      const hint = label("Main Gate · " + c.gate, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
+      hint.position.set(0, ium.height + 3, z);
+      g.add(hint);
+      for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
+      this.dg.add(g);
+      return;
+    }
     // the gate: two pillars and a beam with the university's name
     for (const px of [-10.5, 10.5]) g.add(box(1.6, 8.4, 1.6, 0xd9d1bd, px, 0, z));
     g.add(box(22.6, 1.6, 1.4, 0x1f6f63, 0, 7, z));
@@ -8741,6 +8760,45 @@ export class IlmCityEngine {
   /** MSSN hostels: blocks of flats in the neighbourhood outside the campus wall, free for
       the university's registered students (brothers' and sisters' blocks apart). */
   private buildHostels(D: District, XR: number, rnd: () => number) {
+    this.buildHostelsOutside(D, XR, rnd);
+    if (D.campus?.arabic) this.buildIumHostels(D);
+    for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
+  }
+  /** Student Hostels 1, 2 and 3 of the Islamic University, inside the campus behind the
+      colleges: one each side of the mosque and one along the back wall. */
+  private buildIumHostels(D: District) {
+    const spots = [
+      { x: 21, z: -101, w: 24, d: 22 },
+      { x: 120, z: -101, w: 24, d: 22 },
+      { x: -72, z: -129, w: 40, d: 13 },
+    ];
+    spots.forEach((p, k) => {
+      const { name, sisters } = hostelInfo(D.id, k);
+      const h = iumHostel(this.curBatch, { ...p, n: k + 1, sisters, name });
+      for (const b of h.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+      this.reserved.push({
+        x0: this.ox + p.x - p.w / 2 - 1,
+        x1: this.ox + p.x + p.w / 2 + 1,
+        z0: this.oz + p.z - p.d / 2 - 1,
+        z1: this.oz + p.z + p.d / 2 + 5,
+      });
+      this.zones.push({
+        id: `hostel:${D.id}:${k}`,
+        label: name,
+        x: this.ox + h.door.x,
+        z: this.oz + h.door.z,
+        r: 3,
+        scene: "out",
+      });
+      const t = label(`🏠 ${name} · free for students`, {
+        size: 1.05,
+        bg: sisters ? "rgba(125,47,74,0.92)" : "rgba(31,111,99,0.92)",
+      });
+      t.position.set(p.x, h.top + 2, p.z + p.d / 2);
+      this.dg.add(t);
+    });
+  }
+  private buildHostelsOutside(D: District, XR: number, rnd: () => number) {
     const names = [0, 1, 2].map((k) => hostelInfo(D.id, k).name);
     // the streets outside the campus wall (south of it), nearest the gate first
     const streets = D.streets.filter((st) => st.z > (D.campus?.z ?? -34)).sort((a, b) => a.z - b.z);
@@ -8755,7 +8813,10 @@ export class IlmCityEngine {
           const cz = north ? st.z - 21.5 : st.z + 21.5;
           if (cz - 10.5 < (D.campus?.z ?? -34)) continue;
           if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
-          const c = compound(this.curBatch, {
+          // the Islamic University keeps its hostels inside the campus: the spot outside
+          // is worked out the same way (so nothing else moves) and becomes a palm garden
+          const ium = !!D.campus?.arabic;
+          const c = compound(ium ? new Batch(true) : this.curBatch, {
             x: cx,
             z: cz,
             turn: north ? 0 : Math.PI,
@@ -8766,6 +8827,18 @@ export class IlmCityEngine {
             wall: hostelInfo(D.id, k).sisters ? 0xe9d6dc : 0xd9e6d2,
             style: saudiCity(D) ? "saudi" : "storey",
           });
+          if (ium) {
+            for (const b of iumGarden(this.curBatch, cx, cz))
+              this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+            this.reserved.push({
+              x0: this.ox + cx - 12,
+              x1: this.ox + cx + 12,
+              z0: this.oz + cz - 10.5,
+              z1: this.oz + cz + 10.5,
+            });
+            k++;
+            continue;
+          }
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
           this.reserved.push({
             x0: this.ox + cx - 12,

@@ -762,7 +762,7 @@ export type District = {
   /** Makkah and Madinah: no football pitch, police station or sisters' corner */
   holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
-  campus?: { gate: string; z: number };
+  campus?: { gate: string; z: number; arabic?: string };
   /** a campus for brothers only or sisters only */
   only?: "brothers" | "sisters";
   /** the students' society that runs the hostels (default MSSN) */
@@ -773,13 +773,26 @@ export function hostelInfo(area: string, k: number) {
   const D = districtById(area);
   const club = D.club ?? "MSSN";
   const ab = ["A", "B", "C"][k] ?? "A";
-  if (D.only === "sisters") return { name: `University Sisters' Residence ${ab}`, sisters: true };
-  if (D.only === "brothers")
-    return { name: `University Brothers' Residence ${ab}`, sisters: false };
+  // the Islamic University of Madinah: Student Hostels 1, 2 and 3 inside the campus
+  if (D.only === "sisters") return { name: `Sisters' Hostel ${k + 1}`, sisters: true };
+  if (D.only === "brothers") return { name: `Student Hostel ${k + 1}`, sisters: false };
   return k === 1
     ? { name: `${club} Sisters' Hostel`, sisters: true }
     : { name: `${club} Brothers' Hostel ${k === 0 ? "A" : "B"}`, sisters: false };
 }
+
+/** The colleges of the Islamic University of Madinah. The words after "College of" pick
+    each college's departments, so they stay as they were. */
+const IUM_COLLEGES = [
+  "College of Sharia",
+  "College of Da'wah and Usul ad-Din",
+  "College of the Noble Qur'an",
+  "College of Hadith",
+  "College of Arabic Language",
+  "College of Science",
+  "College of Engineering",
+  "College of Computer Science",
+];
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
     field and meeting point on MSSN Avenue behind them. */
@@ -804,6 +817,8 @@ function universityArea(o: {
   region?: string;
   /** the name on the gate, e.g. UNIVERSITY OF LAGOS */
   gate?: string;
+  /** the name in Arabic on a gate built in the Madinah style */
+  gateArabic?: string;
   /** more places in the area */
   extra?: Landmark[];
   link?: "north" | "east" | "south";
@@ -839,7 +854,7 @@ function universityArea(o: {
     toLet: 0.5,
     shops: 0.3,
     land: 0.12,
-    campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34 },
+    campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34, arabic: o.gateArabic },
     streets: [
       { id: o.road, z: 0, decor: true },
       { id: o.avenue, z: -75 },
@@ -3503,6 +3518,7 @@ export const DISTRICTS: District[] = [
   universityArea({
     id: "iumbrothers",
     gate: "Islamic University of Madinah · Brothers",
+    gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
     name: "Islamic University (Brothers)",
     uni: "the Islamic University of Madinah (brothers' campus)",
     short: "IUM Brothers",
@@ -3520,24 +3536,15 @@ export const DISTRICTS: District[] = [
     club: "Student Affairs",
     clubAbout:
       "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
-    faculties: [
-      "Faculty of Sharia",
-      "Faculty of Da'wah and Usul ad-Din",
-      "Faculty of the Noble Qur'an",
-      "Faculty of Hadith",
-    ],
-    more: [
-      "Faculty of Arabic Language",
-      "Faculty of Science",
-      "Faculty of Engineering",
-      "Faculty of Computer Science",
-    ],
+    faculties: IUM_COLLEGES.slice(0, 4),
+    more: IUM_COLLEGES.slice(4),
     about:
       "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
   }),
   universityArea({
     id: "iumsisters",
     gate: "Islamic University of Madinah · Sisters",
+    gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
     name: "Islamic University (Sisters)",
     uni: "the Islamic University of Madinah (sisters' campus)",
     short: "IUM Sisters",
@@ -3555,18 +3562,8 @@ export const DISTRICTS: District[] = [
     club: "Student Affairs",
     clubAbout:
       "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
-    faculties: [
-      "Faculty of Sharia",
-      "Faculty of Da'wah and Usul ad-Din",
-      "Faculty of the Noble Qur'an",
-      "Faculty of Hadith",
-    ],
-    more: [
-      "Faculty of Arabic Language",
-      "Faculty of Science",
-      "Faculty of Engineering",
-      "Faculty of Computer Science",
-    ],
+    faculties: IUM_COLLEGES.slice(0, 4),
+    more: IUM_COLLEGES.slice(4),
     about:
       "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
   }),
