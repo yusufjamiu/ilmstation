@@ -33,13 +33,15 @@ export function IlmBot() {
   useEffect(() => { try { sessionStorage.setItem(KEY, JSON.stringify(msgs.slice(-30))); } catch { /* ignore */ } if (!msgs.length) return; const last = msgs[msgs.length - 1]; if (last.role === "assistant" && !busy) lastA.current?.scrollIntoView({ behavior: "smooth", block: "start" }); else end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
   useEffect(() => auth.onAuthStateChanged((u) => { if (u) void call({ peek: true }).then((r) => { if (typeof r.left === "number") setLeft(r.left); }); }), []);
 
+  const goRewards = (tab: string) => { try { sessionStorage.setItem("iq_rewards_tab", tab); } catch { /* */ } const go = (window as unknown as { __ilmGo?: (s: string) => void }).__ilmGo; if (go) go("rewards"); else window.location.href = "/app?s=rewards"; };
   const send = async (text = input) => {
     const q = text.trim(); if (!q || busy) return;
     const next: Msg[] = [...msgs, { role: "user", content: q }];
     setMsgs(next); setInput(""); setBusy(true);
     const r = await call({ messages: next.slice(-10), lang });
     setBusy(false);
-    setMsgs([...next, { role: "assistant", content: r.reply || r.error || "Sorry, I couldn't answer just now. Please try again." }]);
+    if (!r.reply && r.left === 0) { setMsgs(msgs); setInput(q); }
+    else setMsgs([...next, { role: "assistant", content: r.reply || r.error || "Sorry, I couldn't answer just now. Please try again." }]);
     if (typeof r.left === "number") setLeft(r.left);
   };
 
@@ -64,11 +66,18 @@ export function IlmBot() {
       <div ref={end} className="h-2 scroll-mb-44" />
     </div>
 
-    <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="sticky bottom-[calc(env(safe-area-inset-bottom)+88px)] z-10 flex items-end gap-2 bg-background pt-2 lg:bottom-4">
+    {left === 0 ? <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+88px)] z-10 rounded-2xl border-[1.5px] border-foreground bg-primary p-4 text-[#1c1a17] lg:bottom-4">
+      <p className="font-serif text-2xl leading-tight">You’ve used today’s free questions</p>
+      <p className="mt-1 text-sm">Premium gives you 50 questions a day, plus every Premium book, lesson and topic. Or come back tomorrow.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={() => goRewards("Premium")} className="rounded-full bg-[#1c1a17] px-5 py-2.5 text-sm font-bold text-white">Go Premium</button>
+        <button type="button" onClick={() => goRewards("Redeem")} className="rounded-full border-[1.5px] border-[#1c1a17] bg-white px-5 py-2.5 text-sm font-bold">Use my points</button>
+      </div>
+    </div> : <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="sticky bottom-[calc(env(safe-area-inset-bottom)+88px)] z-10 flex items-end gap-2 bg-background pt-2 lg:bottom-4">
       {msgs.length > 0 && <button type="button" aria-label="New chat" onClick={() => setMsgs([])} className="grid size-12 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground bg-background"><RotateCcw className="size-5" /></button>}
       <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
         rows={1} placeholder="Ask a question…" aria-label="Ask IlmBot" className="max-h-32 min-h-12 flex-1 resize-none rounded-3xl border-[1.5px] border-foreground bg-background px-4 py-3 outline-none" />
       <button type="submit" disabled={busy || !input.trim()} aria-label="Send" className="grid size-12 shrink-0 place-items-center rounded-full bg-[#1c1a17] text-white disabled:opacity-40"><ArrowUp className="size-5" /></button>
-    </form>
+    </form>}
   </div>;
 }
