@@ -60,6 +60,8 @@ import {
   forgetHuman,
   gesture,
   humansReady,
+  bakeHuman,
+  crowdReady,
   makeHuman,
   poseHuman,
   releasePose,
@@ -68,6 +70,7 @@ import {
   sitHuman,
   tickHumans,
   type Outfit,
+  type Look,
   rigBat,
   rigSwing,
   rigCarry,
@@ -1708,44 +1711,86 @@ export class IlmCityEngine {
     });
   }
   private tawaf: {
-    bodies: THREE.InstancedMesh;
-    heads: THREE.InstancedMesh;
+    /** One set of instanced meshes per kind of pilgrim (the same person, a different look). */
+    kinds: THREE.InstancedMesh[][];
     umbrellas: THREE.InstancedMesh;
-    people: { r: number; a: number; w: number }[];
+    people: { r: number; a: number; w: number; kind: number; slot: number }[];
     world: { x: number; z: number };
     t: number;
   } | null = null;
   /** Hundreds of pilgrims circling the Kaaba seven times, anticlockwise, closer in and faster
-      near the Kaaba, slower further out. */
+      near the Kaaba, slower further out. They are the same people as everywhere in the game,
+      frozen mid-step and drawn as instances, so a great crowd costs only a few draw calls. */
   private buildTawafCrowd(g: THREE.Group, IN: number) {
+    void IN;
     const rnd = mulberry(7007);
-    const people: { r: number; a: number; w: number }[] = [];
-    for (let i = 0; i < 1500; i++) {
-      // packed close to the Kaaba, thinner towards the colonnades
+    // the game's own people, thinned to a tenth of their triangles; until the simplifier is
+    // ready, simple robed figures
+    const real = humansReady() && crowdReady();
+    // brothers in ihram in four skin tones; sisters in black or white with their heads covered
+    const looks: Look[] = [
+      ...[0x8d5a3b, 0xc68a5e, 0xe0b48a, 0x5a3a28].map(
+        (skin, i): Look => ({
+          outfit: "ihram",
+          robe: 0xf6f5ef,
+          skin,
+          cap: null,
+          beard: i % 2 === 0,
+          shoe: 0x6b4a2e,
+        }),
+      ),
+      { outfit: "abaya", robe: 0x1d1d22, skin: 0xc68a5e, cap: null, hijab: 0x1d1d22, shoe: 0x111111 },
+      { outfit: "abaya", robe: 0x1d1d22, skin: 0x8d5a3b, cap: null, hijab: 0xf4f4ef, shoe: 0x111111 },
+      { outfit: "abaya", robe: 0xf4f2ec, skin: 0xe0b48a, cap: null, hijab: 0xf4f2ec, shoe: 0xf4f2ec },
+    ];
+    const N = real ? 650 : 1500;
+    const people: { r: number; a: number; w: number; kind: number; slot: number }[] = [];
+    const counts = looks.map(() => 0);
+    for (let i = 0; i < N; i++) {
       // on the round white mataf, thickest near the Kaaba
-      void IN;
       const r = 9.6 + Math.pow(rnd(), 1.25) * 20.5;
+      const kind = rnd() < 0.65 ? Math.floor(rnd() * 4) : 4 + Math.floor(rnd() * 3);
       // walking pace: about 1.1 m/s, a little slower in the thick of the crowd
-      people.push({ r, a: rnd() * Math.PI * 2, w: (0.9 + rnd() * 0.5) / r });
+      people.push({ r, a: rnd() * Math.PI * 2, w: (0.9 + rnd() * 0.5) / r, kind, slot: counts[kind]++ });
     }
-    const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
-    body.translate(0, 0.68, 0);
-    const head = new THREE.SphereGeometry(0.16, 8, 6);
-    head.translate(0, 1.52, 0);
-    const mk = (geo: THREE.BufferGeometry) => {
-      const m = new THREE.InstancedMesh(geo, mat(0xffffff, { roughness: 0.9 }), people.length);
-      m.castShadow = true;
-      m.frustumCulled = false;
-      g.add(m);
-      return m;
+    const kinds: THREE.InstancedMesh[][] = [];
+    const inst = (geo: THREE.BufferGeometry, m: THREE.Material, n: number) => {
+      const im = new THREE.InstancedMesh(geo, m, Math.max(1, n));
+      im.castShadow = true;
+      im.frustumCulled = false;
+      g.add(im);
+      return im;
     };
-    const bodies = mk(body),
-      heads = mk(head);
+    if (real) {
+      looks.forEach((look, k) => {
+        kinds.push(
+          bakeHuman(look, 0.15 + k * 0.11, 0.05).map((p) => {
+            // their own copy of the clothes, lit by the Haram's floodlights after dark
+            const m = (p.mat as THREE.MeshStandardMaterial).clone();
+            this.glow(m, 0.55, m.color.getHex(), m.map ?? undefined);
+            return inst(p.geo, m, counts[k]);
+          }),
+        );
+      });
+    } else {
+      // before the people are loaded: simple robed figures
+      const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
+      body.translate(0, 0.68, 0);
+      const head = new THREE.SphereGeometry(0.16, 8, 6);
+      head.translate(0, 1.52, 0);
+      looks.forEach((look, k) => {
+        kinds.push([
+          inst(body.clone(), mat(look.robe, { roughness: 0.9 }), counts[k]),
+          inst(head.clone(), mat(look.hijab ?? look.skin, { roughness: 0.9 }), counts[k]),
+        ]);
+      });
+    }
     // a few pilgrims under umbrellas against the sun, as in the Haram at midday
+    const top = real ? 2.55 : 2.05;
     const ug = new THREE.ConeGeometry(0.62, 0.3, 10, 1, true);
-    ug.translate(0, 2.05, 0);
-    const stick = new THREE.CylinderGeometry(0.02, 0.02, 0.6, 4);
-    stick.translate(0, 1.75, 0);
+    ug.translate(0, top, 0);
+    const stick = new THREE.CylinderGeometry(0.02, 0.02, 0.9, 4);
+    stick.translate(0, top - 0.45, 0);
     const umbGeo = mergeGeometries([ug.toNonIndexed(), stick.toNonIndexed()])!;
     const umbrellas = new THREE.InstancedMesh(
       umbGeo,
@@ -1757,16 +1802,8 @@ export class IlmCityEngine {
     const UC = [0x2f9a4a, 0x2f9a4a, 0xc23a4a, 0xf2f2ee, 0x2c6db0];
     for (let i = 0; i < umbrellas.count; i++)
       umbrellas.setColorAt(i, new THREE.Color(UC[i % UC.length]));
-    const c = new THREE.Color();
-    const skins = [0x8d5a3b, 0x6b4430, 0xc68a5e, 0xe0b48a, 0x5a3a28];
-    people.forEach((_, i) => {
-      const sister = rnd() < 0.35;
-      bodies.setColorAt(i, c.setHex(sister && rnd() < 0.5 ? 0x1d1d22 : 0xf6f5ef));
-      heads.setColorAt(i, c.setHex(sister ? 0xf6f5ef : skins[i % skins.length]));
-    });
     this.tawaf = {
-      bodies,
-      heads,
+      kinds,
       umbrellas,
       people,
       world: { x: g.position.x + this.ox, z: g.position.z + this.oz },
@@ -1796,13 +1833,13 @@ export class IlmCityEngine {
         z = -Math.sin(pp.a) * pp.r;
       q.setFromAxisAngle(up, Math.atan2(-Math.sin(pp.a), -Math.cos(pp.a)));
       M4.compose(v.set(x, 0, z), q, one);
-      T.bodies.setMatrixAt(i, M4);
-      T.heads.setMatrixAt(i, M4);
+      for (const im of T.kinds[pp.kind]) im.setMatrixAt(pp.slot, M4);
       if (i % 14 === 0) T.umbrellas.setMatrixAt(i / 14, M4);
     });
+    for (const list of T.kinds) for (const im of list) im.instanceMatrix.needsUpdate = true;
     T.umbrellas.instanceMatrix.needsUpdate = true;
-    T.bodies.instanceMatrix.needsUpdate = true;
-    T.heads.instanceMatrix.needsUpdate = true;
+    // umbrellas are for the midday sun
+    T.umbrellas.visible = this.dkNow < 0.4;
   }
   /** Pilgrims in ihram filling the plain: in Arafat most stand facing the Ka'bah with their
       hands raised in du'a, many round Jabal ar-Rahmah; in Mina they walk between the tents and
@@ -4839,116 +4876,138 @@ export class IlmCityEngine {
     safa?: { x: number; z: number };
     marwah?: { x: number; z: number };
   } = {};
+  /** Materials that light up after dark (floodlit marble, glowing arcades), and how much. */
+  private nightGlow: { m: THREE.MeshStandardMaterial; k: number }[] = [];
+  private dkNow = 0;
+  private glow<M extends THREE.MeshStandardMaterial>(
+    m: M,
+    k: number,
+    color = 0xffffff,
+    map?: THREE.Texture,
+  ): M {
+    m.emissive.set(color);
+    if (map) m.emissiveMap = map;
+    m.emissiveIntensity = this.dkNow * k;
+    this.nightGlow.push({ m, k });
+    return m;
+  }
   private haramTexCache: {
     kiswa: THREE.CanvasTexture;
     kiswaDoor: THREE.CanvasTexture;
     ottoman: THREE.CanvasTexture;
     facade: THREE.CanvasTexture;
+    facadeGlow: THREE.CanvasTexture;
   } | null = null;
   /** Drawn once: the kiswah with its gold band, the Ottoman arch and the white arcade storeys. */
   private haramTex() {
     if (this.haramTexCache) return this.haramTexCache;
-    const make = (w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) => {
+    const redraws: (() => void)[] = [];
+    const make = (
+      w: number,
+      h: number,
+      draw: (c: CanvasRenderingContext2D) => void,
+      scale = 1,
+    ) => {
       const cv = document.createElement("canvas");
-      cv.width = w;
-      cv.height = h;
-      draw(cv.getContext("2d")!);
+      cv.width = w * scale;
+      cv.height = h * scale;
       const t = new THREE.CanvasTexture(cv);
+      const paint = () => {
+        const c = cv.getContext("2d")!;
+        c.setTransform(scale, 0, 0, scale, 0, 0);
+        c.clearRect(0, 0, w, h);
+        draw(c);
+        t.needsUpdate = true;
+      };
+      paint();
+      redraws.push(paint);
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = 4;
       t.wrapS = THREE.RepeatWrapping;
       return t;
     };
-    // the kiswah: 12 m wide, 15 m tall, drawn 512 x 640
+    // Arabic in a proper naskh hand (Amiri), drawn again once the font has arrived
+    const AR = '"Amiri", "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif';
+    const ar = (
+      c: CanvasRenderingContext2D,
+      text: string,
+      x: number,
+      y: number,
+      size: number,
+      maxW: number,
+      fill: string | CanvasGradient,
+    ) => {
+      c.save();
+      c.direction = "rtl";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.font = `700 ${size}px ${AR}`;
+      const w = c.measureText(text).width;
+      const s = w > maxW ? maxW / w : 1;
+      c.translate(x, y);
+      c.scale(s, 1);
+      c.fillStyle = fill;
+      c.fillText(text, 0, 0);
+      c.restore();
+    };
+    const SHAHADA = "لَا إِلَٰهَ إِلَّا ٱللَّٰهُ مُحَمَّدٌ رَسُولُ ٱللَّٰهِ";
+    const ALLAH = "ٱللَّٰه";
+    // the kiswah: 12 m wide, 15 m tall, drawn on 512 x 640 (at twice the pixels)
     const kiswaFace = (door: boolean) => (c: CanvasRenderingContext2D) => {
       c.fillStyle = "#0d0d0e";
       c.fillRect(0, 0, 512, 640);
-      // the woven pattern of faint script in the black cloth
-      c.strokeStyle = "rgba(255,255,255,0.045)";
-      c.lineWidth = 2;
-      for (let y = 0; y < 640; y += 22)
-        for (let x = (y / 22) % 2 ? 0 : 22; x < 512; x += 44) {
-          c.beginPath();
-          c.moveTo(x, y + 11);
-          c.quadraticCurveTo(x + 11, y, x + 22, y + 11);
-          c.quadraticCurveTo(x + 33, y + 22, x + 44, y + 11);
-          c.stroke();
-        }
+      // the woven pattern in the black cloth: "Allah" and the shahadah, black on black
+      for (let y = 30, row = 0; y < 640; y += 42, row++)
+        for (let x = row % 2 ? 0 : 40; x < 552; x += 80)
+          ar(c, row % 2 ? ALLAH : "سُبْحَانَ ٱللَّٰهِ", x, y, 15, 70, "rgba(255,255,255,0.06)");
+      const gold = c.createLinearGradient(0, 0, 0, 640);
+      gold.addColorStop(0, "#e9cc75");
+      gold.addColorStop(1, "#c79f3c");
       // the gold belt (hizam) a little above two thirds of the way up
-      const band = (y: number, h: number) => {
-        const gr = c.createLinearGradient(0, y, 0, y + h);
-        gr.addColorStop(0, "#8a6a1c");
-        gr.addColorStop(0.5, "#e2c165");
-        gr.addColorStop(1, "#8a6a1c");
-        c.fillStyle = "#151410";
-        c.fillRect(0, y, 512, h);
-        c.strokeStyle = gr;
-        c.lineWidth = 3;
-        c.strokeRect(2, y + 3, 508, h - 6);
-        // embroidered script: flowing gold strokes
-        c.lineWidth = 3.2;
-        c.lineCap = "round";
-        let r = 11;
-        const rr = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
-        for (let x = 10; x < 500; x += 9) {
-          c.beginPath();
-          const top = y + 9 + rr() * 8,
-            bot = y + h - 9 - rr() * 6;
-          c.moveTo(x, bot);
-          if (rr() < 0.45) c.lineTo(x, top);
-          else c.quadraticCurveTo(x + 6, bot - 10, x + 9, bot - rr() * 14);
-          c.stroke();
-          if (rr() < 0.25) {
-            c.beginPath();
-            c.arc(x + 4, top + 2, 1.8, 0, Math.PI * 2);
-            c.fillStyle = gr;
-            c.fill();
-          }
-        }
-      };
-      band(128, 46);
-      // the gold medallions and lamp shapes below the belt
-      const gold = "#d8b552";
+      const y = 128,
+        h = 46;
+      c.fillStyle = "#151410";
+      c.fillRect(0, y, 512, h);
+      c.strokeStyle = "#c9a447";
+      c.lineWidth = 3;
+      c.strokeRect(2, y + 3, 508, h - 6);
+      ar(c, SHAHADA, 256, y + h / 2 + 2, 30, 470, gold);
+      // the gold panels under the belt, each with the name of Allah
       for (const x of [64, 192, 320, 448]) {
         if (door && x > 256 && x < 400) continue;
         c.fillStyle = "#16140f";
-        c.fillRect(x - 26, 196, 52, 44);
-        c.strokeStyle = gold;
+        c.fillRect(x - 28, 194, 56, 48);
+        c.strokeStyle = "#c9a447";
         c.lineWidth = 2.5;
-        c.strokeRect(x - 26, 196, 52, 44);
-        for (let k = 0; k < 4; k++) {
-          c.beginPath();
-          c.moveTo(x - 18 + k * 12, 230);
-          c.quadraticCurveTo(x - 12 + k * 12, 202, x - 8 + k * 12, 226);
-          c.stroke();
-        }
+        c.strokeRect(x - 28, 194, 56, 48);
+        ar(c, ALLAH, x, 219, 30, 46, gold);
       }
-      // the corners: a line of gold script running down the edges
-      c.fillStyle = "rgba(216,181,82,0.6)";
-      for (let y = 180; y < 600; y += 14) {
-        c.fillRect(4, y, 6, 8);
-        c.fillRect(502, y, 6, 8);
+      // the corners: "Allahu akbar" running down both edges
+      for (const ex of [9, 503]) {
+        c.save();
+        c.translate(ex, 410);
+        c.rotate(Math.PI / 2);
+        ar(c, "ٱللَّٰهُ أَكْبَرُ   ٱللَّٰهُ أَكْبَرُ   ٱللَّٰهُ أَكْبَرُ", 0, 0, 12, 420, gold);
+        c.restore();
       }
       if (door) {
         // the sitara: the embroidered curtain round the door, gold on black
         const x0 = 256 + (2.4 / 12) * 512 - 70,
-          w = 140;
+          w = 140,
+          cx = x0 + w / 2;
         c.fillStyle = "#121110";
         c.fillRect(x0, 320, w, 290);
-        c.strokeStyle = gold;
+        c.strokeStyle = "#c9a447";
         c.lineWidth = 3;
         c.strokeRect(x0 + 4, 324, w - 8, 282);
-        for (let y = 336; y < 410; y += 14) {
-          c.beginPath();
-          c.moveTo(x0 + 14, y);
-          for (let x = x0 + 14; x < x0 + w - 14; x += 10)
-            c.quadraticCurveTo(x + 5, y - 6, x + 10, y);
-          c.stroke();
-        }
+        ar(c, "بِسْمِ ٱللَّٰهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ", cx, 344, 18, w - 18, gold);
+        ar(c, ALLAH, cx, 380, 30, w - 30, gold);
+        ar(c, "لَا إِلَٰهَ إِلَّا ٱللَّٰهُ", cx, 412, 18, w - 18, gold);
+        ar(c, "مُحَمَّدٌ رَسُولُ ٱللَّٰهِ", cx, 434, 16, w - 18, gold);
       }
     };
-    const kiswa = make(512, 640, kiswaFace(false));
-    const kiswaDoor = make(512, 640, kiswaFace(true));
+    const kiswa = make(512, 640, kiswaFace(false), 2);
+    const kiswaDoor = make(512, 640, kiswaFace(true), 2);
     kiswa.wrapS = kiswaDoor.wrapS = THREE.ClampToEdgeWrapping;
     // one Ottoman bay: 4.6 m wide, 7.6 m tall, drawn 256 x 424. The opening is see-through.
     const ottoman = make(256, 424, (c) => {
@@ -4986,15 +5045,19 @@ export class IlmCityEngine {
         c.fill();
         c.restore();
       }
-      // gilded calligraphy roundels between the arches
-      for (const x of [14, 242]) {
+      // gilded roundels between the arches: Allah and Muhammad ﷺ
+      for (const [x, word] of [
+        [14, ALLAH],
+        [242, "مُحَمَّد"],
+      ] as [number, string][]) {
         c.beginPath();
-        c.arc(x, 100, 13, 0, Math.PI * 2);
+        c.arc(x, 100, 15, 0, Math.PI * 2);
         c.fillStyle = "#2e5a3a";
         c.fill();
         c.strokeStyle = "#e6c45c";
         c.lineWidth = 3;
         c.stroke();
+        ar(c, word, x, 101, 14, 24, "#f0d27a");
       }
       // cut the opening out
       c.globalCompositeOperation = "destination-out";
@@ -5007,8 +5070,8 @@ export class IlmCityEngine {
       c.fillRect(cx + half, 392, 256 - cx - half, 32);
     });
     // one bay of the white arcades: 7 m wide, 21 m tall, three storeys of arches
-    const facade = make(256, 768, (c) => {
-      c.fillStyle = "#f4f1ea";
+    const facadeDraw = (glow: boolean) => (c: CanvasRenderingContext2D) => {
+      c.fillStyle = glow ? "#8c877c" : "#f4f1ea";
       c.fillRect(0, 0, 256, 768);
       const arch = (y0: number, y1: number, w: number, shade: string) => {
         const x0 = 128 - w / 2,
@@ -5021,8 +5084,9 @@ export class IlmCityEngine {
         c.lineTo(x0 + w, y1);
         c.closePath();
         const gr = c.createLinearGradient(0, y0, 0, y1);
-        gr.addColorStop(0, shade);
-        gr.addColorStop(1, "#8f877a");
+        // at night the arcades glow warm from the lamps inside
+        gr.addColorStop(0, glow ? "#ffe2a8" : shade);
+        gr.addColorStop(1, glow ? "#ffc870" : "#8f877a");
         c.fillStyle = gr;
         c.fill();
         c.strokeStyle = "#ddd5c4";
@@ -5044,8 +5108,26 @@ export class IlmCityEngine {
       c.fillStyle = "#ddd5c4";
       c.fillRect(0, 512, 256, 14);
       arch(560, 768, 200, "#5f594f"); // ground storey
-    });
-    this.haramTexCache = { kiswa, kiswaDoor, ottoman, facade };
+    };
+    const facade = make(256, 768, facadeDraw(false));
+    const facadeGlow = make(256, 768, facadeDraw(true));
+    // the Arabic is drawn in a fallback font at first; draw it again once Amiri has loaded
+    if (typeof document !== "undefined" && document.fonts) {
+      if (!document.querySelector("link[data-amiri]")) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap";
+        link.dataset.amiri = "1";
+        document.head.appendChild(link);
+      }
+      document.fonts
+        .load('700 30px "Amiri"', "ٱللَّٰه")
+        .then((f) => {
+          if (f.length) for (const r of redraws) r();
+        })
+        .catch(() => {});
+    }
+    this.haramTexCache = { kiswa, kiswaDoor, ottoman, facade, facadeGlow };
     return this.haramTexCache;
   }
   /** Round the courtyard: the tall white arcades on the walls, and in front of them the old
@@ -5053,17 +5135,20 @@ export class IlmCityEngine {
   private buildHaramArcades(g: THREE.Group, IN: number, H: number) {
     const tx = this.haramTex();
     const b = new Batch();
-    const facadeMat = new THREE.MeshStandardMaterial({ map: tx.facade, roughness: 0.85 });
-    const otMat = new THREE.MeshStandardMaterial({
-      map: tx.ottoman,
-      alphaTest: 0.5,
-      side: THREE.DoubleSide,
-      roughness: 0.8,
-    });
-    const domeMat = mat(0xe9e4da, { flatShading: false });
-    const goldM = mat(0xd4ad3c, { metalness: 0.6, roughness: 0.35 });
-    const roofM = mat(0xd9c49c);
-    const colM = mat(0xece4d2, { flatShading: false });
+    const std = (o: THREE.MeshStandardMaterialParameters) =>
+      new THREE.MeshStandardMaterial({ roughness: 0.85, ...o });
+    // after dark everything is floodlit: the marble glows white and the arcades warm gold
+    const facadeMat = this.glow(std({ map: tx.facade }), 1.0, 0xffffff, tx.facadeGlow);
+    const otMat = this.glow(
+      std({ map: tx.ottoman, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.8 }),
+      0.75,
+      0xffe2b0,
+      tx.ottoman,
+    );
+    const domeMat = this.glow(std({ color: 0xe9e4da }), 0.45, 0xfff0d8);
+    const goldM = this.glow(std({ color: 0xd4ad3c, metalness: 0.6, roughness: 0.35 }), 1.2, 0xffc850);
+    const roofM = this.glow(std({ color: 0xd9c49c, flatShading: true }), 0.35, 0xffe0b0);
+    const colM = this.glow(std({ color: 0xece4d2 }), 0.6, 0xfff0d0);
     // a plane `len` long facing the courtyard, its texture repeated once per bay
     const facePlane = (len: number, h: number, bay: number, m: THREE.Material, x: number, y: number, z: number, ry: number) => {
       const geo = new THREE.PlaneGeometry(len, h);
@@ -5145,29 +5230,49 @@ export class IlmCityEngine {
     plaza.receiveShadow = true;
     g.add(plaza);
     // the courtyard in white marble, and the round mataf, brighter still, where tawaf is made
-    const court = new THREE.Mesh(new THREE.PlaneGeometry(IN * 2, IN * 2), mat(0xf2efe8));
+    const court = new THREE.Mesh(
+      new THREE.PlaneGeometry(IN * 2, IN * 2),
+      this.glow(new THREE.MeshStandardMaterial({ color: 0xf2efe8, roughness: 0.6 }), 0.45),
+    );
     court.rotation.x = -Math.PI / 2;
     court.position.y = 0.04;
     court.receiveShadow = true;
     g.add(court);
     const mataf = new THREE.Mesh(
       new THREE.CircleGeometry(31, 64),
-      mat(0xffffff, { roughness: 0.35, flatShading: false }),
+      this.glow(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }), 0.62),
     );
     mataf.rotation.x = -Math.PI / 2;
     mataf.position.y = 0.05;
     mataf.receiveShadow = true;
     g.add(mataf);
     // a thin grey ring of marble round the Kaaba
-    const ring = new THREE.Mesh(new THREE.RingGeometry(10.2, 10.6, 64), mat(0xcfc9bd));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(10.2, 10.6, 64), this.glow(new THREE.MeshStandardMaterial({ color: 0xcfc9bd }), 0.5));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.06;
     g.add(ring);
     // the colonnades: four wings, with the King Abdulaziz Gate on the south
+    const wingMat = this.glow(
+      new THREE.MeshStandardMaterial({ color: white, roughness: 0.9, flatShading: true }),
+      0.45,
+      0xfff4e0,
+    );
+    const minaretMat = this.glow(
+      new THREE.MeshStandardMaterial({ color: white, roughness: 0.8 }),
+      0.6,
+      0xfff4e0,
+    );
+    const minaretTop = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.5, roughness: 0.35 }),
+      1.4,
+      0xffc850,
+    );
     const wing = (x0: number, x1: number, z0: number, z1: number) => {
       const w = x1 - x0,
         d = z1 - z0;
-      g.add(box(w, H, d, white, (x0 + x1) / 2, 0, (z0 + z1) / 2));
+      const wb = box(w, H, d, white, (x0 + x1) / 2, 0, (z0 + z1) / 2);
+      wb.material = wingMat;
+      g.add(wb);
       g.add(box(w + 0.6, 1.2, d + 0.6, 0xd9cfb8, (x0 + x1) / 2, H, (z0 + z1) / 2));
       this.addCollider("out", C.x + x0, C.x + x1, C.z + z0, C.z + z1);
     };
@@ -5199,14 +5304,19 @@ export class IlmCityEngine {
     g.add(gateSign);
     const minaret = (x: number, z: number, h: number) => {
       const shaft = cyl(1.6, 2, h, 0xf3f0e7, 8);
+      shaft.material = minaretMat;
       shaft.position.set(x, h / 2, z);
       g.add(shaft);
       for (const y of [h * 0.45, h * 0.75]) {
         const bal = cyl(2.5, 2.5, 0.8, 0xd9cfb8, 8);
         bal.position.set(x, y, z);
         g.add(bal);
+        // a ring of lamps under each balcony, bright after dark
+        const lamps = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 0.35, 16), this.lampMat);
+        lamps.position.set(x, y - 0.55, z);
+        g.add(lamps);
       }
-      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0xc9a227));
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), minaretTop);
       top.position.set(x, h + 3, z);
       g.add(top);
       const c = crescent();
@@ -5227,8 +5337,19 @@ export class IlmCityEngine {
     // the Kaaba: black kiswah with its gold band, the door, Hijr Ismail and the Black Stone
     const K = new THREE.Group();
     const tx = this.haramTex();
-    const kiswa = new THREE.MeshStandardMaterial({ map: tx.kiswa, roughness: 0.75 });
-    const kiswaDoor = new THREE.MeshStandardMaterial({ map: tx.kiswaDoor, roughness: 0.75 });
+    // at night the gold of the kiswah catches the floodlights; the black stays black
+    const kiswa = this.glow(
+      new THREE.MeshStandardMaterial({ map: tx.kiswa, roughness: 0.75 }),
+      0.7,
+      0xffe6a8,
+      tx.kiswa,
+    );
+    const kiswaDoor = this.glow(
+      new THREE.MeshStandardMaterial({ map: tx.kiswaDoor, roughness: 0.75 }),
+      0.7,
+      0xffe6a8,
+      tx.kiswaDoor,
+    );
     const roof = mat(0x141414);
     // faces: +x (the door's face, towards the Maqam), -x, top, bottom, +z, -z
     const cube = new THREE.Mesh(new THREE.BoxGeometry(12, 15, 12), [
@@ -5244,7 +5365,7 @@ export class IlmCityEngine {
     cube.receiveShadow = true;
     K.add(cube);
     // the Shadharwan: the sloping marble base all round, with brass rings for the kiswah
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(8.75, 9.2, 0.55, 4, 1), mat(0xd8d0c0));
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(8.75, 9.2, 0.55, 4, 1), this.glow(new THREE.MeshStandardMaterial({ color: 0xd8d0c0, flatShading: true }), 0.5));
     base.rotation.y = Math.PI / 4;
     base.position.y = 0.27;
     base.receiveShadow = true;
@@ -5252,7 +5373,11 @@ export class IlmCityEngine {
     // the gold door, raised above the floor, in its gold frame
     K.add(box(0.25, 4.4, 3.1, 0xb8901f, 6.05, 1.9, 2.4));
     const door = box(0.3, 3.8, 2.5, 0xd8b03a, 6.1, 2.2, 2.4);
-    door.material = mat(0xd8b03a, { metalness: 0.7, roughness: 0.3 });
+    door.material = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xd8b03a, metalness: 0.7, roughness: 0.3 }),
+      0.9,
+      0xffc850,
+    );
     K.add(door);
     const stone = new THREE.Mesh(
       new THREE.TorusGeometry(0.45, 0.14, 8, 16),
@@ -5262,7 +5387,7 @@ export class IlmCityEngine {
     stone.rotation.y = Math.PI / 4;
     K.add(stone);
     // Hijr Ismail: the low curved wall of white marble on the far side, part of the Kaaba
-    const hijrMat = mat(0xf7f5ef);
+    const hijrMat = this.glow(new THREE.MeshStandardMaterial({ color: 0xf7f5ef, flatShading: true }), 0.55);
     for (let i = 0; i < 18; i++) {
       const a = (i / 17) * Math.PI;
       const seg = box(1.05, 1.3, 0.9, 0xf7f5ef, Math.cos(a) * 7.6, 0, -6 - Math.sin(a) * 7.6);
@@ -5274,8 +5399,13 @@ export class IlmCityEngine {
     this.addCollider("out", C.x - 6.2, C.x + 6.2, C.z - 6.2, C.z + 6.2);
     // Maqam Ibrahim: a small gold-and-glass cage
     const maqam = new THREE.Group();
-    const gold = mat(0xd4ad3c, { metalness: 0.7, roughness: 0.3 });
+    const gold = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xd4ad3c, metalness: 0.7, roughness: 0.3 }),
+      1.0,
+      0xffc850,
+    );
     const mb = cyl(1.1, 1.3, 0.6, 0xe6e0d2, 6);
+    mb.material = hijrMat;
     mb.position.y = 0.3;
     maqam.add(mb);
     const cage = new THREE.Mesh(
@@ -5307,7 +5437,7 @@ export class IlmCityEngine {
     g.add(maqam);
     this.addCollider("out", C.x + 14, C.x + 16, C.z + 1.4, C.z + 3.4);
     // the start of each round: a line from the Black Stone and a green light on the wall
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 22), mat(0x3f9a62));
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 22), this.glow(new THREE.MeshStandardMaterial({ color: 0x3f9a62 }), 0.8, 0x3fd07a));
     line.rotation.x = -Math.PI / 2;
     line.rotation.z = Math.PI / 4;
     line.position.set(Math.SQRT1_2 * 19, 0.07, Math.SQRT1_2 * 19);
@@ -5325,6 +5455,20 @@ export class IlmCityEngine {
     });
     bl.position.set(Math.SQRT1_2 * 20, 3, Math.SQRT1_2 * 20);
     g.add(bl);
+    // tall lamp posts round the edge of the mataf, their lanterns lit after dark
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2 + 0.2;
+      const x = Math.cos(a) * 32.5,
+        z = Math.sin(a) * 32.5;
+      const post = cyl(0.14, 0.2, 7.5, 0x8a7a50, 8);
+      post.position.set(x, 3.75, z);
+      g.add(post);
+      for (const s2 of [-1, 1]) {
+        const lan = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.5), this.lampMat);
+        lan.position.set(x + s2 * 0.6 * Math.sin(a), 7.2, z - s2 * 0.6 * Math.cos(a));
+        g.add(lan);
+      }
+    }
     // Zamzam taps along the west colonnade
     for (let i = 0; i < 5; i++) {
       const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
@@ -5595,11 +5739,8 @@ export class IlmCityEngine {
       T.add(f);
     }
     // the crown: tiers lit green at night, then the gold spire and crescent
-    const greenM = new THREE.MeshStandardMaterial({
-      color: 0x1d6b3a,
-      emissive: 0x2bd47a,
-      emissiveIntensity: 0.5,
-    });
+    const greenM = this.glow(new THREE.MeshStandardMaterial({ color: 0x1d6b3a }), 1.8, 0x2bd47a);
+    greenM.emissiveIntensity = Math.max(greenM.emissiveIntensity, 0.15);
     let y = yc + 40;
     for (const [w, h] of [
       [S + 2, 6],
@@ -12887,6 +13028,8 @@ export class IlmCityEngine {
     this.hemi.color.set(0xdde9f2).lerp(new THREE.Color(0x6a7fb8), dk);
     this.winMat.emissiveIntensity = dk * 1.6;
     this.lampMat.emissiveIntensity = dk * 2.2;
+    this.dkNow = dk;
+    for (const n of this.nightGlow) n.m.emissiveIntensity = dk * n.k;
   }
 }
 

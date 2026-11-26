@@ -2,6 +2,15 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { MeshoptSimplifier } from "meshoptimizer/meshopt_simplifier.module.js";
+
+// the simplifier is a small WebAssembly module; start it early so crowds can be thinned out
+let simplifierReady = false;
+MeshoptSimplifier.ready.then(() => (simplifierReady = true)).catch(() => {});
+export function crowdReady() {
+  return simplifierReady;
+}
 
 /* People of IlmCity.
    A real human skeleton with motion-captured walking, running and idle movement
@@ -803,6 +812,65 @@ export function makeHuman(look: Look) {
   rigs.add(rig);
   root.userData.rig = rig;
   return root;
+}
+
+/** A person frozen mid-step as plain geometry, one piece per material, so a crowd of them
+    can be drawn as instances (a few draw calls for hundreds of people). */
+export function bakeHuman(look: Look, phase = 0.3, keep = 1) {
+  const root = makeHuman(look);
+  const rig = root.userData.rig as Rig;
+  rig.act.idle.setEffectiveWeight(0);
+  rig.act.walk.setEffectiveWeight(1);
+  rig.act.walk.time = phase * rig.act.walk.getClip().duration;
+  rig.mixer.update(0);
+  root.updateMatrixWorld(true);
+  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const v = new THREE.Vector3();
+  root.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (!m.isSkinnedMesh) return;
+    m.skeleton.update();
+    const src = m.geometry;
+    const n = src.attributes.position.count;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      m.getVertexPosition(i, v);
+      v.applyMatrix4(m.matrixWorld);
+      pos[i * 3] = v.x;
+      pos[i * 3 + 1] = v.y;
+      pos[i * 3 + 2] = v.z;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute(
+      "uv",
+      src.attributes.uv
+        ? (src.attributes.uv as THREE.BufferAttribute).clone()
+        : new THREE.BufferAttribute(new Float32Array(n * 2), 2),
+    );
+    let idx: Uint32Array<ArrayBufferLike> = src.index
+      ? Uint32Array.from(src.index.array as ArrayLike<number>)
+      : Uint32Array.from({ length: n }, (_, i) => i);
+    // a crowd is seen from a distance: keep only a fraction of the triangles
+    if (keep < 1 && simplifierReady && idx.length > 300) {
+      const target = Math.max(36, Math.floor((idx.length * keep) / 3) * 3);
+      idx = MeshoptSimplifier.simplify(idx, pos, 3, target, 0.2)[0];
+    }
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeVertexNormals();
+    const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+    const list = byMat.get(mat) ?? [];
+    list.push(g);
+    byMat.set(mat, list);
+  });
+  rig.mixer.stopAllAction();
+  rigs.delete(rig);
+  const out: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
+  for (const [mat, list] of byMat) {
+    const geo = list.length === 1 ? list[0] : mergeGeometries(list, false)!;
+    out.push({ geo, mat });
+  }
+  return out;
 }
 
 export function rigOf(o: THREE.Object3D): Rig | undefined {
