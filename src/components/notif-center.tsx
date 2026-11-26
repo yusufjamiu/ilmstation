@@ -30,6 +30,13 @@ const iconFor = (k = "") => k === "wisdom" ? Sunrise : k === "kahf" ? BookMarked
 const clean = (t: string) => t.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, "");
 
 export function NotifBell({ inboxCount, onInbox, go }: { inboxCount: number; onInbox: () => void; go: (s: string) => void }) {
+  // clear IlmStation notifications from the phone's notification bar when the app is opened
+  useEffect(() => {
+    const clear = () => { if (document.visibilityState !== "visible" || !("serviceWorker" in navigator)) return;
+      void navigator.serviceWorker.getRegistration().then((r) => r?.getNotifications().then((ns) => ns.forEach((n) => n.close()))).catch(() => {}); };
+    clear(); document.addEventListener("visibilitychange", clear);
+    return () => document.removeEventListener("visibilitychange", clear);
+  }, []);
   const { uid, rows } = useNotifs();
   const [open, setOpen] = useState(false);
   const [fresh, setFresh] = useState<string[]>([]);
