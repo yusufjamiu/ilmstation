@@ -147,7 +147,7 @@ const kidNav = [
 ] as const;
 const navGroups = [
   { label: "Today", items: [["home", "Today", Home], ["quests", "Quest map", Sparkles], ["ramadan", "Ramadan", MoonStar], ["cards", "Cards", CardsIcon]] },
-  { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Quran", BookOpen], ["halaqah", "Halaqah", Users], ["chatrooms", "Chatrooms", MessagesSquare], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
+  { label: "Practice", items: [["study", "Study", GraduationCap], ["play", "Play", Play], ["challenge", "Challenge", Swords], ["hifz", "Quran", BookOpen], ["halaqah", "Halaqah", Users], ["library", "Library", Library], ["bot", "IlmBot", Bot]] },
   { label: "You", items: [["progress", "Progress", Trophy], ["community", "Community", CircleUserRound], ["family", "Family hub", Baby], ["rewards", "Premium & points", Wallet], ["settings", "Settings", Settings]] },
 ] as const;
 
