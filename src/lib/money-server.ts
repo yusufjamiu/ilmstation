@@ -160,10 +160,12 @@ type Body = {
     | "sellHouse"
     | "send"
     | "freshStart"
+    | "adminStats"
     | "plot"
     | "shop"
     | "starterShop"
     | "richHouse"
+    | "starterHouse"
     | "raceStart"
     | "raceFinish";
   race?: string;
@@ -331,6 +333,34 @@ export async function handleMoney(request: Request): Promise<Response> {
       return reply(out.ok ? 200 : 409, out);
     }
 
+    if (body.op === "starterHouse" && body.plot) {
+      // every new player is given one small house of their own, free, in the area they choose
+      const cat = (await catalog()).plots[plotBase(body.plot)];
+      if (!cat || cat.k !== "h" || cat.t === "tower" || (cat.f ?? 1) > 1)
+        return reply(400, { ok: false, error: "no-such-place" });
+      const plotRef = db.collection("city_plots").doc(body.plot);
+      const out = await db.runTransaction(async (tx) => {
+        const [p, mine] = await Promise.all([tx.get(plotRef), tx.get(walletRef)]);
+        if (!mine.exists) return { ok: false, error: "no-wallet" };
+        const w = mine.data() as Wallet & { starterHouse?: number };
+        if (w.starterHouse) return { ok: false, error: "already" };
+        const cur = p.exists ? (p.data() as { owner: string; until: number }) : null;
+        if (cur && cur.owner !== uid && cur.until > now) return { ok: false, error: "taken" };
+        tx.set(walletRef, { ...w, starterHouse: now, updatedAt: now });
+        tx.set(plotRef, {
+          plot: body.plot,
+          area: cat.d,
+          owner: uid,
+          name: String(body.name ?? "A player").slice(0, 60),
+          kind: "owned",
+          until: now + FOREVER,
+          at: now,
+        });
+        return { ok: true, naira: w.naira };
+      });
+      return reply(out.ok ? 200 : 409, out);
+    }
+
     if ((body.op === "raceStart" || body.op === "raceFinish") && body.race) {
       // race times are kept by the server's clock: the game says when you start and when you
       // cross the line, and the server works out the time and keeps your best
@@ -374,6 +404,30 @@ export async function handleMoney(request: Request): Promise<Response> {
       return reply(200, { ok: true, ms, ...out });
     }
 
+    if (body.op === "adminStats") {
+      // admins only: how IlmWorld is doing, at a glance
+      const isAdmin = (await db.collection("admins").doc(uid).get()).exists;
+      if (!isAdmin) return reply(403, { error: "admins-only" });
+      const count = async (q: FirebaseFirestore.Query) => (await q.count().get()).data().count;
+      const day = 86400000;
+      const [players, active, houses, shops, wallets, reports] = await Promise.all([
+        count(db.collection("city_saves")),
+        count(db.collection("city_saves").where("savedAt", ">", now - day)),
+        count(db.collection("city_plots").where("until", ">", now)),
+        count(db.collection("city_shops").where("until", ">", now)),
+        db.collection("city_wallets").select("naira").get(),
+        count(db.collection("city_reports").where("status", "==", "open")),
+      ]);
+      const money = wallets.docs.reduce((a, d) => a + (Number(d.get("naira")) || 0), 0);
+      const byArea: Record<string, number> = {};
+      const plots = await db.collection("city_plots").where("until", ">", now).select("area").get();
+      for (const d of plots.docs) {
+        const a = String(d.get("area") ?? "?");
+        byArea[a] = (byArea[a] ?? 0) + 1;
+      }
+      const reset = (await db.collection("city_config").doc("reset").get()).data()?.at ?? null;
+      return reply(200, { ok: true, players, active, houses, shops, money, reports, byArea, reset });
+    }
     if (body.op === "freshStart") {
       // admins only: everyone starts IlmWorld again from nothing (accounts are kept)
       const isAdmin = (await db.collection("admins").doc(uid).get()).exists;

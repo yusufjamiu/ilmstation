@@ -41,6 +41,8 @@ export type WalletNet = {
   ): Promise<MoneyResult & { ms?: number; best?: number; improved?: boolean }>;
   /** The Rich family pack's house. */
   richHouse(plot: string, name: string): Promise<MoneyResult>;
+  /** the free small house every new player is given */
+  starterHouse(plot: string, name: string): Promise<MoneyResult>;
   stop(): void;
 };
 
@@ -135,6 +137,7 @@ export async function connectWallet(
     shop: (sid, days, price, name) => call({ op: "shop", sid, days, price, name }),
     starterShop: (sid, name) => call({ op: "starterShop", sid, name }),
     richHouse: (plot, name) => call({ op: "richHouse", plot, name }),
+    starterHouse: (plot, name) => call({ op: "starterHouse", plot, name }),
     raceStart: (race) => call({ op: "raceStart", race }),
     raceFinish: (race, name) => call({ op: "raceFinish", race, name }),
     stop: off,

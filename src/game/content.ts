@@ -222,6 +222,43 @@ export const STREETS: Record<string, Street> = {
   },
   khudri: { id: "khudri", name: "Abu Sa'id Al-Khudri Street", bio: MADINAH_ST },
   salmanfarsi: { id: "salmanfarsi", name: "Salman Al-Farsi Street", bio: MADINAH_ST },
+  /* the new neighbourhoods: villas with pools, the business district and the starter homes */
+  rawdahroad: {
+    id: "rawdahroad",
+    name: "Ar-Rawdah Boulevard",
+    bio: "Madinah's finest villas: private pools, gardens and palm-lined driveways. Villas here are for sale.",
+  },
+  yasminstreet: { id: "yasminstreet", name: "Al-Yasmin Street", bio: "Quiet villas with pools and gardens." },
+  nakheelstreet: { id: "nakheelstreet", name: "An-Nakheel Street", bio: "Quiet villas with pools and gardens." },
+  kingsalmanroad: {
+    id: "kingsalmanroad",
+    name: "King Salman Road",
+    bio: "Madinah's business district: glass towers, company offices, AlBaik, Half Million and the busiest coffee corner in town.",
+  },
+  marifahstreet: {
+    id: "marifahstreet",
+    name: "Al-Ma'rifah Street",
+    bio: "Restaurants and coffee shops between the office towers.",
+  },
+  tijarahstreet: {
+    id: "tijarahstreet",
+    name: "At-Tijarah Street",
+    bio: "Cafés, a decor studio and more restaurants behind the towers.",
+  },
+  hijrahroad: {
+    id: "hijrahroad",
+    name: "Al-Hijrah Gardens Road",
+    bio: "Neat small houses for new families in Madinah. Every new player is given a home in a neighbourhood they choose.",
+  },
+  ansarstreet: { id: "ansarstreet", name: "Al-Ansar Street", bio: "Small family houses and a corner shop." },
+  muhajirstreet: { id: "muhajirstreet", name: "Al-Muhajirin Street", bio: "Small family houses and a corner shop." },
+  aqiqroad: {
+    id: "aqiqroad",
+    name: "Wadi Al-Aqiq Road",
+    bio: "Big villas with swimming pools by the blessed valley of Al-Aqiq.",
+  },
+  zahrastreet: { id: "zahrastreet", name: "Az-Zahra Street", bio: "Villas with pools and gardens." },
+  wardstreet: { id: "wardstreet", name: "Al-Ward Street", bio: "Villas with pools and gardens." },
   shuranroad: {
     id: "shuranroad",
     name: "Shuran Road",
@@ -689,6 +726,8 @@ export type Landmark = {
   /** a short description for the info panel */
   about?: string;
   brand?: { color: number; accent: number; link?: string };
+  /** set back from its street: stands at this z instead, front facing south (+z) */
+  at?: { z: number };
 };
 export type District = {
   id: string;
@@ -725,7 +764,7 @@ export type District = {
   /** Makkah and Madinah: no football pitch, police station or sisters' corner */
   holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
-  campus?: { gate: string; z: number };
+  campus?: { gate: string; z: number; arabic?: string };
   /** a campus for brothers only or sisters only */
   only?: "brothers" | "sisters";
   /** the students' society that runs the hostels (default MSSN) */
@@ -736,13 +775,26 @@ export function hostelInfo(area: string, k: number) {
   const D = districtById(area);
   const club = D.club ?? "MSSN";
   const ab = ["A", "B", "C"][k] ?? "A";
-  if (D.only === "sisters") return { name: `University Sisters' Residence ${ab}`, sisters: true };
-  if (D.only === "brothers")
-    return { name: `University Brothers' Residence ${ab}`, sisters: false };
+  // the Islamic University of Madinah: Student Hostels 1, 2 and 3 inside the campus
+  if (D.only === "sisters") return { name: `Sisters' Hostel ${k + 1}`, sisters: true };
+  if (D.only === "brothers") return { name: `Student Hostel ${k + 1}`, sisters: false };
   return k === 1
     ? { name: `${club} Sisters' Hostel`, sisters: true }
     : { name: `${club} Brothers' Hostel ${k === 0 ? "A" : "B"}`, sisters: false };
 }
+
+/** The colleges of the Islamic University of Madinah. The words after "College of" pick
+    each college's departments, so they stay as they were. */
+const IUM_COLLEGES = [
+  "College of Sharia",
+  "College of Da'wah and Usul ad-Din",
+  "College of the Noble Qur'an",
+  "College of Hadith",
+  "College of Arabic Language",
+  "College of Science",
+  "College of Engineering",
+  "College of Computer Science",
+];
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
     field and meeting point on MSSN Avenue behind them. */
@@ -767,6 +819,8 @@ function universityArea(o: {
   region?: string;
   /** the name on the gate, e.g. UNIVERSITY OF LAGOS */
   gate?: string;
+  /** the name in Arabic on a gate built in the Madinah style */
+  gateArabic?: string;
   /** more places in the area */
   extra?: Landmark[];
   link?: "north" | "east" | "south";
@@ -775,6 +829,9 @@ function universityArea(o: {
   club?: string;
   clubAbout?: string;
   half?: { x: number; z: number };
+  /** the Islamic University's layout: an open forecourt behind the gate, the colleges
+      either side of it, and the Faculties Complex at the back by the hostels */
+  ium?: boolean;
 }): District {
   // the faculties face MSSN Avenue, inside the campus wall; the main road outside is town
   // every faculty has its own building: eight along the south of MSSN Avenue, four more on
@@ -783,6 +840,9 @@ function universityArea(o: {
     ...[-26, 26, -50, 50, -74, 74, -98, 98].map((x) => ({ x, side: "s" as const })),
     ...[-52, 26, -76, 116].map((x) => ({ x, side: "n" as const })),
   ];
+  if (o.ium)
+    [-38, 38, -59, 59, -80, 80, -101, 101].forEach((x, i) => (slots[i] = { x, side: "s" }));
+  const facW = o.ium ? 19 : 22;
   const allFaculties = [...o.faculties, ...(o.more ?? [])].slice(0, slots.length);
   return {
     id: o.id,
@@ -802,7 +862,7 @@ function universityArea(o: {
     toLet: 0.5,
     shops: 0.3,
     land: 0.12,
-    campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34 },
+    campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34, arabic: o.gateArabic },
     streets: [
       { id: o.road, z: 0, decor: true },
       { id: o.avenue, z: -75 },
@@ -816,7 +876,7 @@ function universityArea(o: {
         street: o.avenue,
         side: slots[i].side,
         x: slots[i].x,
-        width: 22,
+        width: facW,
         depth: 26,
         floors: 3,
         about: `${f}, ${o.uni}.`,
@@ -826,9 +886,10 @@ function universityArea(o: {
         kind: "faculty",
         name: `${o.short} Faculties Complex`,
         street: o.avenue,
-        x: -28,
-        width: 22,
-        depth: 26,
+        x: o.ium ? 106 : -28,
+        width: o.ium ? 28 : 22,
+        depth: o.ium ? 18 : 26,
+        at: o.ium ? { z: -127 } : undefined,
         floors: 4,
         about: `The Faculties Complex of ${o.uni}: lecture halls for its newest faculties. Choose your faculty inside.`,
       },
@@ -890,6 +951,26 @@ function universityArea(o: {
   };
 }
 
+/* ---------------- restaurants and coffee shops ---------------- */
+/** Real Saudi favourites, by name only (no logos). Each neighbourhood gets one fast-food
+    place and one coffee shop; the business district has them all. */
+export type Brand = {
+  id: string;
+  name: string;
+  kind: "food" | "coffee";
+  bg: number;
+  fg: number;
+  about: string;
+};
+export const BRANDS: Brand[] = [
+  { id: "albaik", name: "AlBaik", kind: "food", bg: 0xc8102e, fg: 0xffffff, about: "Broasted chicken, garlic sauce and shrimp: the taste of the Hijaz. Queue up and order." },
+  { id: "kudu", name: "Kudu", kind: "food", bg: 0xd52b1e, fg: 0xffd200, about: "Burgers, sandwiches and breakfast, Saudi style." },
+  { id: "tazaj", name: "Al Tazaj", kind: "food", bg: 0x0b7a3e, fg: 0xffffff, about: "Charcoal-grilled chicken, rice and fresh bread." },
+  { id: "halfmillion", name: "Half Million", kind: "coffee", bg: 0x1b1b1b, fg: 0xf4e9d4, about: "Specialty coffee and the famous Spanish latte. Grab a cup and sit with friends." },
+  { id: "barns", name: "Barn's", kind: "coffee", bg: 0x5a3a22, fg: 0xf2c230, about: "Coffee, cold drinks and pastries on every corner of the city." },
+  { id: "drcafe", name: "Dr.Cafe Coffee", kind: "coffee", bg: 0x8b1a1a, fg: 0xffffff, about: "Hot coffee, iced drinks and cakes." },
+  { id: "dunkin", name: "Dunkin'", kind: "coffee", bg: 0xff671f, fg: 0xffffff, about: "Donuts and coffee." },
+];
 export const DISTRICTS: District[] = [
   {
     id: "lekki",
@@ -3446,6 +3527,8 @@ export const DISTRICTS: District[] = [
   universityArea({
     id: "iumbrothers",
     gate: "Islamic University of Madinah · Brothers",
+    gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
+    ium: true,
     name: "Islamic University (Brothers)",
     uni: "the Islamic University of Madinah (brothers' campus)",
     short: "IUM Brothers",
@@ -3463,24 +3546,16 @@ export const DISTRICTS: District[] = [
     club: "Student Affairs",
     clubAbout:
       "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
-    faculties: [
-      "Faculty of Sharia",
-      "Faculty of Da'wah and Usul ad-Din",
-      "Faculty of the Noble Qur'an",
-      "Faculty of Hadith",
-    ],
-    more: [
-      "Faculty of Arabic Language",
-      "Faculty of Science",
-      "Faculty of Engineering",
-      "Faculty of Computer Science",
-    ],
+    faculties: IUM_COLLEGES.slice(0, 4),
+    more: IUM_COLLEGES.slice(4),
     about:
       "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
   }),
   universityArea({
     id: "iumsisters",
     gate: "Islamic University of Madinah · Sisters",
+    gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
+    ium: true,
     name: "Islamic University (Sisters)",
     uni: "the Islamic University of Madinah (sisters' campus)",
     short: "IUM Sisters",
@@ -3498,18 +3573,8 @@ export const DISTRICTS: District[] = [
     club: "Student Affairs",
     clubAbout:
       "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
-    faculties: [
-      "Faculty of Sharia",
-      "Faculty of Da'wah and Usul ad-Din",
-      "Faculty of the Noble Qur'an",
-      "Faculty of Hadith",
-    ],
-    more: [
-      "Faculty of Arabic Language",
-      "Faculty of Science",
-      "Faculty of Engineering",
-      "Faculty of Computer Science",
-    ],
+    faculties: IUM_COLLEGES.slice(0, 4),
+    more: IUM_COLLEGES.slice(4),
     about:
       "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
   }),
@@ -3850,7 +3915,242 @@ export const DISTRICTS: District[] = [
       },
     ],
   },
+  /* the open land between the neighbourhoods, now built up */
+  {
+    id: "rawdahvillas",
+    city: "madinah",
+    tier: 1,
+    name: "Ar-Rawdah Villas",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5005, z: -4320 },
+    half: { x: 150, z: 140 },
+    highway: "Ar-Rawdah Boulevard",
+    parent: "iumbrothers",
+    link: "east",
+    busStop: "Ar-Rawdah",
+    shops: 0.08,
+    land: 0.12,
+    toLet: 0.5,
+    streets: [
+      { id: "rawdahroad", z: 0, decor: true },
+      { id: "yasminstreet", z: -66, decor: true },
+      { id: "nakheelstreet", z: 66, decor: true },
+    ],
+    landmarks: [
+      { id: "rawdah-mosque", kind: "masjid", name: "Ar-Rawdah Mosque", street: "rawdahroad", x: -44 },
+      {
+        id: "rawdah-park",
+        kind: "hangout",
+        name: "Ar-Rawdah Park",
+        street: "nakheelstreet",
+        x: 50,
+        side: "s",
+        width: 30,
+        depth: 18,
+        about: "Fountains, lawns and a walking track for the villa families.",
+      },
+    ],
+  },
+  {
+    id: "bizdistrict",
+    city: "madinah",
+    tier: 1,
+    name: "Madinah Business District",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5005, z: -3950 },
+    half: { x: 110, z: 100 },
+    highway: "King Salman Road",
+    parent: "sultanah",
+    link: "east",
+    busStop: "Business District",
+    shops: 0.45,
+    land: 0.05,
+    toLet: 0.3,
+    streets: [
+      { id: "kingsalmanroad", z: 0, decor: true },
+      { id: "marifahstreet", z: -60, decor: true },
+      { id: "tijarahstreet", z: 60, decor: true },
+    ],
+    landmarks: [
+      {
+        id: "tower-taibah",
+        kind: "office",
+        name: "Taibah Business Tower",
+        street: "kingsalmanroad",
+        x: -62,
+        width: 30,
+        depth: 30,
+        floors: 14,
+        brand: { color: 0x1f6f63, accent: 0xe6b84a },
+        about:
+          "Offices to rent for your company. Talk to the building manager at reception: choose an office, name your company and open it every day.",
+      },
+      {
+        id: "tower-noor",
+        kind: "office",
+        name: "Al-Noor Office Tower",
+        street: "kingsalmanroad",
+        x: 62,
+        side: "s",
+        width: 30,
+        depth: 30,
+        floors: 11,
+        brand: { color: 0x2a3a44, accent: 0xffffff },
+        about:
+          "Offices to rent for your company. Talk to the building manager at reception: choose an office, name your company and open it every day.",
+      },
+      {
+        id: "ilmstation-hq",
+        kind: "office",
+        name: "IlmStation",
+        street: "kingsalmanroad",
+        x: 62,
+        width: 28,
+        depth: 28,
+        floors: 8,
+        brand: { color: 0x1f6f63, accent: 0xe6b84a, link: "https://ilmstation.com" },
+        about:
+          "IlmStation is a learning app for Muslims: Qur'an, Islamic studies and quizzes with rewards. IlmWorld is part of IlmStation.",
+      },
+      {
+        id: "outingstation-hq",
+        kind: "office",
+        name: "OutingStation",
+        street: "kingsalmanroad",
+        x: -62,
+        side: "s",
+        width: 28,
+        depth: 28,
+        floors: 7,
+        brand: { color: 0xf2b84b, accent: 0x2a1c05, link: "https://outingstation.com" },
+        about:
+          "OutingStation helps you discover events, experiences, shortlets and rides near you. Made by OutingStation Limited.",
+      },
+      {
+        id: "hajj-office",
+        kind: "office",
+        name: "Taibah Hajj & Umrah",
+        street: "marifahstreet",
+        x: -22,
+        width: 16,
+        depth: 16,
+        floors: 3,
+        brand: { color: 0x2a1c05, accent: 0xe6b84a },
+        about:
+          "Taibah Hajj & Umrah guides pilgrims from all over the world through Hajj and Umrah, from the visa to the last tawaf.",
+      },
+      ...(
+        [
+          ["food-albaik", "marifahstreet", -76, "n"],
+          ["food-halfmillion", "marifahstreet", -48, "n"],
+          ["food-kudu", "marifahstreet", 48, "n"],
+          ["food-tazaj", "marifahstreet", 76, "n"],
+          ["food-barns", "tijarahstreet", -76, "s"],
+          ["decor-studio", "tijarahstreet", -48, "s"],
+          ["food-drcafe", "tijarahstreet", 48, "s"],
+          ["food-dunkin", "tijarahstreet", 76, "s"],
+        ] as const
+      ).map(([id, street, x, side]): Landmark => {
+        const b = BRANDS.find((q) => "food-" + q.id === id);
+        return {
+          id,
+          kind: "office",
+          name: b ? b.name : "Madinah Interiors",
+          street,
+          x,
+          side,
+          width: 20,
+          depth: 18,
+          floors: b ? 1 : 2,
+          brand: b ? { color: b.bg, accent: b.fg } : { color: 0x6d4a2b, accent: 0xf4e9d4 },
+          about: b
+            ? b.about
+            : "Madinah Interiors decorates homes, offices and shops. Work here as a decorator and help families make their homes beautiful.",
+        };
+      }),
+    ],
+  },
+  {
+    id: "hijrahgardens",
+    city: "madinah",
+    tier: 3,
+    name: "Al-Hijrah Gardens",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5005, z: -3010 },
+    half: { x: 110, z: 100 },
+    highway: "Al-Hijrah Gardens Road",
+    parent: "awali",
+    link: "east",
+    busStop: "Al-Hijrah Gardens",
+    shops: 0.15,
+    land: 0.12,
+    toLet: 0.8,
+    streets: [
+      { id: "hijrahroad", z: 0, decor: true },
+      { id: "ansarstreet", z: -60 },
+      { id: "muhajirstreet", z: 60 },
+    ],
+    landmarks: [
+      { id: "hijrah-mosque", kind: "masjid", name: "Al-Hijrah Mosque", street: "hijrahroad", x: -40 },
+    ],
+  },
+  {
+    id: "aqiqvillas",
+    city: "madinah",
+    tier: 1,
+    name: "Al-Aqiq Villas",
+    state: "Madinah",
+    region: "Madinah",
+    origin: { x: -5019, z: -2700 },
+    half: { x: 150, z: 140 },
+    highway: "Wadi Al-Aqiq Road",
+    parent: "dhulhulayfah",
+    link: "east",
+    busStop: "Al-Aqiq",
+    shops: 0.08,
+    land: 0.15,
+    toLet: 0.5,
+    streets: [
+      { id: "aqiqroad", z: 0, decor: true },
+      { id: "zahrastreet", z: -66, decor: true },
+      { id: "wardstreet", z: 66, decor: true },
+    ],
+    landmarks: [
+      { id: "aqiq-mosque", kind: "masjid", name: "Al-Aqiq Mosque", street: "aqiqroad", x: 44 },
+    ],
+  },
 ];
+
+const BRAND_PICK: Record<string, [string, string]> = {
+  sultanah: ["albaik", "halfmillion"],
+  shuran: ["albaik", "barns"],
+  awali: ["tazaj", "halfmillion"],
+  khalidiyyah: ["albaik", "drcafe"],
+  iskan: ["kudu", "barns"],
+  rawabi: ["albaik", "halfmillion"],
+  aziziyahm: ["albaik", "dunkin"],
+  hijrahgardens: ["albaik", "barns"],
+  bizdistrict: ["albaik", "halfmillion"],
+};
+const brandById = (id: string) => BRANDS.find((b) => b.id === id)!;
+/** The fast-food place and the coffee shop in an area (Saudi cities only). */
+export function brandsOf(areaId: string): { food: Brand; coffee: Brand } | null {
+  const d = DISTRICTS.find((x) => x.id === areaId);
+  if (!d || !["madinah", "makkah"].includes(d.city ?? "")) return null;
+  const set = BRAND_PICK[areaId];
+  if (set) return { food: brandById(set[0]), coffee: brandById(set[1]) };
+  let h = 0;
+  for (const c of areaId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const food = BRANDS.filter((b) => b.kind === "food"),
+    coffee = BRANDS.filter((b) => b.kind === "coffee");
+  return { food: food[h % food.length], coffee: coffee[(h >>> 3) % coffee.length] };
+}
+/** "AlBaik" in Madinah and Makkah, "Al-Barakah Broast" elsewhere. */
+export const eateryName = (areaId: string) => brandsOf(areaId)?.food.name ?? "Al-Barakah Broast";
+export const cafeName = (areaId: string) => brandsOf(areaId)?.coffee.name ?? "Al-Ma'idah Restaurant";
 
 /* More homes: where an area has room beyond its streets, add a residential street lined
    with houses to let (added after the old streets, so every old house keeps its number). */
@@ -3941,6 +4241,8 @@ export function houseStyleOf(d: District): import("./buildings").HouseStyle {
   if (d.id === "mina" || d.id === "arafat") return "tents";
   if (d.holy) return d.id === "haram" || d.id === "nabawi" ? "tower" : "saudi";
   if (["shuran", "iskan", "aziziyahm"].includes(d.id)) return "tower";
+  if (["rawdahvillas", "aqiqvillas"].includes(d.id)) return "poolvilla";
+  if (d.id === "hijrahgardens") return "saudi";
   if (cityOf(d) === "madinah") return "villa";
   if (isPrimeArea(d.id)) return "prime";
   if (
@@ -4052,6 +4354,9 @@ export const regionOf = (d: District) => rootOf(d).region ?? rootOf(d).name;
 export const fullName = (d: District) =>
   d.parent || d.region ? `${d.name}, ${regionOf(d)}` : d.name;
 export const BUS_FARE = 5;
+/** A city taxi to another area: across the city, or to the next city (Jeddah Airport to Makkah is
+    one city in the game). */
+export const TAXI_FARE = { city: 30, far: 150 };
 
 export const BILLBOARDS: Billboard[] = [
   {
@@ -4394,18 +4699,18 @@ export const ECONOMY = {
 export const HOUSE_PRICE: Record<number, number> = { 1: 2500, 2: 4500, 3: 7000 };
 export const ROOM_RENT_WEEK = 30;
 export const TENANTS = [
-  "Brother Kabir's family",
-  "Sister Halimah",
-  "Mallam Usman and family",
-  "Brother Rasheed",
-  "The Adeyemi family",
+  "Brother Abdullah's family",
+  "Sister Maryam",
+  "Abu Khalid and family",
+  "Brother Yusuf",
+  "The Al-Harbi family",
   "Sister Fatimah and her children",
-  "Brother Ibrahim (NYSC corps member)",
-  "Sister Rukayyah (nurse)",
-  "Brother Taofeek (student)",
-  "Mallam Sani",
-  "Sister Zulaykha (teacher)",
-  "Brother Waheed (trader)",
+  "Brother Ibrahim (student at the university)",
+  "Sister Ruqayyah (nurse)",
+  "Brother Hamzah (student)",
+  "Abu Sa'd",
+  "Sister Zainab (teacher)",
+  "Brother Bilal (trader)",
 ];
 
 /* ---------------- shops and market stalls ---------------- */
@@ -4712,9 +5017,9 @@ export const JOBS: Job[] = [
   {
     id: "teacher",
     name: "Class teacher",
-    place: "Manaar International Primary School",
-    at: "campus:manaar-primary:admin",
-    area: "ikorodu",
+    place: "Al-Khalidiyyah School",
+    at: "door:madrasah:khalidiyyah-school",
+    area: "khalidiyyah",
     pay: 50,
     hours: [8, 15],
     about: "Teach Primary pupils and mark their work.",
@@ -4756,8 +5061,8 @@ export const JOBS: Job[] = [
     id: "developer",
     name: "App developer",
     place: "IlmStation",
-    at: "office:ilmstation",
-    area: "ikorodu",
+    at: "office:ilmstation-hq",
+    area: "bizdistrict",
     pay: 60,
     hours: [9, 17],
     about: "Fix bugs and build features for the IlmStation app.",
@@ -4793,8 +5098,8 @@ export const JOBS: Job[] = [
     id: "events",
     name: "Events coordinator",
     place: "OutingStation",
-    at: "office:outingstation",
-    area: "ikorodu",
+    at: "office:outingstation-hq",
+    area: "bizdistrict",
     pay: 55,
     hours: [9, 17],
     about: "Help businesses list events and help people book them.",
@@ -4834,9 +5139,9 @@ export const JOBS: Job[] = [
   {
     id: "hajj",
     name: "Hajj & Umrah consultant",
-    place: "Manaar Hajj & Umrah Company",
-    at: "office:manaar-hajj",
-    area: "ikorodu",
+    place: "Taibah Hajj & Umrah",
+    at: "office:hajj-office",
+    area: "bizdistrict",
     pay: 55,
     hours: [9, 17],
     about: "Guide pilgrims through their Hajj and Umrah plans.",
@@ -4861,9 +5166,9 @@ export const JOBS: Job[] = [
   {
     id: "quranteacher",
     name: "Qur'an teacher",
-    place: "Markaz Abdullateef",
-    at: "office:markaz-abdullateef",
-    area: "ikeja",
+    place: "Shuran Tahfiz School",
+    at: "door:madrasah:shuran-tahfiz",
+    area: "shuran",
     pay: 50,
     hours: [7, 13],
     about: "Listen to students recite and correct their memorisation.",
@@ -4893,9 +5198,9 @@ export const JOBS: Job[] = [
   {
     id: "counsellor",
     name: "Counsellor",
-    place: "Alfaoz Counselling Home",
-    at: "office:alfaoz-counselling",
-    area: "okeeletu",
+    place: "Sakinah Counselling, Taibah Business Tower",
+    at: "office:tower-taibah",
+    area: "bizdistrict",
     pay: 50,
     hours: [10, 18],
     about: "Listen to people and give gentle, private advice.",
@@ -4919,6 +5224,75 @@ export const JOBS: Job[] = [
         "Laugh it off",
         "Ignore them",
       ),
+    ],
+  },
+  {
+    id: "decorator",
+    name: "Interior decorator",
+    place: "Madinah Interiors",
+    at: "office:decor-studio",
+    area: "bizdistrict",
+    pay: 55,
+    hours: [10, 18],
+    about: "Help families decorate their homes: colours, furniture, lights and plants.",
+    tasks: [
+      J("A small living room feels tight. You suggest…", "Light walls and a big mirror", "Dark paint everywhere", "More big sofas"),
+      J("A family wants a majlis. You plan…", "Floor cushions round the walls and a carpet", "One office chair", "A bed in the middle"),
+      J("Where does the prayer mat corner go?", "A clean, quiet spot facing the qiblah", "In the kitchen", "By the front gate"),
+      J("The customer's budget is small. You…", "Reuse what they have and add a few plants", "Make them buy everything new", "Refuse the job"),
+      J("Warm lights make a room feel…", "Calm and welcoming", "Cold", "Smaller"),
+      J("You finish a job. Before you leave you…", "Clean up and show the family every change", "Leave the boxes behind", "Ask for double pay"),
+    ],
+  },
+  {
+    id: "albaik",
+    name: "AlBaik crew",
+    place: "AlBaik, Madinah Business District",
+    at: "office:food-albaik",
+    area: "bizdistrict",
+    pay: 45,
+    hours: [11, 23],
+    about: "Take orders, pack the broast and keep the queue moving with a smile.",
+    tasks: [
+      J("A long queue at Maghrib time. You…", "Pause for salah, then serve quickly and politely", "Keep serving through salah", "Close for the night"),
+      J("A customer's order is wrong. You…", "Apologise and fix it straight away", "Argue with them", "Ignore them"),
+      J("Before handling food you…", "Wash your hands and wear gloves", "Wipe them on your clothes", "Nothing"),
+      J("A child drops their meal. You…", "Give them a new one", "Laugh", "Charge them again"),
+      J("The kitchen floor is wet. You…", "Put up a sign and mop it", "Leave it", "Run across it"),
+    ],
+  },
+  {
+    id: "barista",
+    name: "Barista",
+    place: "Half Million, Madinah Business District",
+    at: "office:food-halfmillion",
+    area: "bizdistrict",
+    pay: 45,
+    hours: [7, 15],
+    about: "Make Spanish lattes, cold brews and Arabic coffee for the morning rush.",
+    tasks: [
+      J("A Spanish latte is made with…", "Espresso, milk and sweetened condensed milk", "Tea and lemon", "Cola"),
+      J("Arabic coffee is served with…", "Dates", "Ketchup", "Chips"),
+      J("A regular comes in. You…", "Greet them with salam and remember their order", "Ignore them", "Make them wait last"),
+      J("The milk smells off. You…", "Throw it away and open a fresh one", "Use it anyway", "Add more sugar"),
+      J("A customer can't pay today. You…", "Be kind; maybe the coffee is on you", "Shout", "Call the police"),
+    ],
+  },
+  {
+    id: "hotel",
+    name: "Hotel receptionist",
+    place: "Ansar Hotel, by Al-Masjid An-Nabawi",
+    at: "office:hotel-ansar",
+    area: "nabawi",
+    pay: 50,
+    hours: [8, 16],
+    about: "Welcome pilgrims and visitors from all over the world and help them settle in.",
+    tasks: [
+      J("Pilgrims arrive tired from the airport. You…", "Greet them warmly and give them water and their keys", "Make them wait", "Send them to another hotel"),
+      J("A guest asks the way to the Rawdah. You…", "Explain the gate and the women's and men's times", "Say you don't know", "Charge for directions"),
+      J("A guest speaks only Urdu. You…", "Find a colleague or use simple words and gestures", "Ignore them", "Laugh"),
+      J("A guest lost their room key. You…", "Check their name and give a new key", "Refuse", "Give any key"),
+      J("A family needs a wheelchair for the masjid. You…", "Arrange one for them", "Say no", "Tell them to walk"),
     ],
   },
   {
@@ -5310,9 +5684,8 @@ export const POLICE = {
 
 /* ---------------- university students ---------------- */
 export const UNIVERSITIES = [
-  { area: "akoka", name: "UNILAG", full: "University of Lagos, Akoka" },
-  { area: "ojo", name: "LASU", full: "Lagos State University, Ojo" },
-  { area: "firstgate", name: "LASUSTECH", full: "LASUSTECH, First Gate Ikorodu" },
+  { area: "iumbrothers", name: "Islamic University of Madinah", full: "Brothers' campus", only: "brothers" },
+  { area: "iumsisters", name: "Islamic University of Madinah", full: "Sisters' campus", only: "sisters" },
 ];
 /** The faculties of a university area (from its faculty buildings). */
 export const facultiesOf = (area: string) => {
@@ -5575,12 +5948,12 @@ export const FOOTBALL = { perGoal: 2, win: 8 };
 export type Dish = { id: string; name: string; icon: string; points: number; fills: number };
 /** Delivered by IlmDash. The eatery charges more for the same food. */
 export const MENU: Dish[] = [
-  { id: "jollof", name: "Jollof rice & chicken", icon: "🍛", points: 12, fills: 80 },
   { id: "broast", name: "Broast chicken & fries", icon: "🍗", points: 13, fills: 85 },
-  { id: "shawarma", name: "Chicken shawarma", icon: "🌯", points: 9, fills: 60 },
-  { id: "amala", name: "Amala & ewedu", icon: "🥣", points: 10, fills: 75 },
+  { id: "jollof", name: "Mandi rice & chicken", icon: "🍛", points: 12, fills: 80 },
   { id: "kabsa", name: "Kabsa", icon: "🍚", points: 14, fills: 90 },
-  { id: "suya", name: "Suya", icon: "🍢", points: 8, fills: 45 },
+  { id: "shawarma", name: "Chicken shawarma", icon: "🌯", points: 9, fills: 60 },
+  { id: "amala", name: "Mutabbaq", icon: "🥙", points: 10, fills: 70 },
+  { id: "suya", name: "Spanish latte & date cake", icon: "☕", points: 8, fills: 45 },
 ];
 export const EATERY_MARKUP = 1.5;
 export const eateryPrice = (d: Dish) => Math.ceil(d.points * EATERY_MARKUP);

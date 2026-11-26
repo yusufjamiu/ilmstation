@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 const Admin = lazy(() => import("@/game/Admin"));
 
-export const Route = createFileRoute("/admin/world")({
+export const Route = createFileRoute("/admin_/world")({
   head: () => ({
     meta: [{ title: "IlmWorld admin" }, { name: "robots", content: "noindex" }],
   }),

@@ -317,7 +317,10 @@ export class Traffic {
       } else {
         const cx = root.origin.x,
           zs = root.origin.z + 40,
-          ze = gate ? gate.origin.z + halfOf(gate).z + 14 : top.origin.z - (halfOf(top).z - 12);
+          ze0 = gate ? gate.origin.z + halfOf(gate).z + 14 : top.origin.z - (halfOf(top).z - 12),
+          // the Islamic University: the road inside the campus stops at Students' Avenue
+          camp = chain.find((d) => d.campus?.arabic),
+          ze = camp ? Math.max(ze0, camp.origin.z + camp.streets[1].z) : ze0;
         sp = [
           ...lane(
             [

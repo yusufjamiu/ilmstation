@@ -60,8 +60,17 @@ export default function Admin() {
   const [state, setState] = useState<"loading" | "out" | "no" | "yes">("loading");
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState<
-    "reports" | "ads" | "award" | "mssn" | "nasheeds" | "sponsored" | "races" | "content" | "fresh"
-  >("reports");
+    | "overview"
+    | "reports"
+    | "ads"
+    | "award"
+    | "mssn"
+    | "nasheeds"
+    | "sponsored"
+    | "races"
+    | "content"
+    | "fresh"
+  >("overview");
   useEffect(() => {
     let off = () => {};
     fb()
@@ -105,10 +114,11 @@ export default function Admin() {
       </Shell>
     );
   const tabs: [typeof tab, string][] = [
+    ["overview", "📊 Overview"],
     ["reports", "🚩 Reports"],
     ["ads", "📣 Adverts"],
     ["award", "🏆 Award"],
-    ["mssn", "❓ MSSN"],
+    ["mssn", "❓ Student questions"],
     ["nasheeds", "🎵 Nasheeds"],
     ["sponsored", "💵 Sponsored quizzes"],
     ["races", "🏁 Races"],
@@ -128,6 +138,7 @@ export default function Admin() {
           </button>
         ))}
       </div>
+      {tab === "overview" && <Overview />}
       {tab === "reports" && <Reports />}
       {tab === "ads" && <Ads />}
       {tab === "award" && <AwardTab />}
@@ -799,6 +810,101 @@ function RaceCard({ r }: { r: Race }) {
   );
 }
 
+type Stats = {
+  players: number;
+  active: number;
+  houses: number;
+  shops: number;
+  money: number;
+  reports: number;
+  byArea: Record<string, number>;
+  reset: number | null;
+};
+/** How IlmWorld is doing: players, homes, shops and money, straight from the server. */
+function Overview() {
+  const [st, setSt] = useState<Stats | null>(null);
+  const [err, setErr] = useState("");
+  const load = async () => {
+    setErr("");
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const token = await auth.currentUser?.getIdToken();
+      const r = await fetch("/api/money", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ op: "adminStats" }),
+      });
+      const j = (await r.json().catch(() => ({}))) as Stats & { ok?: boolean; error?: string };
+      if (!r.ok || !j.ok) setErr(`Could not load: ${j.error ?? r.status}`);
+      else setSt(j);
+    } catch {
+      setErr("Could not load: no connection.");
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  const tiles: [string, string, string][] = st
+    ? [
+        ["👥", "Players", st.players.toLocaleString()],
+        ["🟢", "Played today", st.active.toLocaleString()],
+        ["🏠", "Homes owned or rented", st.houses.toLocaleString()],
+        ["🏪", "Shops open", st.shops.toLocaleString()],
+        ["💰", "Money in wallets", naira(st.money)],
+        ["🚩", "Open reports", st.reports.toLocaleString()],
+      ]
+    : [];
+  const areas = st
+    ? Object.entries(st.byArea)
+        .sort((a, b) => b[1] - a[1])
+        .map(([id, n]) => [DISTRICTS.find((d) => d.id === id)?.name ?? id, n] as const)
+    : [];
+  const top = areas[0]?.[1] ?? 1;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold">Madinah today</h2>
+        <button onClick={() => void load()} className={`${btn} bg-white`}>
+          ↻ Refresh
+        </button>
+      </div>
+      {err && <p className="font-bold text-[#b3261e]">{err}</p>}
+      {!st && !err && <p>Loading…</p>}
+      {st && (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {tiles.map(([icon, label, v]) => (
+              <div key={label} className={card}>
+                <div className="text-[13px] opacity-70">
+                  {icon} {label}
+                </div>
+                <div className="mt-1 text-2xl font-extrabold">{v}</div>
+              </div>
+            ))}
+          </div>
+          <div className={card}>
+            <div className="mb-2 font-bold">Where players live</div>
+            {areas.length === 0 && <p className="text-[14px] opacity-70">No homes taken yet.</p>}
+            <div className="space-y-1.5">
+              {areas.map(([name, n]) => (
+                <div key={name} className="flex items-center gap-2 text-[13px]">
+                  <span className="w-44 shrink-0 truncate">{name}</span>
+                  <span className="h-3 rounded bg-[#1f6f63]" style={{ width: `${(n / top) * 60}%` }} />
+                  <span className="font-bold">{n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[12px] opacity-60">
+            {st.reset ? `Last fresh start: ${when(st.reset)}.` : "No fresh start yet."} New players
+            get a free small house in the neighbourhood they choose.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Start IlmWorld again for everyone: before launch, so all players begin equal. */
 function FreshStart() {
   const [word, setWord] = useState("");
@@ -835,7 +941,8 @@ function FreshStart() {
     <div className="max-w-xl space-y-3 rounded-2xl bg-white p-4 shadow-sm">
       <h2 className="text-xl font-bold">Fresh start for everyone</h2>
       <p className="text-[14px]">
-        Every player starts IlmWorld again as a new player with the ₦200 welcome money. All
+        Every player starts IlmWorld again in Madinah as a new player, with the welcome money and a
+        free small house in the neighbourhood they choose. All
         characters, saves, wallets, houses, shops, house sales, flats, money transfers, chats, calls
         and fines are removed, on every phone too. Every house in the world is free again.
       </p>

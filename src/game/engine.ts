@@ -1,4 +1,13 @@
 import * as THREE from "three";
+import {
+  iumCollege,
+  iumForecourt,
+  iumGarden,
+  iumGate,
+  iumHostel,
+  iumPlaza,
+  takeIumGlow,
+} from "./ium";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BILLBOARDS,
@@ -21,6 +30,10 @@ import {
   type Landmark,
   DEFAULT_AREA,
   hostelInfo,
+  brandsOf,
+  eateryName,
+  cafeName,
+  WORLD_CITIES,
 } from "./content";
 import { darkness, type Clock } from "./time";
 import { Soccer, type MatchState, type NetInput, type Slot, type Snapshot } from "./soccer";
@@ -51,11 +64,13 @@ import {
 import { Traffic, type Vehicle } from "./traffic";
 import { RopeRig, type RopeMode, type RopeState } from "./rope";
 import { Tennis, type Court, type TennisInput, type TennisSnap, type TennisState } from "./tennis";
-import { VEHICLE_INFO, vehicleMesh, type VehicleKind } from "./vehicles";
+import { VEHICLE_INFO, vehicleMesh, randomCarColor, type VehicleKind } from "./vehicles";
 import {
   forgetHuman,
   gesture,
   humansReady,
+  bakeHuman,
+  crowdReady,
   makeHuman,
   poseHuman,
   releasePose,
@@ -64,6 +79,7 @@ import {
   sitHuman,
   tickHumans,
   type Outfit,
+  type Look,
   rigBat,
   rigSwing,
   rigCarry,
@@ -88,7 +104,13 @@ export type InteriorKind =
   | "lecture"
   | "corridor"
   /** inside Al-Masjid An-Nabawi: the prayer hall, the Rawdah and the courtyard */
-  | "nabawi";
+  | "nabawi"
+  /** a hotel: the lobby with the reception, the lift and the stairs */
+  | "hotel"
+  /** your hotel room upstairs */
+  | "hotelroom"
+  /** from the gate down the glass jet bridge to the plane's door, the tarmac below */
+  | "jetbridge";
 export type Context = { id: string; label: string } | null;
 export type EngineEvents = {
   onContext: (c: Context) => void;
@@ -422,34 +444,214 @@ function person(
   return g;
 }
 
-/** A passenger plane, nose along +z: body, wings, tail and engines. */
+/** A passenger plane shaped like a real twin-engine airliner, nose along +z: a smooth round
+    body with a tapered nose and an upswept tail, the cockpit windows, swept wings with
+    winglets, an engine under each wing, the swept tailplane and the tall fin. The body's
+    middle is 2.6 up and 1.5 round, the nose at z = 13, the tail at z = -14. */
 export function planeMesh(stripe: number) {
   const g = new THREE.Group();
-  const white = 0xf4f6f8;
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 22, 16), mat(white));
-  body.rotation.x = Math.PI / 2;
-  body.position.y = 2.6;
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 10), mat(white));
-  nose.scale.set(1, 1, 1.6);
-  nose.position.set(0, 2.6, 11);
-  const tail = new THREE.Mesh(new THREE.ConeGeometry(1.5, 4, 16), mat(white));
-  tail.rotation.x = -Math.PI / 2;
-  tail.position.set(0, 2.6, -13);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.52, 1.52, 18, 16, 1, true), mat(stripe));
-  band.rotation.x = Math.PI / 2;
-  band.scale.set(1, 1, 0.2);
-  band.position.set(0, 2.2, 0);
-  const wing = box(20, 0.25, 4, white, 0, 2, 1);
-  const fin = box(0.3, 4, 3, stripe, 0, 3.6, -12);
-  const tailWing = box(7, 0.2, 2, white, 0, 3.4, -12);
-  const engines = [-5, 5].map((x) => {
-    const e = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 3, 12), mat(0x9aa0a6));
-    e.rotation.x = Math.PI / 2;
-    e.position.set(x, 1.4, 2);
-    return e;
+  const white = mat(0xf4f6f8, { flatShading: false, roughness: 0.45 });
+  const grey = mat(0xb9bfc6, { flatShading: false, roughness: 0.5 });
+  const livery = mat(stripe, { flatShading: false, roughness: 0.5 });
+  const dark = mat(0x1b2630, { flatShading: false, roughness: 0.25, metalness: 0.3 });
+  // the body: a lathe along its length, then the tail bent up
+  const prof: [number, number][] = [
+    [0.02, -14.2],
+    [0.35, -13.8],
+    [0.7, -12.9],
+    [1.05, -11.6],
+    [1.32, -10],
+    [1.47, -8.4],
+    [1.5, -6],
+    [1.5, 8],
+    [1.47, 9.4],
+    [1.38, 10.4],
+    [1.2, 11.3],
+    [0.95, 12],
+    [0.62, 12.55],
+    [0.3, 12.9],
+    [0.02, 13.05],
+  ];
+  const lathe = (pts: [number, number][], seg = 28, phi0 = 0, phiL = Math.PI * 2) => {
+    const geo = new THREE.LatheGeometry(
+      pts.map(([r, y]) => new THREE.Vector2(r, y)),
+      seg,
+      phi0,
+      phiL,
+    );
+    geo.rotateX(Math.PI / 2); // its length along +z (y becomes z)
+    // bend the tail up and drop the nose a touch, like a real airliner
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const z = p.getZ(i);
+      if (z < -7) p.setY(i, p.getY(i) + (-7 - z) * 0.11);
+      if (z > 10) p.setY(i, p.getY(i) - (z - 10) * 0.06);
+    }
+    geo.computeVertexNormals();
+    geo.translate(0, 2.6, 0);
+    return geo;
+  };
+  // rotateX(π/2) turns the lathe's own z into -y: phi = 0 points down... so we measure the
+  // window band from the top: the band covers the front of the nose, above the middle
+  const body = new THREE.Mesh(lathe(prof, 32), white);
+  // the lower half of the body in grey, and the livery band along the side
+  const belly = new THREE.Mesh(
+    lathe(
+      prof.map(([r, y]) => [r * 1.004, y] as [number, number]),
+      32,
+      Math.PI * 1.62,
+      Math.PI * 0.76,
+    ),
+    grey,
+  );
+  const band = new THREE.Mesh(
+    lathe(
+      prof.filter(([, y]) => y > -11 && y < 11.4).map(([r, y]) => [r * 1.008, y] as [number, number]),
+      32,
+      Math.PI * 0.42,
+      Math.PI * 0.08,
+    ),
+    livery,
+  );
+  const band2 = band.clone();
+  band2.scale.x = -1;
+  // the cockpit windows: a dark strip wrapped round the top of the nose
+  const cockpit = new THREE.Mesh(
+    lathe(
+      [
+        [1.26, 10.95],
+        [1.2, 11.25],
+        [1.1, 11.6],
+        [0.98, 11.9],
+      ].map(([r, y]) => [r * 1.025, y] as [number, number]),
+      48,
+      Math.PI * 0.72,
+      Math.PI * 0.56,
+    ),
+    dark,
+  );
+  // the wings: swept, tapered, set low on the body, tipped up a little, with winglets
+  const wingShape = (side: number) => {
+    const sh = new THREE.Shape();
+    const P = (x: number, z: number) => [x * side, z] as [number, number];
+    const pts = [P(0.6, 3.2), P(13, -3.3), P(13.2, -4.6), P(0.6, -2.6)];
+    sh.moveTo(...pts[0]);
+    for (const q of pts.slice(1)) sh.lineTo(...q);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.22, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2); // flat: the shape's y becomes z
+    geo.rotateZ(side * 0.07); // dihedral
+    geo.translate(0, 1.95, 0);
+    return geo;
+  };
+  const both = mat(0xf4f6f8, { flatShading: false, roughness: 0.45, side: THREE.DoubleSide });
+  const wings = [new THREE.Mesh(wingShape(1), both), new THREE.Mesh(wingShape(-1), both)];
+  const winglets = [-1, 1].map((s2) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.5, 0.9), livery);
+    m.position.set(s2 * 13.25, 1.95 + 13 * 0.07 + 0.7, -4.3);
+    m.rotation.z = -s2 * 0.25;
+    m.rotation.x = 0.35;
+    return m;
   });
-  for (const m of [body, nose, tail, band, ...engines]) m.castShadow = true;
-  g.add(body, nose, tail, band, wing, fin, tailWing, ...engines);
+  // the tailplane: two small swept wings at the tail
+  const tailShape = (side: number) => {
+    const sh = new THREE.Shape();
+    const P = (x: number, z: number) => [x * side, z] as [number, number];
+    const pts = [P(0.3, -10.4), P(5, -13.2), P(5.1, -14), P(0.3, -13.2)];
+    sh.moveTo(...pts[0]);
+    for (const q of pts.slice(1)) sh.lineTo(...q);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    geo.rotateZ(side * 0.09);
+    geo.translate(0, 3.25, 0);
+    return geo;
+  };
+  const tails = [new THREE.Mesh(tailShape(1), both), new THREE.Mesh(tailShape(-1), both)];
+  // the fin: tall and swept, in the airline's colour
+  const finSh = new THREE.Shape();
+  finSh.moveTo(-8.9, 3.4);
+  finSh.lineTo(-13.6, 3.6);
+  finSh.lineTo(-14.6, 8.6);
+  finSh.lineTo(-12.7, 8.6);
+  finSh.closePath();
+  const finGeo = new THREE.ExtrudeGeometry(finSh, { depth: 0.22, bevelEnabled: false });
+  // the shape's x is along the plane (z), its y is up
+  finGeo.rotateY(-Math.PI / 2);
+  finGeo.translate(0.11, 0, 0);
+  const fin = new THREE.Mesh(
+    finGeo,
+    mat(stripe, { flatShading: false, roughness: 0.5, side: THREE.DoubleSide }),
+  );
+  // the engines: a pod under each wing with a dark intake, on a pylon
+  const engines: THREE.Object3D[] = [];
+  for (const sx of [-4.6, 4.6]) {
+    const e = new THREE.Group();
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.56, 3.2, 20), grey);
+    pod.rotation.x = Math.PI / 2;
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.64, 0.07, 8, 20), white);
+    lip.position.z = 1.6;
+    const intake = new THREE.Mesh(new THREE.CircleGeometry(0.62, 20), dark);
+    intake.position.z = 1.58;
+    const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 2.2), grey);
+    pylon.position.set(0, 0.6, -0.4);
+    e.add(pod, lip, intake, pylon);
+    e.position.set(sx, 1.15, 1.9);
+    engines.push(e);
+  }
+  const all = [body, belly, band, band2, cockpit, ...wings, ...winglets, ...tails, fin, ...engines];
+  for (const m of all) m.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+  g.add(...all);
+  return g;
+}
+
+/** The IlmAir airliner up close: windows along the body, the doors and the name. */
+export function airliner(stripe: number, name = "IlmAir  ✈  علم للطيران", ink = "#1f3d5a") {
+  const g = planeMesh(stripe);
+  const dark = mat(0x1b2630);
+  const wins: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1])
+    for (let z = -8.2; z <= 9.4; z += 0.58) {
+      if (Math.abs(z - 8.3) < 0.5 || Math.abs(z + 7.2) < 0.5) continue; // the doors
+      const w = new THREE.BoxGeometry(0.05, 0.19, 0.15);
+      w.translate(sx * 1.49, 2.95, z);
+      wins.push(w);
+    }
+  g.add(new THREE.Mesh(mergeGeometries(wins)!, dark));
+  // door outlines, front and back, on both sides
+  for (const sx of [-1, 1])
+    for (const z of [8.3, -7.2]) g.add(box(0.03, 1.05, 0.5, 0xc9ced2, sx * 1.5, 2.25, z));
+  // the name along the body, above the windows
+  const label = name;
+  for (const sx of [-1, 1]) {
+    const nm = canvasPlane(6, 0.7, (c, W, H) => {
+      c.fillStyle = ink;
+      c.font = `800 ${Math.round(H * 0.8)}px "Work Sans", Arial, sans-serif`;
+      c.textBaseline = "middle";
+      c.textAlign = "center";
+      c.fillText(label, W / 2, H / 2, W * 0.96);
+    }).mesh;
+    const nmM = nm.material as THREE.MeshBasicMaterial;
+    nmM.transparent = true;
+    nmM.side = THREE.FrontSide;
+    // on the curve of the body, above the windows, leaning with it
+    const dy = 0.85,
+      r = Math.sqrt(1.5 * 1.5 - dy * dy) + 0.03;
+    nm.position.set(sx * r, 2.6 + dy, 2);
+    nm.rotation.set(0, (sx * Math.PI) / 2, 0);
+    nm.rotateX(-Math.atan2(dy, r));
+    g.add(nm);
+  }
+  // a gold crescent on the fin, both sides
+  for (const sx of [-1, 1]) {
+    const moon = new THREE.Mesh(
+      new THREE.TorusGeometry(0.62, 0.15, 8, 20, Math.PI * 1.4),
+      mat(0xe6b84a),
+    );
+    moon.rotation.y = Math.PI / 2;
+    moon.position.set(sx * 0.14, 6.3, -12.6);
+    g.add(moon);
+  }
   return g;
 }
 
@@ -598,6 +800,61 @@ export class IlmCityEngine {
     emissive: 0xffd27a,
     emissiveIntensity: 0,
   });
+  /** The warm pool of light a street lamp throws on the road after dark. */
+  private poolMat = new THREE.MeshBasicMaterial({
+    color: 0xffc070,
+    map: (() => {
+      // soft at the edges: bright under the lamp, fading out to nothing
+      if (typeof document === "undefined") return null;
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = 128;
+      const c = cv.getContext("2d")!;
+      const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, "rgba(255,255,255,1)");
+      g.addColorStop(0.35, "rgba(255,255,255,0.55)");
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = g;
+      c.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })(),
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  private static lampGeo: { pole: THREE.BufferGeometry; head: THREE.BufferGeometry; pool: THREE.BufferGeometry } | null = null;
+  /** A tall street lamp: a pole with its arm reaching out over the road (+x), the lamp at its
+      end, and the circle of light under it. Shared by every lamp in the city. */
+  private static lampParts() {
+    if (this.lampGeo) return this.lampGeo;
+    const pole = new THREE.CylinderGeometry(0.13, 0.19, 8.6, 8);
+    pole.translate(0, 4.3, 0);
+    const base = new THREE.CylinderGeometry(0.32, 0.36, 0.7, 8);
+    base.translate(0, 0.35, 0);
+    const arm = new THREE.BoxGeometry(2.9, 0.16, 0.16);
+    arm.translate(1.35, 8.45, 0);
+    const brace = new THREE.BoxGeometry(1.3, 0.1, 0.1);
+    brace.rotateZ(0.6);
+    brace.translate(0.55, 7.95, 0);
+    const keep = (g: THREE.BufferGeometry) => {
+      const n = g.toNonIndexed();
+      n.deleteAttribute("uv");
+      return n;
+    };
+    const head = new THREE.BoxGeometry(1.5, 0.32, 0.62);
+    head.translate(2.75, 8.3, 0);
+    const pool = new THREE.CircleGeometry(6, 24);
+    pool.rotateX(-Math.PI / 2);
+    pool.translate(2.75, 0.09, 0);
+    this.lampGeo = {
+      pole: mergeGeometries([pole, base, arm, brace].map(keep))!,
+      head,
+      pool,
+    };
+    return this.lampGeo;
+  }
   private colliders: Record<string, Box[]> = {
     out: [],
     masjid: [],
@@ -613,6 +870,9 @@ export class IlmCityEngine {
     lecture: [],
     corridor: [],
     nabawi: [],
+    hotel: [],
+    hotelroom: [],
+    jetbridge: [],
   };
   private zones: Zone[] = [];
   private tappables: THREE.Object3D[] = [];
@@ -642,6 +902,9 @@ export class IlmCityEngine {
     lecture: new THREE.Vector3(2000, 0, 320),
     corridor: new THREE.Vector3(2150, 0, 320),
     nabawi: new THREE.Vector3(2350, 0, 320),
+    hotel: new THREE.Vector3(2550, 0, 320),
+    hotelroom: new THREE.Vector3(2650, 0, 320),
+    jetbridge: new THREE.Vector3(2800, 0, 320),
   };
   private input = new THREE.Vector2();
   private keys = new Set<string>();
@@ -705,6 +968,9 @@ export class IlmCityEngine {
     this.scene.background = new THREE.Color(0x9fd3e8);
     this.scene.fog = new THREE.Fog(0x9fd3e8, 70, 260);
     this.scene.add(this.hemi);
+    // the Haram's floodlights: one warm light high over the Kaaba, on only after dark (it is
+    // always in the scene so turning it on never recompiles anything)
+    this.scene.add(this.haramLight);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
     const sc = this.sun.shadow.camera;
@@ -916,6 +1182,11 @@ export class IlmCityEngine {
   scenePlace() {
     return this.where;
   }
+  /** The building you are inside (the hotel's name in its lobby). */
+  placeName() {
+    return this.where === "out" ? "" : this.interiorName;
+  }
+
   playerPos() {
     return { x: this.player.position.x, z: this.player.position.z, where: this.where };
   }
@@ -934,6 +1205,24 @@ export class IlmCityEngine {
       o.x,
       0,
       o.z + (kind === "home" ? 8 : kind === "nabawi" ? NABAWI_IN.D / 2 - 3 : 5.5),
+    );
+    this.player.rotation.y = Math.PI;
+    this.tapTarget = null;
+    this.marker.visible = false;
+    this.applyLight();
+    this.snapCamera();
+  }
+  /** Inside a building, go to another of its rooms (the lift up to your hotel room, and
+      back down): the door outside stays where it was. */
+  moveInside(kind: InteriorKind, name = this.interiorName) {
+    this.homeActEnd();
+    this.interiorName = name;
+    this.where = kind;
+    const o = this.interiorOrigin[kind];
+    this.player.position.set(
+      o.x,
+      0,
+      o.z + (kind === "hotelroom" ? 3 : kind === "jetbridge" ? 12 : -2),
     );
     this.player.rotation.y = Math.PI;
     this.tapTarget = null;
@@ -1178,8 +1467,43 @@ export class IlmCityEngine {
     });
     const crossEnd = southEdge - 6;
     // in Makkah and Madinah the Haram is north of the main road: the cross road only runs south
-    const crossTop = D.holy ? -8 : north;
+    // the Islamic University: the road inside the campus stops at Students' Avenue, and
+    // the star plaza takes the middle of the campus beyond it
+    const ium = !!D.campus?.arabic;
+    const crossTop = D.holy ? -8 : ium ? D.streets[1].z - 6 : north;
     road(0, (crossTop + crossEnd) / 2, 12, crossEnd - crossTop);
+    // Madinah: footbridges over the main road, and a road down each side that joins every
+    // street end (and the roads in from the next areas), so no street stops dead at the sand
+    if (saudiCity(D) && !D.holy && !D.campus)
+      for (const bx of [-(H.x - 36), H.x - 36]) {
+        if (!this.boxFree(bx - 2, bx + 2, -10.8, -7.2) || !this.boxFree(bx - 2, bx + 2, 7.2, 10.8))
+          continue;
+        // keep clear of the buildings on the main road (built after the roads)
+        const main = D.streets[0]?.id;
+        if (D.landmarks.some((l) => l.street === main && Math.abs(l.x - bx) < (l.width ?? 30) / 2 + 3))
+          continue;
+        // the towers stand on the pavements, clear of the house plots behind them
+        for (const t of this.footbridge(batch, bx, 0, 18, false))
+          this.addCollider("out", t.x - 1.6, t.x + 1.6, t.z - 1.4, t.z + 1.4);
+      }
+    if (saudiCity(D) && !D.holy) {
+      const ends = [...zs];
+      for (const c of DISTRICTS)
+        if (c.parent === D.id && c.link === "east") ends.push(c.origin.z - D.origin.z);
+      const z0 = Math.max(-(H.z - 6), Math.min(...ends) - 8),
+        z1 = Math.min(H.z - 6, Math.max(...ends) + 8);
+      if (z1 - z0 > 20)
+        for (const sx of [-1, 1]) {
+          road(sx * (H.x - 7), (z0 + z1) / 2, 9, z1 - z0);
+          for (let z = z0 + 4; z < z1 - 4; z += 6) {
+            if (ends.some((sz) => Math.abs(z - sz) < 8)) continue;
+            const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
+            d.rotation.x = -Math.PI / 2;
+            d.position.set(sx * (H.x - 7), 0.06, z);
+            batch.addObject(d);
+          }
+        }
+    }
     for (let z = crossTop; z < crossEnd; z += 6) {
       if (zs.some((sz) => Math.abs(z - sz) < 8)) continue;
       const d = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 3), dashMat);
@@ -1268,7 +1592,10 @@ export class IlmCityEngine {
         if (!north && cz + 10 > southEdge - 3) continue;
         for (let x = -(H.x - 26); x <= H.x - 26; x += 24) {
           if (Math.abs(x) < 16) continue;
-          if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
+          // the Islamic University: no shops at the entrance, gardens either side of the gate
+          // (decided before the space check: the gate now stands forward into these plots)
+          const atGate = ium && sz === 0 && north && (x === -42 || x === -18);
+          if (!atGate && !this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
           if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
           const id = `${D.id}-${num}`;
           const r1 = rnd();
@@ -1284,9 +1611,10 @@ export class IlmCityEngine {
             toLet = true;
           }
           if (
-            play &&
-            ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
-              (play.police?.sz === sz && play.police.north === north && play.police.x === x))
+            atGate ||
+            (play &&
+              ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
+                (play.police?.sz === sz && play.police.north === north && play.police.x === x)))
           ) {
             // this plot is the pitch or the sisters' corner; draw the house it replaces into a
             // throwaway batch so every later plot keeps the same number and look as before
@@ -1314,6 +1642,7 @@ export class IlmCityEngine {
               ghosts.push(box);
               this.reserved.push(box);
             }
+            if (atGate) this.ghostGarden(batch, x, cz);
             num += 2;
             continue;
           }
@@ -1505,27 +1834,37 @@ export class IlmCityEngine {
     S.add(wires);
 
     // street lamps
-    const lampPole = new THREE.CylinderGeometry(0.08, 0.1, 5, 6),
-      lampHead = new THREE.SphereGeometry(0.32, 8, 6);
-    const lamps: [number, number][] = [];
+    // tall lamps with their arms out over the road, and pools of warm light under them at night
+    const LP = IlmCityEngine.lampParts();
+    const lamps: [number, number, number][] = [];
     zs.forEach((sz) => {
-      for (let x = -(XR - 6); x <= XR - 6; x += 20) {
+      for (let x = -(XR - 6); x <= XR - 6; x += 18) {
         if (Math.abs(x) <= 8) continue;
-        if (this.boxFree(x - 0.5, x + 0.5, sz + 7.5, sz + 8.5)) lamps.push([x, sz + 8]);
-        if (this.boxFree(x + 9.5, x + 10.5, sz - 8.5, sz - 7.5)) lamps.push([x + 10, sz - 8]);
+        // the arm points across the road: north from the south pavement, south from the north
+        if (this.boxFree(x - 0.5, x + 0.5, sz + 7.5, sz + 8.5)) lamps.push([x, sz + 8, Math.PI / 2]);
+        if (this.boxFree(x + 8.5, x + 9.5, sz - 8.5, sz - 7.5))
+          lamps.push([x + 9, sz - 8, -Math.PI / 2]);
       }
     });
-    const poleMesh = new THREE.InstancedMesh(lampPole, mat(0x5a5f66), lamps.length);
-    const headMesh = new THREE.InstancedMesh(lampHead, this.lampMat, lamps.length);
+    const saudiLamp = !!D.holy || saudiCity(D);
+    const poleMesh = new THREE.InstancedMesh(
+      LP.pole,
+      mat(saudiLamp ? 0xdfe2de : 0x4f555c, { metalness: 0.3 }),
+      lamps.length,
+    );
+    const headMesh = new THREE.InstancedMesh(LP.head, this.lampMat, lamps.length);
+    const poolMesh = new THREE.InstancedMesh(LP.pool, this.poolMat, lamps.length);
+    poolMesh.renderOrder = 1;
     const m4 = new THREE.Matrix4();
-    lamps.forEach(([x, z], i) => {
-      this.addCollider("out", x - 0.2, x + 0.2, z - 0.2, z + 0.2);
-      m4.makeTranslation(x, 2.5, z);
+    lamps.forEach(([x, z, ry], i) => {
+      this.addCollider("out", x - 0.3, x + 0.3, z - 0.3, z + 0.3);
+      m4.makeRotationY(ry).setPosition(x, 0, z);
       poleMesh.setMatrixAt(i, m4);
-      m4.makeTranslation(x, 5.1, z);
       headMesh.setMatrixAt(i, m4);
+      poolMesh.setMatrixAt(i, m4);
     });
-    S.add(poleMesh, headMesh);
+    poleMesh.castShadow = true;
+    S.add(poleMesh, headMesh, poolMesh);
 
     // greenery
     const clear = (x: number, z: number) =>
@@ -1645,46 +1984,100 @@ export class IlmCityEngine {
     });
   }
   private tawaf: {
-    bodies: THREE.InstancedMesh;
-    heads: THREE.InstancedMesh;
-    people: { r: number; a: number; w: number }[];
+    /** One set of instanced meshes per kind of pilgrim (the same person, a different look). */
+    kinds: THREE.InstancedMesh[][];
+    umbrellas: THREE.InstancedMesh;
+    people: { r: number; a: number; w: number; kind: number; slot: number }[];
     world: { x: number; z: number };
     t: number;
   } | null = null;
   /** Hundreds of pilgrims circling the Kaaba seven times, anticlockwise, closer in and faster
-      near the Kaaba, slower further out. */
+      near the Kaaba, slower further out. They are the same people as everywhere in the game,
+      frozen mid-step and drawn as instances, so a great crowd costs only a few draw calls. */
   private buildTawafCrowd(g: THREE.Group, IN: number) {
+    void IN;
     const rnd = mulberry(7007);
-    const people: { r: number; a: number; w: number }[] = [];
-    for (let i = 0; i < 1500; i++) {
-      // packed close to the Kaaba, thinner towards the colonnades
-      const r = 8.5 + Math.pow(rnd(), 1.6) * (IN - 12);
+    // the game's own people, thinned to a tenth of their triangles; until the simplifier is
+    // ready, simple robed figures
+    const real = humansReady() && crowdReady();
+    // brothers in ihram in four skin tones; sisters in black or white with their heads covered
+    const looks: Look[] = [
+      ...[0x8d5a3b, 0xc68a5e, 0xe0b48a, 0x5a3a28].map(
+        (skin, i): Look => ({
+          outfit: "ihram",
+          robe: 0xf6f5ef,
+          skin,
+          cap: null,
+          beard: i % 2 === 0,
+          shoe: 0x6b4a2e,
+        }),
+      ),
+      { outfit: "abaya", robe: 0x1d1d22, skin: 0xc68a5e, cap: null, hijab: 0x1d1d22, shoe: 0x111111 },
+      { outfit: "abaya", robe: 0x1d1d22, skin: 0x8d5a3b, cap: null, hijab: 0xf4f4ef, shoe: 0x111111 },
+      { outfit: "abaya", robe: 0xf4f2ec, skin: 0xe0b48a, cap: null, hijab: 0xf4f2ec, shoe: 0xf4f2ec },
+    ];
+    const N = real ? 520 : 1500;
+    const people: { r: number; a: number; w: number; kind: number; slot: number }[] = [];
+    const counts = looks.map(() => 0);
+    for (let i = 0; i < N; i++) {
+      // on the round white mataf, thickest near the Kaaba
+      const r = 9.6 + Math.pow(rnd(), 1.25) * 20.5;
+      const kind = rnd() < 0.65 ? Math.floor(rnd() * 4) : 4 + Math.floor(rnd() * 3);
       // walking pace: about 1.1 m/s, a little slower in the thick of the crowd
-      people.push({ r, a: rnd() * Math.PI * 2, w: (0.9 + rnd() * 0.5) / r });
+      people.push({ r, a: rnd() * Math.PI * 2, w: (0.9 + rnd() * 0.5) / r, kind, slot: counts[kind]++ });
     }
-    const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
-    body.translate(0, 0.68, 0);
-    const head = new THREE.SphereGeometry(0.16, 8, 6);
-    head.translate(0, 1.52, 0);
-    const mk = (geo: THREE.BufferGeometry) => {
-      const m = new THREE.InstancedMesh(geo, mat(0xffffff, { roughness: 0.9 }), people.length);
-      m.castShadow = true;
-      m.frustumCulled = false;
-      g.add(m);
-      return m;
+    const kinds: THREE.InstancedMesh[][] = [];
+    const inst = (geo: THREE.BufferGeometry, m: THREE.Material, n: number) => {
+      const im = new THREE.InstancedMesh(geo, m, Math.max(1, n));
+      im.castShadow = true;
+      im.frustumCulled = false;
+      g.add(im);
+      return im;
     };
-    const bodies = mk(body),
-      heads = mk(head);
-    const c = new THREE.Color();
-    const skins = [0x8d5a3b, 0x6b4430, 0xc68a5e, 0xe0b48a, 0x5a3a28];
-    people.forEach((_, i) => {
-      const sister = rnd() < 0.35;
-      bodies.setColorAt(i, c.setHex(sister && rnd() < 0.5 ? 0x1d1d22 : 0xf6f5ef));
-      heads.setColorAt(i, c.setHex(sister ? 0xf6f5ef : skins[i % skins.length]));
-    });
+    if (real) {
+      looks.forEach((look, k) => {
+        kinds.push(
+          bakeHuman(look, 0.15 + k * 0.11, 0.05).map((p) => {
+            // their own copy of the clothes, lit by the Haram's floodlights after dark
+            const m = (p.mat as THREE.MeshStandardMaterial).clone();
+            this.glow(m, 0.12, m.color.getHex(), m.map ?? undefined);
+            return inst(p.geo, m, counts[k]);
+          }),
+        );
+      });
+    } else {
+      // before the people are loaded: simple robed figures
+      const body = new THREE.CylinderGeometry(0.2, 0.3, 1.35, 7);
+      body.translate(0, 0.68, 0);
+      const head = new THREE.SphereGeometry(0.16, 8, 6);
+      head.translate(0, 1.52, 0);
+      looks.forEach((look, k) => {
+        kinds.push([
+          inst(body.clone(), mat(look.robe, { roughness: 0.9 }), counts[k]),
+          inst(head.clone(), mat(look.hijab ?? look.skin, { roughness: 0.9 }), counts[k]),
+        ]);
+      });
+    }
+    // a few pilgrims under umbrellas against the sun, as in the Haram at midday
+    const top = real ? 2.55 : 2.05;
+    const ug = new THREE.ConeGeometry(0.62, 0.3, 10, 1, true);
+    ug.translate(0, top, 0);
+    const stick = new THREE.CylinderGeometry(0.02, 0.02, 0.9, 4);
+    stick.translate(0, top - 0.45, 0);
+    const umbGeo = mergeGeometries([ug.toNonIndexed(), stick.toNonIndexed()])!;
+    const umbrellas = new THREE.InstancedMesh(
+      umbGeo,
+      mat(0xffffff, { side: THREE.DoubleSide }),
+      Math.ceil(people.length / 14),
+    );
+    umbrellas.frustumCulled = false;
+    g.add(umbrellas);
+    const UC = [0x2f9a4a, 0x2f9a4a, 0xc23a4a, 0xf2f2ee, 0x2c6db0];
+    for (let i = 0; i < umbrellas.count; i++)
+      umbrellas.setColorAt(i, new THREE.Color(UC[i % UC.length]));
     this.tawaf = {
-      bodies,
-      heads,
+      kinds,
+      umbrellas,
       people,
       world: { x: g.position.x + this.ox, z: g.position.z + this.oz },
       t: 1,
@@ -1713,11 +2106,13 @@ export class IlmCityEngine {
         z = -Math.sin(pp.a) * pp.r;
       q.setFromAxisAngle(up, Math.atan2(-Math.sin(pp.a), -Math.cos(pp.a)));
       M4.compose(v.set(x, 0, z), q, one);
-      T.bodies.setMatrixAt(i, M4);
-      T.heads.setMatrixAt(i, M4);
+      for (const im of T.kinds[pp.kind]) im.setMatrixAt(pp.slot, M4);
+      if (i % 14 === 0) T.umbrellas.setMatrixAt(i / 14, M4);
     });
-    T.bodies.instanceMatrix.needsUpdate = true;
-    T.heads.instanceMatrix.needsUpdate = true;
+    for (const list of T.kinds) for (const im of list) im.instanceMatrix.needsUpdate = true;
+    T.umbrellas.instanceMatrix.needsUpdate = true;
+    // umbrellas are for the midday sun
+    T.umbrellas.visible = this.dkNow < 0.4;
   }
   /** Pilgrims in ihram filling the plain: in Arafat most stand facing the Ka'bah with their
       hands raised in du'a, many round Jabal ar-Rahmah; in Mina they walk between the tents and
@@ -2181,6 +2576,10 @@ export class IlmCityEngine {
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
     this.buildCityFill();
+    this.buildRingFlyover("madinah");
+    this.buildRingFlyover("makkah");
+    this.buildOpenRoads();
+    this.buildSaudiFill("madinah");
 
     // big roadside billboards along every expressway and Ikorodu Road
     const roadside = new THREE.Group();
@@ -2234,7 +2633,8 @@ export class IlmCityEngine {
       boards.forEach((b, i) => {
         const f = (i + 1) / (boards.length + 1);
         const side = i % 2 ? 1 : -1;
-        const off = d.parent ? 16 : 17;
+        // beside the four-lane roads of Makkah and Madinah, set back past the ramps
+        const off = d.parent ? 16 : x0 < -3000 ? 27 : 17;
         const x = x0 + dx * f + nx * side * off,
           z = z0 + dz * f + nz * side * off;
         this.billboard(b, x, z, Math.atan2(-nx * side, -nz * side));
@@ -2736,6 +3136,437 @@ export class IlmCityEngine {
     }
   }
 
+  /** Madinah between its neighbourhoods: no empty sand, but blocks of flats, villas behind
+      walls and the odd glass tower, thinning out towards the desert edge. Background only
+      (no doors), and solid so you walk round them. */
+  private buildSaudiFill(city: string) {
+    const il = DISTRICTS.filter((d) => cityOf(d) === city);
+    if (!il.length) return;
+    const rnd = mulberry(7711);
+    const segs = this.roadSegments().filter(([x0, z0, x1, z1]) =>
+      il.some((d) => {
+        const H = halfOf(d);
+        const near = (x: number, z: number) =>
+          Math.abs(x - d.origin.x) < H.x + 400 && Math.abs(z - d.origin.z) < H.z + 400;
+        return near(x0, z0) || near(x1, z1);
+      }),
+    );
+    const C = 16;
+    const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)) - 60,
+      x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)) + 60,
+      z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)) - 60,
+      z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z)) + 60;
+    const center = CITY_CENTER[city];
+    const owner = (x: number, z: number) => {
+      let best = il[0],
+        bd = Infinity;
+      for (const d of il) {
+        const H = halfOf(d);
+        const dd = Math.hypot(
+          Math.max(0, Math.abs(x - d.origin.x) - H.x),
+          Math.max(0, Math.abs(z - d.origin.z) - H.z),
+        );
+        if (dd < bd) {
+          bd = dd;
+          best = d;
+        }
+      }
+      return { d: best, dist: bd };
+    };
+    const blocked = (x: number, z: number) => {
+      if (center && Math.hypot(x - center.x, z - center.z) < 84) return true;
+      for (const d of DISTRICTS) {
+        const H = halfOf(d);
+        if (Math.abs(x - d.origin.x) < H.x + 16 && Math.abs(z - d.origin.z) < H.z + 16) return true;
+      }
+      for (const sg of segs) if (IlmCityEngine.distToSeg(x, z, sg) < 24) return true;
+      for (const sg of this.openRoads) if (IlmCityEngine.distToSeg(x, z, sg) < 20) return true;
+      for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 30) return true;
+      return false;
+    };
+    const walls = [0xf2ead8, 0xe8dcc4, 0xdccbaa, 0xf0e6d2, 0xe2d3b5, 0xd8c7a3];
+    const pick = <T>(a: T[]) => a[Math.floor(rnd() * a.length)];
+    const glass = MAT2.glass(),
+      band = MAT.plain(0x2c3a44, 0.35),
+      trim = MAT.plain(0xfaf6ee, 0.5),
+      wallM = MAT.plain(0xe4d6bb),
+      pool = MAT.plain(0x38b6d8, 0.15);
+    const batches = new Map<string, Batch>();
+    const i0 = Math.ceil((x0 + 780) / C),
+      i1 = Math.floor((x1 + 780) / C),
+      k0 = Math.ceil((z0 + 1600) / C),
+      k1 = Math.floor((z1 + 1600) / C);
+    for (let i = i0; i <= i1; i++)
+      for (let k = k0; k <= k1; k++) {
+        const x = i * C - 780,
+          z = k * C - 1600;
+        if (blocked(x, z)) continue;
+        const { d, dist } = owner(x, z);
+        // the city fills the land between the areas, thinning out towards the desert
+        if (dist > 260 || rnd() < 0.14 + dist / 620) continue;
+        let b = batches.get(d.id);
+        if (!b) batches.set(d.id, (b = new Batch()));
+        const lx = x - d.origin.x,
+          lz = z - d.origin.z;
+        const tier = d.tier ?? 2;
+        const roll = rnd();
+        if (tier === 1 && roll < 0.12) {
+          // a glass tower
+          const h = 26 + rnd() * 34,
+            w = 11 + rnd() * 2;
+          b.box(w, h, w, glass, lx, 0, lz);
+          b.box(w + 0.6, 1, w + 0.6, trim, lx, h, lz);
+        } else if (tier === 1 || roll < 0.25) {
+          // a villa behind its wall, sometimes with a pool
+          b.box(14, 1.6, 14, wallM, lx, 0, lz);
+          const fl = 2 + (rnd() < 0.3 ? 1 : 0);
+          b.box(10, 3.4 * fl, 7, MAT.plaster(pick(walls)), lx, 0, lz - 2.5);
+          b.box(10.05, 3.4 * fl - 2.4, 7.05, band, lx, 1.3, lz - 2.5);
+          b.box(10.4, 0.5, 7.4, trim, lx, 3.4 * fl, lz - 2.5);
+          if (rnd() < 0.5) b.add(groundGeo(6, 3, 2), pool, lx + 1.5, 0.15, lz + 4, 0, false);
+        } else {
+          // a block of flats with shops at the bottom, on a paved lot
+          b.box(15.6, 0.08, 15.6, MAT.paving(), lx, 0.01, lz);
+          const fl = (tier === 2 ? 3 : 2) + Math.floor(rnd() * 3);
+          const w = 12 + rnd() * 1.5,
+            dd = 11 + rnd() * 1.5;
+          b.box(w, 3.3 * fl, dd, MAT.plaster(pick(walls)), lx, 0, lz);
+          // window bands on alternate floors
+          for (let f = 0; f < fl; f += 2) b.box(w + 0.05, 1.1, dd + 0.05, band, lx, 3.3 * f + 1.2, lz);
+          b.box(w + 0.5, 0.7, dd + 0.5, trim, lx, 3.3 * fl, lz);
+        }
+        this.fillCells.add(`${i},${k}`);
+      }
+    for (const [id, b] of batches) {
+      const g = this.areaGroup(id);
+      for (const m of b.build()) {
+        m.castShadow = false;
+        m.receiveShadow = false;
+        g.add(m);
+      }
+    }
+  }
+
+  /** Roads that carry on out of town, so no main street stops dead at the sand. */
+  private openRoads: [number, number, number, number][] = [];
+  /** In Makkah and Madinah, a main street whose end joins nothing carries on out across the
+      desert until it meets another road or runs off past the horizon, lit all the way; and the
+      desert itself runs on to the horizon all round. */
+  private buildOpenRoads() {
+    const segs = this.roadSegments();
+    const b = this.worldBatch;
+    const LP = IlmCityEngine.lampParts();
+    const poleM = mat(0xdfe2de, { metalness: 0.3 });
+    const dashM = new THREE.MeshBasicMaterial({ color: PALETTE.line });
+    for (const city of ["makkah", "madinah"]) {
+      const il = DISTRICTS.filter((d) => cityOf(d) === city);
+      if (!il.length) continue;
+      const x0 = Math.min(...il.map((d) => d.origin.x - halfOf(d).x)),
+        x1 = Math.max(...il.map((d) => d.origin.x + halfOf(d).x)),
+        z0 = Math.min(...il.map((d) => d.origin.z - halfOf(d).z)),
+        z1 = Math.max(...il.map((d) => d.origin.z + halfOf(d).z));
+      // the desert on all sides, to the horizon
+      const sand = new THREE.Mesh(groundGeo(x1 - x0 + 3200, z1 - z0 + 3200, 20), mat(0xd9c49a));
+      sand.position.set((x0 + x1) / 2, -0.04, (z0 + z1) / 2);
+      sand.receiveShadow = true;
+      this.scene.add(sand);
+      const inArea = (x: number, z: number, skip: District) =>
+        DISTRICTS.some(
+          (d) =>
+            d !== skip &&
+            Math.abs(x - d.origin.x) < halfOf(d).x + 8 &&
+            Math.abs(z - d.origin.z) < halfOf(d).z + 8,
+        );
+      for (const d of il) {
+        if (d.id === "mina" || d.id === "arafat") continue;
+        const H = halfOf(d);
+        for (const dir of [-1, 1]) {
+          const ex = d.origin.x + dir * (H.x - 5),
+            ez = d.origin.z;
+          // does a road already join this end?
+          const joined = segs.some(
+            ([a, bz, c, e]) =>
+              Math.hypot(a - ex, bz - ez) < 30 ||
+              Math.hypot(c - ex, e - ez) < 30 ||
+              IlmCityEngine.distToSeg(ex + dir * 12, ez, [a, bz, c, e]) < 10,
+          );
+          if (joined) continue;
+          // run on out until it meets a road or another area, or 900 m
+          let len = 0;
+          const max = 900;
+          while (len < max) {
+            const x = ex + dir * (len + 6);
+            if (inArea(x, ez, d)) {
+              len = Math.max(0, len - 10);
+              break;
+            }
+            if (len > 20 && segs.some((sg) => IlmCityEngine.distToSeg(x, ez, sg) < 8)) break;
+            len += 6;
+          }
+          if (len < 30) continue;
+          const mx = ex + (dir * len) / 2;
+          this.openRoads.push([ex, ez, ex + dir * len, ez]);
+          const k = new THREE.Mesh(groundGeo(len, 20, 2), MAT.pavement());
+          k.position.set(mx, 0.02, ez);
+          k.receiveShadow = true;
+          b.addObject(k);
+          const r = new THREE.Mesh(groundGeo(len, 12, 4), MAT.asphalt());
+          r.position.set(mx, 0.04, ez);
+          r.receiveShadow = true;
+          b.addObject(r);
+          for (let t = 4; t < len - 2; t += 8) {
+            const m = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.25), dashM);
+            m.rotation.x = -Math.PI / 2;
+            m.position.set(ex + dir * t, 0.06, ez);
+            b.addObject(m);
+          }
+          // lamps on alternate sides, palms in between
+          for (let t = 18, i = 0; t < len - 6; t += 30, i++) {
+            const sz = i % 2 ? 8 : -8;
+            for (const m of [
+              new THREE.Mesh(LP.pole, poleM),
+              new THREE.Mesh(LP.head, this.lampMat),
+              new THREE.Mesh(LP.pool, this.poolMat),
+            ]) {
+              m.position.set(ex + dir * t, 0, ez + sz);
+              m.rotation.y = sz > 0 ? Math.PI / 2 : -Math.PI / 2;
+              b.addObject(m);
+            }
+            this.colliders.out.push({
+              x0: ex + dir * t - 0.3,
+              x1: ex + dir * t + 0.3,
+              z0: ez + sz - 0.3,
+              z1: ez + sz + 0.3,
+            });
+            b.addObject(palm(ex + dir * (t + 15), ez + (i % 2 ? -9.5 : 9.5), 0.9));
+          }
+          const t = label(`${d.highway} →`, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
+          t.position.set(ex + dir * Math.min(60, len / 2), 6.5, ez + 9);
+          this.scene.add(t);
+        }
+      }
+    }
+  }
+
+  /** The flyovers you can drive on: the ring deck and its ramps. */
+  private flyovers: {
+    x: number;
+    z: number;
+    R0: number;
+    R1: number;
+    Y: number;
+    ramps: { bx: number; bz: number; tx: number; tz: number; w: number }[];
+  }[] = [];
+  private ringCars: {
+    mesh: THREE.Object3D;
+    cx: number;
+    cz: number;
+    r: number;
+    a: number;
+    w: number;
+    y: number;
+  }[] = [];
+  private stepRingCars(dt: number) {
+    const p = this.camera.position;
+    for (const c of this.ringCars) {
+      if (Math.hypot(p.x - c.cx, p.z - c.cz) > 400) continue;
+      c.a += c.w * dt;
+      c.mesh.position.set(c.cx + Math.cos(c.a) * c.r, c.y, c.cz + Math.sin(c.a) * c.r);
+      // facing along the ring, the way it is going
+      c.mesh.rotation.y = -c.a + (c.w > 0 ? -Math.PI / 2 : Math.PI / 2);
+    }
+  }
+  /** The road surface under a point: on the ground, up a ramp or on the ring deck. `h` is how
+      high you are now, so you stay on the level you are on (over or under the flyover). */
+  private onRamp = false;
+  private surfaceAt(x: number, z: number, h: number): number | null {
+    this.onRamp = false;
+    for (const f of this.flyovers) {
+      const d = Math.hypot(x - f.x, z - f.z);
+      if (d > f.R1 + 120) continue;
+      for (const r of f.ramps) {
+        const dx = r.tx - r.bx,
+          dz = r.tz - r.bz,
+          L = Math.hypot(dx, dz);
+        const t = ((x - r.bx) * dx + (z - r.bz) * dz) / (L * L);
+        const lat = Math.abs(((x - r.bx) * dz - (z - r.bz) * dx) / L);
+        if (t < -0.02 || t > 1.06 || lat > r.w / 2 - 0.4) continue;
+        const hr = Math.max(0, Math.min(1, t)) * f.Y;
+        this.onRamp = true;
+        if (Math.abs(hr - h) < 1.6) return hr;
+        if (h < 0.5 && hr > 1.2) return null; // the side of the ramp is a wall
+      }
+      if (h > f.Y - 1.6) return d > f.R0 + 1 && d < f.R1 - 1 ? f.Y : null;
+    }
+    return h > 1.6 ? null : 0;
+  }
+  /** On the flyover you can't get out of the car. */
+  onFlyover() {
+    return this.driving && this.car.position.y > 0.5;
+  }
+
+  /** The raised ring road round the heart of Makkah and Madinah: a four-lane flyover on
+      pillars, high over the roundabout and the expressways, lit along its parapets. */
+  private buildRingFlyover(city: string) {
+    const c = CITY_CENTER[city];
+    if (!c) return;
+    const b = this.worldBatch;
+    const R0 = 56,
+      R1 = 72,
+      Y = 9; // inner and outer edge, deck height
+    const concrete = this.glow(new THREE.MeshStandardMaterial({ color: 0xdcd6ca, flatShading: true }), 0.35, 0xfff0d8);
+    const white = mat(0xf4f4f0);
+    const under = this.glow(new THREE.MeshStandardMaterial({ color: 0xb9b2a5, flatShading: true }), 0.25, 0xfff0d8);
+    // the deck: a ring slab
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, R1, 0, Math.PI * 2, false);
+    const hole = new THREE.Path();
+    hole.absarc(0, 0, R0, 0, Math.PI * 2, true);
+    shape.holes.push(hole);
+    const deck = new THREE.ExtrudeGeometry(shape, { depth: 1.4, bevelEnabled: false, curveSegments: 72 });
+    deck.rotateX(Math.PI / 2);
+    b.add(deck, under, c.x, Y, c.z);
+    const top = new THREE.RingGeometry(R0, R1, 96, 1);
+    top.rotateX(-Math.PI / 2);
+    b.add(top, MAT.asphalt(), c.x, Y + 0.02, c.z, 0, false);
+    // the ramps: one beside each expressway, from the road up to the outer lane of the ring
+    const ramps: { bx: number; bz: number; tx: number; tz: number; w: number }[] = [];
+    const RW = 8,
+      RL = 82;
+    for (const d of DISTRICTS.filter((q) => !q.parent && cityOf(q) === city)) {
+      const [ax, az] = this.roadEnd(d);
+      const len = Math.hypot(ax - c.x, az - c.z);
+      if (len < 24 + 66 + RL + 10) continue;
+      const ux = (ax - c.x) / len,
+        uz = (az - c.z) / len;
+      // to the right of the road as you drive in, just off its pavement
+      const px = -uz,
+        pz = ux,
+        off = 19.5;
+      const top = Math.sqrt((R1 - 3) ** 2 - off ** 2);
+      const T = { x: c.x + ux * top + px * off, z: c.z + uz * top + pz * off };
+      const B = { x: c.x + ux * (top + RL) + px * off, z: c.z + uz * (top + RL) + pz * off };
+      ramps.push({ bx: B.x, bz: B.z, tx: T.x, tz: T.z, w: RW });
+      // the sloping deck, its parapets, edge lines and the pillars under it
+      const ry = Math.atan2(T.x - B.x, T.z - B.z);
+      const slope = Math.atan2(Y, RL);
+      const L = Math.hypot(RL, Y);
+      const mx = (B.x + T.x) / 2,
+        mz = (B.z + T.z) / 2;
+      const slab = new THREE.BoxGeometry(RW, 1, L);
+      slab.rotateX(-slope);
+      b.add(slab, under, mx, Y / 2 - 0.5, mz, ry);
+      const surf = new THREE.PlaneGeometry(RW, L);
+      surf.rotateX(-Math.PI / 2);
+      surf.rotateX(-slope);
+      b.add(surf, MAT.asphalt(), mx, Y / 2 + 0.03, mz, ry, false);
+      for (const sx of [-RW / 2 + 0.2, RW / 2 - 0.2]) {
+        const wall = new THREE.BoxGeometry(0.4, 1.1, L);
+        wall.rotateX(-slope);
+        wall.translate(sx, 0, 0);
+        b.add(wall, concrete, mx, Y / 2 + 0.55, mz, ry);
+        const line = new THREE.PlaneGeometry(0.22, L);
+        line.rotateX(-Math.PI / 2);
+        line.rotateX(-slope);
+        line.translate(sx * 0.85, 0, 0);
+        b.add(line, white, mx, Y / 2 + 0.06, mz, ry, false);
+      }
+      for (let k = 1; k < 5; k++) {
+        const f = k / 5;
+        const h = f * Y;
+        if (h < 2.2) continue;
+        const x = B.x + (T.x - B.x) * f,
+          z = B.z + (T.z - B.z) * f;
+        b.add(new THREE.BoxGeometry(RW - 2, h - 0.6, 1.4), concrete, x, (h - 0.6) / 2, z, ry);
+      }
+      const sign = label(city === "makkah" ? "↗ Third Ring Road" : "↗ King Faisal Ring Road", {
+        size: 0.9,
+        bg: "rgba(31,111,99,0.92)",
+      });
+      sign.position.set(B.x + (T.x - B.x) * 0.08, 4.2, B.z + (T.z - B.z) * 0.08);
+      this.scene.add(sign);
+    }
+    // parapets, with a green band that glows after dark (open where the ramps join)
+    const green = this.glow(new THREE.MeshStandardMaterial({ color: 0x2f8f63 }), 1.4, 0x3fe08a);
+    const gaps = ramps
+      .map((r) => Math.atan2(r.tx - c.x, r.tz - c.z))
+      .map((t) => (t + Math.PI * 2) % (Math.PI * 2))
+      .sort((p, q) => p - q);
+    const half = (RW / 2 + 0.8) / R1;
+    const arcs: [number, number][] = [];
+    if (!gaps.length) arcs.push([0, Math.PI * 2]);
+    gaps.forEach((g0, i) => {
+      const g1 = i + 1 < gaps.length ? gaps[i + 1] : gaps[0] + Math.PI * 2;
+      arcs.push([g0 + half, g1 - g0 - half * 2]);
+    });
+    for (const r of [R0 + 0.3, R1 - 0.3]) {
+      const segs2: [number, number][] = r > R0 + 1 ? arcs : [[0, Math.PI * 2]];
+      for (const [t0, tl] of segs2) {
+        b.add(new THREE.CylinderGeometry(r, r, 1.2, 64, 1, true, t0, tl), concrete, c.x, Y + 0.6, c.z);
+        b.add(new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.3, 64, 1, true, t0, tl), green, c.x, Y - 0.7, c.z);
+      }
+    }
+    this.flyovers.push({ x: c.x, z: c.z, R0, R1, Y, ramps });
+    // cars going round the ring, in both directions
+    for (let i = 0; i < 10; i++) {
+      const dir = i % 2 ? 1 : -1;
+      const m = vehicleMesh(i % 4 === 0 ? "suv" : "sedan", randomCarColor(Math.random));
+      m.castShadow = true;
+      this.scene.add(m);
+      this.ringCars.push({
+        mesh: m,
+        cx: c.x,
+        cz: c.z,
+        r: dir > 0 ? R1 - 4.2 : R0 + 4.2,
+        a: (i / 10) * Math.PI * 2,
+        w: (dir * (9 + (i % 3) * 2)) / ((R0 + R1) / 2),
+        y: Y,
+      });
+    }
+    // lane lines: a dashed white ring between the two lanes each way, a yellow one in the middle
+    const yellow = mat(PALETTE.line);
+    for (let i = 0; i < 120; i++) {
+      const a = (i / 120) * Math.PI * 2;
+      for (const [r, m] of [
+        [R0 + 4, white],
+        [(R0 + R1) / 2, yellow],
+        [R1 - 4, white],
+      ] as [number, THREE.Material][]) {
+        if (m === white && i % 2) continue;
+        b.add(new THREE.BoxGeometry(0.3, 0.04, 2.2), m, c.x + Math.cos(a) * r, Y + 0.05, c.z + Math.sin(a) * r, -a);
+      }
+    }
+    // pillars, kept off the roads below
+    const segs = this.roadSegments();
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      const r = (R0 + R1) / 2;
+      const x = c.x + Math.cos(a) * r,
+        z = c.z + Math.sin(a) * r;
+      if (segs.some((sg) => IlmCityEngine.distToSeg(x, z, sg) < 17)) continue;
+      b.add(new THREE.BoxGeometry(2.6, Y, 7), concrete, x, Y / 2, z, Math.PI / 2 - a);
+      b.add(new THREE.BoxGeometry(3.6, 1, R1 - R0 - 2), concrete, x, Y - 0.5, z, Math.PI / 2 - a);
+      this.colliders.out.push({ x0: x - 2.2, x1: x + 2.2, z0: z - 2.2, z1: z + 2.2 });
+    }
+    // lamps along the outer parapet, leaning in over the deck
+    const LP = IlmCityEngine.lampParts();
+    const poleM = mat(0xdfe2de, { metalness: 0.3 });
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2 + 0.13;
+      for (const m of [new THREE.Mesh(LP.pole, poleM), new THREE.Mesh(LP.head, this.lampMat)]) {
+        m.position.set(c.x + Math.cos(a) * (R1 - 0.6), Y, c.z + Math.sin(a) * (R1 - 0.6));
+        m.rotation.y = -a + Math.PI;
+        b.addObject(m);
+      }
+    }
+    const t = label(city === "makkah" ? "Third Ring Road · الطريق الدائري الثالث" : "King Faisal Ring Road · طريق الملك فيصل الدائري", {
+      bg: "rgba(31,111,99,0.92)",
+      size: 1.4,
+    });
+    t.position.set(c.x, Y + 6, c.z + R1);
+    this.scene.add(t);
+  }
+
   /** Where an area's main street meets its expressway. */
   private roadEnd(d: District): [number, number] {
     const side = d.origin.x > centerOf(d).x ? -1 : 1;
@@ -2750,27 +3581,59 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
     g.rotation.y = Math.atan2(dx, dz);
-    const k = new THREE.Mesh(groundGeo(19, len + 2, 2), MAT.pavement());
+    // in Makkah and Madinah: a four-lane dual carriageway with a planted median
+    const four = x0 < -3000;
+    const RW = four ? 25 : 15,
+      KW = four ? 31 : 19,
+      PX = four ? 14.2 : 12.5; // where the palms stand
+    const k = new THREE.Mesh(groundGeo(KW, len + 2, 2), MAT.pavement());
     k.position.y = 0.02;
     k.receiveShadow = true;
     g.add(k);
-    const r = new THREE.Mesh(groundGeo(15, len, 4), MAT.asphalt());
+    const r = new THREE.Mesh(groundGeo(RW, len, 4), MAT.asphalt());
     r.position.y = 0.04;
     r.receiveShadow = true;
     g.add(r);
     const dash = new THREE.MeshBasicMaterial({ color: PALETTE.line });
-    for (let t = -len / 2 + 4; t < len / 2 - 4; t += 8) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 4), dash);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(0, 0.06, t);
-      g.add(m);
+    const white = new THREE.MeshBasicMaterial({ color: 0xf4f4f0 });
+    for (let t = -len / 2 + 4; t < len / 2 - 4; t += 8)
+      for (const lx of four ? [-6.9, 6.9] : [0]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 4), four ? white : dash);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(lx, 0.06, t);
+        g.add(m);
+      }
+    if (four) {
+      // the solid edge lines, the kerbed median with its strip of grass, and lamps down the
+      // middle every 30 m with an arm over each carriageway
+      for (const lx of [-12, -1.9, 1.9, 12]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.25, len - 2), lx > -3 && lx < 3 ? dash : white);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(lx, 0.06, 0);
+        g.add(m);
+      }
+      g.add(box(2.6, 0.35, len - 4, 0xd8d2c2, 0, 0, 0));
+      g.add(box(2.0, 0.08, len - 5, 0x6f9440, 0, 0.35, 0));
+      const LP = IlmCityEngine.lampParts();
+      const poleM = mat(0xdfe2de, { metalness: 0.3 });
+      for (let t = -len / 2 + 15; t < len / 2 - 15; t += 30)
+        for (const ry of [0, Math.PI]) {
+          const a = new THREE.Mesh(LP.pole, poleM);
+          const h = new THREE.Mesh(LP.head, this.lampMat);
+          const pl = new THREE.Mesh(LP.pool, this.poolMat);
+          for (const m of [a, h, pl]) {
+            m.position.set(0, 0, t);
+            m.rotation.y = ry;
+            g.add(m);
+          }
+        }
     }
     for (let t = -len / 2 + 14; t < len / 2 - 14; t += 26) {
-      g.add(palm(-12.5, t, 0.9));
-      g.add(palm(12.5, t + 13, 0.9));
+      g.add(palm(-PX, t, 0.9));
+      g.add(palm(PX, t + 13, 0.9));
       for (const [lx, lt] of [
-        [-12.5, t],
-        [12.5, t + 13],
+        [-PX, t],
+        [PX, t + 13],
       ]) {
         const a = g.rotation.y;
         const wx = g.position.x + lx * Math.cos(a) + lt * Math.sin(a),
@@ -2779,6 +3642,20 @@ export class IlmCityEngine {
       }
     }
     this.worldBatch.addObject(g);
+    // a footbridge over the middle of a long expressway (Makkah and Madinah)
+    if (len > 160 && x0 < -3000) {
+      const fb = new THREE.Group();
+      // three-quarters of the way out, clear of the ramps up to the ring road
+      fb.position.set(x0 + dx * 0.8, 0, z0 + dz * 0.8);
+      fb.rotation.y = g.rotation.y;
+      const towers = this.footbridge(this.worldBatch, 0, 0, 34, true, fb);
+      const a = g.rotation.y;
+      for (const t of towers) {
+        const wx = fb.position.x + t.x * Math.cos(a) + t.z * Math.sin(a),
+          wz = fb.position.z - t.x * Math.sin(a) + t.z * Math.cos(a);
+        this.colliders.out.push({ x0: wx - 1.8, x1: wx + 1.8, z0: wz - 1.8, z1: wz + 1.8 });
+      }
+    }
     for (const f of [0.2, 0.5, 0.8]) {
       const t = label(name, { bg: "rgba(42,58,52,0.9)", size: 1.1 });
       t.position.set(x0 + dx * f, 6.5, z0 + dz * f);
@@ -2879,6 +3756,7 @@ export class IlmCityEngine {
     else if (l.kind === "jamarat") this.buildJamarat(l, sz, D);
     else if (l.kind === "rahmah") this.buildRahmah(l, D, sz);
     else if (l.kind === "clocktower") this.buildClockTower(l.x, sz - 30, l.name);
+    else if (l.kind === "masjid" && l.id === "masjid-dhulhulayfah") this.buildMiqatMosque(l, sz);
     else if (l.kind === "masjid") {
       this.buildMasjid(l.x, sz - 23, l);
       // the famous mosques of Madinah keep their own shape: minarets and white domes
@@ -2897,8 +3775,8 @@ export class IlmCityEngine {
       const south = l.side === "s";
       const d = l.depth ?? 30,
         w = l.width ?? 30;
-      const cz = south ? sz + 11 + d / 2 : sz - 11 - d / 2;
-      const turn = south ? Math.PI : 0;
+      const cz = l.at ? l.at.z : south ? sz + 11 + d / 2 : sz - 11 - d / 2;
+      const turn = south && !l.at ? Math.PI : 0;
       const b = this.curBatch;
       const o = { x: l.x, z: cz, turn, width: w, depth: d, floors: l.floors ?? 2, name: l.name };
       let seats: { x: number; z: number; face: number }[] = [];
@@ -2908,7 +3786,9 @@ export class IlmCityEngine {
           : l.kind === "mansion"
             ? mansion(b, o)
             : l.kind === "faculty"
-              ? faculty(b, o)
+              ? D.campus?.arabic
+                ? iumCollege(b, o)
+                : faculty(b, o)
               : l.kind === "field"
                 ? (() => {
                     const f = field(b, o);
@@ -4367,8 +5247,12 @@ export class IlmCityEngine {
       const g = new THREE.Group();
       g.position.set(x, 0, z);
       g.rotation.y = north ? 0 : Math.PI;
+      const fb = brandsOf(D.id)?.food;
+      const fbg = fb ? "#" + fb.bg.toString(16).padStart(6, "0") : "#c8102e",
+        ffg = fb ? "#" + fb.fg.toString(16).padStart(6, "0") : "#fff";
+      const fname = eateryName(D.id);
       // the truck, its serving hatch and awning
-      g.add(box(6.6, 2.7, 2.6, 0xc8102e, 0, 0.55, 0));
+      g.add(box(6.6, 2.7, 2.6, fb?.bg ?? 0xc8102e, 0, 0.55, 0));
       g.add(box(6.8, 0.25, 2.8, 0xf4f1ea, 0, 3.25, 0));
       g.add(box(3.6, 1.1, 0.06, 0x2a1c05, -0.6, 1.6, 1.31));
       g.add(box(4, 0.12, 1.3, 0xf2c230, -0.6, 2.75, 1.9));
@@ -4382,13 +5266,13 @@ export class IlmCityEngine {
         5.6,
         1,
         (c, W, H) => {
-          c.fillStyle = "#c8102e";
+          c.fillStyle = fbg;
           c.fillRect(0, 0, W, H);
-          c.fillStyle = "#fff";
+          c.fillStyle = ffg;
           c.textAlign = "center";
           c.textBaseline = "middle";
           c.font = `800 ${Math.round(H * 0.55)}px "Work Sans", system-ui, sans-serif`;
-          c.fillText("AL-BARAKAH BROAST", W / 2, H * 0.52);
+          c.fillText(fname.toUpperCase(), W / 2, H * 0.52);
         },
         512,
       );
@@ -4399,13 +5283,13 @@ export class IlmCityEngine {
       const fz = z + (north ? 2.8 : -2.8);
       this.zones.push({
         id: "eatery:" + D.id,
-        label: "Eat at Al-Barakah Broast",
+        label: `Eat at ${fname}`,
         x: x + this.ox,
         z: fz + this.oz,
         r: 2.8,
         scene: "out",
       });
-      const t = label("Al-Barakah Broast · eatery", { size: 0.85, bg: "rgba(200,16,46,0.92)" });
+      const t = label(`${fname} · eatery`, { size: 0.85, bg: fbg });
       t.position.set(x, 5.2, z);
       this.dg.add(t);
       return;
@@ -4440,18 +5324,22 @@ export class IlmCityEngine {
         g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, -3, 0.9, Dp / 2 + 0.02));
         g.add(box(3.2, 2.2, 0.08, 0x2c4a5e, 3, 0.9, Dp / 2 + 0.02));
         g.add(box(1.6, 2.8, 0.1, 0x5a3a22, 0, 0, Dp / 2 + 0.03));
-        g.add(box(W, 0.15, 1.6, 0x1f6f63, 0, 3.2, Dp / 2 + 0.8));
+        const cb = brandsOf(D.id)?.coffee;
+        const cbg = cb ? "#" + cb.bg.toString(16).padStart(6, "0") : "#1f6f63",
+          cfg = cb ? "#" + cb.fg.toString(16).padStart(6, "0") : "#f2c230";
+        const cname = cafeName(D.id);
+        g.add(box(W, 0.15, 1.6, cb?.bg ?? 0x1f6f63, 0, 3.2, Dp / 2 + 0.8));
         const { mesh } = canvasPlane(
           8,
           1.1,
           (c, CW, CH) => {
-            c.fillStyle = "#1f6f63";
+            c.fillStyle = cbg;
             c.fillRect(0, 0, CW, CH);
-            c.fillStyle = "#f2c230";
+            c.fillStyle = cfg;
             c.textAlign = "center";
             c.textBaseline = "middle";
             c.font = `800 ${Math.round(CH * 0.5)}px "Work Sans", system-ui, sans-serif`;
-            c.fillText("AL-MA'IDAH RESTAURANT", CW / 2, CH * 0.53);
+            c.fillText(cname.toUpperCase(), CW / 2, CH * 0.53);
           },
           512,
         );
@@ -4468,7 +5356,7 @@ export class IlmCityEngine {
         const fz = z + (north ? Dp / 2 + 1.4 : -Dp / 2 - 1.4);
         this.zones.push({
           id: "door:restaurant:" + D.id,
-          label: "Enter Al-Ma'idah Restaurant",
+          label: `Enter ${cname}`,
           x: x + this.ox,
           z: fz + this.oz,
           r: 2.2,
@@ -4592,11 +5480,46 @@ export class IlmCityEngine {
       );
     };
     // the front wall, open at the gate on the cross road
-    wall(x0, z, -11.3, z);
-    wall(11.3, z, x1, z);
+    const ium = c.arabic ? iumGate(c.arabic) : null;
+    const gw = ium ? ium.halfWidth : 11.3;
+    wall(x0, z, -gw, z);
+    wall(gw, z, x1, z);
     wall(x0, z, x0, zb);
     wall(x1, z, x1, zb);
     wall(x0, zb, x1, zb);
+    if (ium) {
+      // the Islamic University's gate: two striped arches, a domed block on each side
+      // a little in front of the wall line, so it greets you from the main road
+      const gz = z - ium.front + 6;
+      ium.group.position.set(0, 0, gz);
+      g.add(ium.group);
+      for (const q of ium.colliders) this.addCollider("out", q.x0, q.x1, gz + q.z0, gz + q.z1);
+      const hint = label("Main Gate · " + c.gate, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
+      hint.position.set(0, ium.height + 3, z);
+      g.add(hint);
+      // gardens and palms in the forecourt between the gate and the colleges
+      const av = D.streets[1].z;
+      for (const q of iumForecourt(this.curBatch, gz - 4.6, av + 7))
+        this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      this.reserved.push({
+        x0: this.ox - 28,
+        x1: this.ox + 28,
+        z0: this.oz + av + 6,
+        z1: this.oz + z,
+      });
+      // the star plaza in the middle of the campus, with the water tower beside it
+      const pz = av - 34;
+      for (const q of iumPlaza(this.curBatch, 0, pz)) this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      this.reserved.push({
+        x0: this.ox - 40,
+        x1: this.ox + 40,
+        z0: this.oz + pz - 25,
+        z1: this.oz + av - 6,
+      });
+      for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
+      this.dg.add(g);
+      return;
+    }
     // the gate: two pillars and a beam with the university's name
     for (const px of [-10.5, 10.5]) g.add(box(1.6, 8.4, 1.6, 0xd9d1bd, px, 0, z));
     g.add(box(22.6, 1.6, 1.4, 0x1f6f63, 0, 7, z));
@@ -4623,6 +5546,773 @@ export class IlmCityEngine {
     safa?: { x: number; z: number };
     marwah?: { x: number; z: number };
   } = {};
+  /** Materials that light up after dark (floodlit marble, glowing arcades), and how much. */
+  private nightGlow: { m: THREE.MeshStandardMaterial; k: number }[] = [];
+  private haramLight = new THREE.PointLight(0xfff0d8, 0, 150, 0);
+  private dkNow = 0;
+  private glow<M extends THREE.MeshStandardMaterial>(
+    m: M,
+    k: number,
+    color = 0xffffff,
+    map?: THREE.Texture,
+  ): M {
+    m.emissive.set(color);
+    if (map) m.emissiveMap = map;
+    m.emissiveIntensity = this.dkNow * k;
+    this.nightGlow.push({ m, k });
+    return m;
+  }
+  private haramTexCache: {
+    kiswa: THREE.CanvasTexture;
+    kiswaDoor: THREE.CanvasTexture;
+    ottoman: THREE.CanvasTexture;
+    facade: THREE.CanvasTexture;
+    facadeGlow: THREE.CanvasTexture;
+  } | null = null;
+  /** Drawn once: the kiswah with its gold band, the Ottoman arch and the white arcade storeys. */
+  private haramTex() {
+    if (this.haramTexCache) return this.haramTexCache;
+    const redraws: (() => void)[] = [];
+    const make = (
+      w: number,
+      h: number,
+      draw: (c: CanvasRenderingContext2D) => void,
+      scale = 1,
+    ) => {
+      const cv = document.createElement("canvas");
+      cv.width = w * scale;
+      cv.height = h * scale;
+      const t = new THREE.CanvasTexture(cv);
+      const paint = () => {
+        const c = cv.getContext("2d")!;
+        c.setTransform(scale, 0, 0, scale, 0, 0);
+        c.clearRect(0, 0, w, h);
+        draw(c);
+        t.needsUpdate = true;
+      };
+      paint();
+      redraws.push(paint);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      t.wrapS = THREE.RepeatWrapping;
+      return t;
+    };
+    // Arabic in a proper naskh hand (Amiri), drawn again once the font has arrived
+    const AR = '"Amiri", "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif';
+    const ar = (
+      c: CanvasRenderingContext2D,
+      text: string,
+      x: number,
+      y: number,
+      size: number,
+      maxW: number,
+      fill: string | CanvasGradient,
+    ) => {
+      c.save();
+      c.direction = "rtl";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.font = `700 ${size}px ${AR}`;
+      const w = c.measureText(text).width;
+      const s = w > maxW ? maxW / w : 1;
+      c.translate(x, y);
+      c.scale(s, 1);
+      c.fillStyle = fill;
+      c.fillText(text, 0, 0);
+      c.restore();
+    };
+    const SHAHADA = "لَا إِلَٰهَ إِلَّا ٱللَّٰهُ مُحَمَّدٌ رَسُولُ ٱللَّٰهِ";
+    const ALLAH = "ٱللَّٰه";
+    // the kiswah: 12 m wide, 15 m tall, drawn on 512 x 640 (at twice the pixels)
+    const kiswaFace = (door: boolean) => (c: CanvasRenderingContext2D) => {
+      c.fillStyle = "#0d0d0e";
+      c.fillRect(0, 0, 512, 640);
+      // the woven pattern in the black cloth: "Allah" and the shahadah, black on black
+      for (let y = 30, row = 0; y < 640; y += 42, row++)
+        for (let x = row % 2 ? 0 : 40; x < 552; x += 80)
+          ar(c, row % 2 ? ALLAH : "سُبْحَانَ ٱللَّٰهِ", x, y, 15, 70, "rgba(255,255,255,0.06)");
+      const gold = c.createLinearGradient(0, 0, 0, 640);
+      gold.addColorStop(0, "#e9cc75");
+      gold.addColorStop(1, "#c79f3c");
+      // the gold belt (hizam) a little above two thirds of the way up
+      const y = 128,
+        h = 46;
+      c.fillStyle = "#151410";
+      c.fillRect(0, y, 512, h);
+      c.strokeStyle = "#c9a447";
+      c.lineWidth = 3;
+      c.strokeRect(2, y + 3, 508, h - 6);
+      ar(c, SHAHADA, 256, y + h / 2 + 2, 30, 470, gold);
+      // the gold panels under the belt, each with the name of Allah
+      for (const x of [64, 192, 320, 448]) {
+        if (door && x > 256 && x < 400) continue;
+        c.fillStyle = "#16140f";
+        c.fillRect(x - 28, 194, 56, 48);
+        c.strokeStyle = "#c9a447";
+        c.lineWidth = 2.5;
+        c.strokeRect(x - 28, 194, 56, 48);
+        ar(c, ALLAH, x, 219, 30, 46, gold);
+      }
+      // the corners: "Allahu akbar" running down both edges
+      for (const ex of [9, 503]) {
+        c.save();
+        c.translate(ex, 410);
+        c.rotate(Math.PI / 2);
+        ar(c, "ٱللَّٰهُ أَكْبَرُ   ٱللَّٰهُ أَكْبَرُ   ٱللَّٰهُ أَكْبَرُ", 0, 0, 12, 420, gold);
+        c.restore();
+      }
+      if (door) {
+        // the sitara: the embroidered curtain round the door, gold on black
+        const x0 = 256 + (2.4 / 12) * 512 - 70,
+          w = 140,
+          cx = x0 + w / 2;
+        c.fillStyle = "#121110";
+        c.fillRect(x0, 320, w, 290);
+        c.strokeStyle = "#c9a447";
+        c.lineWidth = 3;
+        c.strokeRect(x0 + 4, 324, w - 8, 282);
+        ar(c, "بِسْمِ ٱللَّٰهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ", cx, 344, 18, w - 18, gold);
+        ar(c, ALLAH, cx, 380, 30, w - 30, gold);
+        ar(c, "لَا إِلَٰهَ إِلَّا ٱللَّٰهُ", cx, 412, 18, w - 18, gold);
+        ar(c, "مُحَمَّدٌ رَسُولُ ٱللَّٰهِ", cx, 434, 16, w - 18, gold);
+      }
+    };
+    const kiswa = make(512, 640, kiswaFace(false), 2);
+    const kiswaDoor = make(512, 640, kiswaFace(true), 2);
+    kiswa.wrapS = kiswaDoor.wrapS = THREE.ClampToEdgeWrapping;
+    // one Ottoman bay: 4.6 m wide, 7.6 m tall, drawn 256 x 424. The opening is see-through.
+    const ottoman = make(256, 424, (c) => {
+      c.fillStyle = "#d9b77e";
+      c.fillRect(0, 0, 256, 424);
+      // the cornice and the band under the domes
+      c.fillStyle = "#c79e5c";
+      c.fillRect(0, 0, 256, 34);
+      c.fillStyle = "#efe2c4";
+      c.fillRect(0, 34, 256, 6);
+      // the pointed arch, in alternating pale and ochre stones
+      const cx = 128,
+        spring = 196,
+        half = 92;
+      const archPath = (r: number) => {
+        c.beginPath();
+        c.moveTo(cx - r, 424);
+        c.lineTo(cx - r, spring);
+        c.quadraticCurveTo(cx - r, spring - r * 1.05, cx, spring - r * 1.35);
+        c.quadraticCurveTo(cx + r, spring - r * 1.05, cx + r, spring);
+        c.lineTo(cx + r, 424);
+        c.closePath();
+      };
+      for (let k = 0; k < 14; k++) {
+        c.save();
+        archPath(half + 16);
+        c.clip();
+        const a0 = Math.PI + (k / 14) * Math.PI,
+          a1 = Math.PI + ((k + 1) / 14) * Math.PI;
+        c.beginPath();
+        c.moveTo(cx, spring);
+        c.arc(cx, spring, 200, a0, a1);
+        c.closePath();
+        c.fillStyle = k % 2 ? "#b8803f" : "#f1e6cc";
+        c.fill();
+        c.restore();
+      }
+      // gilded roundels between the arches: Allah and Muhammad ﷺ
+      for (const [x, word] of [
+        [14, ALLAH],
+        [242, "مُحَمَّد"],
+      ] as [number, string][]) {
+        c.beginPath();
+        c.arc(x, 100, 15, 0, Math.PI * 2);
+        c.fillStyle = "#2e5a3a";
+        c.fill();
+        c.strokeStyle = "#e6c45c";
+        c.lineWidth = 3;
+        c.stroke();
+        ar(c, word, x, 101, 14, 24, "#f0d27a");
+      }
+      // cut the opening out
+      c.globalCompositeOperation = "destination-out";
+      archPath(half);
+      c.fill();
+      c.globalCompositeOperation = "source-over";
+      // the piers' marble bases
+      c.fillStyle = "#efe7d6";
+      c.fillRect(0, 392, cx - half, 32);
+      c.fillRect(cx + half, 392, 256 - cx - half, 32);
+    });
+    // one bay of the white arcades: 7 m wide, 21 m tall, three storeys of arches
+    const facadeDraw = (glow: boolean) => (c: CanvasRenderingContext2D) => {
+      c.fillStyle = glow ? "#8c877c" : "#f4f1ea";
+      c.fillRect(0, 0, 256, 768);
+      const arch = (y0: number, y1: number, w: number, shade: string) => {
+        const x0 = 128 - w / 2,
+          sp = y0 + w * 0.55;
+        c.beginPath();
+        c.moveTo(x0, y1);
+        c.lineTo(x0, sp);
+        c.quadraticCurveTo(x0, y0, 128, y0 - 6);
+        c.quadraticCurveTo(x0 + w, y0, x0 + w, sp);
+        c.lineTo(x0 + w, y1);
+        c.closePath();
+        const gr = c.createLinearGradient(0, y0, 0, y1);
+        // at night the arcades glow warm from the lamps inside
+        gr.addColorStop(0, glow ? "#ffe2a8" : shade);
+        gr.addColorStop(1, glow ? "#ffc870" : "#8f877a");
+        c.fillStyle = gr;
+        c.fill();
+        c.strokeStyle = "#ddd5c4";
+        c.lineWidth = 5;
+        c.stroke();
+      };
+      // the parapet with its crenellations
+      c.fillStyle = "#e3dccd";
+      c.fillRect(0, 0, 256, 50);
+      for (let x = 6; x < 256; x += 22) c.fillRect(x, 50, 12, 12);
+      arch(92, 236, 150, "#7f786c"); // top storey
+      c.fillStyle = "#ddd5c4";
+      c.fillRect(0, 248, 256, 14);
+      arch(300, 500, 196, "#6f685d"); // middle storey
+      // a balustrade across the middle storey
+      c.fillStyle = "#efeadf";
+      c.fillRect(30, 470, 196, 8);
+      for (let x = 36; x < 226; x += 10) c.fillRect(x, 478, 4, 22);
+      c.fillStyle = "#ddd5c4";
+      c.fillRect(0, 512, 256, 14);
+      arch(560, 768, 200, "#5f594f"); // ground storey
+    };
+    const facade = make(256, 768, facadeDraw(false));
+    const facadeGlow = make(256, 768, facadeDraw(true));
+    // the Arabic is drawn in a fallback font at first; draw it again once Amiri has loaded
+    if (typeof document !== "undefined" && document.fonts) {
+      if (!document.querySelector("link[data-amiri]")) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap";
+        link.dataset.amiri = "1";
+        document.head.appendChild(link);
+      }
+      document.fonts
+        .load('700 30px "Amiri"', "ٱللَّٰه")
+        .then((f) => {
+          if (f.length) for (const r of redraws) r();
+        })
+        .catch(() => {});
+    }
+    this.haramTexCache = { kiswa, kiswaDoor, ottoman, facade, facadeGlow };
+    return this.haramTexCache;
+  }
+  /** Round the courtyard: the tall white arcades on the walls, and in front of them the old
+      Ottoman arcade, open arches on columns with a row of small domes, merged into one batch. */
+  private buildHaramArcades(g: THREE.Group, IN: number, H: number) {
+    const tx = this.haramTex();
+    const b = new Batch();
+    const std = (o: THREE.MeshStandardMaterialParameters) =>
+      new THREE.MeshStandardMaterial({ roughness: 0.85, ...o });
+    // after dark everything is floodlit: the marble glows white and the arcades warm gold
+    const facadeMat = this.glow(std({ map: tx.facade }), 1.0, 0xffffff, tx.facadeGlow);
+    const otMat = this.glow(
+      std({ map: tx.ottoman, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.8 }),
+      0.75,
+      0xffe2b0,
+      tx.ottoman,
+    );
+    const domeMat = this.glow(std({ color: 0xe9e4da }), 0.45, 0xfff0d8);
+    const goldM = this.glow(std({ color: 0xd4ad3c, metalness: 0.6, roughness: 0.35 }), 1.2, 0xffc850);
+    const roofM = this.glow(std({ color: 0xd9c49c, flatShading: true }), 0.35, 0xffe0b0);
+    const colM = this.glow(std({ color: 0xece4d2 }), 0.6, 0xfff0d0);
+    // a plane `len` long facing the courtyard, its texture repeated once per bay
+    const facePlane = (len: number, h: number, bay: number, m: THREE.Material, x: number, y: number, z: number, ry: number) => {
+      const geo = new THREE.PlaneGeometry(len, h);
+      const n = Math.max(1, Math.round(len / bay));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, y, z, ry, false);
+      return n;
+    };
+    // the white arcades on the inner walls (the east wall stands behind the Mas'a)
+    const E = 0.06;
+    facePlane(IN * 2, H, 7, facadeMat, 0, H / 2, -IN + E, 0);
+    facePlane(IN * 2, H, 7, facadeMat, -IN + E, H / 2, 0, Math.PI / 2);
+    facePlane(IN * 2, H, 7, facadeMat, IN - E, H / 2, 0, -Math.PI / 2);
+    facePlane(IN - 9, H, 7, facadeMat, -(IN + 9) / 2, H / 2, IN - E, Math.PI);
+    facePlane(IN - 9, H, 7, facadeMat, (IN + 9) / 2, H / 2, IN - E, Math.PI);
+    // the Ottoman arcade: depth D, arch face 7.6 m tall, domes on top
+    const D = 4.6,
+      AH = 7.6,
+      BAY = 4.6;
+    const side = (len: number, cx: number, cz: number, ry: number) => {
+      // the run goes along local x; local +z faces the courtyard
+      const cos = Math.cos(ry),
+        sin = Math.sin(ry);
+      const at = (lx: number, lz: number): [number, number] => [
+        cx + lx * cos + lz * sin,
+        cz - lx * sin + lz * cos,
+      ];
+      const [fx, fz] = at(0, D / 2);
+      const n = facePlane(len, AH, BAY, otMat, fx, AH / 2, fz, ry);
+      const bw = len / n;
+      // the roof slab, the back row of columns and a dome over every bay
+      b.box(len, 0.5, D, roofM, ...withY(at(0, 0), AH), ry, 4);
+      for (let i = 0; i <= n; i++) {
+        const lx = -len / 2 + i * bw;
+        for (const lz of [D / 2 - 0.35, -D / 2 + 0.6]) {
+          const [x, z] = at(lx, lz);
+          b.add(new THREE.CylinderGeometry(0.28, 0.32, AH - 0.4, 10), colM, x, (AH - 0.4) / 2, z);
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        const [x, z] = at(-len / 2 + (i + 0.5) * bw, 0);
+        b.add(new THREE.CylinderGeometry(1.75, 1.85, 0.6, 14), roofM, x, AH + 0.8, z);
+        b.add(
+          new THREE.SphereGeometry(1.75, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2),
+          domeMat,
+          x,
+          AH + 1.1,
+          z,
+        );
+        b.add(new THREE.ConeGeometry(0.12, 0.9, 6), goldM, x, AH + 3.25, z);
+      }
+    };
+    const withY = ([x, z]: [number, number], y: number): [number, number, number] => [x, y, z];
+    const east = IN - 13; // the Mas'a starts here
+    side(east + IN, (east - IN) / 2, -IN + D / 2, 0); // north, facing south
+    side(IN * 2 - D * 2, -IN + D / 2, 0, Math.PI / 2); // west, facing east
+    side(east + IN, (east - IN) / 2, IN - D / 2, Math.PI); // south, facing north
+    for (const m of b.build()) g.add(m);
+  }
+  /** The outer face of the Haram, after the classic picture of its gates: warm carved stone on
+      a dark basalt base, two storeys of pointed arches with lattice screens, crenellations,
+      rows of domes on the roof, five great gates (each a tall portal under a dome with little
+      domed kiosks at its corners and the gate's name in gold) and a domed tower at every corner.
+      After dark the lattices and portals glow gold. */
+  private buildHaramOuter(g: THREE.Group, C: { x: number; z: number }, OUT: number, IN: number, H: number) {
+    const redraws: (() => void)[] = [];
+    const make = (w: number, h: number, draw: (c: CanvasRenderingContext2D) => void, clamp = false) => {
+      const cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = h;
+      const t = new THREE.CanvasTexture(cv);
+      const paint = () => {
+        const c = cv.getContext("2d")!;
+        c.clearRect(0, 0, w, h);
+        draw(c);
+        t.needsUpdate = true;
+      };
+      paint();
+      redraws.push(paint);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      t.wrapS = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+      return t;
+    };
+    const AR = '"Amiri", "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif';
+    const ar = (c: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, maxW: number, fill: string) => {
+      c.save();
+      c.direction = "rtl";
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.font = `700 ${size}px ${AR}`;
+      const w = c.measureText(text).width;
+      c.translate(x, y);
+      c.scale(w > maxW ? maxW / w : 1, 1);
+      c.fillStyle = fill;
+      c.fillText(text, 0, 0);
+      c.restore();
+    };
+    // warm limestone laid in courses
+    const stone = (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, night: boolean, course = 20) => {
+      const gr = c.createLinearGradient(0, y, 0, y + h);
+      gr.addColorStop(0, night ? "#7a6e5c" : "#efe3ca");
+      gr.addColorStop(1, night ? "#6c604f" : "#e2d1b1");
+      c.fillStyle = gr;
+      c.fillRect(x, y, w, h);
+      c.strokeStyle = night ? "rgba(40,30,20,0.18)" : "rgba(150,120,80,0.16)";
+      c.lineWidth = 1.5;
+      for (let yy = y + course, row = 0; yy < y + h; yy += course, row++) {
+        c.beginPath();
+        c.moveTo(x, yy);
+        c.lineTo(x + w, yy);
+        for (let xx = x + (row % 2 ? 22 : 54); xx < x + w; xx += 64) {
+          c.moveTo(xx, yy - course);
+          c.lineTo(xx, yy);
+        }
+        c.stroke();
+      }
+    };
+    const basalt = (c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
+      c.fillStyle = "#4e4943";
+      c.fillRect(x, y, w, h);
+      c.strokeStyle = "rgba(150,140,125,0.35)";
+      c.lineWidth = 2;
+      for (let yy = y + 24, row = 0; yy < y + h; yy += 24, row++) {
+        c.beginPath();
+        c.moveTo(x, yy);
+        c.lineTo(x + w, yy);
+        c.stroke();
+      }
+      for (let yy = y, row = 0; yy < y + h; yy += 24, row++)
+        for (let xx = x + (row % 2 ? 18 : 50); xx < x + w; xx += 64) {
+          c.beginPath();
+          c.moveTo(xx, yy);
+          c.lineTo(xx, Math.min(y + h, yy + 24));
+          c.stroke();
+        }
+      c.fillStyle = "#c9b48c";
+      c.fillRect(x, y, w, 5);
+    };
+    // a pointed arch from x0 to x1, its apex at yTop, its sides down to yBot
+    const arch = (c: CanvasRenderingContext2D, x0: number, x1: number, yTop: number, yBot: number) => {
+      const r = (x1 - x0) / 2,
+        cx = x0 + r,
+        sp = yTop + r * 1.35;
+      c.beginPath();
+      c.moveTo(x0, yBot);
+      c.lineTo(x0, sp);
+      c.quadraticCurveTo(x0, sp - r * 1.05, cx, yTop);
+      c.quadraticCurveTo(x1, sp - r * 1.05, x1, sp);
+      c.lineTo(x1, yBot);
+      c.closePath();
+    };
+    // a lattice screen (mashrabiya): dark wood by day, lit gold from inside after dark
+    const lattice = (c: CanvasRenderingContext2D, x0: number, x1: number, yTop: number, yBot: number, night: boolean) => {
+      c.save();
+      arch(c, x0, x1, yTop, yBot);
+      const gr = c.createLinearGradient(0, yTop, 0, yBot);
+      gr.addColorStop(0, night ? "#ffe6a6" : "#4a3826");
+      gr.addColorStop(1, night ? "#ffbf5e" : "#2e2219");
+      c.fillStyle = gr;
+      c.fill();
+      c.clip();
+      c.strokeStyle = night ? "rgba(150,90,30,0.55)" : "rgba(214,180,110,0.55)";
+      c.lineWidth = 2;
+      for (let k = -40; k < 40; k++) {
+        c.beginPath();
+        c.moveTo(x0 + k * 12, yTop);
+        c.lineTo(x0 + k * 12 + (yBot - yTop), yBot);
+        c.moveTo(x0 + k * 12, yTop);
+        c.lineTo(x0 + k * 12 - (yBot - yTop), yBot);
+        c.stroke();
+      }
+      c.restore();
+      arch(c, x0, x1, yTop, yBot);
+      c.strokeStyle = night ? "#b88a3c" : "#c9a24a";
+      c.lineWidth = 3;
+      c.stroke();
+    };
+    // the muqarnas cornice: a row of little arches under the parapet
+    const cornice = (c: CanvasRenderingContext2D, w: number, y: number, night: boolean) => {
+      c.fillStyle = night ? "#6e6250" : "#d9c6a0";
+      c.fillRect(0, y, w, 22);
+      c.fillStyle = night ? "#4c4234" : "#b89d70";
+      for (let x = 0; x < w; x += 16) {
+        c.beginPath();
+        c.moveTo(x, y + 22);
+        c.quadraticCurveTo(x + 8, y + 6, x + 16, y + 22);
+        c.fill();
+      }
+      c.fillStyle = night ? "#8a7a62" : "#f3e8d0";
+      c.fillRect(0, y + 22, w, 4);
+    };
+    // one bay of the outer wall: 8 m wide, H (21 m) tall, at 32 px a metre
+    const bayDraw = (night: boolean) => (c: CanvasRenderingContext2D) => {
+      const BW = 256,
+        BH = 672;
+      stone(c, 0, 0, BW, BH, night);
+      cornice(c, BW, 0, night);
+      // pilasters between bays
+      c.fillStyle = night ? "#84775f" : "#f4ead6";
+      c.fillRect(0, 26, 10, BH);
+      c.fillRect(BW - 10, 26, 10, BH);
+      // the upper storey: a tall lattice window in a carved frame
+      c.fillStyle = night ? "#5e5444" : "#d4bf98";
+      arch(c, 70, 186, 74, 282);
+      c.fill();
+      lattice(c, 82, 174, 92, 272, night);
+      // a carved band between the storeys, a gold zigzag along it
+      c.fillStyle = night ? "#6a5e4c" : "#d1bb90";
+      c.fillRect(0, 302, BW, 22);
+      c.strokeStyle = night ? "#e0b45c" : "#b89040";
+      c.lineWidth = 2;
+      c.beginPath();
+      for (let x = 0; x <= BW; x += 16) c.lineTo(x, 302 + (x % 32 ? 18 : 4));
+      c.stroke();
+      // the ground storey: a deep arch with a lattice screen
+      c.fillStyle = night ? "#5e5444" : "#d4bf98";
+      arch(c, 44, 212, 350, 572);
+      c.fill();
+      lattice(c, 58, 198, 368, 572, night);
+      basalt(c, 0, 572, BW, 100);
+    };
+    const bay = make(256, 672, bayDraw(false));
+    const bayNight = make(256, 672, bayDraw(true));
+    // a gate's portal: W m wide, 29 m tall, at 20 px a metre, with an arch A m wide. An open
+    // portal has its arch cut out, to walk through.
+    const HP = H + 8;
+    const portalDraw = (W: number, A: number, open: boolean, arName: string, night: boolean) => (
+      c: CanvasRenderingContext2D,
+    ) => {
+      const PW = W * 20,
+        PH = HP * 20,
+        cx = PW / 2;
+      stone(c, 0, 0, PW, PH, night, 18);
+      cornice(c, PW, 0, night);
+      // the tall frame round the portal (pishtaq) with a gold line
+      c.fillStyle = night ? "#6a5e4c" : "#d8c49c";
+      c.fillRect(22, 30, PW - 44, PH - 30);
+      stone(c, 38, 46, PW - 76, PH - 46, night, 18);
+      c.strokeStyle = night ? "#f0c060" : "#c9a24a";
+      c.lineWidth = 4;
+      c.strokeRect(30, 38, PW - 60, PH - 38);
+      // the name of the gate in gold on a dark panel
+      c.fillStyle = "#2a2118";
+      c.fillRect(56, 50, PW - 112, 56);
+      c.strokeStyle = night ? "#ffd070" : "#c9a24a";
+      c.lineWidth = 3;
+      c.strokeRect(60, 54, PW - 120, 48);
+      ar(c, arName, cx, 80, 40, PW - 150, night ? "#ffe08a" : "#e3c060");
+      // the great arch in pale and ochre stones
+      const r = A * 10,
+        apex = 150,
+        sp = apex + r * 1.35;
+      c.save();
+      arch(c, cx - r - 18, cx + r + 18, apex - 24, PH);
+      c.clip();
+      for (let k = 0; k < 18; k++) {
+        c.beginPath();
+        c.moveTo(cx, sp);
+        c.arc(cx, sp, 600, Math.PI + (k / 18) * Math.PI, Math.PI + ((k + 1) / 18) * Math.PI);
+        c.closePath();
+        c.fillStyle = k % 2 ? (night ? "#8c6030" : "#b8803f") : night ? "#8a7c66" : "#f3e8d0";
+        c.fill();
+      }
+      c.fillStyle = night ? "#8a7c66" : "#f3e8d0";
+      c.fillRect(cx - r - 18, sp, 2 * r + 36, PH - sp);
+      c.restore();
+      // little niches beside the arch, where there is room
+      const side = (PW - 76 - 2 * r - 36) / 2;
+      if (side > 50)
+        for (const nx of [38 + side / 2, PW - 38 - side / 2])
+          for (const [t, b] of [
+            [180, 300],
+            [340, 470],
+          ]) {
+            const hw = Math.min(26, side / 2 - 10);
+            lattice(c, nx - hw, nx + hw, t, b, night);
+          }
+      if (open) {
+        c.globalCompositeOperation = "destination-out";
+        arch(c, cx - r, cx + r, apex, PH);
+        c.fill();
+        c.globalCompositeOperation = "source-over";
+      } else {
+        // a lattice over the great door, and the door's two leaves studded with gold
+        lattice(c, cx - r, cx + r, apex, PH, night);
+        const dt = PH - 170;
+        c.fillStyle = "#5a3c20";
+        c.fillRect(cx - r + 14, dt, 2 * r - 28, PH - dt);
+        c.fillStyle = night ? "#ffd070" : "#d4ad3c";
+        for (let y = dt + 12; y < PH - 6; y += 16)
+          for (let x = cx - r + 24; x < cx + r - 20; x += 16) c.fillRect(x, y, 3, 3);
+        c.fillRect(cx - 2, dt, 4, PH - dt);
+        c.strokeStyle = night ? "#ffd070" : "#c9a24a";
+        c.lineWidth = 4;
+        c.strokeRect(cx - r + 14, dt, 2 * r - 28, PH - dt);
+      }
+      basalt(c, 0, PH - 40, cx - r - 18, 40);
+      basalt(c, cx + r + 18, PH - 40, PW - cx - r - 18, 40);
+    };
+    const std = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial({ roughness: 0.85, ...o });
+    const bayMat = this.glow(std({ map: bay }), 0.9, 0xffffff, bayNight);
+    const stoneM = this.glow(std({ color: 0xe8dbbf }), 0.35, 0xffe2b8);
+    const ledgeM = this.glow(std({ color: 0xd6c29c }), 0.35, 0xffe2b8);
+    const domeM = this.glow(std({ color: 0xeee6d6, roughness: 0.6 }), 0.45, 0xfff0d8);
+    const goldM = this.glow(std({ color: 0xd4ad3c, metalness: 0.6, roughness: 0.35 }), 1.2, 0xffc850);
+    const b = new Batch();
+    const facePlane = (len: number, h: number, m: THREE.Material, x: number, y: number, z: number, ry: number, bayW = 8) => {
+      const geo = new THREE.PlaneGeometry(len, h);
+      const n = Math.max(1, Math.round(len / bayW));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, y, z, ry, false);
+    };
+    // a pointed dome
+    const domeGeo = (R: number, Hd: number) => {
+      const pts: THREE.Vector2[] = [];
+      for (let i = 0; i <= 10; i++) {
+        const a = (i / 10) * (Math.PI / 2);
+        pts.push(new THREE.Vector2(R * Math.cos(a) * (1 + 0.07 * Math.sin(a * 2)), Hd * Math.sin(a)));
+      }
+      pts.push(new THREE.Vector2(0.001, Hd + R * 0.22));
+      return new THREE.LatheGeometry(pts, 20);
+    };
+    const dome = (R: number, x: number, y: number, z: number, drum = true) => {
+      if (drum) {
+        b.add(new THREE.CylinderGeometry(R * 1.02, R * 1.02, R * 0.45, 20), ledgeM, x, y + R * 0.225, z);
+        y += R * 0.45;
+      }
+      b.add(domeGeo(R, R * 0.95), domeM, x, y, z);
+      b.add(new THREE.ConeGeometry(R * 0.07, R * 0.6, 6), goldM, x, y + R * 1.15 + R * 0.25, z);
+    };
+    // a little domed kiosk on a roof corner
+    const kiosk = (x: number, y: number, z: number, r = 1.3) => {
+      b.add(new THREE.CylinderGeometry(r, r * 1.1, r * 2.4, 8), stoneM, x, y + r * 1.2, z);
+      b.add(new THREE.CylinderGeometry(r * 1.25, r * 1.25, 0.3, 8), ledgeM, x, y + r * 2.4 + 0.15, z);
+      dome(r, x, y + r * 2.4 + 0.3, z, false);
+    };
+    const merlons = (x0: number, z0: number, x1: number, z1: number, y: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const ry = Math.atan2(-(z1 - z0), x1 - x0);
+      const n = Math.floor(len / 2.4);
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        b.box(1.2, 1.3, 0.7, ledgeM, x0 + (x1 - x0) * t, y, z0 + (z1 - z0) * t, ry);
+      }
+    };
+    // the outer walls: carved bays on every outside face, crenellations along the top
+    const E = 0.06;
+    facePlane(OUT * 2, H, bayMat, 0, H / 2, -OUT - E, Math.PI);
+    facePlane(OUT * 2, H, bayMat, -OUT - E, H / 2, 0, -Math.PI / 2);
+    facePlane(OUT * 2, H, bayMat, OUT + E, H / 2, 0, Math.PI / 2);
+    facePlane(OUT - 9, H, bayMat, -(OUT + 9) / 2, H / 2, OUT + E, 0);
+    facePlane(OUT - 9, H, bayMat, (OUT + 9) / 2, H / 2, OUT + E, 0);
+    const top = H + 1.2;
+    merlons(-OUT, -OUT - 0.1, OUT, -OUT - 0.1, top);
+    merlons(-OUT - 0.1, -OUT, -OUT - 0.1, OUT, top);
+    merlons(OUT + 0.1, -OUT, OUT + 0.1, OUT, top);
+    merlons(-OUT, OUT + 0.1, -9, OUT + 0.1, top);
+    merlons(9, OUT + 0.1, OUT, OUT + 0.1, top);
+    // the gates. Local +z points out of the Haram.
+    type Gate = { en: string; ar: string; x: number; z: number; ry: number; W: number; A: number; open?: boolean };
+    const gates: Gate[] = [
+      { en: "KING ABDULAZIZ GATE", ar: "باب الملك عبد العزيز", x: 0, z: OUT, ry: 0, W: 26, A: 17.6, open: true },
+      { en: "KING FAHD GATE", ar: "باب الملك فهد", x: -OUT, z: 0, ry: -Math.PI / 2, W: 22, A: 10 },
+      { en: "UMRAH GATE", ar: "باب العمرة", x: -OUT, z: -52, ry: -Math.PI / 2, W: 18, A: 8 },
+      { en: "KING ABDULLAH GATE", ar: "باب الملك عبد الله", x: 0, z: -OUT, ry: Math.PI, W: 24, A: 11 },
+      { en: "BAB AS-SALAM", ar: "باب السلام", x: OUT, z: 22, ry: Math.PI / 2, W: 20, A: 9 },
+    ];
+    const P = 7; // how far a gate stands out from the wall
+    const pos = new THREE.Vector3(),
+      q = new THREE.Quaternion(),
+      one = new THREE.Vector3(1, 1, 1),
+      up = new THREE.Vector3(0, 1, 0);
+    // world box of a local rectangle, for a collider
+    const solid = (gt: Gate, lx0: number, lx1: number, lz0: number, lz1: number) => {
+      const c = Math.round(Math.cos(gt.ry)),
+        s = Math.round(Math.sin(gt.ry));
+      const xs: number[] = [],
+        zs: number[] = [];
+      for (const lx of [lx0, lx1])
+        for (const lz of [lz0, lz1]) {
+          xs.push(gt.x + lx * c + lz * s);
+          zs.push(gt.z - lx * s + lz * c);
+        }
+      this.addCollider("out", C.x + Math.min(...xs), C.x + Math.max(...xs), C.z + Math.min(...zs), C.z + Math.max(...zs));
+    };
+    for (const gt of gates) {
+      b.base.compose(pos.set(gt.x, 0, gt.z), q.setFromAxisAngle(up, gt.ry), one);
+      const W = gt.W;
+      const pd = portalDraw(W, gt.A, !!gt.open, gt.ar, false),
+        pn = portalDraw(W, gt.A, !!gt.open, gt.ar, true);
+      const day = make(W * 20, HP * 20, pd, true),
+        night = make(W * 20, HP * 20, pn, true);
+      const pm = this.glow(
+        std({ map: day, ...(gt.open ? { alphaTest: 0.5, side: THREE.DoubleSide } : {}) }),
+        1.0,
+        0xffffff,
+        night,
+      );
+      const geo = new THREE.PlaneGeometry(W, HP);
+      if (gt.open) {
+        // two piers either side of the passage, a roof over it and the dome on top
+        const pw = (W - gt.A) / 2 - 0.2;
+        for (const sx of [-1, 1]) {
+          b.box(pw, HP, P + 1, stoneM, sx * (W / 2 - pw / 2), 0, P / 2 - 0.5);
+          solid(gt, sx > 0 ? W / 2 - pw : -W / 2, sx > 0 ? W / 2 : -W / 2 + pw, -1, P);
+        }
+        b.box(W, HP - H + 1, P + 1, stoneM, 0, H - 1, P / 2 - 0.5);
+        // the covered way through the wall
+        b.box(18, 1.2, OUT - IN, stoneM, 0, H - 1.2, -(OUT - IN) / 2);
+      } else {
+        b.box(W, HP, P + 1, stoneM, 0, 0, P / 2 - 0.5);
+        solid(gt, -W / 2, W / 2, -1, P + 3);
+        // three broad steps up to the door
+        for (let i = 0; i < 3; i++) b.box(gt.A + 4 - i * 1.2, 0.25 * (i + 1), 3 - i * 0.9, ledgeM, 0, 0, P + 1.5 - i * 0.45);
+      }
+      b.add(geo, pm, 0, HP / 2, P + 0.05, 0, false);
+      b.box(W + 1, 1, P + 2, ledgeM, 0, HP, P / 2 - 0.5);
+      merlons(-W / 2, P + 0.6, W / 2, P + 0.6, HP + 1);
+      // the dome over the gate and a kiosk at each corner of its roof
+      const R = Math.min(W * 0.3, 7);
+      b.add(new THREE.CylinderGeometry(R + 0.8, R + 1.2, 1.4, 20), ledgeM, 0, HP + 1.7, P / 2 - 1);
+      dome(R, 0, HP + 2.4, P / 2 - 1);
+      for (const sx of [-1, 1]) for (const lz of [0, P - 0.5]) kiosk(sx * (W / 2 - 1.4), HP + 1, lz);
+      b.base.identity();
+      // the gate's name on a blue board, as on the signposts
+      const sign = this.signBoard(gt.en, Math.min(W - 6, 15), 1.3, "#13294b", "#f3d27a");
+      const sp = new THREE.Vector3(0, HP - 6.2, P + 0.12).applyAxisAngle(up, gt.ry);
+      sign.position.set(gt.x + sp.x, sp.y, gt.z + sp.z);
+      sign.rotation.y = gt.ry;
+      g.add(sign);
+      const cr = crescent();
+      cr.scale.setScalar(1.6);
+      const cp = new THREE.Vector3(0, HP + 2.4 + R * 1.62, P / 2 - 1).applyAxisAngle(up, gt.ry);
+      cr.position.set(gt.x + cp.x, cp.y, gt.z + cp.z);
+      cr.rotation.y = gt.ry;
+      g.add(cr);
+    }
+    // a domed tower at every corner (the minarets rise from them)
+    for (const [sx, sz2] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ]) {
+      const x = sx * OUT,
+        z = sz2 * OUT,
+        T = 14,
+        TH = H + 5;
+      b.box(T, TH, T, stoneM, x, 0, z);
+      facePlane(T, H, bayMat, x, H / 2, z + sz2 * (T / 2 + E), sz2 > 0 ? 0 : Math.PI, 7);
+      facePlane(T, H, bayMat, x + sx * (T / 2 + E), H / 2, z, sx > 0 ? Math.PI / 2 : -Math.PI / 2, 7);
+      b.box(T + 1, 0.9, T + 1, ledgeM, x, TH, z);
+      for (const kx of [-1, 1]) for (const kz of [-1, 1]) kiosk(x + kx * (T / 2 - 1.3), TH + 0.9, z + kz * (T / 2 - 1.3), 1.1);
+      this.addCollider("out", C.x + x - T / 2, C.x + x + T / 2, C.z + z - T / 2, C.z + z + T / 2);
+    }
+    // rows of domes along the roofs, kept clear of the gates and corners
+    const mid = (OUT + IN) / 2;
+    const roofDomes = (along: "x" | "z", fixed: number, skip: number[], from = -OUT + 16, to = OUT - 16) => {
+      for (let t = from; t <= to; t += 13) {
+        if (skip.some((s) => Math.abs(t - s) < 17)) continue;
+        if (along === "x") dome(3, t, H + 1.2, fixed);
+        else dome(3, fixed, H + 1.2, t);
+      }
+    };
+    roofDomes("x", -mid, [0]);
+    roofDomes("z", -mid, [0, -52], -IN + 2, IN - 2);
+    roofDomes("z", mid, [22], -IN + 2, IN - 2);
+    roofDomes("x", mid, [0]);
+    // two domed kiosks on the plaza before the King Abdulaziz Gate
+    for (const sx of [-1, 1]) {
+      const x = sx * 44,
+        z = OUT + 18;
+      b.add(new THREE.CylinderGeometry(4, 4.2, 6, 8), stoneM, x, 3, z);
+      b.add(new THREE.CylinderGeometry(4.6, 4.6, 0.6, 8), ledgeM, x, 6.3, z);
+      dome(3.6, x, 6.6, z);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        kiosk(x + Math.cos(a) * 4, 6.6, z + Math.sin(a) * 4, 0.7);
+      }
+      this.addCollider("out", C.x + x - 4.2, C.x + x + 4.2, C.z + z - 4.2, C.z + z + 4.2);
+    }
+    for (const m of b.build()) g.add(m);
+    if (typeof document !== "undefined" && document.fonts)
+      document.fonts
+        .load('700 30px "Amiri"', "باب")
+        .then((f) => {
+          if (f.length) for (const r of redraws) r();
+        })
+        .catch(() => {});
+  }
   /** Al-Masjid Al-Haram: the colonnades round an open courtyard with the Kaaba in the middle,
       Maqam Ibrahim, the Zamzam taps, Safa and Marwah, tall minarets and the clock tower. */
   private buildHaram(l: Landmark, D: District) {
@@ -4630,29 +6320,84 @@ export class IlmCityEngine {
     const C = { x: l.x, z: sz - 130 };
     const OUT = 88,
       IN = 46,
-      H = 15;
+      H = 21;
     const g = new THREE.Group();
     g.position.set(C.x, 0, C.z);
     const white = 0xf3f0e7;
     // the marble courtyard (mataf) and the outer plaza
+    // polished marble slabs, 3 m square, with grey borders
+    const slab = this.paintTex(256, 256, (c) => {
+      c.fillStyle = "#eeeae1";
+      c.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 9; i++) {
+        c.strokeStyle = `rgba(150,140,125,${0.05 + (i % 3) * 0.03})`;
+        c.lineWidth = 1 + (i % 2);
+        c.beginPath();
+        c.moveTo((i * 53) % 256, 0);
+        c.bezierCurveTo(60 + i * 20, 90, 200 - i * 15, 160, (i * 97) % 256, 256);
+        c.stroke();
+      }
+      c.strokeStyle = "#cbc3b3";
+      c.lineWidth = 6;
+      c.strokeRect(0, 0, 256, 256);
+      c.strokeStyle = "#ded6c6";
+      c.lineWidth = 2;
+      c.strokeRect(14, 14, 228, 228);
+    });
+    slab.wrapT = THREE.RepeatWrapping;
+    slab.repeat.set((OUT * 2 + 30) / 3, (OUT * 2 + 40) / 3);
     const plaza = new THREE.Mesh(
       new THREE.PlaneGeometry(OUT * 2 + 30, OUT * 2 + 40),
-      mat(0xe9e4d8),
+      this.glow(new THREE.MeshStandardMaterial({ map: slab, roughness: 0.45 }), 0.1, 0xfff0d8, slab),
     );
     plaza.rotation.x = -Math.PI / 2;
     plaza.position.set(0, 0.025, 8);
     plaza.receiveShadow = true;
     g.add(plaza);
-    const mataf = new THREE.Mesh(new THREE.PlaneGeometry(IN * 2, IN * 2), mat(0xfbfaf6));
+    // the courtyard in white marble, and the round mataf, brighter still, where tawaf is made
+    const court = new THREE.Mesh(
+      new THREE.PlaneGeometry(IN * 2, IN * 2),
+      this.glow(new THREE.MeshStandardMaterial({ color: 0xf2efe8, roughness: 0.6 }), 0.12),
+    );
+    court.rotation.x = -Math.PI / 2;
+    court.position.y = 0.04;
+    court.receiveShadow = true;
+    g.add(court);
+    const mataf = new THREE.Mesh(
+      new THREE.CircleGeometry(31, 64),
+      this.glow(new THREE.MeshStandardMaterial({ color: 0xe9e9e6, roughness: 0.35 }), 0.1),
+    );
     mataf.rotation.x = -Math.PI / 2;
-    mataf.position.y = 0.04;
+    mataf.position.y = 0.05;
     mataf.receiveShadow = true;
     g.add(mataf);
+    // a thin grey ring of marble round the Kaaba
+    const ring = new THREE.Mesh(new THREE.RingGeometry(10.2, 10.6, 64), this.glow(new THREE.MeshStandardMaterial({ color: 0xcfc9bd }), 0.5));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    g.add(ring);
     // the colonnades: four wings, with the King Abdulaziz Gate on the south
+    const wingMat = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xe6d8bc, roughness: 0.9, flatShading: true }),
+      0.4,
+      0xffe6c0,
+    );
+    const minaretMat = this.glow(
+      new THREE.MeshStandardMaterial({ color: white, roughness: 0.8 }),
+      0.6,
+      0xfff4e0,
+    );
+    const minaretTop = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.5, roughness: 0.35 }),
+      1.4,
+      0xffc850,
+    );
     const wing = (x0: number, x1: number, z0: number, z1: number) => {
       const w = x1 - x0,
         d = z1 - z0;
-      g.add(box(w, H, d, white, (x0 + x1) / 2, 0, (z0 + z1) / 2));
+      const wb = box(w, H, d, white, (x0 + x1) / 2, 0, (z0 + z1) / 2);
+      wb.material = wingMat;
+      g.add(wb);
       g.add(box(w + 0.6, 1.2, d + 0.6, 0xd9cfb8, (x0 + x1) / 2, H, (z0 + z1) / 2));
       this.addCollider("out", C.x + x0, C.x + x1, C.z + z0, C.z + z1);
     };
@@ -4661,37 +6406,26 @@ export class IlmCityEngine {
     wing(IN, OUT, -IN, IN); // east
     wing(-OUT, -9, IN, OUT); // south, left of the gate
     wing(9, OUT, IN, OUT); // south, right of the gate
-    // arches facing the courtyard and the street
-    const archMat = mat(0x8a7a5a, { side: THREE.DoubleSide });
-    const arches = (y: number, z: number, x0: number, x1: number, n: number, face: number) => {
-      for (let i = 0; i < n; i++) {
-        const x = x0 + ((i + 0.5) * (x1 - x0)) / n;
-        const a = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.2), archMat);
-        a.position.set(x, y, z + face * 0.06);
-        if (face < 0) a.rotation.y = Math.PI;
-        g.add(a);
-      }
-    };
-    arches(3, OUT, -OUT + 2, -11, 12, 1);
-    arches(3, OUT, 11, OUT - 2, 12, 1);
-    arches(3, -IN, -IN + 2, IN - 2, 14, 1);
-    arches(3, IN, -IN + 2, -11, 6, -1);
-    arches(3, IN, 11, IN - 2, 6, -1);
-    // the gate: an arch with two minarets
-    g.add(box(20, 2.4, 6, 0xd9cfb8, 0, H - 1.2, OUT - 3));
-    const gateSign = this.signBoard("KING ABDULAZIZ GATE", 16, 1.1, "#5a4a2a", "#f3e2b0");
-    gateSign.position.set(0, H - 3, OUT + 0.1);
-    g.add(gateSign);
+    // the courtyard sides: tall white arcades on three storeys, and in front of them the
+    // old Ottoman arcade of sand-coloured arches under rows of little domes
+    this.buildHaramArcades(g, IN, H);
+    // the outside: carved stone walls, the great domed gates and the corner towers
+    this.buildHaramOuter(g, C, OUT, IN, H);
     const minaret = (x: number, z: number, h: number) => {
       const shaft = cyl(1.6, 2, h, 0xf3f0e7, 8);
+      shaft.material = minaretMat;
       shaft.position.set(x, h / 2, z);
       g.add(shaft);
       for (const y of [h * 0.45, h * 0.75]) {
         const bal = cyl(2.5, 2.5, 0.8, 0xd9cfb8, 8);
         bal.position.set(x, y, z);
         g.add(bal);
+        // a ring of lamps under each balcony, bright after dark
+        const lamps = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 0.35, 16), this.lampMat);
+        lamps.position.set(x, y - 0.55, z);
+        g.add(lamps);
       }
-      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), mat(0xc9a227));
+      const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 6, 8), minaretTop);
       top.position.set(x, h + 3, z);
       g.add(top);
       const c = crescent();
@@ -4700,8 +6434,11 @@ export class IlmCityEngine {
       g.add(c);
       this.addCollider("out", C.x + x - 2.2, C.x + x + 2.2, C.z + z - 2.2, C.z + z + 2.2);
     };
-    minaret(-12, OUT + 2, 62);
-    minaret(12, OUT + 2, 62);
+    // twin minarets at the King Abdulaziz Gate and at the King Fahd Gate
+    minaret(-16, OUT + 5, 62);
+    minaret(16, OUT + 5, 62);
+    minaret(-OUT - 5, -14, 62);
+    minaret(-OUT - 5, 14, 62);
     for (const [x, z] of [
       [-OUT, -OUT],
       [OUT, -OUT],
@@ -4711,11 +6448,49 @@ export class IlmCityEngine {
       minaret(x, z, 56);
     // the Kaaba: black kiswah with its gold band, the door, Hijr Ismail and the Black Stone
     const K = new THREE.Group();
-    K.add(box(12, 15, 12, 0x111111));
-    const band = box(12.15, 1.2, 12.15, 0xc9a227, 0, 10.4, 0);
-    K.add(band);
-    // the door, on the face just after the Black Stone (the Multazam is between them)
-    K.add(box(0.2, 3.6, 2.4, 0xc9a227, 6.05, 2.2, 2.4));
+    const tx = this.haramTex();
+    // at night the gold of the kiswah catches the floodlights; the black stays black
+    const kiswa = this.glow(
+      new THREE.MeshStandardMaterial({ map: tx.kiswa, roughness: 0.75 }),
+      0.7,
+      0xffe6a8,
+      tx.kiswa,
+    );
+    const kiswaDoor = this.glow(
+      new THREE.MeshStandardMaterial({ map: tx.kiswaDoor, roughness: 0.75 }),
+      0.7,
+      0xffe6a8,
+      tx.kiswaDoor,
+    );
+    const roof = mat(0x141414);
+    // faces: +x (the door's face, towards the Maqam), -x, top, bottom, +z, -z
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(12, 15, 12), [
+      kiswaDoor,
+      kiswa,
+      roof,
+      roof,
+      kiswa,
+      kiswa,
+    ]);
+    cube.position.y = 7.5;
+    cube.castShadow = true;
+    cube.receiveShadow = true;
+    K.add(cube);
+    // the Shadharwan: the sloping marble base all round, with brass rings for the kiswah
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(8.75, 9.2, 0.55, 4, 1), this.glow(new THREE.MeshStandardMaterial({ color: 0xd8d0c0, flatShading: true }), 0.5));
+    base.rotation.y = Math.PI / 4;
+    base.position.y = 0.27;
+    base.receiveShadow = true;
+    K.add(base);
+    // the gold door, raised above the floor, in its gold frame
+    K.add(box(0.25, 4.4, 3.1, 0xb8901f, 6.05, 1.9, 2.4));
+    const door = box(0.3, 3.8, 2.5, 0xd8b03a, 6.1, 2.2, 2.4);
+    door.material = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xd8b03a, metalness: 0.7, roughness: 0.3 }),
+      0.9,
+      0xffc850,
+    );
+    K.add(door);
     const stone = new THREE.Mesh(
       new THREE.TorusGeometry(0.45, 0.14, 8, 16),
       mat(0xc0c4c8, { metalness: 0.6, roughness: 0.3 }),
@@ -4723,31 +6498,61 @@ export class IlmCityEngine {
     stone.position.set(6.05, 1.5, 6.05);
     stone.rotation.y = Math.PI / 4;
     K.add(stone);
-    const hijr = new THREE.Mesh(new THREE.TorusGeometry(7.5, 0.45, 8, 28, Math.PI), mat(0xe9e4d8));
-    // Hijr Ismail: the low curved wall on the far side, part of the Kaaba
-    hijr.rotation.x = -Math.PI / 2;
-    hijr.position.set(0, 0.6, -6);
-    K.add(hijr);
+    // Hijr Ismail: the low curved wall of white marble on the far side, part of the Kaaba
+    const hijrMat = this.glow(new THREE.MeshStandardMaterial({ color: 0xf7f5ef, flatShading: true }), 0.55);
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 17) * Math.PI;
+      const seg = box(1.05, 1.3, 0.9, 0xf7f5ef, Math.cos(a) * 7.6, 0, -6 - Math.sin(a) * 7.6);
+      seg.material = hijrMat;
+      seg.rotation.y = -a + Math.PI / 2;
+      K.add(seg);
+    }
     g.add(K);
     this.addCollider("out", C.x - 6.2, C.x + 6.2, C.z - 6.2, C.z + 6.2);
     // Maqam Ibrahim: a small gold-and-glass cage
     const maqam = new THREE.Group();
-    maqam.add(cyl(0.9, 1.1, 0.6, 0xd9cfb8, 12));
-    const cage = cyl(0.8, 0.8, 2.2, 0xc9a227, 12);
+    const gold = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xd4ad3c, metalness: 0.7, roughness: 0.3 }),
+      1.0,
+      0xffc850,
+    );
+    const mb = cyl(1.1, 1.3, 0.6, 0xe6e0d2, 6);
+    mb.material = hijrMat;
+    mb.position.y = 0.3;
+    maqam.add(mb);
+    const cage = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.85, 0.85, 2.2, 6),
+      new THREE.MeshStandardMaterial({
+        color: 0xe8d9a8,
+        metalness: 0.5,
+        roughness: 0.2,
+        transparent: true,
+        opacity: 0.55,
+      }),
+    );
     cage.position.y = 1.7;
     maqam.add(cage);
-    const capm = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.9, 12), mat(0xc9a227));
-    capm.position.y = 3.2;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, 0.12), gold);
+      bar.position.set(Math.cos(a) * 0.85, 1.7, Math.sin(a) * 0.85);
+      maqam.add(bar);
+    }
+    const capm = new THREE.Mesh(
+      new THREE.SphereGeometry(0.95, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      gold,
+    );
+    capm.position.y = 2.8;
     maqam.add(capm);
     // in front of the Kaaba's door
     maqam.position.set(15, 0, 2.4);
     g.add(maqam);
     this.addCollider("out", C.x + 14, C.x + 16, C.z + 1.4, C.z + 3.4);
     // the start of each round: a line from the Black Stone and a green light on the wall
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.35, IN - 9), mat(0x6b4426));
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 22), this.glow(new THREE.MeshStandardMaterial({ color: 0x3f9a62 }), 0.8, 0x3fd07a));
     line.rotation.x = -Math.PI / 2;
     line.rotation.z = Math.PI / 4;
-    line.position.set(Math.SQRT1_2 * (IN / 2 + 3), 0.06, Math.SQRT1_2 * (IN / 2 + 3));
+    line.position.set(Math.SQRT1_2 * 19, 0.07, Math.SQRT1_2 * 19);
     g.add(line);
     const lamp = new THREE.Mesh(
       new THREE.BoxGeometry(1.2, 1.2, 0.3),
@@ -4762,25 +6567,6 @@ export class IlmCityEngine {
     });
     bl.position.set(Math.SQRT1_2 * 20, 3, Math.SQRT1_2 * 20);
     g.add(bl);
-    // worshippers sitting in rings round the Kaaba, waiting for the next salah
-    for (let ring = 0; ring < 2; ring++) {
-      const rr = 27 + ring * 3,
-        n = 18 + ring * 4;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + ring * 0.12;
-        const x = Math.cos(a) * rr,
-          z = Math.sin(a) * rr;
-        if (x > 12 && Math.abs(z) < 8) continue; // keep the way to the Maqam clear
-        const f = (i + ring) % 4 === 3;
-        const pg = f
-          ? person(0x1d1d26, { hijab: 0xf4f4ef, seed: 80 + i })
-          : person([0xf7f7f2, 0xe8e2d4, 0xf4efe4][i % 3], { cap: 0xffffff, seed: 80 + i });
-        pg.position.set(x, 0.1, z);
-        pg.rotation.y = Math.atan2(-x, -z);
-        if (!sitHuman(pg)) sitPerson(pg);
-        g.add(pg);
-      }
-    }
     // Zamzam taps along the west colonnade
     for (let i = 0; i < 5; i++) {
       const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
@@ -4807,6 +6593,7 @@ export class IlmCityEngine {
       safa = W(IN - 6, -IN + 6),
       marwah = W(IN - 6, IN - 6);
     this.holy.kaaba = kz;
+    this.haramLight.position.set(kz.x, 46, kz.z);
     this.holy.safa = safa;
     this.holy.marwah = marwah;
     const zone = (id: string, label2: string, p: { x: number; z: number }, r = 3.4) =>
@@ -4920,7 +6707,7 @@ export class IlmCityEngine {
       g.add(drum);
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(5, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-        mat(0xd9d4c8),
+        this.glow(new THREE.MeshStandardMaterial({ color: 0xeee6d6, roughness: 0.6 }), 0.45, 0xfff0d8),
       );
       dome.position.set(cx, H + 2, z);
       g.add(dome);
@@ -5051,11 +6838,8 @@ export class IlmCityEngine {
       T.add(f);
     }
     // the crown: tiers lit green at night, then the gold spire and crescent
-    const greenM = new THREE.MeshStandardMaterial({
-      color: 0x1d6b3a,
-      emissive: 0x2bd47a,
-      emissiveIntensity: 0.5,
-    });
+    const greenM = this.glow(new THREE.MeshStandardMaterial({ color: 0x1d6b3a }), 1.8, 0x2bd47a);
+    greenM.emissiveIntensity = Math.max(greenM.emissiveIntensity, 0.15);
     let y = yc + 40;
     for (const [w, h] of [
       [S + 2, 6],
@@ -5615,17 +7399,116 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set(C.x, 0, C.z);
     const b = new Batch();
-    const STONE = 0xeee4cf,
+    const STONE = 0xe8d6b8,
       BAND = 0xc9b48f,
       GOLD = 0xc9a227;
-    const stone = MAT.plaster(STONE);
-    const band = MAT.plain(BAND, 0.6);
-    const gold = MAT.plain(GOLD, 0.35);
+    // floodlit after dark, like the real mosque
+    const lit = (color: number, k: number, rough = 0.8, glowC = 0xffe8c8) =>
+      this.glow(new THREE.MeshStandardMaterial({ color, roughness: rough }), k, glowC);
+    const stone = lit(STONE, 0.42);
+    const band = lit(BAND, 0.4, 0.6);
+    const gold = lit(GOLD, 1.1, 0.35, 0xffc850);
     const fz = -10 + Dd / 2; // the front (qibla) wall, facing the street
     const bz = -10 - Dd / 2; // the back wall
     // the great hall in cream stone, on a low marble plinth
     b.box(W + 2, 0.6, Dd + 2, MAT.plain(0xf8f6f0, 0.4), 0, 0, -10);
-    b.box(W, H, Dd, stone, 0, 0.6, -10);
+    // the hall is a great ring round two open courtyards, side by side behind the old
+    // mosque, with a covered spine between them (as in the model at Dar Al-Madinah)
+    // two courtyards in the middle, behind the old mosque; the King Fahd wings on both sides
+    const CZ0 = bz + 14,
+      CZ1 = -6,
+      CX = 38;
+    const courts = [
+      { x0: -CX, x1: -6, z0: CZ0, z1: CZ1 },
+      { x0: 6, x1: CX, z0: CZ0, z1: CZ1 },
+    ];
+    const RIM = 0.6 + H;
+    b.box(W, H, fz - CZ1, stone, 0, 0.6, (fz + CZ1) / 2); // the front (old mosque and qibla)
+    b.box(W, H, CZ0 - bz, stone, 0, 0.6, (bz + CZ0) / 2); // the back
+    for (const sx of [-1, 1]) b.box(W / 2 - CX, H, CZ1 - CZ0, stone, sx * (W / 2 + CX) / 2, 0.6, (CZ0 + CZ1) / 2); // the wings
+    b.box(12, H, CZ1 - CZ0, stone, 0, 0.6, (CZ0 + CZ1) / 2); // the spine
+    // the roof: pale tiles in a grid
+    const roofTex = this.paintTex(128, 128, (c) => {
+      c.fillStyle = "#efe6d3";
+      c.fillRect(0, 0, 128, 128);
+      c.strokeStyle = "#cdbf9f";
+      c.lineWidth = 3;
+      c.strokeRect(0, 0, 128, 128);
+      c.strokeStyle = "#ded2b8";
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(64, 0);
+      c.lineTo(64, 128);
+      c.moveTo(0, 64);
+      c.lineTo(128, 64);
+      c.stroke();
+    });
+    roofTex.wrapT = THREE.RepeatWrapping;
+    roofTex.repeat.set(W / 4, Dd / 4);
+    const roofM = this.glow(new THREE.MeshStandardMaterial({ map: roofTex, roughness: 0.8 }), 0.35, 0xffe8c8, roofTex);
+    const roofG = new THREE.PlaneGeometry(W, Dd);
+    roofG.rotateX(-Math.PI / 2);
+    // cut the courtyards out of the roof sheet by building it from strips
+    const strip = (x0: number, x1: number, z0: number, z1: number) => {
+      const s = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
+      const uv = s.attributes.uv;
+      for (let i = 0; i < uv.count; i++)
+        uv.setXY(i, (x0 + W / 2 + uv.getX(i) * (x1 - x0)) / W, (Dd / 2 - (z1 + 10) + uv.getY(i) * (z1 - z0)) / Dd);
+      s.rotateX(-Math.PI / 2);
+      b.add(s, roofM, (x0 + x1) / 2, RIM + 0.03, (z0 + z1) / 2, 0, false);
+    };
+    roofG.dispose();
+    strip(-W / 2, W / 2, CZ1, fz);
+    strip(-W / 2, W / 2, bz, CZ0);
+    strip(-W / 2, -CX, CZ0, CZ1);
+    strip(CX, W / 2, CZ0, CZ1);
+    strip(-6, 6, CZ0, CZ1);
+    // the courtyards: white marble in a grid, cream arcades on every side, the umbrellas
+    const courtTex = this.paintTex(128, 128, (c) => {
+      c.fillStyle = "#f7f5f0";
+      c.fillRect(0, 0, 128, 128);
+      c.strokeStyle = "#d9d3c6";
+      c.lineWidth = 2;
+      c.strokeRect(0, 0, 128, 128);
+      c.strokeStyle = "rgba(170,160,140,0.18)";
+      c.beginPath();
+      c.moveTo(0, 90);
+      c.bezierCurveTo(40, 60, 80, 110, 128, 70);
+      c.stroke();
+    });
+    courtTex.wrapT = THREE.RepeatWrapping;
+    courtTex.repeat.set((CX - 6) / 2.5, (CZ1 - CZ0) / 2.5);
+    const courtM = this.glow(new THREE.MeshStandardMaterial({ map: courtTex, roughness: 0.4 }), 0.3, 0xfff4e0, courtTex);
+    const htx = this.haramTex();
+    const arcadeM = this.glow(new THREE.MeshStandardMaterial({ map: htx.facade, roughness: 0.85 }), 1.0, 0xffffff, htx.facadeGlow);
+    const facePlane = (len: number, m: THREE.Material, x: number, z: number, ry: number) => {
+      const geo = new THREE.PlaneGeometry(len, H);
+      const n = Math.max(1, Math.round(len / 5.6));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, 0.6 + H / 2, z, ry, false);
+    };
+    const courtUmbrellas: [number, number][] = [];
+    for (const ct of courts) {
+      const cw = ct.x1 - ct.x0,
+        cd = ct.z1 - ct.z0,
+        cx = (ct.x0 + ct.x1) / 2,
+        cz = (ct.z0 + ct.z1) / 2;
+      b.add(groundGeo(cw, cd, 3), courtM, cx, 0.63, cz, 0, false);
+      const E = 0.05;
+      facePlane(cw, arcadeM, cx, ct.z0 + E, 0);
+      facePlane(cw, arcadeM, cx, ct.z1 - E, Math.PI);
+      facePlane(cd, arcadeM, ct.x0 + E, cz, Math.PI / 2);
+      facePlane(cd, arcadeM, ct.x1 - E, cz, -Math.PI / 2);
+      // a parapet round the opening
+      for (let x = ct.x0 + 1; x < ct.x1; x += 2.4)
+        for (const z of [ct.z0 + 0.25, ct.z1 - 0.25]) b.box(1.2, 1.1, 0.5, stone, x, RIM, z);
+      for (let z = ct.z0 + 1; z < ct.z1; z += 2.4)
+        for (const x of [ct.x0 + 0.25, ct.x1 - 0.25]) b.box(0.5, 1.1, 1.2, stone, x, RIM, z);
+      // twelve umbrellas, three by four, as in the real courtyards
+      for (let i = 0; i < 3; i++)
+        for (let k = 0; k < 4; k++) courtUmbrellas.push([ct.x0 + cw / 6 + (i * cw) / 3, ct.z0 + cd / 8 + (k * cd) / 4]);
+    }
     this.addCollider("out", C.x - W / 2, C.x + W / 2, C.z + bz, C.z + fz);
     // two rows of arched windows all round, and stone bands
     const arch = MAT3.archWin(STONE, 0x6b5a3a);
@@ -5692,22 +7575,28 @@ export class IlmCityEngine {
       gate(-W / 2, -10 + z, -Math.PI / 2);
       gate(W / 2, -10 + z, Math.PI / 2);
     }
-    // the roof: rows of grey sliding domes over the King Fahd extension
-    const slide = MAT.plain(0xb7b9b2, 0.5);
-    for (let r = 0; r < 4; r++)
-      for (let k = 0; k < 10; k++) {
-        const x = -W / 2 + 14 + k * ((W - 28) / 9),
-          z = bz + 14 + r * ((Dd - 40) / 3);
-        if (x > W / 2 - 40 && z > fz - 36) continue; // round the Green Dome
-        b.box(6, 1, 6, stone, x, H + 0.6, z);
-        b.add(
-          new THREE.SphereGeometry(2.6, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-          slide,
-          x,
-          H + 1.6,
-          z,
-        );
-      }
+    // the King Fahd wings and the back: big white sliding domes on square bases, in a
+    // chequer with green roof panels
+    const slide = lit(0xf2efe8, 0.5, 0.45, 0xfff0dc);
+    const panel = lit(0x5f8f62, 0.25, 0.7, 0x7fd08a);
+    const cell = (x: number, z: number, dome: boolean) => {
+      if (dome) {
+        b.box(7.6, 1, 7.6, stone, x, RIM, z);
+        b.add(new THREE.SphereGeometry(3.4, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), slide, x, RIM + 1, z);
+      } else b.box(8.4, 0.2, 8.4, panel, x, RIM, z);
+    };
+    for (const sx of [-1, 1])
+      [46, 57, 68].forEach((ax, i) => {
+        for (let z = bz + 6, k = 0; z < fz - 4; z += 11, k++) cell(sx * ax, z, (i + k) % 2 === 0);
+      });
+    for (let x = -33, i = 0; x <= 33; x += 11, i++) cell(x, (bz + CZ0) / 2, i % 2 === 0);
+    // the spine between the courtyards: a row of small domes
+    const smallDome = lit(0xf4f1ea, 0.5, 0.5, 0xfff0dc);
+    const little = (x: number, z: number, r = 1.8) => {
+      b.add(new THREE.CylinderGeometry(r + 0.1, r + 0.1, 0.5, 12), stone, x, RIM + 0.25, z);
+      b.add(new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), smallDome, x, RIM + 0.5, z);
+    };
+    for (let z = CZ0 + 3; z < CZ1 - 2; z += 5.2) little(0, z, 1.9);
     // the Green Dome over the resting place of the Prophet ﷺ (south-east, by the qibla wall),
     // and the white dome of the old mosque beside it
     const domeAt = (x: number, z: number, r: number, color: number, tall: number) => {
@@ -5715,25 +7604,36 @@ export class IlmCityEngine {
       b.add(new THREE.CylinderGeometry(r * 0.98, r, 2.2, 24), stone, x, H + 4.1, z);
       const dg = new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
       dg.scale(1, tall, 1);
-      b.add(dg, MAT.plain(color, 0.45), x, H + 5.2, z);
+      const dm = lit(color, 0.55, 0.45, color === 0x1f8a4c ? 0x3fd07a : 0xfff0dc);
+      b.add(dg, dm, x, H + 5.2, z);
       // the pointed top
       b.add(
         new THREE.ConeGeometry(r * 0.22, r * 0.7, 12),
-        MAT.plain(color, 0.45),
+        dm,
         x,
         H + 5.2 + r * tall + r * 0.3,
         z,
       );
       return H + 5.2 + r * tall + r * 0.7;
     };
-    const gx = W / 2 - 24,
-      gz = fz - 20;
+    const gx = 26,
+      gz = fz - 18;
     const top = domeAt(gx, gz, 6.5, 0x1f8a4c, 1.25);
     const c0 = crescent();
     c0.scale.setScalar(1.3);
     c0.position.set(gx - 0.3, top + 1.4, gz);
     g.add(c0);
-    domeAt(gx - 22, gz + 2, 4, 0xf4efe2, 1.1);
+    domeAt(gx - 16, gz + 1, 4, 0xf4efe2, 1.1);
+    // the old Ottoman mosque at the front: rows of small white domes round the two big ones,
+    // and a low parapet marking it off from the wings
+    for (let x = -36; x <= 36; x += 5.6)
+      for (let z = CZ1 + 4; z < fz - 2; z += 5.6) {
+        if (Math.abs(x - gx) < 9.5 && Math.abs(z - gz) < 9.5) continue;
+        if (Math.abs(x - (gx - 16)) < 6.5 && Math.abs(z - (gz + 1)) < 6.5) continue;
+        little(x, z);
+      }
+    for (let x = -39; x <= 39; x += 2.4) b.box(1.2, 1, 0.5, stone, x, RIM, CZ1 + 0.3);
+    for (let z = CZ1 + 1; z < fz; z += 2.4) for (const x of [-39.5, 39.5]) b.box(0.5, 1, 1.2, stone, x, RIM, z);
     // ten minarets: a square base, an octagonal shaft, three balconies, a round top and a
     // gold crescent
     const minaret = (x: number, z: number, h: number) => {
@@ -5786,37 +7686,101 @@ export class IlmCityEngine {
     ] as [number, number][])
       minaret(x, z, 62);
     // the marble plaza in front, with rows of great white umbrellas that open in the day
+    const plazaM = lit(0xf8f7f2, 0.22, 0.35, 0xfff4e0);
     const plaza = groundGeo(W + 40, 74, 3);
-    b.add(plaza, MAT.plain(0xf8f7f2, 0.35), 0, 0.04, fz + 38, 0, false);
+    b.add(plaza, plazaM, 0, 0.04, fz + 38, 0, false);
     for (const sx of [-1, 1])
       b.add(
         groundGeo(24, Dd + 6, 3),
-        MAT.plain(0xf8f7f2, 0.35),
+        plazaM,
         sx * (W / 2 + 12),
         0.04,
         -10,
         0,
         false,
       );
-    const canopyGeo = new THREE.ConeGeometry(7.2, 2.2, 4, 1, true);
-    canopyGeo.rotateY(Math.PI / 4);
-    const fabric = MAT3.fabric();
-    const poleM = MAT.plain(0xe8e8e4, 0.3);
-    const umbrella = (x: number, z: number) => {
-      b.add(new THREE.CylinderGeometry(0.28, 0.4, 10, 10), poleM, x, 5, z);
-      b.add(canopyGeo, fabric, x, 10.6, z);
-      b.add(new THREE.CylinderGeometry(0.5, 0.5, 0.5, 10), poleM, x, 11.9, z);
-      this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
+    // the Madinah umbrella: a square of white fabric peaked at the pole, its four corners
+    // lifted on ribs and each edge curving in between them
+    const S = 7,
+      PEAK = 2.6,
+      N = 14;
+    const canopyGeo = new THREE.BufferGeometry();
+    {
+      const pos: number[] = [],
+        idx: number[] = [];
+      for (let j = 0; j <= N; j++)
+        for (let i = 0; i <= N; i++) {
+          const u = (i / N) * 2 - 1,
+            v = (j / N) * 2 - 1;
+          const r = Math.max(Math.abs(u), Math.abs(v));
+          const w = r > 0 ? Math.min(Math.abs(u), Math.abs(v)) / r : 0;
+          // the edges curve in between the corners, and sag below them
+          const pull = 1 - 0.12 * r * (1 - w * w);
+          const y = PEAK * Math.pow(1 - r, 1.25) + 0.55 * r * w * w - 0.25 * r * (1 - w);
+          pos.push(u * S * pull, y, v * S * pull);
+        }
+      for (let j = 0; j < N; j++)
+        for (let i = 0; i < N; i++) {
+          const a = j * (N + 1) + i;
+          idx.push(a, a + N + 1, a + 1, a + 1, a + N + 1, a + N + 2);
+        }
+      canopyGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      canopyGeo.setIndex(idx);
+      canopyGeo.computeVertexNormals();
+    }
+    // the four ribs from the pole head out to the corners
+    const ribGeo = new THREE.BufferGeometry();
+    {
+      const parts: THREE.BufferGeometry[] = [];
+      const head = new THREE.Vector3(0, PEAK - 0.9, 0);
+      for (const [sx, sz2] of [
+        [1, 1],
+        [1, -1],
+        [-1, 1],
+        [-1, -1],
+      ]) {
+        const tip = new THREE.Vector3(sx * S * 0.98, 0.25, sz2 * S * 0.98);
+        const len = head.distanceTo(tip);
+        const rg = new THREE.CylinderGeometry(0.07, 0.09, len, 5);
+        rg.rotateX(Math.PI / 2);
+        const m = new THREE.Matrix4().lookAt(head, tip, new THREE.Vector3(0, 1, 0));
+        m.setPosition(head.clone().add(tip).multiplyScalar(0.5));
+        rg.applyMatrix4(m);
+        parts.push(rg.toNonIndexed());
+      }
+      const merged = mergeGeometries(parts);
+      ribGeo.copy(merged ?? parts[0]);
+    }
+    const fabric = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.9, side: THREE.DoubleSide }),
+      0.5,
+      0xfff4e0,
+    );
+    const poleM = lit(0xe8e8e4, 0.5, 0.3, 0xfff4e0);
+    const umbrella = (x: number, z: number, solid = true, y = 0, k = 1) => {
+      b.add(new THREE.CylinderGeometry(0.28, 0.4, 9.6, 10), poleM, x, y + 4.8, z);
+      b.add(new THREE.CylinderGeometry(0.55, 0.4, 0.8, 10), poleM, x, y + 9.4, z);
+      b.add(canopyGeo.clone().scale(k, 1, k), fabric, x, y + 9.4, z);
+      b.add(ribGeo.clone().scale(k, 1, k), poleM, x, y + 9.4, z);
+      b.add(new THREE.ConeGeometry(0.35, 0.9, 10), poleM, x, y + 9.4 + PEAK + 0.4, z);
+      if (solid) this.addCollider("out", C.x + x - 0.45, C.x + x + 0.45, C.z + z - 0.45, C.z + z + 0.45);
     };
+    for (const [x, z] of courtUmbrellas) umbrella(x, z, false, 0.6, 0.64);
     for (let r = 0; r < 4; r++)
       for (let k = 0; k < 11; k++) umbrella(-W / 2 + 6 + k * ((W - 12) / 10), fz + 10 + r * 14.5);
     for (const sx of [-1, 1])
       for (let r = 0; r < 6; r++) umbrella(sx * (W / 2 + 12), bz + 8 + r * 16);
-    // marble lamp posts along the plaza edge
+    // tall stone lamp columns with gold capitals and lanterns along the plaza edge
+    const lampGlass = new THREE.MeshBasicMaterial({ color: 0xffe6a8 });
     for (let k = 0; k < 12; k++) {
       const x = -W / 2 - 14 + k * ((W + 28) / 11);
-      b.box(0.5, 6, 0.5, poleM, x, 0, fz + 70);
-      b.box(1.2, 0.7, 1.2, MAT.bulb(), x, 6, fz + 70);
+      const z = fz + 70;
+      b.box(1.3, 1.2, 1.3, stone, x, 0, z);
+      b.add(new THREE.CylinderGeometry(0.32, 0.4, 6.4, 8), stone, x, 1.2 + 3.2, z);
+      b.add(new THREE.CylinderGeometry(0.55, 0.4, 0.5, 8), gold, x, 7.85, z);
+      b.add(new THREE.CylinderGeometry(0.42, 0.34, 1.2, 8), lampGlass, x, 8.7, z);
+      b.add(new THREE.ConeGeometry(0.55, 0.8, 8), gold, x, 9.7, z);
+      b.add(new THREE.ConeGeometry(0.1, 0.8, 6), gold, x, 10.5, z);
     }
     for (const m of b.build()) g.add(m);
     // Jannat Al-Baqi', east of the mosque
@@ -5845,7 +7809,7 @@ export class IlmCityEngine {
     this.zones.push({
       id: "nabawi:salam",
       label: "Send salam to the Prophet ﷺ",
-      ...P(W / 2 - 22, -10 + Dd / 2 + 5),
+      ...P(gx, -10 + Dd / 2 + 5),
       r: 4,
       scene: "out",
     });
@@ -6831,6 +8795,55 @@ export class IlmCityEngine {
   /** MSSN hostels: blocks of flats in the neighbourhood outside the campus wall, free for
       the university's registered students (brothers' and sisters' blocks apart). */
   private buildHostels(D: District, XR: number, rnd: () => number) {
+    this.buildHostelsOutside(D, XR, rnd);
+    if (D.campus?.arabic) this.buildIumHostels(D);
+    for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
+  }
+  /** Student Hostels 1, 2 and 3 of the Islamic University, inside the campus behind the
+      colleges: two along the back wall and one beside the library. */
+  private buildIumHostels(D: District) {
+    const spots = [
+      { x: 60, z: -128, w: 36, d: 14 },
+      { x: 120, z: -101, w: 24, d: 22 },
+      { x: -68, z: -124, w: 32, d: 16 },
+    ];
+    spots.forEach((p, k) => {
+      const { name, sisters } = hostelInfo(D.id, k);
+      const h = iumHostel(this.curBatch, { ...p, n: k + 1, sisters, name });
+      for (const b of h.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+      this.reserved.push({
+        x0: this.ox + p.x - p.w / 2 - 1,
+        x1: this.ox + p.x + p.w / 2 + 1,
+        z0: this.oz + p.z - p.d / 2 - 1,
+        z1: this.oz + p.z + p.d / 2 + 5,
+      });
+      this.zones.push({
+        id: `hostel:${D.id}:${k}`,
+        label: name,
+        x: this.ox + h.door.x,
+        z: this.oz + h.door.z,
+        r: 3,
+        scene: "out",
+      });
+      const t = label(`🏠 ${name} · free for students`, {
+        size: 1.05,
+        bg: sisters ? "rgba(125,47,74,0.92)" : "rgba(31,111,99,0.92)",
+      });
+      t.position.set(p.x, h.top + 2, p.z + p.d / 2);
+      this.dg.add(t);
+    });
+  }
+  /** A lawn with palms where a plot was taken out (the entrance of the Islamic University). */
+  private ghostGarden(batch: Batch, x: number, cz: number) {
+    for (const b of iumGarden(batch, x, cz)) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+    this.reserved.push({
+      x0: this.ox + x - 11,
+      x1: this.ox + x + 11,
+      z0: this.oz + cz - 10,
+      z1: this.oz + cz + 10,
+    });
+  }
+  private buildHostelsOutside(D: District, XR: number, rnd: () => number) {
     const names = [0, 1, 2].map((k) => hostelInfo(D.id, k).name);
     // the streets outside the campus wall (south of it), nearest the gate first
     const streets = D.streets.filter((st) => st.z > (D.campus?.z ?? -34)).sort((a, b) => a.z - b.z);
@@ -6845,7 +8858,10 @@ export class IlmCityEngine {
           const cz = north ? st.z - 21.5 : st.z + 21.5;
           if (cz - 10.5 < (D.campus?.z ?? -34)) continue;
           if (!this.boxFree(cx - 12, cx + 12, cz - 10.5, cz + 10.5)) continue;
-          const c = compound(this.curBatch, {
+          // the Islamic University keeps its hostels inside the campus: the spot outside
+          // is worked out the same way (so nothing else moves) and becomes a palm garden
+          const ium = !!D.campus?.arabic;
+          const c = compound(ium ? new Batch(true) : this.curBatch, {
             x: cx,
             z: cz,
             turn: north ? 0 : Math.PI,
@@ -6854,8 +8870,20 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: hostelInfo(D.id, k).sisters ? 0xe9d6dc : 0xd9e6d2,
-            style: "storey",
+            style: saudiCity(D) ? "saudi" : "storey",
           });
+          if (ium) {
+            for (const b of iumGarden(this.curBatch, cx, cz))
+              this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+            this.reserved.push({
+              x0: this.ox + cx - 12,
+              x1: this.ox + cx + 12,
+              z0: this.oz + cz - 10.5,
+              z1: this.oz + cz + 10.5,
+            });
+            k++;
+            continue;
+          }
           for (const b of c.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
           this.reserved.push({
             x0: this.ox + cx - 12,
@@ -6917,7 +8945,7 @@ export class IlmCityEngine {
             floors: 3,
             width: 24,
             wall: 0xe8dcb5,
-            style: prime ? houseStyleOf(D) : "storey",
+            style: prime ? houseStyleOf(D) : saudiCity(D) ? "saudi" : "storey",
           });
           if (prime) {
             this.buildTower(D, cx, cz, north);
@@ -7170,7 +9198,7 @@ export class IlmCityEngine {
     const [px, pz] = spot ?? [x, z];
     this.player.position.set(px, 0, pz);
   }
-  travel(id: string, byCar: boolean) {
+  travel(id: string, byCar: boolean, taxi = false) {
     const D = districtById(id);
     this.ensureCity(cityOf(D));
     // your car stays at home: there's none in Makkah or Madinah
@@ -7190,37 +9218,51 @@ export class IlmCityEngine {
     const dside = D.link === "east" ? -1 : side;
     // a south area is reached from the north: the same way in, mirrored
     const fromN = D.link === "south";
-    if (byCar && fromN) {
-      vehicle = this.car;
-      path = [W(3, -(Hz + 40)), W(3, -20), W(-4, 9.8), W(-16, 9.8)];
-    } else if (fromN) {
-      vehicle = makeBus(!!D.holy);
-      this.scene.add(vehicle);
-      path = [W(3, -(Hz + 40)), W(3, -20), W(-6, 9.6), W(-52, 9.6)];
-    } else if (byCar) {
-      vehicle = this.car;
-      path =
-        D.parent && D.link !== "east"
-          ? [W(3, Hz + 40), W(3, 20), W(-4, 9.8), W(-16, 9.8)]
-          : [W(dside * (Hx + 38), -3), W(dside * 40, -3), W(-4, 9.8), W(-16, 9.8)];
+    const fromS = !!D.parent && D.link !== "east" && !fromN;
+    // where the trip starts: on the road that leads in, never across the sand
+    let start: THREE.Vector3;
+    if (fromN) start = W(-3, -(Hz + 40));
+    else if (fromS) start = W(3, Hz + 40);
+    else if (D.parent) start = W(dside * (Hx + 30), 3);
+    else {
+      // down the expressway from the city junction, in the inbound lane
+      const c = centerOf(D);
+      const ex = D.origin.x + side * (Hx - 6),
+        ez = D.origin.z;
+      const len = Math.hypot(c.x - ex, c.z - ez) || 1;
+      const ux = (c.x - ex) / len,
+        uz = (c.z - ez) / len;
+      const back = Math.min(90, len - 40);
+      start = new THREE.Vector3(ex + ux * back - uz * 3, 0, ez + uz * back + ux * 3);
+    }
+    // then along the main road in its lane (z = 3), stopping at the bus stop: no pavements
+    const inEnd = fromN || fromS ? null : W(dside * (Hx - 6), 3);
+    if (byCar || taxi) {
+      if (taxi) {
+        // a city taxi brings you in and drops you by the road; your own car stays put
+        vehicle = new THREE.Group();
+        vehicle.add(vehicleMesh("keke", 0xf2c230, !!D.holy || saudiCity(D)));
+        this.scene.add(vehicle);
+      } else vehicle = this.car;
+      path = fromN
+        ? [start, W(-3, -8), W(-8, 3), W(-12, 8.4), W(-16, 9.8)]
+        : fromS
+          ? [start, W(3, 8), W(-2, 3), W(-12, 8.4), W(-16, 9.8)]
+          : [start, inEnd!, W(-4, 3), W(-12, 8.4), W(-16, 9.8)];
     } else {
       vehicle = makeBus(!!D.holy);
       this.scene.add(vehicle);
-      path =
-        D.parent && D.link !== "east"
-          ? [W(3, Hz + 40), W(3, 20), W(-6, 9.6), W(-52, 9.6)]
-          : [W(dside * (Hx + 38), 3), W(dside * 40, 3), W(-6, 9.6), W(-52, 9.6)];
+      path = fromN
+        ? [start, W(-3, -8), W(-10, 3), W(-48, 3)]
+        : fromS
+          ? [start, W(3, 8), W(-6, 3), W(-48, 3)]
+          : [start, inEnd!, W(-48, 3)];
     }
     vehicle.position.copy(path[0]);
-    vehicle.rotation.y = fromN
-      ? -Math.PI / 2
-      : D.parent && D.link !== "east"
-        ? Math.PI / 2
-        : dside > 0
-          ? Math.PI
-          : 0;
+    // face the first stretch of road
+    vehicle.rotation.y = Math.atan2(-(path[1].z - path[0].z), path[1].x - path[0].x);
     this.player.position.copy(path[0]);
-    this.cine = { vehicle, path, k: 1, byCar, hold: 0.6 };
+    this.cine = { vehicle, path, k: 1, byCar: byCar && !taxi, taxi, hold: 0.6 };
     this.ev.onCinematic?.(true);
     this.applyLight();
     this.snapCamera();
@@ -7231,6 +9273,7 @@ export class IlmCityEngine {
     path: THREE.Vector3[];
     k: number;
     byCar: boolean;
+    taxi?: boolean;
     hold: number;
   } | null = null;
 
@@ -7266,7 +9309,12 @@ export class IlmCityEngine {
     const c = this.cine!;
     this.cine = null;
     const o = this.district.origin;
-    if (c.byCar) {
+    if (c.taxi) {
+      // step out of the taxi onto the pavement; it drives off
+      const v = c.vehicle;
+      this.standAt(o.x - 16, o.z + 13, v.position);
+      setTimeout(() => v.removeFromParent(), 2500);
+    } else if (c.byCar) {
       this.carHeading = Math.PI;
       this.car.rotation.y = Math.PI;
       this.standAt(o.x - 16, o.z + 13, this.car.position);
@@ -8064,6 +10112,536 @@ export class IlmCityEngine {
     this.dg.add(plaza);
   }
 
+  /** A texture drawn on a canvas, repeating across. */
+  private paintTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    draw(cv.getContext("2d")!);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    t.wrapS = THREE.RepeatWrapping;
+    return t;
+  }
+
+  /** Masjid Dhul Hulayfah (Abyar Ali), the miqat of Madinah: a great walled compound in sand
+      and rose stone with crenellated walls, arched lattice windows and red doors; the gate with
+      its twin domed towers; bath halls with white vaulted roofs all round, where pilgrims make
+      ghusl and put on ihram; a vaulted walkway; and in the middle the mosque itself round its
+      open courtyard, with its white domes and its tall stepped minaret. */
+  private buildMiqatMosque(l: Landmark, sz: number) {
+    const OW = 88,
+      OD = 70,
+      WH = 7; // outer wall height
+    const cx = l.x,
+      front = sz - 12,
+      cz = front - OD / 2;
+    const b = new Batch();
+    const std = (o: THREE.MeshStandardMaterialParameters) =>
+      new THREE.MeshStandardMaterial({ roughness: 0.9, ...o });
+    // the walls: warm sand fading to rose at the foot, a row of arched lattice windows, and
+    // a red door in every other bay (one tile = two bays, 12 m wide, 7 m tall)
+    const wallTex = this.paintTex(256, 150, (c) => {
+      const gr = c.createLinearGradient(0, 0, 0, 150);
+      gr.addColorStop(0, "#f2dcc0");
+      gr.addColorStop(0.6, "#efcfb2");
+      gr.addColorStop(1, "#e6a892");
+      c.fillStyle = gr;
+      c.fillRect(0, 0, 256, 150);
+      c.fillStyle = "#e3c7a6";
+      c.fillRect(0, 0, 256, 8);
+      for (const x of [64, 192]) {
+        // the arched window with its lattice
+        c.fillStyle = "#cdb193";
+        c.beginPath();
+        c.moveTo(x - 17, 70);
+        c.lineTo(x - 17, 46);
+        c.arc(x, 46, 17, Math.PI, 0);
+        c.lineTo(x + 17, 70);
+        c.fill();
+        c.fillStyle = "#77706a";
+        c.beginPath();
+        c.moveTo(x - 13, 67);
+        c.lineTo(x - 13, 46);
+        c.arc(x, 46, 13, Math.PI, 0);
+        c.lineTo(x + 13, 67);
+        c.fill();
+        c.strokeStyle = "#cbbfae";
+        c.lineWidth = 1.2;
+        for (let k = -13; k <= 13; k += 4) {
+          c.beginPath();
+          c.moveTo(x + k, 34);
+          c.lineTo(x + k, 67);
+          c.stroke();
+        }
+        for (let y = 38; y < 67; y += 4) {
+          c.beginPath();
+          c.moveTo(x - 13, y);
+          c.lineTo(x + 13, y);
+          c.stroke();
+        }
+      }
+      // the red door with its small arch and its steps
+      const dx = 192;
+      c.fillStyle = "#e9d2b8";
+      c.fillRect(dx - 12, 92, 24, 50);
+      c.fillStyle = "#c2302a";
+      c.fillRect(dx - 8, 104, 16, 38);
+      c.strokeStyle = "#8a1f1a";
+      c.lineWidth = 1.5;
+      c.strokeRect(dx - 8, 104, 16, 38);
+      c.beginPath();
+      c.moveTo(dx, 104);
+      c.lineTo(dx, 142);
+      c.stroke();
+      c.fillStyle = "#d9b9a0";
+      c.fillRect(dx - 15, 142, 30, 4);
+      c.fillRect(dx - 19, 146, 38, 4);
+    });
+    // the mosque's own walls: round medallions above, small arched windows, red doors below
+    const mosqueTex = this.paintTex(256, 192, (c) => {
+      const gr = c.createLinearGradient(0, 0, 0, 192);
+      gr.addColorStop(0, "#f2dcc2");
+      gr.addColorStop(1, "#e9b9a0");
+      c.fillStyle = gr;
+      c.fillRect(0, 0, 256, 192);
+      for (const x of [32, 96, 160, 224]) {
+        c.strokeStyle = "#d4b293";
+        c.lineWidth = 3;
+        c.beginPath();
+        c.arc(x, 52, 17, 0, Math.PI * 2);
+        c.stroke();
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.arc(x, 52, 11, 0, Math.PI * 2);
+        c.stroke();
+        c.fillStyle = "#cfa98a";
+        c.fillRect(x - 6, 92, 12, 22);
+        c.beginPath();
+        c.arc(x, 92, 6, Math.PI, 0);
+        c.fill();
+      }
+      for (const x of [64, 192]) {
+        c.fillStyle = "#c2302a";
+        c.fillRect(x - 9, 140, 18, 44);
+        c.strokeStyle = "#8a1f1a";
+        c.strokeRect(x - 9, 140, 18, 44);
+        c.beginPath();
+        c.moveTo(x, 140);
+        c.lineTo(x, 184);
+        c.stroke();
+      }
+      c.fillStyle = "#e3c4a6";
+      c.fillRect(0, 184, 256, 8);
+    });
+    // the walkway: open pointed arches on square piers (one bay 4 m wide, 6 m tall)
+    const walkTex = this.paintTex(128, 192, (c) => {
+      c.fillStyle = "#f0dcc4";
+      c.fillRect(0, 0, 128, 192);
+      c.fillStyle = "#e2c4a8";
+      c.fillRect(0, 0, 128, 14);
+      c.globalCompositeOperation = "destination-out";
+      c.beginPath();
+      c.moveTo(18, 192);
+      c.lineTo(18, 90);
+      c.quadraticCurveTo(18, 40, 64, 28);
+      c.quadraticCurveTo(110, 40, 110, 90);
+      c.lineTo(110, 192);
+      c.fill();
+      c.globalCompositeOperation = "source-over";
+      c.fillStyle = "#6b5f57";
+      c.fillRect(0, 150, 18, 42);
+      c.fillRect(110, 150, 18, 42);
+    });
+    // the gate: a great arch between two smaller ones (16 m wide, 12 m tall)
+    const gateTex = this.paintTex(256, 192, (c) => {
+      c.fillStyle = "#f1dbc1";
+      c.fillRect(0, 0, 256, 192);
+      c.fillStyle = "#e6a892";
+      c.fillRect(0, 150, 256, 42);
+      const arch = (x: number, w: number, top: number) => {
+        c.beginPath();
+        c.moveTo(x - w / 2, 192);
+        c.lineTo(x - w / 2, top + w / 2);
+        c.arc(x, top + w / 2, w / 2, Math.PI, 0);
+        c.lineTo(x + w / 2, 192);
+        c.closePath();
+      };
+      c.fillStyle = "#d9bc9c";
+      arch(128, 122, 46);
+      c.fill();
+      c.fillStyle = "#4a3a33";
+      arch(30, 24, 128);
+      c.fill();
+      arch(226, 24, 128);
+      c.fill();
+      for (const [x, y] of [
+        [30, 92],
+        [226, 92],
+      ]) {
+        c.strokeStyle = "#cfae8f";
+        c.lineWidth = 3;
+        c.beginPath();
+        c.arc(x, y, 13, 0, Math.PI * 2);
+        c.stroke();
+      }
+      for (let i = 0; i < 4; i++) {
+        c.fillStyle = "#cfae8f";
+        c.fillRect(96 + i * 18, 14, 10, 20);
+      }
+      c.globalCompositeOperation = "destination-out";
+      arch(128, 108, 56);
+      c.fill();
+      c.globalCompositeOperation = "source-over";
+    });
+    const brickTex = this.paintTex(128, 128, (c) => {
+      c.fillStyle = "#c98f80";
+      c.fillRect(0, 0, 128, 128);
+      for (let y = 0; y < 128; y += 16)
+        for (let x = (y / 16) % 2 ? -16 : 0; x < 128; x += 32) {
+          c.fillStyle = ["#d39a8a", "#c48474", "#cc9283", "#bd7e70"][((x + y) / 16) & 3];
+          c.fillRect(x + 1, y + 1, 30, 14);
+        }
+    });
+    brickTex.wrapT = THREE.RepeatWrapping;
+    brickTex.repeat.set(OW / 4, OD / 4);
+    // after dark the stone is floodlit warm, the arches glow and the domes shine white
+    const wallM = this.glow(std({ map: wallTex }), 0.55, 0xffe6c8, wallTex);
+    const mosqueM = this.glow(std({ map: mosqueTex }), 0.55, 0xffe6c8, mosqueTex);
+    const walkM = this.glow(
+      std({ map: walkTex, alphaTest: 0.5, side: THREE.DoubleSide }),
+      0.6,
+      0xffe2b8,
+      walkTex,
+    );
+    const gateM = this.glow(
+      std({ map: gateTex, alphaTest: 0.5, side: THREE.DoubleSide }),
+      0.6,
+      0xffe2b8,
+      gateTex,
+    );
+    const stoneM = this.glow(std({ color: 0xefd6ba, flatShading: true }), 0.45, 0xffe2c0);
+    const roofM = this.glow(std({ color: 0xead2b6, flatShading: true }), 0.25, 0xffe2c0);
+    const vaultM = this.glow(std({ color: 0xf6f3ee }), 0.5, 0xffffff);
+    const domeM = this.glow(std({ color: 0xf7f4ee, roughness: 0.6 }), 0.6, 0xffffff);
+    const warmM = this.glow(std({ color: 0xf7d9a6 }), 1.4, 0xffc070); // lamp-lit vault ceilings
+    const goldM = this.glow(std({ color: 0xc9a227, metalness: 0.5, roughness: 0.35 }), 1, 0xffc850);
+    const greenM = this.glow(std({ color: 0x2f8f78 }), 0.6, 0x40d0a0);
+    const darkM = std({ color: 0x4a3a33 });
+    const floorM = this.glow(std({ map: brickTex }), 0.25, 0xffd8c8, brickTex);
+
+    // a wall face: its texture repeated once every `bay` metres
+    const face = (len: number, h: number, bay: number, m: THREE.Material, x: number, y: number, z: number, ry: number) => {
+      const geo = new THREE.PlaneGeometry(len, h);
+      const n = Math.max(1, Math.round(len / bay));
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+      b.add(geo, m, x, y, z, ry, false);
+    };
+    // crenellations along a wall top, from (x0, z0) to (x1, z1)
+    const merlons = (x0: number, z0: number, x1: number, z1: number, y: number) => {
+      const len = Math.hypot(x1 - x0, z1 - z0),
+        n = Math.floor(len / 1.2);
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        b.box(0.55, 0.7, 0.55, stoneM, cx + x0 + (x1 - x0) * t, y, cz + z0 + (z1 - z0) * t);
+      }
+    };
+    const X = (x: number) => cx + x,
+      Z = (z: number) => cz + z;
+    const hw = OW / 2,
+      hd = OD / 2,
+      T = 1.2, // wall thickness
+      GW = 6.4; // the gate opening
+    // the brick-paved courtyard
+    const yard = new THREE.Mesh(new THREE.PlaneGeometry(OW - 2, OD - 2), floorM);
+    yard.rotation.x = -Math.PI / 2;
+    yard.position.set(cx, 0.04, cz);
+    yard.receiveShadow = true;
+    this.dg.add(yard);
+    // the outer walls, with the gate gap in the front one
+    const wallSeg = (x0: number, x1: number, z0: number, z1: number) => {
+      b.box(x1 - x0, WH, z1 - z0, stoneM, X((x0 + x1) / 2), 0, Z((z0 + z1) / 2));
+      this.addCollider("out", X(x0), X(x1), Z(z0), Z(z1));
+    };
+    wallSeg(-hw, -GW / 2, hd - T, hd);
+    wallSeg(GW / 2, hw, hd - T, hd);
+    wallSeg(-hw, hw, -hd, -hd + T);
+    wallSeg(-hw, -hw + T, -hd, hd);
+    wallSeg(hw - T, hw, -hd, hd);
+    // their outer faces (front in two pieces round the gate)
+    const fl = hw - GW / 2;
+    face(fl, WH, 12, wallM, X(-hw + fl / 2), WH / 2, Z(hd + 0.03), 0);
+    face(fl, WH, 12, wallM, X(hw - fl / 2), WH / 2, Z(hd + 0.03), 0);
+    face(OW, WH, 12, wallM, X(0), WH / 2, Z(-hd - 0.03), Math.PI);
+    face(OD, WH, 12, wallM, X(-hw - 0.03), WH / 2, Z(0), -Math.PI / 2);
+    face(OD, WH, 12, wallM, X(hw + 0.03), WH / 2, Z(0), Math.PI / 2);
+    merlons(-hw, hd - 0.6, -GW / 2 - 4, hd - 0.6, WH);
+    merlons(GW / 2 + 4, hd - 0.6, hw, hd - 0.6, WH);
+    merlons(-hw, -hd + 0.6, hw, -hd + 0.6, WH);
+    merlons(-hw + 0.6, -hd, -hw + 0.6, hd, WH);
+    merlons(hw - 0.6, -hd, hw - 0.6, hd, WH);
+
+    // the gate: a tall block with the great arch, and two domed towers on top
+    const GB = 16,
+      GH = 11.5;
+    face(GB, GH, GB, gateM, X(0), GH / 2, Z(hd + 0.6), 0);
+    face(GB, GH, GB, gateM, X(0), GH / 2, Z(hd - 2.6), 0);
+    b.box(GB, 0.6, 3.4, roofM, X(0), GH - 0.3, Z(hd - 1));
+    for (const s of [-1, 1]) {
+      b.box(4.8, GH, 3.4, stoneM, X(s * (GB / 2 - 2.4)), 0, Z(hd - 1));
+      this.addCollider(
+        "out",
+        X(s < 0 ? -GB / 2 : GW / 2),
+        X(s < 0 ? -GW / 2 : GB / 2),
+        Z(hd - 2.7),
+        Z(hd + 0.7),
+      );
+      // the little towers: a square shaft, a gallery, an open lantern and a white dome
+      const tx = X(s * (GB / 2 - 2.4));
+      const tz = Z(hd - 1);
+      b.box(2.8, 3.6, 2.8, stoneM, tx, GH, tz);
+      b.box(3.4, 0.4, 3.4, roofM, tx, GH + 3.6, tz);
+      b.add(new THREE.CylinderGeometry(1.2, 1.2, 2.4, 8), stoneM, tx, GH + 5.2, tz);
+      b.add(new THREE.CylinderGeometry(1.25, 1.25, 1.4, 8), darkM, tx, GH + 5.2, tz);
+      b.add(new THREE.SphereGeometry(1.3, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), domeM, tx, GH + 6.4, tz);
+      b.add(new THREE.ConeGeometry(0.1, 1, 5), goldM, tx, GH + 8.1, tz);
+    }
+    merlons(-GB / 2, hd + 0.6, GB / 2, hd + 0.6, GH);
+
+    // the bath halls round three sides: ghusl and changing rooms under white vaulted roofs
+    const HD = 9,
+      HH = 5.5;
+    const vaults = (
+      x0: number,
+      x1: number,
+      z0: number,
+      z1: number,
+      alongX: boolean,
+      y = HH + 0.4,
+    ) => {
+      // half-cylinders side by side, each running across the hall
+      const len = alongX ? x1 - x0 : z1 - z0,
+        span = alongX ? z1 - z0 : x1 - x0,
+        n = Math.floor(len / 3.2);
+      for (let i = 0; i < n; i++) {
+        const t = x0 + ((i + 0.5) / n) * (x1 - x0),
+          u = z0 + ((i + 0.5) / n) * (z1 - z0);
+        const geo = new THREE.CylinderGeometry(1.45, 1.45, span - 0.6, 10, 1, false, 0, Math.PI);
+        geo.rotateZ(Math.PI / 2);
+        if (alongX) geo.rotateY(Math.PI / 2);
+        b.add(geo, vaultM, alongX ? X(t) : X((x0 + x1) / 2), y, alongX ? Z((z0 + z1) / 2) : Z(u));
+      }
+    };
+    const hall = (x0: number, x1: number, z0: number, z1: number, alongX: boolean) => {
+      b.box(x1 - x0, HH, z1 - z0, stoneM, X((x0 + x1) / 2), 0, Z((z0 + z1) / 2));
+      b.box(x1 - x0, 0.4, z1 - z0, roofM, X((x0 + x1) / 2), HH, Z((z0 + z1) / 2));
+      vaults(x0, x1, z0, z1, alongX);
+      this.addCollider("out", X(x0), X(x1), Z(z0), Z(z1));
+    };
+    const iw = -hw + T,
+      ie = hw - T,
+      inn = -hd + T,
+      isf = hd - T;
+    hall(iw, iw + HD, inn, isf - 6, false); // west: the brothers
+    hall(ie - HD, ie, inn, isf - 6, false); // east: the sisters
+    hall(iw + HD, ie - HD, inn, inn + HD, true); // north: wudu and toilets
+    // their faces to the courtyard
+    face(isf - 6 - inn, HH, 12, wallM, X(iw + HD + 0.03), HH / 2, Z((inn + isf - 6) / 2), Math.PI / 2);
+    face(isf - 6 - inn, HH, 12, wallM, X(ie - HD - 0.03), HH / 2, Z((inn + isf - 6) / 2), -Math.PI / 2);
+    face(ie - iw - HD * 2, HH, 12, wallM, X(0), HH / 2, Z(inn + HD + 0.03), 0);
+    // signs and doors: ghusl and ihram for brothers on the west, sisters on the east
+    const signM = (text: string, x: number, z: number, ry: number) => {
+      const t = label(text, { size: 0.8, bg: "rgba(31,111,99,0.92)" });
+      t.position.set(x, HH + 1.6, z);
+      t.rotation.y = ry;
+      this.dg.add(t);
+    };
+    const hallMid = (inn + isf - 6) / 2;
+    for (const dz of [-14, 0, 14]) {
+      b.box(0.3, 3, 2, std({ color: 0xc2302a }), X(iw + HD + 0.15), 0, Z(hallMid + dz));
+      b.box(0.3, 3, 2, std({ color: 0xc2302a }), X(ie - HD - 0.15), 0, Z(hallMid + dz));
+    }
+    this.zones.push({
+      id: "miqat:ghusl:m",
+      label: "Brothers: ghusl and ihram",
+      x: X(iw + HD + 2.6) + this.ox,
+      z: Z(hallMid) + this.oz,
+      r: 3.4,
+      scene: "out",
+    });
+    this.zones.push({
+      id: "miqat:ghusl:f",
+      label: "Sisters: ghusl and ihram",
+      x: X(ie - HD - 2.6) + this.ox,
+      z: Z(hallMid) + this.oz,
+      r: 3.4,
+      scene: "out",
+    });
+    signM("🚿 Brothers · Ghusl & Ihram", X(iw + HD + 0.4), Z(hallMid), 0);
+    signM("🚿 Sisters · Ghusl & Ihram", X(ie - HD - 0.4), Z(hallMid), 0);
+    signM("💧 Wudu & Toilets", X(0), Z(inn + HD + 0.5), 0);
+
+    // the vaulted walkway inside the front wall, lit warm under its arches at night
+    const WD = 5,
+      WAH = 6;
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? iw + HD : GW / 2 + 4,
+        x1 = s < 0 ? -GW / 2 - 4 : ie - HD;
+      const len = x1 - x0,
+        mx = (x0 + x1) / 2;
+      face(len, WAH, 4, walkM, X(mx), WAH / 2, Z(isf - WD), 0);
+      b.box(len, 0.5, WD, roofM, X(mx), WAH, Z(isf - WD / 2));
+      // the warm ceiling seen through the arches
+      const ceil = new THREE.PlaneGeometry(len, WD);
+      ceil.rotateX(Math.PI / 2);
+      b.add(ceil, warmM, X(mx), WAH - 0.05, Z(isf - WD / 2), 0, false);
+      vaults(x0, x1, isf - WD, isf, true, WAH + 0.5);
+      merlons(x0, isf - WD + 0.2, x1, isf - WD + 0.2, WAH + 0.5);
+    }
+
+    // the mosque in the middle: four wings round an open courtyard
+    const MW = 40,
+      MD = 34,
+      MH = 9,
+      mz = -4; // its centre, a little back from the middle
+    const CW = 14,
+      CD = 12; // the courtyard
+    const mf = mz + MD / 2; // its front
+    const wing = (x0: number, x1: number, z0: number, z1: number) => {
+      b.box(x1 - x0, MH, z1 - z0, stoneM, X((x0 + x1) / 2), 0, Z((z0 + z1) / 2));
+      b.box(x1 - x0, 0.5, z1 - z0, roofM, X((x0 + x1) / 2), MH, Z((z0 + z1) / 2));
+    };
+    wing(-MW / 2, MW / 2, mz - MD / 2, mz - CD / 2); // the prayer hall at the back (qiblah)
+    wing(-MW / 2, MW / 2, mz + CD / 2, mf);
+    wing(-MW / 2, -CW / 2, mz - CD / 2, mz + CD / 2);
+    wing(CW / 2, MW / 2, mz - CD / 2, mz + CD / 2);
+    this.addCollider("out", X(-MW / 2), X(MW / 2), Z(mz - MD / 2), Z(mf));
+    face(MW, MH, 16, mosqueM, X(0), MH / 2, Z(mf + 0.03), 0);
+    face(MW, MH, 16, mosqueM, X(0), MH / 2, Z(mz - MD / 2 - 0.03), Math.PI);
+    face(MD, MH, 16, mosqueM, X(-MW / 2 - 0.03), MH / 2, Z(mz), -Math.PI / 2);
+    face(MD, MH, 16, mosqueM, X(MW / 2 + 0.03), MH / 2, Z(mz), Math.PI / 2);
+    // the courtyard's inner faces: arcades with a green-tiled eave
+    face(CW, MH, 4, walkM, X(0), MH / 2, Z(mz - CD / 2 - 0.03), 0);
+    face(CW, MH, 4, walkM, X(0), MH / 2, Z(mz + CD / 2 + 0.03), Math.PI);
+    face(CD, MH, 4, walkM, X(-CW / 2 - 0.03), MH / 2, Z(mz), Math.PI / 2);
+    face(CD, MH, 4, walkM, X(CW / 2 + 0.03), MH / 2, Z(mz), -Math.PI / 2);
+    for (const [w, d, x, z] of [
+      [CW + 2, 1.2, 0, mz - CD / 2 + 0.4],
+      [CW + 2, 1.2, 0, mz + CD / 2 - 0.4],
+      [1.2, CD, -CW / 2 + 0.4, mz],
+      [1.2, CD, CW / 2 - 0.4, mz],
+    ])
+      b.box(w, 0.3, d, greenM, X(x), MH - 1.6, Z(z));
+    // the courtyard floor and its little white dome
+    b.box(CW, 0.1, CD, floorM, X(0), 0.02, Z(mz));
+    b.add(new THREE.CylinderGeometry(1.8, 1.8, 1.6, 12), stoneM, X(0), 0.8, Z(mz));
+    b.add(new THREE.SphereGeometry(2, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2), domeM, X(0), 1.6, Z(mz));
+    // white vaulted roofs over the wings
+    vaults(-MW / 2 + 1, MW / 2 - 1, mz - MD / 2 + 0.5, mz - CD / 2 - 0.5, true, MH + 0.5);
+    vaults(-MW / 2 + 1, MW / 2 - 1, mz + CD / 2 + 0.5, mf - 0.5, true, MH + 0.5);
+    vaults(-MW / 2 + 1, -CW / 2 - 1, mz - CD / 2 + 0.5, mz + CD / 2 - 0.5, false, MH + 0.5);
+    vaults(CW / 2 + 1, MW / 2 - 1, mz - CD / 2 + 0.5, mz + CD / 2 - 0.5, false, MH + 0.5);
+    // (their tops sit on the wing roofs, which are higher than the halls)
+    // the row of small domes over the prayer hall, and the big dome over the mihrab
+    for (let i = -3; i <= 3; i++) {
+      if (i === 0) continue;
+      b.add(new THREE.SphereGeometry(1.6, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), domeM, X(i * 4.6), MH + 0.5, Z(mz - CD / 2 - 1.2));
+    }
+    b.add(new THREE.CylinderGeometry(3.2, 3.2, 2.4, 16), stoneM, X(0), MH + 1.7, Z(mz - MD / 2 + 5));
+    b.add(new THREE.SphereGeometry(3.4, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), domeM, X(0), MH + 2.9, Z(mz - MD / 2 + 5));
+    b.add(new THREE.ConeGeometry(0.15, 1.6, 6), goldM, X(0), MH + 7.1, Z(mz - MD / 2 + 5));
+    merlons(-MW / 2, mf - 0.3, MW / 2, mf - 0.3, MH + 0.5);
+    merlons(-MW / 2, mz - MD / 2 + 0.3, MW / 2, mz - MD / 2 + 0.3, MH + 0.5);
+    merlons(-MW / 2 + 0.3, mz - MD / 2, -MW / 2 + 0.3, mf, MH + 0.5);
+    merlons(MW / 2 - 0.3, mz - MD / 2, MW / 2 - 0.3, mf, MH + 0.5);
+    // the mosque's main door, facing the gate
+    b.box(5, 6, 0.4, std({ color: 0xc2302a }), X(0), 0, Z(mf + 0.2));
+    b.box(6.4, 0.8, 0.6, stoneM, X(0), 6, Z(mf + 0.3));
+
+    // the tall minaret at the front corner: stepped square stages, a gallery, an arched
+    // lantern and a small white dome, the landmark seen from far down Hijrah Road
+    const mx = X(-MW / 2 - 3.5),
+      mzz = Z(mf - 3);
+    b.box(7.5, 24, 7.5, stoneM, mx, 0, mzz);
+    b.box(8.3, 0.6, 8.3, roofM, mx, 24, mzz);
+    b.box(5.4, 12, 5.4, stoneM, mx, 24.6, mzz);
+    b.box(6.2, 0.6, 6.2, roofM, mx, 36.6, mzz);
+    b.add(new THREE.CylinderGeometry(2.1, 2.3, 6, 10), stoneM, mx, 40.2, mzz);
+    b.add(new THREE.CylinderGeometry(2.9, 2.9, 0.5, 12), roofM, mx, 43.4, mzz);
+    b.add(new THREE.CylinderGeometry(1.7, 1.7, 3.2, 10), stoneM, mx, 45.3, mzz);
+    b.add(new THREE.CylinderGeometry(1.75, 1.75, 1.8, 10), darkM, mx, 45.3, mzz);
+    b.add(new THREE.SphereGeometry(1.8, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), domeM, mx, 46.9, mzz);
+    b.add(new THREE.ConeGeometry(0.12, 1.4, 5), goldM, mx, 49.3, mzz);
+    // its slit windows
+    for (const y of [6, 12, 18]) b.box(0.8, 2, 0.1, darkM, mx, y, mzz + 3.8);
+    for (const y of [28, 32]) b.box(0.7, 1.8, 0.1, darkM, mx, y, mzz + 2.75);
+    // a ring of lamps under its gallery, bright at night
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(2.7, 2.7, 0.3, 14), this.lampMat);
+    ring.position.set(mx, 43, mzz);
+    this.dg.add(ring);
+    this.addCollider("out", mx - 3.8, mx + 3.8, mzz - 3.8, mzz + 3.8);
+
+    for (const m of b.build()) this.dg.add(m);
+    // nothing else is planted or built inside the compound
+    this.reserved.push({
+      x0: this.ox + X(-hw - 1),
+      x1: this.ox + X(hw + 1),
+      z0: this.oz + Z(-hd - 1),
+      z1: this.oz + Z(hd + 1),
+    });
+    // enter the mosque by its main door
+    this.zones.push({
+      id: `door:masjid:${l.id}`,
+      label: `Enter ${l.name}`,
+      x: X(0) + this.ox,
+      z: Z(mf + 2.6) + this.oz,
+      r: 3.2,
+      scene: "out",
+    });
+    // the name in big bold letters on the gate, Arabic above English, lit day and night
+    const nameBoard = (w: number, h: number) =>
+      canvasPlane(
+        w,
+        h,
+        (c, W, H) => {
+          c.fillStyle = "#17493d";
+          c.fillRect(0, 0, W, H);
+          c.strokeStyle = "#d9b44a";
+          c.lineWidth = H * 0.05;
+          c.strokeRect(H * 0.05, H * 0.05, W - H * 0.1, H - H * 0.1);
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.fillStyle = "#f6dd8a";
+          c.direction = "rtl";
+          c.font = `700 ${Math.round(H * 0.44)}px "Amiri", "Noto Naskh Arabic", "Geeza Pro", serif`;
+          c.fillText("مسجد ذي الحليفة · الميقات", W / 2, H * 0.36, W * 0.9);
+          c.direction = "ltr";
+          c.fillStyle = "#ffffff";
+          c.font = `800 ${Math.round(H * 0.24)}px "Inter", "Arial Black", Arial, sans-serif`;
+          c.fillText("MASJID DHUL HULAYFAH · MIQAT", W / 2, H * 0.75, W * 0.9);
+        },
+        1024,
+      ).mesh;
+    const nb = nameBoard(14.5, 2.8);
+    nb.position.set(X(0), GH - 1.45, Z(hd + 0.75));
+    this.dg.add(nb);
+    // and a tall sign by the road, seen from far down Hijrah Road
+    const rs = nameBoard(10, 2.4);
+    rs.position.set(X(hw - 6), 7.2, Z(hd + 4.5));
+    this.dg.add(rs);
+    for (const s of [-1, 1]) {
+      const post = cyl(0.18, 0.2, 6, 0xdfe2de, 8);
+      post.position.set(X(hw - 6) + s * 4.2, 3, Z(hd + 4.5));
+      this.dg.add(post);
+    }
+    this.addCollider("out", X(hw - 10.6), X(hw - 1.4), Z(hd + 4.2), Z(hd + 4.8));
+    const t2 = label("Pray two rak'ahs, then make the intention", { size: 0.75 });
+    t2.position.set(X(0), 8, Z(mf + 1));
+    this.dg.add(t2);
+  }
+
   private buildSchool(cx: number, cz: number, l: Landmark) {
     const g = new THREE.Group();
     g.position.set(cx, 0, cz);
@@ -8164,6 +10742,41 @@ export class IlmCityEngine {
     this.dg.add(mat2);
   }
 
+  /** A footbridge over a road: a glass tower with stairs on each side, a covered deck across.
+      Built into group g at (cx, cz); `span` is the distance between the towers, and the deck
+      runs along x when acrossX (else along z). Returns the towers' centres in g's space. */
+  private footbridge(g: Batch, cx: number, cz: number, span: number, acrossX: boolean, base?: THREE.Object3D) {
+    const b = new THREE.Group();
+    b.position.set(cx, 0, cz);
+    if (acrossX) b.rotation.y = Math.PI / 2;
+    const white = 0xf2eee6,
+      steel = 0x9aa3a8,
+      glassC = 0x8fb3c4;
+    const H = 6.2,
+      L = span + 3;
+    for (const z of [-span / 2, span / 2]) {
+      b.add(box(3.2, H + 0.6, 2.8, white, 0, 0, z));
+      b.add(box(3.25, H - 1.2, 2, glassC, 0, 0.8, z));
+      b.add(box(3.6, 0.35, 3.2, steel, 0, H + 0.6, z));
+    }
+    b.add(box(3, 0.55, L, white, 0, H, 0));
+    b.add(box(0.08, 1.2, L, glassC, -1.45, H + 0.55, 0), box(0.08, 1.2, L, glassC, 1.45, H + 0.55, 0));
+    b.add(box(3.6, 0.15, L, steel, 0, H + 2.8, 0));
+    for (let z = -L / 2 + 1; z <= L / 2 - 1; z += 4) {
+      b.add(box(0.12, 2.3, 0.12, steel, -1.5, H + 0.55, z), box(0.12, 2.3, 0.12, steel, 1.5, H + 0.55, z));
+    }
+    // a green band and the crescent of the city
+    b.add(box(3.05, 0.25, L, 0x1f6f63, 0, H + 0.1, 0));
+    // merged into the area's shapes, so a bridge costs the phone almost nothing to draw
+    if (base) {
+      base.add(b);
+      g.addObject(base);
+      base.remove(b);
+    } else g.addObject(b);
+    return [-span / 2, span / 2].map((z) =>
+      acrossX ? { x: cx + z, z: cz } : { x: cx, z: cz + z },
+    );
+  }
   private streetSign(x: number, z: number, streetId: string, rot: number) {
     const st = STREETS[streetId];
     const g = new THREE.Group();
@@ -8772,6 +11385,110 @@ export class IlmCityEngine {
         g.add(f);
       }
     }
+    // Hotel lobby: marble floor, the reception desk, the lifts and the stairs
+    {
+      const { g, o } = this.room("hotel", 24, 18, 0xefe6d4, 0xd9d2c4);
+      // marble tiles
+      for (let i = -5; i <= 5; i++) {
+        const l = new THREE.Mesh(new THREE.PlaneGeometry(0.06, 18), mat(0xbfb6a4));
+        l.rotation.x = -Math.PI / 2;
+        l.position.set(i * 2.2, 0.01, 0);
+        g.add(l);
+      }
+      const rug = new THREE.Mesh(new THREE.PlaneGeometry(6, 8), mat(0x7a2a2a));
+      rug.rotation.x = -Math.PI / 2;
+      rug.position.set(0, 0.015, 3);
+      g.add(rug);
+      // the reception desk, with the receptionist and a bell
+      const desk = new THREE.Group();
+      desk.add(box(8, 1.15, 1.3, 0x5a3a22, 0, 0, 0), box(8.3, 0.12, 1.5, 0xf4efe4, 0, 1.15, 0));
+      desk.add(box(0.3, 0.2, 0.3, 0xd4a72c, 2.6, 1.27, 0.2));
+      desk.position.set(0, 0, -5.8);
+      this.solid("hotel", g, desk, 8.3, 1.5);
+      const clerk = person(0xffffff, { cap: 0xffffff, trousers: 0x1d1d26, seed: 31 });
+      clerk.position.set(0.6, 0, -7);
+      g.add(clerk);
+      g.add(box(10, 3, 0.15, 0x6d4a2b, 0, 1.6, -8.75));
+      const rec = label("🛎️ Reception", { size: 0.7, bg: "rgba(90,58,34,0.95)" });
+      rec.position.set(0, 4.3, -8.4);
+      g.add(rec);
+      this.zones.push({ id: "hotel:desk", label: "Book a room at reception", x: o.x, z: o.z - 3.9, r: 2.4, scene: "hotel" });
+      // the lifts on the left wall
+      for (const lz of [-3.5, 1.5]) {
+        g.add(box(0.2, 3.2, 2.4, 0xb8bcc2, -11.75, 0, lz));
+        g.add(box(0.22, 3.1, 0.06, 0x6c7075, -11.73, 0, lz));
+        g.add(box(0.2, 0.4, 0.8, 0xd4a72c, -11.7, 3.3, lz));
+      }
+      const lift = label("🛗 Lifts", { size: 0.6, bg: "rgba(31,111,99,0.95)" });
+      lift.position.set(-11, 4.2, -1);
+      g.add(lift);
+      this.zones.push({ id: "hotel:lift", label: "Take the lift to your room", x: o.x - 10, z: o.z - 1, r: 2.2, scene: "hotel" });
+      // the stairs on the right
+      for (let k = 0; k < 7; k++) g.add(box(3, 0.35 * (k + 1), 0.6, 0xcfc6b4, 10, 0, -6 + k * 0.6));
+      const st = label("🪜 Stairs", { size: 0.6, bg: "rgba(31,111,99,0.95)" });
+      st.position.set(10, 4.2, -4);
+      g.add(st);
+      this.addCollider("hotel", o.x + 8.4, o.x + 11.6, o.z - 6.4, o.z - 2);
+      this.zones.push({ id: "hotel:stairs", label: "Take the stairs to your room", x: o.x + 7.4, z: o.z - 4, r: 2, scene: "hotel" });
+      // sofas, plants and a chandelier
+      for (const [x, z, r] of [[-6, 4, Math.PI / 2], [6, 4, -Math.PI / 2]] as [number, number, number][]) {
+        const sofa = new THREE.Group();
+        sofa.add(box(3.4, 0.5, 1.1, 0xe9dcc4, 0, 0, 0), box(3.4, 0.9, 0.3, 0xe9dcc4, 0, 0, -0.45));
+        sofa.position.set(x, 0, z);
+        sofa.rotation.y = r;
+        this.solid("hotel", g, sofa, 1.2, 3.4);
+      }
+      for (const [x, z] of [[-10.5, 7.5], [10.5, 7.5], [-4.5, -7.5], [4.5, -7.5]]) {
+        const pot = cyl(0.45, 0.35, 0.8, 0xd9cfbb, 10);
+        pot.position.set(x, 0.4, z);
+        const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8, 0), mat(0x3f7a3a));
+        leaf.position.set(x, 1.5, z);
+        g.add(pot, leaf);
+      }
+      const ch = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), this.lampMat);
+      ch.position.set(0, 4.2, 1);
+      g.add(ch);
+      const guest = person(0x8fb8e8, { cap: 0xffffff, seed: 33 });
+      sitPerson(guest);
+      guest.position.set(-6.2, 0.1, 4);
+      guest.rotation.y = Math.PI / 2;
+      g.add(guest);
+    }
+    // Hotel room: a big bed, a window over the city, a prayer mat and the door to the lift
+    {
+      const { g, o } = this.room("hotelroom", 12, 10, 0xf4ede0, 0x8a6a4a, false);
+      const bed = new THREE.Group();
+      bed.add(box(3.6, 0.6, 4.4, 0x5a3a22, 0, 0, 0));
+      bed.add(box(3.6, 2, 0.25, 0x6d4a2b, 0, 0, -2.2));
+      bed.add(box(3.4, 0.4, 4.2, 0xffffff, 0, 0.6, 0));
+      bed.add(box(1.1, 0.3, 0.6, 0xf0ece4, -0.85, 1, -1.6), box(1.1, 0.3, 0.6, 0xf0ece4, 0.85, 1, -1.6));
+      bed.add(box(3.5, 0.12, 1, 0xc9a227, 0, 1, 1.3));
+      bed.position.set(-2.5, 0, -2.6);
+      this.solid("hotelroom", g, bed, 3.8, 4.6);
+      const cover = box(3.5, 0.4, 2.8, 0xf4efe4, -2.5, 1.02, -1.75);
+      cover.visible = false;
+      g.add(cover);
+      this.hotelCover = cover;
+      this.zones.push({ id: "hotel:bed", label: "Sleep", x: o.x - 2.5, z: o.z + 0.4, r: 1.8, scene: "hotelroom" });
+      // the window: blue sky and a green dome far away
+      g.add(box(5, 2.6, 0.1, 0x9fd0ea, 3, 1.3, -4.75));
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0x2e8b57));
+      dome.position.set(3.4, 1.6, -4.68);
+      g.add(dome);
+      g.add(box(5.3, 0.15, 0.3, 0x6d4a2b, 3, 3.95, -4.7), box(5.3, 0.15, 0.3, 0x6d4a2b, 3, 1.2, -4.7));
+      // a prayer mat, a little table and a lamp
+      const matM = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.8), mat(0x1f6f63));
+      matM.rotation.x = -Math.PI / 2;
+      matM.position.set(3.5, 0.02, 0.5);
+      g.add(matM);
+      g.add(box(0.8, 0.7, 0.7, 0x8a5a3a, -5.2, 0, -4));
+      const lamp = cyl(0.18, 0.28, 0.35, 0xf2e3c0, 10);
+      lamp.position.set(-5.2, 0.95, -4);
+      g.add(lamp);
+      // the door back to the corridor and the lift
+      g.add(box(1.6, 2.7, 0.12, 0x6d4a2b, 3.5, 0, 4.8));
+      this.zones.push({ id: "hotel:down", label: "Go back down to the lobby", x: o.x + 3.5, z: o.z + 3.6, r: 1.6, scene: "hotelroom" });
+    }
     // Restaurant: a counter at the back, tables and people eating
     {
       const { g, o } = this.room("restaurant", 20, 14, 0xf3e6cf, 0x9a6b45);
@@ -8783,13 +11500,13 @@ export class IlmCityEngine {
       const cook = person(0xffffff, { cap: 0xffffff, trousers: 0x1d1d26, seed: 7 });
       cook.position.set(1, 0, -5.8);
       g.add(cook);
-      const menu = label("Menu · jollof · broast · amala · shawarma · kabsa · suya", {
+      const menu = label("Menu · broast · mandi · kabsa · shawarma · mutabbaq · coffee", {
         size: 0.5,
         bg: "rgba(31,111,99,0.95)",
       });
       menu.position.set(0, 3.6, -6.7);
       g.add(menu);
-      const sign = label("Al-Ma'idah Restaurant", { size: 0.7, bg: "rgba(122,59,42,0.95)" });
+      const sign = label("Order here", { size: 0.7, bg: "rgba(122,59,42,0.95)" });
       sign.position.set(0, 4.5, -6.7);
       g.add(sign);
       // hand-wash sink by the wall
@@ -9680,6 +12397,391 @@ export class IlmCityEngine {
   private terminalStaff: THREE.Object3D[] = [];
   private departures: { set: (lines: string[]) => void } | null = null;
 
+  private showPlane: THREE.Object3D | null = null;
+  private showBase = { x: 0, y: 0, z: 0 };
+  private showFog: [number, number] = [70, 260];
+  private show: { kind: "takeoff" | "landing" | "apron"; t: number; ms: number } | null = null;
+  /** Walking out to the plane: first the camera sweeps round it so you see all of it. */
+  apronIntro() {
+    if (this.where !== "jetbridge" || !this.minePlane) return;
+    this.show = { kind: "apron", t: 0, ms: 6500 };
+  }
+  /** Watch your plane from outside: rolling down the runway and lifting off, or coming in
+      to land. The game goes back to the cabin when it's over. */
+  planeShow(kind: "takeoff" | "landing", ms = 7000) {
+    if (!this.showPlane) return;
+    this.show = { kind, t: 0, ms };
+    this.showPlane.visible = true;
+    // clear air: see far down the runway
+    const f = this.scene.fog as THREE.Fog;
+    this.showFog = [f.near, f.far];
+    f.near = 250;
+    f.far = 900;
+    const sky = new THREE.Color(0x9fd3e8).lerp(new THREE.Color(0x0e1a33), this.dkNow);
+    this.scene.background = sky;
+    (this.scene.fog as THREE.Fog).color.copy(sky);
+    this.sun.intensity = 2 * (1 - this.dkNow) + 0.4;
+    this.hemi.intensity = 1.2 - this.dkNow * 0.4;
+  }
+  private stepShow(dt: number) {
+    const sh = this.show!;
+    sh.t += dt * 1000;
+    const k = Math.min(1, sh.t / sh.ms);
+    if (sh.kind === "apron") {
+      // from high over the nose, along the side of the plane, down to the steps behind you
+      // (always on the apron side, in front of the terminal)
+      const P = this.minePlane!;
+      const c = new THREE.Vector3();
+      P.getWorldPosition(c);
+      const o = this.interiorOrigin.jetbridge;
+      const keys = [
+        new THREE.Vector3(c.x + 75, 30, c.z + 26),
+        new THREE.Vector3(c.x + 8, 15, c.z + 34),
+        new THREE.Vector3(o.x + 4, 6, o.z + 19),
+      ];
+      const looks = [
+        new THREE.Vector3(c.x + 6, 6, c.z),
+        new THREE.Vector3(c.x, 6, c.z),
+        new THREE.Vector3(o.x, 4, o.z - 6),
+      ];
+      const e = k * k * (3 - 2 * k);
+      const seg = e < 0.5 ? 0 : 1;
+      const f = seg === 0 ? e / 0.5 : (e - 0.5) / 0.5;
+      const want = keys[seg].clone().lerp(keys[seg + 1], f);
+      const look = looks[seg].clone().lerp(looks[seg + 1], f);
+      if (sh.t < 40) this.camera.position.copy(want);
+      else this.camera.position.lerp(want, 1 - Math.exp(-dt * 4));
+      this.camera.lookAt(look);
+      if (k >= 1) {
+        this.show = null;
+        this.snapCamera();
+      }
+      return;
+    }
+    const P = this.showPlane!;
+    const B = this.showBase;
+    // along the runway (x), up off it after the roll
+    let x: number, y: number, pitch: number;
+    if (sh.kind === "takeoff") {
+      const roll = Math.min(1, k / 0.6);
+      x = -230 + roll * roll * 300 + Math.max(0, k - 0.6) * 520;
+      const lift = Math.max(0, (k - 0.55) / 0.45);
+      y = lift * lift * 70;
+      pitch = Math.min(0.22, lift * 0.5);
+    } else {
+      const air = Math.max(0, 1 - k / 0.5);
+      x = -330 + (1 - (1 - k) * (1 - k)) * 520;
+      y = air * air * 60;
+      pitch = air > 0 ? 0.08 : 0;
+    }
+    // (the plane lives in the jet bridge scene, so its position is local to it)
+    P.position.set(x, B.y - this.interiorOrigin.jetbridge.y + y, -150);
+    P.rotation.set(0, Math.PI / 2, 0);
+    P.rotateX(-pitch);
+    // the camera runs alongside, a little behind, so you see the whole plane
+    // (from the far side of the runway, clear of the parked planes)
+    const want = new THREE.Vector3(B.x + x - 34, B.y + 4 + y * 0.7, B.z - 32);
+    if (sh.t < 40) this.camera.position.copy(want);
+    else this.camera.position.lerp(want, 1 - Math.exp(-dt * 3));
+    this.camera.lookAt(B.x + x + 6, B.y + y + 5, B.z);
+    if (k >= 1) {
+      this.show = null;
+      P.visible = false;
+      const f = this.scene.fog as THREE.Fog;
+      f.near = this.showFog[0];
+      f.far = this.showFog[1];
+      this.applyLight();
+      this.snapCamera();
+    }
+  }
+
+  private termSeats: { x: number; z: number; taken: boolean }[] = [];
+  /** Sit in a free seat in the terminal while you wait for boarding. */
+  sitTerminal() {
+    if (this.where !== "terminal") return false;
+    const o = this.interiorOrigin.terminal;
+    const p = this.player.position;
+    const free = this.termSeats
+      .filter((s) => !s.taken)
+      .sort(
+        (a, b) =>
+          Math.hypot(o.x + a.x - p.x, o.z + a.z - p.z) - Math.hypot(o.x + b.x - p.x, o.z + b.z - p.z),
+      )[0];
+    if (!free) return false;
+    const back = { x: p.x, z: p.z + 0.9, rot: this.player.rotation.y };
+    this.player.position.set(o.x + free.x, 0, o.z + free.z);
+    this.player.rotation.set(0, 0, 0);
+    poseHuman(this.player, "chair");
+    this.acting = { ...back, scene: this.where };
+    this.tapTarget = null;
+    this.marker.visible = false;
+    return true;
+  }
+
+  /** Out on the apron: the walk from the gate across the tarmac to your plane and up its
+      steps. Planes of every colour wait at their stands, the ground crew load the bags, and
+      the runway is beyond. (The scene is still called the jet bridge inside the game.) */
+  private buildJetBridge() {
+    const o = this.interiorOrigin.jetbridge;
+    const g = new THREE.Group();
+    g.position.copy(o);
+    g.userData.indoors = true;
+    this.scene.add(g);
+    const S = 2.6; // planes at full size
+    const R = 1.5 * S;
+    // the tarmac, the painted walkway and the stand lines
+    const tarmac = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), mat(0x6b6f72));
+    tarmac.rotation.x = -Math.PI / 2;
+    tarmac.receiveShadow = true;
+    g.add(tarmac);
+    const b = new Batch();
+    const paint = (w: number, d: number, c: number, x: number, z: number) =>
+      b.box(w, 0.03, d, mat(c), x, 0.01, z);
+    // the walkway from the gate door to the steps, between two lines, with zebra stripes
+    paint(0.25, 26, 0xf4f4f0, -1.6, 9);
+    paint(0.25, 26, 0xf4f4f0, 1.6, 9);
+    for (let z = -2; z <= 21; z += 1.6) paint(3, 0.5, 0x2f8f63, 0, z);
+    // stand lines: a yellow lead-in line to every stand
+    for (const x of [-190, -95, 0, 95, 190]) paint(0.35, 70, 0xf2c230, x, -30);
+    paint(300, 0.35, 0xf2c230, 0, -62);
+    // the terminal behind you: long and glassy, with the gate's door
+    const glass = this.glow(
+      new THREE.MeshStandardMaterial({ color: 0x5f8fa8, roughness: 0.2, metalness: 0.3 }),
+      0.9,
+      0xffd9a0,
+    );
+    b.box(320, 12, 14, glass, 0, 0, 30);
+    b.box(322, 1.2, 15, mat(0xe9e4d8), 0, 12, 30);
+    for (let x = -150; x <= 150; x += 10) b.box(0.4, 12, 0.4, mat(0xd9dde0), x, 0, 22.8);
+    b.box(4, 3.2, 0.3, mat(0x1b2026), 0, 0, 22.9); // the gate door
+    const gateSign = label("Gate 3 · IlmAir · Boarding", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
+    gateSign.position.set(0, 4.4, 22.4);
+    g.add(gateSign);
+    // jet bridges on the far stands, reaching out from the terminal
+    for (const x of [-95, 95, -190, 190]) {
+      b.box(3, 2.6, 30, mat(0xc9ced2), x, 6.2, 6);
+      b.box(1, 6.2, 1, mat(0x8a939b), x, 0, -2);
+    }
+
+    // a plane at a stand: nose to the east, its front door facing the terminal
+    const parked = (
+      x: number,
+      z: number,
+      stripe: number,
+      name: string,
+      ink: string,
+      ry = Math.PI / 2,
+    ) => {
+      const P = airliner(stripe, name, ink);
+      P.scale.setScalar(S);
+      P.rotation.y = ry;
+      // the body sits on its landing gear
+      P.position.set(x, 0, z);
+      P.position.y = 1.2;
+      P.updateMatrixWorld(true);
+      return P;
+    };
+    // your plane at stand 3, right in front of the gate
+    const mine = parked(-8.3 * S, -12 - R, 0x1f3d5a, "IlmAir  ✈  علم للطيران", "#1f3d5a");
+    g.add(mine);
+    this.minePlane = mine;
+    const bodyY = 1.2 + 2.6 * S; // the middle of the body
+    const doorY = bodyY - 1.1; // the door sill
+    const doorZ = -12; // the side of the body facing the terminal
+    // landing gear under every plane: legs and wheels
+    const gear = (P: THREE.Object3D) => {
+      for (const [lx, lz] of [
+        [-2.6, -1],
+        [2.6, -1],
+        [0, 9],
+      ]) {
+        const v = new THREE.Vector3(lx, 0, lz).applyMatrix4(
+          new THREE.Matrix4().makeRotationY(P.rotation.y),
+        );
+        const wx = P.position.x + v.x * S,
+          wz = P.position.z + v.z * S;
+        b.add(new THREE.CylinderGeometry(0.25, 0.25, bodyY - R * 0.8, 8), mat(0x9aa0a6), wx, (bodyY - R * 0.8) / 2, wz);
+        for (const d of [-0.5, 0.5]) {
+          const w = new THREE.CylinderGeometry(0.7, 0.7, 0.45, 12);
+          w.rotateZ(Math.PI / 2);
+          w.rotateY(P.rotation.y);
+          b.add(w, mat(0x1b1d20), wx + Math.sin(P.rotation.y + Math.PI / 2) * d, 0.7, wz + Math.cos(P.rotation.y + Math.PI / 2) * d);
+        }
+      }
+    };
+    gear(mine);
+    // the open door with its light, and the steps up to it
+    b.box(1.6, 2.3, 0.3, mat(0x1b2026), 0, doorY, doorZ - 0.1);
+    const cabinGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.1), this.lampMat);
+    cabinGlow.position.set(0, doorY + 1.08, doorZ + 0.08);
+    g.add(cabinGlow);
+    b.box(1.4, 2.2, 0.15, mat(0xf4f6f8), -1.5, doorY + 0.05, doorZ + 0.25);
+    // the stairs truck: white steps rising from the tarmac to the door, rails both sides
+    const SL = 9; // its length on the ground
+    const st = { z0: doorZ + 0.4 + SL, z1: doorZ + 0.4 };
+    this.airStairs = { x: 0, z0: st.z0, z1: st.z1, h: doorY };
+    const steps = 16;
+    for (let i = 0; i < steps; i++) {
+      const f = (i + 1) / steps;
+      b.box(2, 0.12, SL / steps + 0.05, mat(0xd9dde0), 0, f * doorY - 0.12, st.z0 - f * SL + SL / steps / 2);
+      b.box(2, f * doorY - 0.12, 0.08, mat(0xb9bfc4), 0, 0, st.z0 - f * SL);
+    }
+    const slope = Math.atan2(doorY, SL);
+    for (const sx of [-1.05, 1.05]) {
+      const rail = new THREE.BoxGeometry(0.08, 0.08, Math.hypot(SL, doorY));
+      rail.rotateX(slope);
+      b.add(rail, mat(0x2f8f63), sx, doorY / 2 + 1.05, (st.z0 + st.z1) / 2);
+      for (let i = 0; i <= 4; i++) {
+        const f = i / 4;
+        b.box(0.07, 1, 0.07, mat(0x2f8f63), sx, f * doorY, st.z0 - f * SL);
+      }
+    }
+    // the platform at the top, and the little truck the steps stand on
+    b.box(2.2, 0.15, 1.4, mat(0xd9dde0), 0, doorY - 0.15, st.z1 + 0.5);
+    // the truck under the steps, its cab beside them
+    b.box(2.4, 0.9, SL - 2, mat(0xf2f2ee), 0, 0, (st.z0 + st.z1) / 2 - 0.5);
+    b.box(2.2, 1.8, 3, mat(0x1f6f63), 2.5, 0, st.z0 - 2);
+    const stairsSign = label("✈ IA · Board here", { size: 0.6, bg: "rgba(31,61,90,0.92)" });
+    stairsSign.position.set(-2.4, 3.2, st.z0 + 0.5);
+    g.add(stairsSign);
+    // the crew member at the top, welcoming you aboard
+    const crew = person(0x1f3d5a, { hijab: 0xe6b84a, seed: 5 });
+    crew.position.set(0.5, doorY, doorZ + 1);
+    crew.rotation.y = 0.2;
+    g.add(crew);
+    this.terminalStaff.push(crew);
+    // other passengers walking out to the plane with you
+    for (let i = 0; i < 5; i++) {
+      const female = i % 2 === 1;
+      const p = person([0xf4f1ea, 0x2f4a7a, 0x6d4a2b, 0x1d1f22, 0x7d2f3a][i], {
+        seed: 40 + i,
+        ...(female ? { hijab: [0x1d1f22, 0x2f6f4f][i % 2] } : {}),
+      });
+      p.position.set(i % 2 ? -0.6 : 0.6, 0, 6 - i * 3.2);
+      p.rotation.y = Math.PI;
+      g.add(p);
+    }
+
+    // parked planes in the colours of other (made-up) airlines, at every stand and beyond
+    const fleet: [number, string, string][] = [
+      [0x1d6b3a, "Haramain Air  ·  طيران الحرمين", "#1d6b3a"],
+      [0xc9a227, "Sahara Wings", "#8a6a1c"],
+      [0x7d2f3a, "Oasis Airways", "#7d2f3a"],
+      [0x2c6db0, "Crescent Air", "#2c6db0"],
+      [0x1f3d5a, "IlmAir  ✈  علم للطيران", "#1f3d5a"],
+      [0x2f8f83, "Nakhla Air", "#2f8f83"],
+    ];
+    // (a plane is 70 m long, so the stands are 95 m apart)
+    const stands: [number, number, number][] = [
+      [-95, -12 - R, Math.PI / 2],
+      [95, -12 - R, Math.PI / 2],
+      [-190, -12 - R, Math.PI / 2],
+      [190, -12 - R, Math.PI / 2],
+      [-130, -98, Math.PI / 2],
+      [-40, -98, Math.PI / 2],
+      [50, -98, Math.PI / 2],
+      [140, -98, Math.PI / 2],
+    ];
+    stands.forEach(([x, z, ry], i) => {
+      const [c, n, ink] = fleet[i % fleet.length];
+      const P = parked(x - (ry === Math.PI / 2 ? 8.3 * S : 0), z, c, n, ink, ry);
+      b.addObject(P);
+      gear(P);
+    });
+    // ground crew, bag carts and a tug at your plane, a fuel truck, a catering lift
+    b.box(2.4, 1.2, 1.6, mat(0xf2c230), -24, 0, -6);
+    for (let i = 0; i < 3; i++) {
+      b.box(2.2, 0.5, 1.4, mat(0x8a939b), -21 + i * 2.6, 0.4, -6);
+      b.box(1.8, 0.7, 1.1, mat([0x3a3f46, 0x7d2f3a, 0x2f4a7a][i]), -21 + i * 2.6, 0.9, -6);
+    }
+    b.box(7, 2.6, 2.6, mat(0xf4f4f0), 24, 0, -4);
+    b.box(2.2, 2.4, 2.6, mat(0x1f6f63), 28.6, 0, -4);
+    b.box(4, 2.2, 2.6, mat(0xf4f4f0), -32, 2.2, -10); // catering box raised to the back door
+    b.box(4, 2.2, 2.6, mat(0x55585c), -32, 0, -10);
+    for (const [x, z, r] of [
+      [-18, -5, 0.4],
+      [-26, -8, 2.4],
+      [20, -7, -0.6],
+      [6, -4, 1.2],
+    ]) {
+      const w = person(0xf28a1e, { cap: 0xf28a1e, seed: Math.round(x * 3) });
+      w.position.set(x, 0, z);
+      w.rotation.y = r;
+      g.add(w);
+    }
+    // the runway beyond, for take-off and landing
+    b.box(700, 0.04, 30, mat(0x3c4044), 0, 0.01, -150);
+    for (let x = -340; x < 340; x += 14) b.box(6, 0.04, 0.5, mat(0xf4f4f0), x, 0.05, -150);
+    for (const z of [-164, -136]) b.box(700, 0.04, 0.4, mat(0xf4f4f0), 0, 0.05, z);
+    for (const m of b.build()) g.add(m);
+    const show = airliner(0x1f3d5a);
+    show.scale.setScalar(S);
+    show.visible = false;
+    g.add(show);
+    this.showPlane = show;
+    this.showBase = { x: o.x, y: o.y, z: o.z - 150 };
+    // the control tower
+    const tower = cyl(2.2, 2.6, 30, 0xe9e4d8, 10);
+    tower.position.set(-80, 15, -230);
+    g.add(tower);
+    const cab = cyl(5, 4, 4, 0x2a3a44, 10);
+    cab.position.set(-80, 32, -230);
+    g.add(cab);
+    // keep to the walkway: the terminal behind, the plane ahead, the apron edges
+    this.addCollider("jetbridge", o.x - 40, o.x + 40, o.z + 22.6, o.z + 50);
+    this.addCollider("jetbridge", o.x - 40, o.x - 6, o.z - 60, o.z + 40);
+    this.addCollider("jetbridge", o.x + 6, o.x + 40, o.z - 60, o.z + 40);
+    this.addCollider("jetbridge", o.x - 40, o.x + 40, o.z - 60, o.z + st.z0 - 0.6);
+    this.zones.push({
+      id: "planedoor",
+      label: "Climb the steps and board",
+      x: o.x,
+      z: o.z + st.z0 + 0.8,
+      r: 1.8,
+      scene: "jetbridge",
+    });
+    this.zones.push({
+      id: "jetback",
+      label: "Back to the gate",
+      x: o.x,
+      z: o.z + 21.4,
+      r: 1.2,
+      scene: "jetbridge",
+    });
+  }
+  private minePlane: THREE.Object3D | null = null;
+  private airStairs: { x: number; z0: number; z1: number; h: number } | null = null;
+  private climb: { t: number; dur: number; done: () => void } | null = null;
+  /** Walk up the steps to the plane's door; `done` when you're at the top. */
+  climbStairs(done: () => void) {
+    if (this.where !== "jetbridge" || !this.airStairs) return false;
+    const o = this.interiorOrigin.jetbridge;
+    this.player.position.set(o.x + this.airStairs.x, 0, o.z + this.airStairs.z0 + 0.3);
+    this.player.rotation.y = Math.PI;
+    this.climb = { t: 0, dur: 3.4, done };
+    return true;
+  }
+  private stepClimb(dt: number) {
+    const c = this.climb!;
+    const st = this.airStairs!;
+    const o = this.interiorOrigin.jetbridge;
+    c.t += dt;
+    const f = Math.min(1, c.t / c.dur);
+    this.player.position.set(
+      o.x + st.x,
+      f * st.h,
+      o.z + st.z0 + 0.3 + (st.z1 - 0.8 - st.z0 - 0.3) * f,
+    );
+    this.player.rotation.y = Math.PI;
+    animatePerson(this.player, c.t * 7, 1, 2);
+    if (f >= 1) {
+      this.climb = null;
+      animatePerson(this.player, 0, 0);
+      this.player.position.y = 0;
+      c.done();
+    }
+  }
+
   private buildAirport() {
     // The terminal: check-in desks at the back, a security arch, seats, and the gate
     {
@@ -9822,6 +12924,49 @@ export class IlmCityEngine {
         }
       this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 2.6, o.z + 3.4);
       this.addCollider("terminal", o.x - 14.5, o.x - 8.5, o.z + 5.6, o.z + 6.4);
+      // more seats by the gate, and passengers waiting in most of them with their bags
+      for (let k = 0; k < 6; k++) {
+        const st = new THREE.Group();
+        st.add(B(0.8, 0.5, 0.8, 0x2f6fb0, 0, 0, 0), B(0.8, 0.7, 0.12, 0x2f6fb0, 0, 0.5, -0.35));
+        st.position.set(8 + k, 0, 8.6);
+        g.add(st);
+      }
+      this.addCollider("terminal", o.x + 7.5, o.x + 13.5, o.z + 8.2, o.z + 9);
+      this.termSeats = [];
+      for (let r = 0; r < 2; r++)
+        for (let k = 0; k < 6; k++) this.termSeats.push({ x: -14 + k, z: 3 + r * 3, taken: false });
+      for (let k = 0; k < 6; k++) this.termSeats.push({ x: 8 + k, z: 8.6, taken: false });
+      this.termSeats.forEach((seat, i) => {
+        if (i % 3 === 1 || i === 15) return; // empty seats to sit in
+        seat.taken = true;
+        const female = i % 2 === 0;
+        const p = person([0xf4f1ea, 0x2f4a7a, 0x6d4a2b, 0x2f6f4f, 0x1d1f22, 0x7d2f3a][i % 6], {
+          seed: i + 20,
+          ...(female ? { hijab: [0x1d1f22, 0x2f6f4f, 0x7d2f3a, 0xf4f1ea][i % 4] } : {}),
+        });
+        p.position.set(seat.x, 0, seat.z);
+        p.userData.indoors = true;
+        g.add(p);
+        poseHuman(p, "chair");
+        // a cabin bag by their feet
+        g.add(B(0.4, 0.55, 0.25, [0x3a3f46, 0x7d2f3a, 0x2f4a7a][i % 3], seat.x + 0.55, 0, seat.z + 0.3));
+      });
+      this.zones.push({
+        id: "termseat",
+        label: "Sit and wait",
+        x: o.x - 11,
+        z: o.z + 4.5,
+        r: 2.6,
+        scene: "terminal",
+      });
+      this.zones.push({
+        id: "termseat",
+        label: "Sit and wait",
+        x: o.x + 10.5,
+        z: o.z + 7.2,
+        r: 2.2,
+        scene: "terminal",
+      });
       // the gate: a glass wall with the plane outside, and the boarding desk
       const glass = new THREE.Mesh(
         new THREE.PlaneGeometry(12, 4.4),
@@ -9830,10 +12975,19 @@ export class IlmCityEngine {
       glass.rotation.y = -Math.PI / 2;
       glass.position.set(19.75, 2.4, 4);
       g.add(glass);
-      const outsidePlane = planeMesh(0x1f3d5a);
-      outsidePlane.scale.setScalar(0.55);
-      outsidePlane.position.set(26, 0, 4);
+      // outside the gate window: the tarmac, your plane and the jet bridge out to its door
+      const apron = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), mat(0x6b6f72));
+      apron.rotation.x = -Math.PI / 2;
+      apron.position.set(55, 0.01, 4);
+      g.add(apron);
+      g.add(box(0.4, 0.04, 60, 0xf2c230, 36, 0.03, 4));
+      const outsidePlane = airliner(0x1f3d5a);
+      outsidePlane.scale.setScalar(1.1);
+      outsidePlane.position.set(37, 0, -2);
       g.add(outsidePlane);
+      // the jet bridge: a tube on legs from the gate to the front door
+      g.add(box(13.5, 2.4, 2.6, 0xc9ced2, 26.9, 2.2, 7.2));
+      for (const x of [24, 30]) g.add(box(0.4, 2.2, 0.4, 0x8a939b, x, 0, 7.2));
       const gd = new THREE.Group();
       gd.add(B(2.4, 1.1, 0.9, 0x1f3d5a, 0, 0, 0));
       gd.position.set(15.5, 0, 8.5);
@@ -9854,6 +13008,7 @@ export class IlmCityEngine {
         scene: "terminal",
       });
     }
+    this.buildJetBridge();
     // The cabin: a long aisle between rows of seats, windows on both sides, the galley at
     // the front. Business class is the first four rows.
     {
@@ -9927,6 +13082,27 @@ export class IlmCityEngine {
       }
       // the galley at the front
       g.add(B(W - 0.6, 1.2, 1.4, 0xd9dde0, 0, 0, -D / 2 + 1.2));
+      // the big screen on the front wall and a little one in the back of every seat: the
+      // captain's welcome, the safety notice, the map of the flight
+      const cv = document.createElement("canvas");
+      cv.width = 1024;
+      cv.height = 576;
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const scrM = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
+      const big = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.03), scrM);
+      big.position.set(0, 2.75, -D / 2 + 0.25);
+      g.add(big);
+      g.add(B(3.8, 2.2, 0.08, 0x111317, 0, 1.64, -D / 2 + 0.2));
+      const backs: THREE.BufferGeometry[] = [];
+      for (const st of this.cabinSeats) {
+        const q = new THREE.PlaneGeometry(st.business ? 0.62 : 0.5, st.business ? 0.36 : 0.29);
+        q.translate(st.x, 1.32, st.z + 0.56);
+        backs.push(q);
+      }
+      g.add(new THREE.Mesh(mergeGeometries(backs)!, scrM));
+      this.cabinScreen = { canvas: cv, tex };
+      this.setCabinScreen({ title: "Welcome aboard", lines: ["IlmAir · علم للطيران"] });
       const tag = label("IlmAir", { size: 0.7, bg: "rgba(31,61,90,0.92)" });
       tag.position.set(0, 3.6, -D / 2 + 1);
       g.add(tag);
@@ -10617,6 +13793,94 @@ export class IlmCityEngine {
     );
     return { seat: s, label: `${row}${"ABCDEF"[xs.indexOf(s.x)]}` };
   }
+  private cabinScreen: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture } | null = null;
+  /** What the screens on the plane show: a title, a few lines, and the map of the flight. */
+  setCabinScreen(s: {
+    title: string;
+    lines?: string[];
+    flight?: string;
+    from?: string;
+    to?: string;
+    progress?: number;
+  }) {
+    const sc = this.cabinScreen;
+    if (!sc) return;
+    const c = sc.canvas.getContext("2d")!;
+    const W = sc.canvas.width,
+      H = sc.canvas.height;
+    const bg = c.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#14304a");
+    bg.addColorStop(1, "#0b1a2a");
+    c.fillStyle = bg;
+    c.fillRect(0, 0, W, H);
+    // the top bar
+    c.fillStyle = "#e6b84a";
+    c.fillRect(0, 0, W, 64);
+    c.fillStyle = "#14304a";
+    c.font = '800 38px "Work Sans", Arial, sans-serif';
+    c.textBaseline = "middle";
+    c.textAlign = "left";
+    c.fillText("✈ IlmAir", 28, 33);
+    c.textAlign = "right";
+    c.font = '700 30px "Work Sans", Arial, sans-serif';
+    c.fillText(s.flight ?? "", W - 28, 33);
+    // the title and the lines
+    c.textAlign = "center";
+    c.fillStyle = "#ffffff";
+    c.font = '800 64px "Work Sans", Arial, sans-serif';
+    const map = s.progress !== undefined && s.from && s.to;
+    c.fillText(s.title, W / 2, map ? 128 : 190, W - 60);
+    c.font = '600 34px "Work Sans", Arial, sans-serif';
+    c.fillStyle = "#cfe3ef";
+    (s.lines ?? []).forEach((l, i) => c.fillText(l, W / 2, (map ? 182 : 270) + i * 48, W - 60));
+    if (map) {
+      // the route: from the left dot to the right one over the desert, the plane on it
+      const y0 = 420,
+        x0 = 150,
+        x1 = W - 150;
+      c.fillStyle = "#6b5a3e";
+      c.fillRect(40, 300, W - 80, 230);
+      c.fillStyle = "#c9a46f";
+      c.fillRect(44, 304, W - 88, 222);
+      const at = (t: number) => [x0 + (x1 - x0) * t, y0 - Math.sin(t * Math.PI) * 70];
+      c.strokeStyle = "rgba(20,48,74,0.5)";
+      c.setLineDash([14, 10]);
+      c.lineWidth = 5;
+      c.beginPath();
+      for (let t = 0; t <= 1.001; t += 0.05) {
+        const [x, y] = at(t);
+        if (t === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.stroke();
+      c.setLineDash([]);
+      c.strokeStyle = "#14304a";
+      c.beginPath();
+      const p = Math.max(0, Math.min(1, s.progress!));
+      for (let t = 0; t <= p + 0.001; t += 0.02) {
+        const [x, y] = at(Math.min(t, p));
+        if (t === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.stroke();
+      for (const [t, name] of [
+        [0, s.from!],
+        [1, s.to!],
+      ] as [number, string][]) {
+        const [x, y] = at(t);
+        c.fillStyle = "#14304a";
+        c.beginPath();
+        c.arc(x, y, 12, 0, Math.PI * 2);
+        c.fill();
+        c.font = '800 32px "Work Sans", Arial, sans-serif';
+        c.fillText(name, x, y + 44);
+      }
+      const [px, py] = at(p);
+      c.font = "56px sans-serif";
+      c.fillText("✈", px, py - 6);
+    }
+    sc.tex.needsUpdate = true;
+  }
   /** Board: your seat, the other passengers, the crew in the aisle. */
   enterCabin(business: boolean, n = 0) {
     const o = this.interiorOrigin.cabin;
@@ -10732,6 +13996,9 @@ export class IlmCityEngine {
         ? new THREE.Vector3(ax, portrait ? 7 : 5.5, portrait ? 7.5 : 6.5)
         : new THREE.Vector3(ax, portrait ? 8 : 6, portrait ? 9 : 7.5);
     }
+    // down the jet bridge: low behind you, looking along the tunnel to the plane's door
+    if (this.where === "jetbridge")
+      return portrait ? new THREE.Vector3(0, 5.5, 10) : new THREE.Vector3(0, 4.4, 9);
     if (this.where !== "out" && !this.cine)
       return portrait ? new THREE.Vector3(0, 17, 15) : new THREE.Vector3(0, 13, 13);
     const { d, h } = this.camDist();
@@ -11228,6 +14495,18 @@ export class IlmCityEngine {
   /** Do something at home that you can see: lie in bed, sit on the sofa or at the table, cook,
       or use the laptop. Returns false when you aren't at home. */
   homeAct(what: "sleep" | "sofa" | "eat" | "cook" | "laptop" | "tv") {
+    if (this.where === "hotelroom" && what === "sleep") {
+      const o = this.interiorOrigin.hotelroom;
+      this.homeActEnd();
+      const back = { x: this.player.position.x, z: this.player.position.z, rot: this.player.rotation.y };
+      this.tapTarget = null;
+      this.marker.visible = false;
+      this.player.position.set(o.x - 2.5, 1.1, o.z - 2.4);
+      this.player.rotation.set(-Math.PI / 2, 0, 0);
+      if (this.hotelCover) this.hotelCover.visible = true;
+      this.acting = { ...back, scene: this.where };
+      return true;
+    }
     if (this.where !== "home") return false;
     const o = this.interiorOrigin.home;
     this.homeActEnd();
@@ -11278,9 +14557,11 @@ export class IlmCityEngine {
     this.player.rotation.set(0, b.rot, 0);
     this.player.position.set(b.x, 0, b.z);
     if (this.sleepCover) this.sleepCover.visible = false;
+    if (this.hotelCover) this.hotelCover.visible = false;
     if (this.cookSteam) this.cookSteam.visible = false;
     if (this.eatPlate) this.eatPlate.visible = false;
   }
+  private hotelCover: THREE.Object3D | null = null;
   private stepActing(t: number) {
     // the road going by outside the bus windows
     if (this.where === "coach") for (const tx of this.coachViews) tx.offset.x = (t * 0.12) % 1;
@@ -11550,6 +14831,7 @@ export class IlmCityEngine {
     else if (this.driving) this.drive(v, dt);
     else if (this.kekeTrip) this.stepKeke(dt);
     else if (this.pathWalk) this.stepPath(dt);
+    else if (this.climb) this.stepClimb(dt);
     else if (this.acting) this.stepActing(t);
     else if (!this.riding) this.walk(v, dt, t);
 
@@ -11568,6 +14850,7 @@ export class IlmCityEngine {
     this.stepJob(dt, performance.now() / 1000);
     this.stepTraffic(dt);
     this.stepTawaf(dt);
+    if (this.ringCars.length) this.stepRingCars(dt);
     this.stepRemotes(dt);
     tickHumans(dt, this.camera);
     // only draw areas near the camera
@@ -11710,8 +14993,15 @@ export class IlmCityEngine {
     }
     const target = this.camTarget();
     const want = target.clone().add(this.camOffset());
-    this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
-    this.camera.lookAt(target.x, this.preview ? 0.2 : this.where === "out" ? 1.6 : 1, target.z);
+    if (this.show) this.stepShow(dt);
+    else {
+      this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
+      this.camera.lookAt(
+        target.x,
+        (this.preview ? 0.2 : this.where === "out" ? 1.6 : 1) + (this.driving ? target.y : 0),
+        target.z,
+      );
+    }
     this.sun.target.position.set(target.x, 0, target.z);
     this.sky?.position.set(this.camera.position.x, 0, this.camera.position.z);
     const sunDir =
@@ -11816,13 +15106,15 @@ export class IlmCityEngine {
     }
 
     // place name
-    let place = "Lagos";
+    const cityName =
+      WORLD_CITIES.find((w) => w.id === cityOf(this.district))?.name ?? "Madinah";
+    let place = cityName;
     const area = this.areaAt(pos.x, pos.z);
     if (area && area.id !== this.district.id) this.district = area;
     if (this.where !== "out") place = this.interiorName || place;
     else if (area) {
       place = `${area.name}${this.phaseOf(area.id) > 1 ? ` (Phase ${this.phaseOf(area.id)})` : ""}, ${area.state}`;
-    } else place = this.roadAt(pos.x, pos.z) ?? "Lagos";
+    } else place = this.roadAt(pos.x, pos.z) ?? cityName;
     if (place !== this.place) {
       this.place = place;
       this.ev.onPlace(place);
@@ -11910,17 +15202,21 @@ export class IlmCityEngine {
     this.carHeading -= v.x * 1.9 * grip * Math.sign(this.carSpeed || 1) * dt;
     const nx = this.car.position.x + Math.cos(this.carHeading) * this.carSpeed * dt;
     const nz = this.car.position.z - Math.sin(this.carHeading) * this.carSpeed * dt;
-    const crash = this.hitsTraffic(nx, nz);
-    if (this.free(nx, nz, 1.8) && !crash) {
+    // up the ramps and round the ring deck: the road can be above the ground
+    const sh = this.flyovers.length ? this.surfaceAt(nx, nz, this.car.position.y) : 0;
+    const up = sh !== null && (sh > 1 || this.onRamp);
+    const crash = !up && this.hitsTraffic(nx, nz);
+    if (sh !== null && (up || this.free(nx, nz, 1.8)) && !crash) {
       this.car.position.x = nx;
       this.car.position.z = nz;
+      this.car.position.y = sh;
     } else {
       // smashing into another vehicle at speed is an accident
       if (crash && Math.abs(this.carSpeed) > 9) this.incident("crash");
       this.carSpeed *= -0.3;
     }
     this.car.rotation.y = this.carHeading;
-    this.player.position.set(this.car.position.x, 0, this.car.position.z);
+    this.player.position.set(this.car.position.x, this.car.position.y, this.car.position.z);
     // knocking down someone on foot
     if (Math.abs(this.carSpeed) > 6) {
       const cx = this.car.position.x,
@@ -12127,7 +15423,22 @@ export class IlmCityEngine {
     this.showOutside(this.where === "out");
     const c = this.clock;
     if (!c) return;
+    if (this.show) return; // watching the plane outside: keep the sky
     if (this.sky) this.sky.visible = this.where === "out";
+    if (this.where === "jetbridge") {
+      // the glass bridge: the sky and the tarmac outside, day or night
+      const dk = darkness(c);
+      const sky = new THREE.Color(0x9fd3e8).lerp(new THREE.Color(0x0e1a33), dk);
+      this.sun.castShadow = false;
+      this.sun.intensity = 2 * (1 - dk) + 0.4;
+      this.sun.color.set(0xffe8c8);
+      this.hemi.intensity = 1.2 - dk * 0.4;
+      this.hemi.color.set(0xdde9f2);
+      this.scene.background = sky;
+      (this.scene.fog as THREE.Fog).color.copy(sky);
+      this.lampMat.emissiveIntensity = dk * 2.6;
+      return;
+    }
     if (this.where !== "out") {
       this.sun.castShadow = false;
       this.sun.intensity = 0.5;
@@ -12178,7 +15489,11 @@ export class IlmCityEngine {
     this.hemi.intensity = 1.15 - dk * 0.55;
     this.hemi.color.set(0xdde9f2).lerp(new THREE.Color(0x6a7fb8), dk);
     this.winMat.emissiveIntensity = dk * 1.6;
-    this.lampMat.emissiveIntensity = dk * 2.2;
+    this.lampMat.emissiveIntensity = dk * 2.6;
+    this.poolMat.opacity = dk * 0.75;
+    this.dkNow = dk;
+    for (const n of this.nightGlow) n.m.emissiveIntensity = dk * n.k;
+    this.haramLight.intensity = this.holy.kaaba ? Math.min(1, dk * 1.5) * 2.6 : 0;
   }
 }
 

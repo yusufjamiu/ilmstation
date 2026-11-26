@@ -30,6 +30,7 @@ import {
   startPayment,
   type WalletDoc,
   type WalletNet,
+  type MoneyResult,
 } from "./wallet";
 import { PACKS } from "./packs";
 import { housePrice, r10 } from "./prices";
@@ -110,9 +111,13 @@ import {
   AD_EMAIL,
   BILLBOARDS,
   BUS_FARE,
+  TAXI_FARE,
   WORLD_CITIES,
   DEFAULT_AREA,
   cityLive,
+  BRANDS,
+  cafeName,
+  eateryName,
   hostelInfo,
   INTERCITY,
   TRAIN_LOCAL,
@@ -162,7 +167,7 @@ import {
   eateryPrice,
   type Dish,
   POLICE,
-  UNIVERSITIES,
+
   facultiesOf,
   facultyQuestions,
   type FoundKind,
@@ -226,6 +231,10 @@ type Save = {
   homeArea?: string;
   /** the family house (rich family) */
   homePlot?: string;
+  /** tonight's hotel room: the hotel and when the booking ends */
+  hotelStay?: { hotel: string; room: number; until: number };
+  /** your company's office in a business tower: open it each day to earn */
+  office?: { tower: string; name: string; size: "small" | "big"; floor: number; until: number; opened?: string };
   /** in class, other students don't see your name */
   classHidden?: boolean;
   /** your room in an MSSN hostel (free while you're a student there): its door's id */
@@ -561,19 +570,25 @@ function ilmLevel(ilm: number) {
   while (i + 1 < ILM_LEVELS.length && ilm >= ILM_LEVELS[i + 1].min) i++;
   return { ...ILM_LEVELS[i], i, next: ILM_LEVELS[i + 1] ?? null };
 }
-type LifePath = "rich" | "worker" | "trader";
+type LifePath = "rich" | "worker" | "trader" | "student";
 const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] = [
+  {
+    id: "student",
+    icon: "🎓",
+    name: "Student",
+    text: "Study at the Islamic University of Madinah: classes in your faculty, questions and friends on campus.",
+  },
   {
     id: "worker",
     icon: "💼",
-    name: "9-to-5 worker",
-    text: "A flat in the estate and a job with a daily salary: teacher, developer, Hajj consultant…",
+    name: "Worker",
+    text: "A job with a daily salary: teacher, developer, decorator, barista at Half Million, AlBaik crew…",
   },
   {
     id: "trader",
     icon: "🏪",
     name: "Trader",
-    text: "A flat and your first shop free for a week. Add products, then collect your sales.",
+    text: "Your first shop is free for a week. Add products, then collect your sales.",
   },
 ];
 /** Who teaches at a masjid or madrasah: the sheikh its street is named after. */
@@ -1087,6 +1102,33 @@ function CityGame({
   /** your plane ticket, from buying it to landing: check in, security, board */
   const ticketRef = useRef<Ticket | null>(null);
   const [flight, setFlight] = useState<Ticket | null>(null);
+  // the map on the plane's screens: the little plane moves along the route as you fly
+  const flightStart = useRef(0);
+  useEffect(() => {
+    if (!flight) return;
+    const id = setInterval(() => {
+      if (!flightStart.current) return;
+      const p = Math.min(0.92, (Date.now() - flightStart.current) / 60000);
+      engine.current?.setCabinScreen({
+        title: p < 0.15 ? "Climbing" : "Cruising",
+        lines: [`${Math.round(36000 * Math.min(1, p * 4))} ft · ${Math.round(Math.min(1, p * 5) * 840)} km/h`],
+        flight: flight.flight,
+        from: flight.fromName,
+        to: flight.destName,
+        progress: p,
+      });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [flight]);
+  // the departures board keeps its times and statuses up to date while you're in the terminal
+  useEffect(() => {
+    const id = setInterval(() => {
+      const e = engine.current,
+        t = ticketRef.current;
+      if (e && t && e.scenePlace() === "terminal") e.setDepartures(boardLines(t.from, t));
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
   const busRef = useRef<BusTrip | null>(null);
   const [busTrip, setBusTrip] = useState<BusTrip | null>(null);
   const talkingRef = useRef<number | null>(null);
@@ -1236,6 +1278,26 @@ function CityGame({
       });
     },
     [toast, syncCoins],
+  );
+  /** An announcement on the plane or in the terminal: on the screen, in a banner, and spoken. */
+  const announce = useCallback(
+    (who: string, text: string) => {
+      toast(`🎙️ ${who}: "${text}"`);
+      try {
+        const sy = window.speechSynthesis;
+        if (!sy) return;
+        sy.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-GB";
+        u.rate = 0.98;
+        const v = sy.getVoices().find((x) => x.lang.startsWith("en-GB")) ?? sy.getVoices()[0];
+        if (v) u.voice = v;
+        sy.speak(u);
+      } catch {
+        /* no voice on this device */
+      }
+    },
+    [toast],
   );
   const walletDoc = useRef<WalletDoc | null>(null);
   /** hand over what a bought pack gives besides money (set further down) */
@@ -1623,16 +1685,19 @@ function CityGame({
     [update, toast, openMeal],
   );
   const openFood = useCallback(
-    (where: "order" | "eatery", phone = false) => {
+    (where: "order" | "eatery", phone = false, brand?: string) => {
+      const here = engine.current?.districtId() ?? DEFAULT_AREA;
       setPanel({
         kind: "info",
         phone: phone ? { home: () => openPhoneRef.current() } : undefined,
         title:
           where === "order"
             ? "IlmDash · order food"
-            : engine.current?.scenePlace() === "restaurant"
-              ? "Al-Ma'idah Restaurant · menu"
-              : "Al-Barakah Broast · eatery",
+            : brand
+              ? `${brand} · menu`
+              : engine.current?.scenePlace() === "restaurant"
+                ? `${cafeName(here)} · menu`
+                : `${eateryName(here)} · eatery`,
         body: (
           <FoodView
             where={where}
@@ -2336,9 +2401,18 @@ function CityGame({
 
   /** Ride to another area (bus fare, or free in your car); optionally walk to a place on arrival. */
   const startTrip = useCallback(
-    (to: string, byCar: boolean, then?: string, byTrain = false) => {
+    (
+      to: string,
+      byCar: boolean,
+      then?: string,
+      byTrain = false,
+      /** "taxi": a city taxi drives you there; "coach": the road coach, not the train */
+      mode?: "taxi" | "coach",
+    ) => {
       const e = engine.current;
       if (!e) return;
+      const taxi = mode === "taxi";
+      if (taxi) byCar = false;
       // on a bus: get off at the next stop first, then travel
       if (e.isRiding()) {
         e.getOffNext();
@@ -2356,7 +2430,10 @@ function CityGame({
         );
         return;
       }
-      const train = (far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain;
+      const train =
+        !taxi &&
+        mode !== "coach" &&
+        ((far && countryOf(districtById(to)) === "Saudi Arabia") || byTrain);
       // in your own car the trip uses petrol from the tank; with too little in it you buy
       // fuel on the way, which costs more than at a filling station
       const litres = far ? FUEL.far : FUEL.trip;
@@ -2367,8 +2444,11 @@ function CityGame({
       const sv0 = saveRef.current;
       const bikeNow = sv0.cycling ? bikeHere(sv0, here) : null;
       const bikeAlong = !!bikeNow && !bikeNow.hired && !far && !train && !!bikeHere(sv0, to);
-      const fare =
-        (byCar
+      const fare = taxi
+        ? far
+          ? TAXI_FARE.far
+          : TAXI_FARE.city
+        : (byCar
           ? fromTank
             ? 0
             : far
@@ -2390,7 +2470,7 @@ function CityGame({
       }
       if (!byCar && saveRef.current.coins < fare) {
         toast(
-          `The ${train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
+          `The ${taxi ? "taxi" : train ? "train" : far ? "inter-city bus" : "bus"} fare is ${N(fare)}. Earn money at work, a lecture or a quiz.`,
           "warn",
         );
         return;
@@ -2400,7 +2480,7 @@ function CityGame({
       const station = train && !byCar ? d.landmarks.find((l) => l.kind === "station") : undefined;
       arriveRef.current = () => {
         // by train you step off at the station; otherwise the bus or car drives in
-        if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar);
+        if (!station || !e.arriveAt(`station:${station.id}`)) e.travel(to, byCar, taxi);
         // ihram is worn in Saudi Arabia while a pilgrimage is under way, not back home
         {
           const sv1 = saveRef.current;
@@ -2449,7 +2529,7 @@ function CityGame({
       };
       const go = () => {
         // by bus you sit inside it, with the other passengers, while the road goes by
-        if (!byCar && !train) {
+        if (!byCar && !train && !taxi) {
           const seat = e.enterCoach(Math.floor(Math.random() * 1000));
           setInside(true);
           const bt = { from: here, to, toName: districtById(to).name, seat, far };
@@ -2457,7 +2537,7 @@ function CityGame({
           setBusTrip(bt);
           return;
         }
-        setTravelling({ from: here, to, byCar, train: train && !byCar });
+        setTravelling({ from: here, to, byCar: byCar || taxi, train: train && !byCar });
       };
       // Madinah to Makkah passes Dhul Hulayfah (Masjid Abyar Ali), the miqat of Madinah
       const sv2 = saveRef.current;
@@ -2508,9 +2588,97 @@ function CityGame({
   );
   const tripRef = useRef(startTrip);
   tripRef.current = startTrip;
+  /** In ihram at the miqat: on to Makkah by taxi to the airport and a flight to Jeddah, or by
+      the cheaper road coach straight to Makkah. */
+  const openToMakkah = useCallback(() => {
+    const e = engine.current;
+    if (!e) return;
+    const go = (fn: () => void) => {
+      setPanel(null);
+      if (e.scenePlace() !== "out") {
+        e.exitInterior();
+        setInside(false);
+      }
+      setTimeout(fn, 400);
+    };
+    const coins = saveRef.current.coins;
+    const canFly = coins >= TAXI_FARE.city + INTERCITY.fly + TAXI_FARE.city;
+    setPanel({
+      kind: "info",
+      title: "🕋 On to Makkah",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>
+            <b>Labbayk Allahumma 'Umrah.</b> Keep saying the talbiyah on the way. How will you
+            travel to Makkah?
+          </p>
+          <button
+            onClick={() =>
+              go(() => tripRef.current("madinahairport", false, "airport:madinah", false, "taxi"))
+            }
+            className={`w-full rounded-xl px-4 py-3 text-left font-bold text-white ${canFly ? "bg-[#1f6f63]" : "bg-[#1f6f63]/60"}`}
+          >
+            🚕 Taxi to Madinah Airport · {N(TAXI_FARE.city)}
+            <div className="text-[12px] font-normal opacity-90">
+              Then fly to Jeddah ({N(INTERCITY.fly)}) and take a taxi from Jeddah Airport to
+              Makkah ({N(TAXI_FARE.city)}). Fast.
+            </div>
+          </button>
+          <button
+            onClick={() => go(() => tripRef.current("haram", false, undefined, false, "coach"))}
+            className="w-full rounded-xl bg-[#c9a227] px-4 py-3 text-left font-bold text-[#10201e]"
+          >
+            🚌 Coach to Makkah · {N(INTERCITY.bus)}
+            <div className="text-[12px] font-normal opacity-90">
+              Cheaper: straight down the Hijrah Road to Makkah, about five hours.
+            </div>
+          </button>
+          {!canFly && (
+            <p className="text-[12px] opacity-70">
+              Flying costs about {N(TAXI_FARE.city * 2 + INTERCITY.fly)} in all. You have{" "}
+              {N(coins)}.
+            </p>
+          )}
+        </div>
+      ),
+    });
+  }, []);
+  const openToMakkahRef = useRef(openToMakkah);
+  openToMakkahRef.current = openToMakkah;
+  /** Landed at Jeddah: a taxi to Makkah waits outside arrivals. */
+  const openJeddahTaxi = useCallback(() => {
+    setPanel({
+      kind: "info",
+      title: "🚕 Taxi to Makkah",
+      body: (
+        <div className="space-y-3 text-[14px]">
+          <p>
+            Welcome to Jeddah. The taxis wait outside arrivals: about an hour to the Haram in
+            Makkah.
+          </p>
+          <button
+            onClick={() => tripRef.current("haram", false, "door:masjid:masjid-al-haram", false, "taxi")}
+            className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+          >
+            🚕 To Makkah · Al-Masjid Al-Haram · {N(TAXI_FARE.city)}
+          </button>
+          <button
+            onClick={() => setPanel(null)}
+            className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+          >
+            Not now
+          </button>
+        </div>
+      ),
+    });
+  }, []);
+  const openJeddahTaxiRef = useRef(openJeddahTaxi);
+  openJeddahTaxiRef.current = openJeddahTaxi;
   // for testing in development: start a trip from the browser console
   if (import.meta.env.DEV && typeof window !== "undefined")
     (window as unknown as { __trip?: typeof startTrip }).__trip = startTrip;
+  if (import.meta.env.DEV && typeof window !== "undefined")
+    (window as unknown as { __ticket?: typeof ticketRef }).__ticket = ticketRef;
   const openOutings = useCallback(
     (phone = false, tab = "now") => {
       const e = engine.current;
@@ -2527,6 +2695,25 @@ function CityGame({
             coins={saveRef.current.coins}
             has={(id) => !!engine.current?.hasZone(id)}
             tab0={tab}
+            flights={
+              <FlightsBook
+                from={cityOf(districtById(here))}
+                coins={saveRef.current.coins}
+                onBook={(dest, business, depAt) => {
+                  if (ticketRef.current) {
+                    toast(
+                      `You already have a ticket: ${ticketRef.current.flight} to ${ticketRef.current.destName} at ${hhmm(ticketRef.current.depAt)}.`,
+                      "warn",
+                    );
+                    return;
+                  }
+                  bookFlightRef.current(cityOf(districtById(here)), dest, business, {
+                    depAt,
+                    phone: true,
+                  });
+                }}
+              />
+            }
             onGo={(area, prefix) => {
               if (!prefix) {
                 if (area === here) toast("You are already here.");
@@ -2546,6 +2733,8 @@ function CityGame({
   );
   const openOutingsRef = useRef(openOutings);
   openOutingsRef.current = openOutings;
+  if (import.meta.env.DEV && typeof window !== "undefined")
+    (window as unknown as { __outings?: typeof openOutingsRef }).__outings = openOutingsRef;
 
   // new day resets the daily salah tracker
   useEffect(() => {
@@ -3393,6 +3582,168 @@ function CityGame({
     const p = saveRef.current.profile;
     if (p) engine.current?.setPlayerLook({ ...p, ihram: on && !p.female });
   }, []);
+  /** Buy a flight: at the airport you go straight into the terminal; on the phone (through
+      OutingStation) you get an e-ticket and make your own way to the airport in time. */
+  const bookFlightRef = useRef<
+    (city: string, dest: string, business: boolean, opts: { depAt?: number; phone?: boolean }) => void
+  >(() => {});
+  bookFlightRef.current = (
+    city: string,
+    dest: string,
+    business: boolean,
+    opts: { depAt?: number; phone?: boolean },
+  ) => {
+    const e = engine.current;
+    if (!e) return;
+          const price = flightPrice(city, dest, business);
+          if (saveRef.current.coins < price) {
+            setPanel({
+              kind: "info",
+              title: "Not enough money",
+              body: (
+                <NoPointsView
+                  price={price}
+                  points={saveRef.current.coins}
+                  onTopUp={() => openWalletRef.current("buy")}
+                />
+              ),
+            });
+            return;
+          }
+          const port = DISTRICTS.find(
+            (d) => cityOf(d) === dest && d.landmarks.some((l) => l.kind === "airport"),
+          );
+          if (!port) return;
+          setPanel(null);
+          update((x) => ({ ...x, coins: x.coins - price }));
+          const arrive = () => {
+            engine.current?.arriveAt("airport:" + dest);
+            setTravelling(null);
+            setDriving(false);
+            setInside(false);
+            update((x) => ({ ...x, district: port.id, pos: undefined }));
+            setArriving(
+              `${WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name} · ${port.name}`,
+            );
+            setTimeout(() => setArriving(null), 4500);
+          };
+          // into the terminal: check in, go through security, board at the gate. Everyone on
+          // the same route has the same flight number, so players flying together meet.
+          const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
+          const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
+          const no = flightNo(city, dest);
+          const depAt =
+            opts.depAt ?? departures(city, dest, Date.now() + 10 * 60000, 1)[0];
+          const seatN = Math.floor(Math.random() * 1000);
+          const open = (umrah: boolean) => {
+            setPanel(null);
+            ticketRef.current = {
+              from: city,
+              depAt,
+              dest,
+              destName,
+              fromName,
+              business,
+              flight: `IA ${no}`,
+              seat: e.seatFor(business, seatN).label,
+              seatN,
+              gate: "3",
+              step: "checkin",
+              umrah,
+              arrive: () => {
+                arrive();
+                if (umrah) {
+                  wearIhram(true);
+                  setTimeout(
+                    () =>
+                      toast(
+                        "Welcome to the Hajj Terminal! You are in ihram: go to Al-Masjid Al-Haram for tawaf.",
+                        "good",
+                      ),
+                    2500,
+                  );
+                }
+              },
+            };
+            if (opts.phone) {
+              // an e-ticket on your phone: now get to the airport before boarding
+              const portHere = DISTRICTS.find(
+                (d) => cityOf(d) === city && d.landmarks.some((l) => l.kind === "airport"),
+              );
+              setPanel({
+                kind: "info",
+                title: "🎫 Your e-ticket",
+                body: (
+                  <div className="space-y-3 text-[14px]">
+                    <p>
+                      <b>IA {no}</b> to <b>{destName}</b>, departing <b>{hhmm(depAt)}</b> from{" "}
+                      {fromName} Airport, Gate 3. Boarding opens at {hhmm(depAt - 8 * 60000)}.
+                      {umrah ? " Put on your ihram in the airport prayer room first." : ""}
+                    </p>
+                    <p className="text-[12.5px] opacity-70">
+                      Paid with OutingStation: −{N(price)}. Be at the airport in good time.
+                    </p>
+                    {portHere && portHere.id !== e.districtId() && (
+                      <button
+                        onClick={() =>
+                          tripRef.current(portHere.id, false, `airport:${city}`, false, "taxi")
+                        }
+                        className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                      >
+                        🚕 Taxi to the airport · {N(TAXI_FARE.city)}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setPanel(null)}
+                      className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+                    >
+                      OK
+                    </button>
+                  </div>
+                ),
+              });
+              return;
+            }
+            e.enterInterior("terminal", `${fromName} Airport`);
+            setInside(true);
+            tuneRef.current();
+            e.setDepartures(boardLines(city, ticketRef.current));
+            e.guideTo(umrah ? "ihramroom" : "checkin");
+            toast(
+              umrah
+                ? `Ticket to ${destName}, ${hhmm(depAt)}: −${N(price)}. First, put on your ihram in the prayer room.`
+                : `${business ? "Business class" : "Economy"} ticket to ${destName}, departing ${hhmm(depAt)}: −${N(price)}. Check in at the IlmAir desk.`,
+              "good",
+            );
+          };
+          const sv = saveRef.current;
+          if (dest === "makkah" && !sv.umrah?.stage && !hajjIhram(sv.hajj?.stage))
+            setPanel({
+              kind: "info",
+              title: "Going to Makkah",
+              body: (
+                <div className="space-y-3 text-[14px]">
+                  <p>
+                    Are you going for Umrah? The plane passes the miqat before Jeddah, so you put on
+                    ihram here at the airport and make the intention on the plane.
+                  </p>
+                  <button
+                    onClick={() => open(true)}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                  >
+                    🤍 Yes, for Umrah
+                  </button>
+                  <button
+                    onClick={() => open(false)}
+                    className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
+                  >
+                    No, just visiting
+                  </button>
+                </div>
+              ),
+            });
+          else open(false);
+  };
   /** Walk to a place for the rites, travelling to its area first if needed. */
   const goRite = useCallback((area: string, zone: string) => {
     const here = engine.current?.districtId();
@@ -5032,6 +5383,33 @@ function CityGame({
     const t = setTimeout(() => applyPacksRef.current(), 4000);
     return () => clearTimeout(t);
   }, [save.profile, claimsReady, onlineReady]);
+  /** Find and claim a free small house in an area for a new player (on the server when
+      online, so each player gets only one). */
+  const starterHouse = async (e: IlmCityEngine, area: string, name: string) => {
+    const me = onlineRef.current?.uid ?? name;
+    const mix = (id: string) => flatFor(me + id).seed;
+    const all = e.plots.filter(
+      (q) => q.district === area && q.kind === "house" && q.toLet && q.type !== "tower",
+    );
+    const small = all.filter((q) => (q.floors ?? 1) <= 1).sort((a, b) => mix(a.id) - mix(b.id));
+    for (let n = 1; n <= 30; n++) {
+      let tries = 0;
+      for (const q of small) {
+        const id = e.phasedId(q.id, n);
+        if (saveRef.current.plots?.[id] || takenRef.current.has(id)) continue;
+        if (++tries > 5) break;
+        const w = walletNet.current;
+        const r: MoneyResult = w
+          ? await w.starterHouse(id, name).catch(() => ({ ok: false, error: "net" }))
+          : { ok: await claimPlotRef.current(id, { kind: "bought", floors: q.floors ?? 1 }) };
+        if (r.ok) return { id, floors: q.floors ?? 1, street: q.street };
+        // only "taken" is worth trying the next house for
+        if (r.error && r.error !== "taken") return null;
+      }
+      if (!small.length) break;
+    }
+    return null;
+  };
   const applyingRich = useRef(false);
   applyPacksRef.current = () => {
     const e = engine.current;
@@ -5704,6 +6082,70 @@ function CityGame({
   );
   const openJobsRef = useRef(openJobs);
   openJobsRef.current = openJobs;
+
+  /* ---- offices in the business towers: rent from the building manager ---- */
+  const openOffice = (tower: string) => {
+    const L = landmarkById(tower);
+    if (!L) return;
+    const OFFICE = { small: { rent: 300, earn: 60, label: "Small office" }, big: { rent: 800, earn: 150, label: "Big office, city view" } };
+    const today = new Date().toDateString();
+    const render = (msg = "") => {
+      const sv = saveRef.current;
+      const mine = sv.office && sv.office.tower === tower && sv.office.until > Date.now() ? sv.office : null;
+      const elsewhere = sv.office && sv.office.tower !== tower && sv.office.until > Date.now();
+      setPanel({
+        kind: "info",
+        title: `🏢 ${L.l.name} · reception`,
+        body: (
+          <OfficeView
+            tower={L.l.name}
+            mine={mine}
+            elsewhere={elsewhere ? (landmarkById(sv.office!.tower)?.l.name ?? "another tower") : ""}
+            coins={sv.coins}
+            plans={OFFICE}
+            today={today}
+            msg={msg}
+            onRent={(size, name) => {
+              const plan = OFFICE[size];
+              if (saveRef.current.coins < plan.rent) return render("You don't have enough money for this office yet.");
+              const cur = saveRef.current.office;
+              const same = cur && cur.tower === tower && cur.until > Date.now();
+              const office = {
+                tower,
+                name: name.trim().slice(0, 40) || "My Company",
+                size,
+                floor: same ? cur!.floor : 2 + Math.floor(Math.random() * 10),
+                until: Math.max(Date.now(), same ? cur!.until : 0) + WEEK,
+                opened: same ? cur!.opened : undefined,
+              };
+              saveRef.current = { ...saveRef.current, coins: saveRef.current.coins - plan.rent, office };
+              update((x) => ({ ...x, coins: x.coins - plan.rent, office }));
+              toast(`${office.name} has an office on floor ${office.floor}. Open it every day to earn.`, "good");
+              render();
+            }}
+            onOpen={() => {
+              const o = saveRef.current.office;
+              if (!o || o.opened === today) return;
+              const earn = OFFICE[o.size].earn;
+              const office = { ...o, opened: today };
+              saveRef.current = { ...saveRef.current, coins: saveRef.current.coins + earn, office };
+              update((x) => ({ ...x, coins: x.coins + earn, office }));
+              toast(`${o.name} had a good day. +${N(earn)}`, "good");
+              render();
+            }}
+            onLeave={() => {
+              saveRef.current = { ...saveRef.current, office: undefined };
+              update((x) => ({ ...x, office: undefined }));
+              render("Your office is handed back. JazakAllahu khairan.");
+            }}
+          />
+        ),
+      });
+    };
+    render();
+  };
+  const openOfficeRef = useRef(openOffice);
+  openOfficeRef.current = openOffice;
 
   /* ---------- actions coming from the 3D world ---------- */
   const onAction = useCallback(
@@ -6857,7 +7299,48 @@ function CityGame({
       }
       // the hotels round Al-Masjid An-Nabawi
       if (id.startsWith("office:hotel-")) {
+        // walk in through the front door: the reception, the lifts and the stairs are inside
+        const name = landmarkById(id.slice(7))?.l.name ?? "Hotel";
+        e.enterInterior("hotel", name);
+        setInside(true);
+        const st = saveRef.current.hotelStay;
+        toast(
+          st && st.hotel === name && st.until > Date.now()
+            ? `Welcome back! Your room ${st.room} is ready: take the lift.`
+            : `Welcome to ${name}. Book a room at reception.`,
+        );
+        return;
+      }
+      if (id === "hotel:desk") {
         openHotelRef.current(true);
+        return;
+      }
+      if (id === "hotel:lift" || id === "hotel:stairs") {
+        const st = saveRef.current.hotelStay;
+        const here = engine.current?.placeName?.() ?? "";
+        if (!st || st.until < Date.now() || (here && st.hotel !== here)) {
+          toast("Book a room at reception first.");
+          return;
+        }
+        const lift = id === "hotel:lift";
+        setPanel({
+          kind: "busy",
+          title: lift ? `🛗 Going up to floor ${Math.floor(st.room / 100)}…` : "🪜 Climbing the stairs…",
+          ms: lift ? 1800 : 3200,
+          done: () => {
+            e.moveInside("hotelroom", `Room ${st.room}`);
+            toast(`Room ${st.room}. The bed is ready: tap it to sleep.`);
+          },
+        });
+        return;
+      }
+      if (id === "hotel:bed") {
+        onActionRef.current("sleep");
+        return;
+      }
+      if (id === "hotel:down") {
+        const st = saveRef.current.hotelStay;
+        e.moveInside("hotel", st?.hotel ?? "Hotel");
         return;
       }
       // Jannat Al-Baqi' and the martyrs of Uhud: give salam to the people of the graves
@@ -6906,50 +7389,76 @@ function CityGame({
         return;
       }
       // the miqat of Madinah: put on ihram here and make the intention for Umrah
-      if (id === "office:miqat-ihram") {
+      // the miqat of Madinah: ghusl and ihram in the bath halls round the masjid, then two
+      // rak'ahs inside, then the intention for Umrah
+      if (id === "office:miqat-ihram" || id.startsWith("miqat:ghusl")) {
         const sv = saveRef.current;
+        const fem = female();
+        if (sv.umrah?.stage === "ihram") {
+          toast("You're in ihram. Now go into the masjid and pray two rak'ahs.");
+          e.guideTo("door:masjid:masjid-dhulhulayfah");
+          return;
+        }
         if (sv.umrah?.stage || hajjIhram(sv.hajj?.stage)) {
-          toast("You're in ihram. Take the bus to Makkah from the bus stop, saying the talbiyah.");
+          openToMakkahRef.current();
+          return;
+        }
+        if (id === "office:miqat-ihram") {
+          toast(
+            "Ihram cloths, sandals and unscented soap. Make ghusl and change in the bath halls inside the masjid's walls.",
+          );
+          e.guideTo(fem ? "miqat:ghusl:f" : "miqat:ghusl:m");
+          return;
+        }
+        if ((id === "miqat:ghusl:m") === fem) {
+          toast(fem ? "This side is for brothers. The sisters' side is across the courtyard." : "This side is for sisters. The brothers' side is across the courtyard.");
+          e.guideTo(fem ? "miqat:ghusl:f" : "miqat:ghusl:m");
           return;
         }
         setPanel({
           kind: "info",
-          title: "Dhul Hulayfah · the miqat",
+          title: fem ? "🚿 Sisters · ghusl and ihram" : "🚿 Brothers · ghusl and ihram",
           body: (
             <div className="space-y-3 text-[14px]">
               <p>
                 This is <b>Dhul Hulayfah</b> (Abyar Ali), the miqat the Prophet ﷺ set for the people
-                of Madinah. Pilgrims going to Makkah for Umrah or Hajj put on ihram here.
+                of Madinah. Here pilgrims make ghusl, put on ihram, pray two rak'ahs and make the
+                intention.
               </p>
+              <ul className="list-disc space-y-1 pl-5 text-[13px]">
+                <li>Make ghusl, the full bath, with unscented soap.</li>
+                {fem ? (
+                  <li>Wear your usual modest clothes; the face and hands stay uncovered.</li>
+                ) : (
+                  <li>Put on the two white sheets: the izar round the waist, the rida over the shoulders.</li>
+                )}
+                <li>Perfume the body before ihram (not the clothes), and no perfume after.</li>
+              </ul>
               <button
                 onClick={() =>
                   setPanel({
                     kind: "busy",
-                    title: female()
-                      ? "Making ghusl and getting ready"
-                      : "Making ghusl and putting on ihram",
+                    title: fem ? "Making ghusl and getting ready" : "Making ghusl and putting on ihram",
                     ms: 3500,
                     done: () => {
-                      const p = saveRef.current.profile;
-                      if (p) e.setPlayerLook({ ...p, ihram: !p.female });
+                      wearIhram(true);
                       update((x) => ({
                         ...x,
-                        umrah: { done: x.umrah?.done ?? 0, stage: "enter" },
+                        wudu: true,
+                        umrah: { done: x.umrah?.done ?? 0, stage: "ihram" },
                       }));
-                      sayDhikr("niyyahUmrah", () =>
-                        sayDhikr("talbiyah", () =>
-                          toast(
-                            "You're in ihram for Umrah. Take the bus to Makkah from the bus stop, or fly from the airport.",
-                            "good",
-                          ),
-                        ),
+                      saveRef.current = { ...saveRef.current, wudu: true };
+                      e.guideTo("door:masjid:masjid-dhulhulayfah");
+                      toast(
+                        "Ready. Don't make the intention yet: first go into the masjid and pray two rak'ahs.",
+                        "good",
                       );
                     },
                   })
                 }
                 className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
               >
-                🤍 Put on ihram and make the intention for Umrah
+                🚿 Make ghusl and {fem ? "get ready" : "put on ihram"}
               </button>
             </div>
           ),
@@ -7008,6 +7517,15 @@ function CityGame({
             />
           ),
         });
+        return;
+      }
+      if (id.startsWith("office:food-")) {
+        const b = BRANDS.find((q) => "food-" + q.id === id.slice(7));
+        openFood("eatery", false, b?.name);
+        return;
+      }
+      if (id.startsWith("office:tower-")) {
+        openOfficeRef.current(id.slice(7));
         return;
       }
       if (id.startsWith("office:")) {
@@ -7185,6 +7703,27 @@ function CityGame({
           title: districtById(area).holy ? "Where to? · Taxi" : "Where to? · Taxi",
           body: (
             <div className="space-y-2">
+              {(() => {
+                // the taxi also goes further: to the airport, or from Jeddah Airport to Makkah
+                const city = cityOf(districtById(area));
+                const far: [string, string, string | undefined][] =
+                  area === "jeddahairport"
+                    ? [["haram", "Makkah · Al-Masjid Al-Haram", "door:masjid:masjid-al-haram"]]
+                    : city === "madinah" && area !== "madinahairport"
+                      ? [["madinahairport", "Madinah Airport", "airport:madinah"]]
+                      : city === "makkah" && districtById(area).holy && !NO_TRAFFIC.has(area)
+                        ? [["jeddahairport", "Jeddah Airport", "airport:makkah"]]
+                        : [];
+                return far.map(([to, name, then]) => (
+                  <button
+                    key={to}
+                    onClick={() => tripRef.current(to, false, then, false, "taxi")}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 text-left font-bold text-white"
+                  >
+                    🚕 {name} · {N(TAXI_FARE.city)}
+                  </button>
+                ));
+              })()}
               <p className="text-[13px] opacity-75">
                 Any place in {fullName(districtById(area))} for {N(kfare)}.
               </p>
@@ -7336,6 +7875,55 @@ function CityGame({
           sayDhikr("enterMasjid");
         }
         tuneRef.current();
+        if (lid === "masjid-dhulhulayfah") {
+          const st = saveRef.current.umrah?.stage;
+          if (st === "ihram") {
+            setPanel({
+              kind: "info",
+              title: "Two rak'ahs before ihram",
+              body: (
+                <div className="space-y-3 text-[14px]">
+                  <p>
+                    The Prophet ﷺ prayed here at Dhul Hulayfah before he began his ihram. Pray two
+                    rak'ahs, then make the intention for Umrah.
+                  </p>
+                  <button
+                    onClick={() => {
+                      afterPrayerRef.current = () =>
+                        sayDhikr("niyyahUmrah", () =>
+                          sayDhikr("talbiyah", () => {
+                            update((x) => ({
+                              ...x,
+                              umrah: { done: x.umrah?.done ?? 0, stage: "enter" },
+                            }));
+                            toast(
+                              "You're in ihram for Umrah. Keep away from what ihram forbids. Now go outside and travel to Makkah.",
+                              "good",
+                            );
+                            setTimeout(() => openToMakkahRef.current(), 900);
+                          }),
+                        );
+                      startPrayer(true, "Two rak'ahs before ihram");
+                    }}
+                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+                  >
+                    🤲 Pray two rak'ahs
+                  </button>
+                </div>
+              ),
+            });
+            return;
+          }
+          if (st === "enter") {
+            openToMakkahRef.current();
+            return;
+          }
+          if (!st && !hajjIhram(saveRef.current.hajj?.stage)) {
+            toast(
+              "Going for Umrah? First make ghusl and put on ihram in the bath halls round the courtyard, then come back and pray two rak'ahs.",
+            );
+          }
+        }
         const lec = lectureNow(lid, c);
         const ms = masjidStatus(c);
         if (ms.open && ms.prayer) {
@@ -7628,7 +8216,7 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:restaurant:")) {
-        e.enterInterior("restaurant", "Al-Ma'idah Restaurant");
+        e.enterInterior("restaurant", cafeName(id.slice(16)));
         setInside(true);
         tuneRef.current();
         toast("Assalamu alaikum! Order at the counter, then sit and eat.");
@@ -7680,6 +8268,10 @@ function CityGame({
         return;
       }
       if (id === "car-exit") {
+        if (e.onFlyover()) {
+          toast("No stopping on the flyover. Drive down a ramp first.", "warn");
+          return;
+        }
         e.exitCar();
         setDriving(false);
         return;
@@ -7769,9 +8361,94 @@ function CityGame({
           e.guideTo(t.step);
           return;
         }
-        e.enterCabin(t.business, t.seatN);
-        setInside(true);
-        setFlight(t);
+        // missed it: the airline puts you on the next plane
+        if (flightStatus(t.depAt).gone) {
+          t.depAt = departures(t.from, t.dest, Date.now() + 9 * 60000, 1)[0];
+          e.setDepartures(boardLines(t.from, t));
+          toast(`You missed ${t.flight}. IlmAir moved you to the ${hhmm(t.depAt)} flight, free.`, "warn");
+        }
+        const board = () => {
+          setPanel(null);
+          e.moveInside("jetbridge", "Apron · Gate " + t.gate);
+          e.guideTo("planedoor");
+          e.apronIntro();
+          toast("Boarding pass scanned ✓ Walk out to the plane and up the steps.", "good");
+        };
+        if (flightStatus(t.depAt).boarding && !t.called) {
+          t.called = true;
+          announce(
+            "Gate 3",
+            `Flight ${t.flight.replace("IA ", "I A ")} to ${t.destName} is now boarding at gate ${t.gate}.`,
+          );
+        }
+        if (flightStatus(t.depAt).boarding) {
+          board();
+          return;
+        }
+        e.sitTerminal();
+        setPanel({
+          kind: "info",
+          title: `🪑 Gate ${t.gate} · waiting to board`,
+          body: <GateWait t={t} onBoard={board} />,
+        });
+        return;
+      }
+      if (id === "termseat") {
+        const t = ticketRef.current;
+        e.sitTerminal();
+        if (t && t.step === "board") {
+          onActionRef.current("gate");
+          return;
+        }
+        setPanel({
+          kind: "info",
+          title: "🪑 A seat in the terminal",
+          body: (
+            <p className="text-[14px]">
+              {t
+                ? `Your flight ${t.flight} to ${t.destName} leaves at ${hhmm(t.depAt)}. ${t.step === "checkin" ? "Check in at the IlmAir desk first." : "Go through security, then wait at Gate " + t.gate + "."}`
+                : "A quiet seat. Travellers wait here for their flights."}
+            </p>
+          ),
+        });
+        return;
+      }
+      if (id === "planedoor") {
+        const t = ticketRef.current;
+        if (!t) return;
+        const aboard = () => {
+          toast(
+            `Crew: "Welcome aboard! Seat ${t.seat} is ${t.business ? "in business class, at the front" : "down the aisle"}."`,
+            "good",
+          );
+          e.enterCabin(t.business, t.seatN);
+          setInside(true);
+          flightStart.current = 0;
+          setFlight(t);
+          e.setCabinScreen({
+            title: "Welcome aboard",
+            lines: [
+              `${t.flight} · ${t.fromName} → ${t.destName}`,
+              "Please take your seat and fasten your seatbelt",
+              "Phones on flight mode, please",
+            ],
+            flight: t.flight,
+          });
+          setTimeout(
+            () =>
+              announce(
+                "Captain",
+                `Assalamu alaikum, ladies and gentlemen. This is your captain. Welcome aboard IlmAir flight ${t.flight.replace("IA ", "I A ")} from ${t.fromName} to ${t.destName}. Please fasten your seatbelts. We will be on our way shortly, in sha Allah.`,
+              ),
+            1200,
+          );
+        };
+        if (!e.climbStairs(aboard)) aboard();
+        return;
+      }
+      if (id === "jetback") {
+        e.moveInside("terminal", e.placeName());
+        e.guideTo("gate");
         return;
       }
       if (id.startsWith("airport:")) {
@@ -7781,137 +8458,24 @@ function CityGame({
           const t = ticketRef.current;
           e.enterInterior("terminal", `${t.fromName} Airport`);
           setInside(true);
-          e.guideTo(t.step === "checkin" ? "checkin" : t.step === "security" ? "security" : "gate");
-          toast(`Your flight to ${t.destName} is waiting. Follow the arrow.`);
+          e.setDepartures(boardLines(t.from, t));
+          const goTo =
+            t.umrah && !t.dressed
+              ? "ihramroom"
+              : t.step === "checkin"
+                ? "checkin"
+                : t.step === "security"
+                  ? "security"
+                  : "gate";
+          e.guideTo(goTo);
+          toast(
+            `Your flight ${t.flight} to ${t.destName} leaves at ${hhmm(t.depAt)}. Follow the arrow.`,
+          );
           return;
         }
-        const homeCountry = WORLD_CITIES.find((w) => w.id === city)?.country ?? "Nigeria";
-        const priceTo = (dest: string, business: boolean) => {
-          const abroad =
-            (WORLD_CITIES.find((w) => w.id === dest)?.country ?? "Nigeria") !== homeCountry;
-          return abroad
-            ? business
-              ? INTERCITY.abroadBusiness
-              : INTERCITY.abroad
-            : business
-              ? INTERCITY.business
-              : INTERCITY.fly;
-        };
-        const fly = (dest: string, business: boolean) => {
-          const price = priceTo(dest, business);
-          if (saveRef.current.coins < price) {
-            setPanel({
-              kind: "info",
-              title: "Not enough money",
-              body: (
-                <NoPointsView
-                  price={price}
-                  points={saveRef.current.coins}
-                  onTopUp={() => openWalletRef.current("buy")}
-                />
-              ),
-            });
-            return;
-          }
-          const port = DISTRICTS.find(
-            (d) => cityOf(d) === dest && d.landmarks.some((l) => l.kind === "airport"),
-          );
-          if (!port) return;
-          setPanel(null);
-          update((x) => ({ ...x, coins: x.coins - price }));
-          const arrive = () => {
-            engine.current?.arriveAt("airport:" + dest);
-            setTravelling(null);
-            setDriving(false);
-            setInside(false);
-            update((x) => ({ ...x, district: port.id, pos: undefined }));
-            setArriving(
-              `${WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name} · ${port.name}`,
-            );
-            setTimeout(() => setArriving(null), 4500);
-          };
-          // into the terminal: check in, go through security, board at the gate. Everyone on
-          // the same route has the same flight number, so players flying together meet.
-          const destName = WORLD_CITIES.find((w) => w.id === dest)?.name ?? port.name;
-          const fromName = WORLD_CITIES.find((w) => w.id === city)?.name ?? "";
-          let hsh = 7;
-          for (const ch of city + ">" + dest) hsh = (hsh * 31 + ch.charCodeAt(0)) % 100003;
-          const no = 100 + (hsh % 800);
-          const seatN = Math.floor(Math.random() * 1000);
-          const open = (umrah: boolean) => {
-            setPanel(null);
-            ticketRef.current = {
-              dest,
-              destName,
-              fromName,
-              business,
-              flight: `IA ${no}`,
-              seat: e.seatFor(business, seatN).label,
-              seatN,
-              gate: "3",
-              step: "checkin",
-              umrah,
-              arrive: () => {
-                arrive();
-                if (umrah) {
-                  wearIhram(true);
-                  setTimeout(
-                    () =>
-                      toast(
-                        "Welcome to the Hajj Terminal! You are in ihram: go to Al-Masjid Al-Haram for tawaf.",
-                        "good",
-                      ),
-                    2500,
-                  );
-                }
-              },
-            };
-            e.enterInterior("terminal", `${fromName} Airport`);
-            setInside(true);
-            tuneRef.current();
-            e.setDepartures([
-              `IA ${no}  ${destName.padEnd(10).slice(0, 10)} Gate 3  Check-in`,
-              "IA 214  Kano       Gate 1  On time",
-              "IA 101  Abuja      Gate 2  On time",
-              "IA 777  Jeddah     Gate 4  On time",
-              "IA 778  Madinah    Gate 4  On time",
-            ]);
-            e.guideTo(umrah ? "ihramroom" : "checkin");
-            toast(
-              umrah
-                ? `Ticket to ${destName}: −${N(price)}. First, put on your ihram in the prayer room.`
-                : `${business ? "Business class" : "Economy"} ticket to ${destName}: −${N(price)}. Check in at the IlmAir desk.`,
-              "good",
-            );
-          };
-          const sv = saveRef.current;
-          if (dest === "makkah" && !sv.umrah?.stage && !hajjIhram(sv.hajj?.stage))
-            setPanel({
-              kind: "info",
-              title: "Going to Makkah",
-              body: (
-                <div className="space-y-3 text-[14px]">
-                  <p>
-                    Are you going for Umrah? The plane passes the miqat before Jeddah, so you put on
-                    ihram here at the airport and make the intention on the plane.
-                  </p>
-                  <button
-                    onClick={() => open(true)}
-                    className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
-                  >
-                    🤍 Yes, for Umrah
-                  </button>
-                  <button
-                    onClick={() => open(false)}
-                    className="w-full rounded-xl border border-[#10201e]/15 bg-white px-4 py-3 font-bold"
-                  >
-                    No, just visiting
-                  </button>
-                </div>
-              ),
-            });
-          else open(false);
-        };
+        const priceTo = (dest: string, business: boolean) => flightPrice(city, dest, business);
+        const fly = (dest: string, business: boolean) =>
+          bookFlightRef.current(city, dest, business, {});
         setPanel({
           kind: "info",
           title: "✈️ Flights",
@@ -8874,7 +9438,7 @@ function CityGame({
     const atHome = !atHotel && cityOf(D) === cityOf(districtById(home));
     setPanel({
       kind: "info",
-      title: "🏨 Rest for the night",
+      title: atHotel ? `🛎️ ${engine.current?.placeName() || "Hotel"} · reception` : "🏨 Rest for the night",
       body: (
         <div className="space-y-3 text-[14px]">
           {atHome ? (
@@ -8882,11 +9446,38 @@ function CityGame({
           ) : (
             <p>
               {atHotel
-                ? `Welcome! Choose your room for the night in ${D.name}.`
+                ? "Assalamu alaikum, welcome! Which room would you like tonight? After booking, take the lift or the stairs to your room."
                 : `You are in ${D.name}, ${D.state}, far from home. Book a hotel room here to sleep, or travel back home.`}
             </p>
           )}
-          {hotelsFor(here).map((h) => {
+          {!atHotel && engine.current?.hasZone("office:hotel-") ? (
+            <>
+              <p>
+                Hotels are by Al-Masjid An-Nabawi: walk in, book a room at reception, then take the
+                lift to your room.
+              </p>
+              <button
+                onClick={() => {
+                  setPanel(null);
+                  const e2 = engine.current;
+                  if (!e2?.goToZone("office:hotel-")) tripRef.current("nabawi", false);
+                  else e2.guideTo("office:hotel-");
+                }}
+                className="w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec]"
+              >
+                🏨 Show me the way to a hotel
+              </button>
+            </>
+          ) : null}
+          {(atHotel || !engine.current?.hasZone("office:hotel-")) && hotelsFor(here).map((h0, hi) => {
+            // at a hotel's own desk you choose a kind of room in that hotel
+            const h = atHotel
+              ? {
+                  ...h0,
+                  name: ["Shared pilgrims' room", "Standard room", "Suite facing the Haram"][hi] ?? h0.name,
+                  icon: ["🛏️", "🏨", "🌟"][hi] ?? h0.icon,
+                }
+              : h0;
             const short = saveRef.current.coins < h.price;
             return (
               <div key={h.name} className="rounded-xl border border-[#1f6f63]/20 bg-white p-3">
@@ -8906,9 +9497,20 @@ function CityGame({
                       ...saveRef.current,
                       coins: saveRef.current.coins - h.price,
                     };
-                    toast(`${h.name}: room booked, ${N(h.price)}.`, "good");
                     if (h.perks) need(h.perks);
-                    onActionRef.current("sleep");
+                    const inHotel = engine.current?.scenePlace() === "hotel";
+                    if (inHotel) {
+                      const room = 100 * (2 + Math.floor(Math.random() * 9)) + 1 + Math.floor(Math.random() * 30);
+                      const hotel = engine.current?.placeName?.() || h.name;
+                      const hotelStay = { hotel, room, until: Date.now() + 20 * 3600000 };
+                      saveRef.current = { ...saveRef.current, hotelStay };
+                      update((x) => ({ ...x, hotelStay }));
+                      setPanel(null);
+                      toast(`Room ${room} is yours tonight (${N(h.price)}). Here is your key card: take the lift.`, "good");
+                    } else {
+                      toast(`${h.name}: room booked, ${N(h.price)}.`, "good");
+                      onActionRef.current("sleep");
+                    }
                   }}
                   className="mt-2 w-full rounded-xl bg-[#1f6f63] py-2.5 font-bold text-[#fdf8ec] disabled:opacity-40"
                 >
@@ -9751,14 +10353,32 @@ function CityGame({
                 };
               }
               msg = `Welcome, ${look.name}! Your first shop is free for 7 days. Find it with Places → Shops, name it and add products.`;
-            } else
+            } else if (path === "student")
+              msg = `Welcome, ${look.name}! You are now a student of the Islamic University of Madinah. Your classes are on campus; My Day shows you the way. Here is ₦1,000 to start.`;
+            else
               msg = `Welcome home, ${look.name}! Choose your job from 👤 Profile → Work. Here is ₦1,000 to start.`;
+            if (!homePlot) {
+              // every new player is given a small house of their own in the area they chose
+              const got = await starterHouse(e, area, look.name);
+              if (got) {
+                homePlot = got.id;
+                const own: PlotOwn = { kind: "bought", floors: got.floors, rooms: [] };
+                plots = { ...plots, [got.id]: own };
+                e.setPlot(got.id, plotStateFn(own) ?? { kind: "tolet" });
+                items = ["prayermat", "rug", "fan"];
+                msg += ` This house on ${got.street} is yours, free. When you're ready, buy a villa with a pool in Ar-Rawdah or Al-Aqiq.`;
+              }
+            }
             if (!homePlot) {
               lease = { until: Date.now() + WEEK };
               msg += ` Your first week's rent (${N(flatRent(area))}) is paid; after that, rent is due every week.`;
             }
             e.setHomeItems(items);
-            if (homePlot) e.startAtPlot(homePlot, `Family house · ${districtById(area).name}`);
+            if (homePlot)
+              e.startAtPlot(
+                homePlot,
+                `${path === "rich" ? "Family house" : "My house"} · ${districtById(area).name}`,
+              );
             else e.startAtHome(area, flatName(area));
             setInside(true);
             const next = {
@@ -9928,6 +10548,33 @@ function CityGame({
         <FlightCard
           t={flight}
           onServe={(stage, meal) => engine.current?.cabinServe(stage, meal)}
+          onShow={(kind) => {
+            const en = engine.current;
+            if (!en) return;
+            if (kind === "takeoff") {
+              en.setCabinScreen({
+                title: "Take-off",
+                lines: ["Seatbelts fastened · tray tables up", "Bismillah"],
+                flight: flight.flight,
+              });
+              announce("Captain", "Cabin crew, please be seated for take-off.");
+              flightStart.current = Date.now() + 7500;
+            } else {
+              en.setCabinScreen({
+                title: `Landing in ${flight.destName}`,
+                lines: ["Please return to your seat and fasten your seatbelt"],
+                flight: flight.flight,
+                from: flight.fromName,
+                to: flight.destName,
+                progress: 0.98,
+              });
+              announce(
+                "Captain",
+                `Ladies and gentlemen, we have begun our descent into ${flight.destName}. Please fasten your seatbelts.`,
+              );
+            }
+            en.planeShow(kind, kind === "takeoff" ? 7500 : 6400);
+          }}
           onAte={(full) => {
             need({ hunger: full ? 60 : 15 });
             if (full) update((x) => ({ ...x, coins: x.coins + 2 }));
@@ -9940,7 +10587,20 @@ function CityGame({
             const t = flight;
             ticketRef.current = null;
             setFlight(null);
+            flightStart.current = 0;
             t.arrive();
+            setTimeout(
+              () =>
+                announce(
+                  "Captain",
+                  `Welcome to ${t.destName}. The local time is ${hhmm(Date.now())}. Thank you for flying IlmAir. Ma'a salamah.`,
+                ),
+              1500,
+            );
+            // landed in Jeddah: the taxi to Makkah waits outside arrivals
+            setTimeout(() => {
+              if (engine.current?.districtId() === "jeddahairport") openJeddahTaxiRef.current();
+            }, 3500);
           }}
         />
       )}
@@ -10758,7 +11418,7 @@ function topicReply(
     return {
       text: school
         ? `Go to ${school.name}. Every class has its books and a quiz.`
-        : "Every mosque has a quiz, and there are big schools in Ikorodu and Ajegunle.",
+        : "Every mosque has a quiz, and the Islamic University of Madinah has classes every day.",
       nod: "agree",
     };
   if (has("quran", "qur'an", "hadith", "advice", "remind", "nasiha"))
@@ -12052,6 +12712,99 @@ function Swatches({
   );
 }
 
+function OfficeView({
+  tower,
+  mine,
+  elsewhere,
+  coins,
+  plans,
+  today,
+  msg,
+  onRent,
+  onOpen,
+  onLeave,
+}: {
+  tower: string;
+  mine: NonNullable<Save["office"]> | null;
+  elsewhere: string;
+  coins: number;
+  plans: Record<"small" | "big", { rent: number; earn: number; label: string }>;
+  today: string;
+  msg: string;
+  onRent: (size: "small" | "big", name: string) => void;
+  onOpen: () => void;
+  onLeave: () => void;
+}) {
+  const [name, setName] = useState(mine?.name ?? "");
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl bg-[#1f6f63]/10 p-3 text-[14px]">
+        <b>Ustadh Faisal, building manager:</b>{" "}
+        {mine
+          ? `Assalamu alaikum! Welcome back to ${mine.name}.`
+          : `Assalamu alaikum, welcome to ${tower}! We have offices for your company. Choose one and I'll give you the keys.`}
+      </div>
+      {msg && <p className="font-bold text-[#b3261e]">{msg}</p>}
+      {mine ? (
+        <>
+          <div className="rounded-xl border border-[#1f6f63]/25 bg-white p-3">
+            <div className="text-[16px] font-bold">🏢 {mine.name}</div>
+            <div className="text-[13px] opacity-75">
+              {plans[mine.size].label} · floor {mine.floor} · rent paid until{" "}
+              {new Date(mine.until).toLocaleDateString()}
+            </div>
+          </div>
+          <button
+            disabled={mine.opened === today}
+            onClick={onOpen}
+            className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec] disabled:opacity-40"
+          >
+            {mine.opened === today
+              ? "Open today ✓ · come back tomorrow"
+              : `Open your office today · earn ${N(plans[mine.size].earn)}`}
+          </button>
+          <button
+            onClick={() => onRent(mine.size, mine.name)}
+            className="w-full rounded-xl border border-[#1f6f63]/30 bg-white py-3 font-bold"
+          >
+            Pay another week · {N(plans[mine.size].rent)}
+          </button>
+          <button onClick={onLeave} className="w-full py-2 text-[13px] font-bold text-[#b3261e]">
+            Give the office back
+          </button>
+        </>
+      ) : elsewhere ? (
+        <p className="text-[14px]">Your company already has an office in {elsewhere}.</p>
+      ) : (
+        <>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your company's name"
+            maxLength={40}
+            className="w-full rounded-xl border border-black/15 px-3 py-2.5"
+          />
+          {(["small", "big"] as const).map((k) => (
+            <button
+              key={k}
+              disabled={coins < plans[k].rent}
+              onClick={() => onRent(k, name)}
+              className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left disabled:opacity-50"
+            >
+              <span className="block text-[16px] font-bold">
+                {plans[k].label} · {N(plans[k].rent)}/week
+              </span>
+              <span className="block text-[13px] opacity-75">
+                Open it every day and your company earns {N(plans[k].earn)}.
+              </span>
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Onboarding({
   loggedIn,
   firstName,
@@ -12075,7 +12828,7 @@ function Onboarding({
   );
   const [path, setPath] = useState<LifePath>("worker");
   const [uni, setUni] = useState<string | null>(null);
-  const [area, setArea] = useState("lekki");
+  const [area, setArea] = useState(DEFAULT_AREA);
   const [look, setLook] = useState<Look>({
     name: firstName,
     female,
@@ -12105,14 +12858,19 @@ function Onboarding({
       >
         <div className="mx-auto w-full max-w-md rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
           <h2 className="font-serif text-2xl">Choose your life</h2>
-          <p className="text-[13px] opacity-75">You can take a job or open a shop later too.</p>
+          <p className="text-[13px] opacity-75">
+            You can study, take a job or open a shop later too.
+          </p>
           <div className="mt-3 space-y-2">
             {LIFE_PATHS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => {
                   setPath(p.id);
-                  setStep("student");
+                  if (p.id === "student") {
+                    setUni(look.female ? "iumsisters" : "iumbrothers");
+                    setStep("student");
+                  } else onDone({ ...look, name: look.name.trim() }, area, p.id);
                 }}
                 className="flex w-full items-start gap-3 rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left active:bg-[#1f6f63]/10"
               >
@@ -12146,25 +12904,14 @@ function Onboarding({
       >
         <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
           <h2 className="font-serif text-2xl">
-            {uni ? "Which faculty?" : "Are you a university student?"}
+            Which faculty?
           </h2>
           <p className="text-[13px] opacity-75">
-            {uni
-              ? "You'll answer questions in your faculty and meet other Muslim students."
-              : "Students get faculty classes, questions and the MSSN meeting point."}
+            Islamic University of Madinah,{" "}
+            {look.female ? "sisters' campus" : "brothers' campus"}. You'll attend classes,
+            answer questions in your faculty and meet other students.
           </p>
           <div className="mt-3 space-y-2 overflow-y-auto">
-            {!uni &&
-              UNIVERSITIES.map((u) => (
-                <button
-                  key={u.area}
-                  onClick={() => setUni(u.area)}
-                  className="w-full rounded-xl border border-[#1f6f63]/25 bg-white px-4 py-3 text-left"
-                >
-                  <span className="block text-[16px] font-bold">🎓 {u.name}</span>
-                  <span className="block text-[13px] opacity-75">{u.full}</span>
-                </button>
-              ))}
             {uni &&
               facultiesOf(uni).map((f) => (
                 <button
@@ -12181,12 +12928,13 @@ function Onboarding({
                 </button>
               ))}
             <button
-              onClick={() =>
-                uni ? setUni(null) : onDone({ ...look, name: look.name.trim() }, area, path)
-              }
+              onClick={() => {
+                setUni(null);
+                setStep("life");
+              }}
               className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-[#fdf8ec]"
             >
-              {uni ? "Back" : "No, I'm not a student"}
+              Back
             </button>
           </div>
         </div>
@@ -12200,20 +12948,24 @@ function Onboarding({
         className="absolute inset-0 z-30 flex items-end bg-[#10201e]/70 p-3 pb-[max(14px,env(safe-area-inset-bottom))]"
       >
         <div className="mx-auto flex max-h-[86%] w-full max-w-md flex-col rounded-2xl bg-[#fdf8ec] p-4 shadow-2xl">
-          <h2 className="font-serif text-2xl">Where do you want to start?</h2>
-          <p className="text-[13px] opacity-75">You can travel anywhere later by bus or car.</p>
+          <h2 className="font-serif text-2xl">Where is your house?</h2>
+          <p className="text-[13px] opacity-75">
+            Every new player is given a small house of their own in Madinah. Choose the
+            neighbourhood. Later you can buy a villa with a pool.
+          </p>
           <div className="mt-3 space-y-2 overflow-y-auto">
             {DISTRICTS.filter(
               (d) =>
                 !d.holy &&
-                cityLive(cityOf(d)) &&
-                !d.landmarks.some((l) => l.kind === "airport") &&
-                d.id !== "dhulhulayfah",
+                cityOf(d) === "madinah" &&
+                !d.campus &&
+                !["dhulhulayfah", "bizdistrict"].includes(d.id) &&
+                !d.landmarks.some((l) => l.kind === "airport"),
             ).map((d, i, all) => (
               <div key={d.id}>
                 {(i === 0 || cityOf(all[i - 1]) !== cityOf(d)) && (
                   <div className="mb-1 mt-2 text-[12px] font-bold uppercase tracking-wide text-[#1f6f63]">
-                    {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Lagos"}
+                    {WORLD_CITIES.find((w) => w.id === cityOf(d))?.name ?? "Madinah"}
                     {countryOf(d) === "Nigeria" ? `, ${d.state} State` : `, ${countryOf(d)}`}
                   </div>
                 )}
@@ -14027,6 +14779,7 @@ const OUTING_TABS = [
   { id: "campus", label: "Campus & MSSN" },
   { id: "shop", label: "Markets" },
   { id: "travel", label: "🚌 Travel" },
+  { id: "flights", label: "✈️ Flights" },
 ] as const;
 function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => boolean): Outing[] {
   const out: Outing[] = [];
@@ -14079,14 +14832,14 @@ function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => bo
       if (has(`door:restaurant:${D.id}`))
         at({
           icon: "🍽️",
-          name: `Al-Ma'idah Restaurant, ${D.name}`,
+          name: `${cafeName(D.id)}, ${D.name}`,
           sub: "Walk in · sit at a table and eat",
           prefix: `door:restaurant:${D.id}`,
         });
       if (has(`eatery:${D.id}`))
         at({
           icon: "🍗",
-          name: `Al-Barakah Broast, ${D.name}`,
+          name: `${eateryName(D.id)}, ${D.name}`,
           sub: "Roadside food truck · quick bites",
           prefix: `eatery:${D.id}`,
         });
@@ -14139,7 +14892,9 @@ function OutingView({
   has,
   tab0,
   onGo,
+  flights,
 }: {
+  flights?: React.ReactNode;
   tab0?: string;
   here: string;
   has: (id: string) => boolean;
@@ -14173,7 +14928,8 @@ function OutingView({
           </button>
         ))}
       </div>
-      {list.length === 0 && tab !== "travel" && (
+      {tab === "flights" && flights}
+      {list.length === 0 && tab !== "travel" && tab !== "flights" && (
         <p className="text-[13px] opacity-70">
           Nothing live right now. Check Lectures &amp; mosques for what's coming up today.
         </p>
@@ -17533,6 +18289,9 @@ function PhoneView({
 }
 
 type Ticket = {
+  /** the city flown from, and when the plane leaves (ms) */
+  from: string;
+  depAt: number;
   dest: string;
   destName: string;
   fromName: string;
@@ -17545,8 +18304,178 @@ type Ticket = {
   /** going for Umrah: ihram at the airport, the intention at the miqat */
   umrah?: boolean;
   dressed?: boolean;
+  /** the boarding call has been made */
+  called?: boolean;
   arrive: () => void;
 };
+
+/* ---------------- the timetable: every route flies every 10 minutes ---------------- */
+const FLIGHT_EVERY = 10;
+const routeHash = (from: string, to: string) => {
+  let h = 7;
+  for (const ch of from + ">" + to) h = (h * 31 + ch.charCodeAt(0)) % 100003;
+  return h;
+};
+const flightNo = (from: string, to: string) => 100 + (routeHash(from, to) % 800);
+/** The next departures on a route, at or after `after` (ms). */
+function departures(from: string, to: string, after: number, n = 3) {
+  const out: number[] = [];
+  const d = new Date(after);
+  d.setSeconds(0, 0);
+  if (d.getTime() < after) d.setMinutes(d.getMinutes() + 1);
+  const off = routeHash(from, to) % FLIGHT_EVERY;
+  for (let i = 0; out.length < n && i < 24 * 60; i++) {
+    if ((d.getHours() * 60 + d.getMinutes()) % FLIGHT_EVERY === off) out.push(d.getTime());
+    d.setMinutes(d.getMinutes() + 1);
+  }
+  return out;
+}
+/** Boarding opens 8 minutes before the plane leaves and closes as it goes. */
+function flightStatus(depAt: number, now = Date.now()) {
+  const m = (depAt - now) / 60000;
+  if (m > 8) return { label: "On time", boarding: false, gone: false, m };
+  if (m > 1.5) return { label: "Boarding", boarding: true, gone: false, m };
+  if (m > -0.5) return { label: "Final call", boarding: true, gone: false, m };
+  return { label: "Departed", boarding: false, gone: true, m };
+}
+const hhmm = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+function flightPrice(from: string, dest: string, business: boolean) {
+  const home = WORLD_CITIES.find((w) => w.id === from)?.country ?? "Nigeria";
+  const abroad = (WORLD_CITIES.find((w) => w.id === dest)?.country ?? "Nigeria") !== home;
+  return abroad
+    ? business
+      ? INTERCITY.abroadBusiness
+      : INTERCITY.abroad
+    : business
+      ? INTERCITY.business
+      : INTERCITY.fly;
+}
+/** The departures board: the next plane to each city, with yours marked. */
+function boardLines(from: string, t: Ticket | null) {
+  const now = Date.now();
+  const rows = WORLD_CITIES.filter((c) => c.live && c.id !== from).map((c) => {
+    const dep =
+      t && t.dest === c.id ? t.depAt : departures(from, c.id, now - 30000, 1)[0];
+    const gate = t && t.dest === c.id ? t.gate : String(1 + (routeHash(from, c.id) % 4));
+    return { dep, line: `IA ${flightNo(from, c.id)}  ${c.name.padEnd(9).slice(0, 9)} ${hhmm(dep)}  G${gate}  ${flightStatus(dep, now).label}${t && t.dest === c.id ? "  ◀" : ""}` };
+  });
+  return rows.sort((a, b) => a.dep - b.dep).map((r) => r.line);
+}
+
+/** At the gate: sit and wait, with the time to boarding counting down. */
+function GateWait({ t, onBoard }: { t: Ticket; onBoard: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const st = flightStatus(t.depAt, now);
+  const toBoard = Math.max(0, t.depAt - 8 * 60000 - now);
+  const mm = Math.floor(toBoard / 60000),
+    ss = Math.floor((toBoard % 60000) / 1000);
+  return (
+    <div className="space-y-3 text-[14px]">
+      <div className="rounded-2xl bg-[#0f1a24] p-4 font-mono text-[#e6b84a]">
+        <div className="text-[12px] opacity-70">IlmAir · Gate {t.gate}</div>
+        <div className="text-[18px] font-bold">
+          {t.flight} to {t.destName}
+        </div>
+        <div className="mt-1 text-[#cfe3ef]">
+          Departs {hhmm(t.depAt)} · Seat {t.seat} · {st.label}
+        </div>
+      </div>
+      {st.boarding ? (
+        <>
+          <p>
+            📢 <i>"Ladies and gentlemen, flight {t.flight} to {t.destName} is now boarding at Gate{" "}
+            {t.gate}. Please have your boarding pass ready."</i>
+          </p>
+          <button
+            onClick={onBoard}
+            className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white"
+          >
+            🛫 Board now
+          </button>
+        </>
+      ) : (
+        <p>
+          You're sitting at the gate with the other passengers. Boarding opens in{" "}
+          <b>
+            {mm}:{String(ss).padStart(2, "0")}
+          </b>
+          . Make du'a for the journey, read some Qur'an, or look around the terminal.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Book a flight on OutingStation: the next three planes to each city from your airport. */
+function FlightsBook({
+  from,
+  coins,
+  onBook,
+}: {
+  from: string;
+  coins: number;
+  onBook: (dest: string, business: boolean, depAt: number) => void;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 20000);
+    return () => clearInterval(id);
+  }, []);
+  const hasPort = DISTRICTS.some(
+    (d) => cityOf(d) === from && d.landmarks.some((l) => l.kind === "airport"),
+  );
+  if (!hasPort)
+    return (
+      <p className="text-[13px] opacity-70">
+        There's no airport in this city. Take the inter-city bus to a city with one.
+      </p>
+    );
+  const fromName = WORLD_CITIES.find((w) => w.id === from)?.name ?? "";
+  return (
+    <div className="space-y-2">
+      <p className="text-[12.5px] opacity-75">
+        Flights from {fromName} Airport. Pay here, then get to the airport before boarding (8
+        minutes before take-off). You have {N(coins)}.
+      </p>
+      {WORLD_CITIES.filter((c) => c.live && c.id !== from).map((c) => {
+        const deps = departures(from, c.id, now + 15 * 60000, 3);
+        return (
+          <div key={c.id} className="rounded-xl bg-white p-3 shadow-sm">
+            <div className="flex items-baseline justify-between">
+              <b>✈️ {c.name}</b>
+              <span className="text-[12px] opacity-60">IA {flightNo(from, c.id)}</span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              {deps.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => onBook(c.id, false, d)}
+                  className="rounded-lg bg-[#2f4a7a] px-2 py-2 text-[12.5px] font-bold text-white"
+                >
+                  {hhmm(d)}
+                  <div className="text-[11px] font-normal opacity-85">
+                    {N(flightPrice(from, c.id, false))}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => onBook(c.id, true, deps[0])}
+              className="mt-1.5 w-full rounded-lg bg-[#e6b84a] px-3 py-1.5 text-[12px] font-bold text-[#2a1c05]"
+            >
+              Business class at {hhmm(deps[0])} · {N(flightPrice(from, c.id, true))}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** The boarding pass the check-in agent prints for you. */
 function BoardingPass({ t, name, onGo }: { t: Ticket; name: string; onGo: () => void }) {
@@ -17580,8 +18509,10 @@ function BoardingPass({ t, name, onGo }: { t: Ticket; name: string; onGo: () => 
             <b>{t.destName}</b>
           </div>
           <div>
-            <div className="opacity-60">Gate</div>
-            <b>{t.gate}</b>
+            <div className="opacity-60">Gate · departs</div>
+            <b>
+              {t.gate} · {hhmm(t.depAt)}
+            </b>
           </div>
           <div>
             <div className="opacity-60">Seat</div>
@@ -17607,14 +18538,18 @@ function FlightCard({
   onAte,
   onLand,
   onMiqat,
+  onShow,
 }: {
   t: Ticket;
+  /** watch the plane from outside: taking off, or landing */
+  onShow?: (kind: "takeoff" | "landing") => void;
   onMiqat?: () => void;
   onServe: (stage: "coming" | "served" | "away", meal?: boolean) => void;
   onAte: (full: boolean) => void;
   onLand: () => void;
 }) {
   const [phase, setPhase] = useState<"belt" | "fly" | "meal" | "miqat" | "landing">("belt");
+  const [landing, setLanding] = useState(false);
   const [q] = useState(() => QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]);
   const [picked, setPicked] = useState<number | null>(null);
   const d = PLACE_DHIKR.ride;
@@ -17625,7 +18560,7 @@ function FlightCard({
     const id = setTimeout(() => {
       serve.current("coming");
       setPhase("meal");
-    }, 3500);
+    }, 9000);
     return () => clearTimeout(id);
   }, [phase]);
   return (
@@ -17649,7 +18584,10 @@ function FlightCard({
             </p>
             <p className="text-[12.5px] italic opacity-80">{d.say}</p>
             <button
-              onClick={() => setPhase("fly")}
+              onClick={() => {
+                onShow?.("takeoff");
+                setPhase("fly");
+              }}
               className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
             >
               Ameen · take off
@@ -17658,7 +18596,7 @@ function FlightCard({
         )}
         {phase === "fly" && (
           <div className="font-bold">
-            We're in the air. The cabin crew will be with you soon… ☁️
+            Down the runway and up into the sky, bismillah… ✈️ ☁️
           </div>
         )}
         {phase === "meal" && (
@@ -17735,10 +18673,15 @@ function FlightCard({
           <div className="space-y-2">
             <div className="font-bold">We'll soon land in {t.destName}. Seatbelts on, please.</div>
             <button
-              onClick={onLand}
-              className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white"
+              disabled={landing}
+              onClick={() => {
+                setLanding(true);
+                onShow?.("landing");
+                setTimeout(onLand, onShow ? 6600 : 0);
+              }}
+              className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white disabled:opacity-60"
             >
-              Land and get off ✈
+              {landing ? "Touching down… alhamdulillah" : "Land and get off ✈"}
             </button>
           </div>
         )}
