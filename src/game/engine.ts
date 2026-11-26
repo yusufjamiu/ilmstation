@@ -466,6 +466,49 @@ export function planeMesh(stripe: number) {
   return g;
 }
 
+/** The IlmAir airliner up close: a row of windows, the cockpit, doors and the name. */
+export function airliner(stripe: number) {
+  const g = planeMesh(stripe);
+  const dark = mat(0x1b2630);
+  const wins: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1])
+    for (let z = -8.5; z <= 9.2; z += 0.62) {
+      const w = new THREE.BoxGeometry(0.06, 0.2, 0.22);
+      w.translate(sx * 1.47, 2.95, z);
+      wins.push(w);
+    }
+  // the cockpit windows wrap round the nose
+  for (let i = -2; i <= 2; i++) {
+    const w = new THREE.BoxGeometry(0.42, 0.26, 0.08);
+    w.rotateY(i * 0.38);
+    w.translate(Math.sin(i * 0.38) * 1.25, 3.15, 11.75 + Math.cos(i * 0.38) * 0.35 - 0.35);
+    wins.push(w);
+  }
+  g.add(new THREE.Mesh(mergeGeometries(wins)!, dark));
+  // door outlines, front and back, on both sides
+  for (const sx of [-1, 1])
+    for (const z of [8.3, -9]) g.add(box(0.04, 1.1, 0.55, 0xc9ced2, sx * 1.5, 2.1, z));
+  // the name along the body, and a gold crescent on the tail
+  for (const sx of [-1, 1]) {
+    const name = canvasPlane(5.5, 0.8, (c, W, H) => {
+      c.fillStyle = "#1f3d5a";
+      c.font = `800 ${Math.round(H * 0.8)}px "Work Sans", Arial, sans-serif`;
+      c.textBaseline = "middle";
+      c.textAlign = "center";
+      c.fillText("IlmAir  ✈  إلم للطيران", W / 2, H / 2);
+    }).mesh;
+    (name.material as THREE.MeshBasicMaterial).transparent = true;
+    name.position.set(sx * 1.53, 3.45, 2.5);
+    name.rotation.y = sx * Math.PI / 2;
+    g.add(name);
+  }
+  const moon = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.16, 8, 20, Math.PI * 1.4), mat(0xe6b84a));
+  moon.rotation.y = Math.PI / 2;
+  moon.position.set(0, 4.3, -12.2);
+  g.add(moon);
+  return g;
+}
+
 /** A table tennis bat: a round rubber face on a wooden handle, held at the handle. */
 function batMesh(face: number) {
   const g = new THREE.Group();
@@ -11478,6 +11521,67 @@ export class IlmCityEngine {
   private terminalStaff: THREE.Object3D[] = [];
   private departures: { set: (lines: string[]) => void } | null = null;
 
+  private showPlane: THREE.Object3D | null = null;
+  private showBase = { x: 0, y: 0, z: 0 };
+  private showFog: [number, number] = [70, 260];
+  private show: { kind: "takeoff" | "landing"; t: number; ms: number } | null = null;
+  /** Watch your plane from outside: rolling down the runway and lifting off, or coming in
+      to land. The game goes back to the cabin when it's over. */
+  planeShow(kind: "takeoff" | "landing", ms = 7000) {
+    if (!this.showPlane) return;
+    this.show = { kind, t: 0, ms };
+    this.showPlane.visible = true;
+    // clear air: see far down the runway
+    const f = this.scene.fog as THREE.Fog;
+    this.showFog = [f.near, f.far];
+    f.near = 250;
+    f.far = 900;
+    const sky = new THREE.Color(0x9fd3e8).lerp(new THREE.Color(0x0e1a33), this.dkNow);
+    this.scene.background = sky;
+    (this.scene.fog as THREE.Fog).color.copy(sky);
+    this.sun.intensity = 2 * (1 - this.dkNow) + 0.4;
+    this.hemi.intensity = 1.2 - this.dkNow * 0.4;
+  }
+  private stepShow(dt: number) {
+    const sh = this.show!;
+    sh.t += dt * 1000;
+    const k = Math.min(1, sh.t / sh.ms);
+    const P = this.showPlane!;
+    const B = this.showBase;
+    // along the runway (x), up off it after the roll
+    let x: number, y: number, pitch: number;
+    if (sh.kind === "takeoff") {
+      const roll = Math.min(1, k / 0.6);
+      x = -230 + roll * roll * 300 + Math.max(0, k - 0.6) * 520;
+      const lift = Math.max(0, (k - 0.55) / 0.45);
+      y = lift * lift * 70;
+      pitch = Math.min(0.22, lift * 0.5);
+    } else {
+      const air = Math.max(0, 1 - k / 0.5);
+      x = -330 + (1 - (1 - k) * (1 - k)) * 520;
+      y = air * air * 60;
+      pitch = air > 0 ? 0.08 : 0;
+    }
+    // (the plane lives in the jet bridge scene, so its position is local to it)
+    P.position.set(x, B.y - this.interiorOrigin.jetbridge.y + y, -150);
+    P.rotation.set(0, Math.PI / 2, 0);
+    P.rotateX(-pitch);
+    // the camera runs alongside, a little behind, so you see the whole plane
+    const want = new THREE.Vector3(B.x + x - 34, B.y + 4 + y * 0.7, B.z + 30);
+    if (sh.t < 40) this.camera.position.copy(want);
+    else this.camera.position.lerp(want, 1 - Math.exp(-dt * 3));
+    this.camera.lookAt(B.x + x + 6, B.y + y + 5, B.z);
+    if (k >= 1) {
+      this.show = null;
+      P.visible = false;
+      const f = this.scene.fog as THREE.Fog;
+      f.near = this.showFog[0];
+      f.far = this.showFog[1];
+      this.applyLight();
+      this.snapCamera();
+    }
+  }
+
   private termSeats: { x: number; z: number; taken: boolean }[] = [];
   /** Sit in a free seat in the terminal while you wait for boarding. */
   sitTerminal() {
@@ -11570,7 +11674,7 @@ export class IlmCityEngine {
       g.add(box(w, 0.04, d, 0xf2c230, x, TY + 0.02, z));
     void yellow;
     // the plane, its door open at the end of the bridge (nose to the east)
-    const P = planeMesh(0x1f3d5a);
+    const P = airliner(0x1f3d5a);
     const S = 2.6;
     P.scale.setScalar(S);
     P.rotation.y = Math.PI / 2;
@@ -11628,17 +11732,27 @@ export class IlmCityEngine {
       w.rotation.y = r;
       g.add(w);
     }
+    // the runway, for watching your plane take off and land
+    g.add(box(560, 0.05, 30, 0x3c4044, 0, TY + 0.01, -150));
+    for (let x = -270; x < 270; x += 14) g.add(box(6, 0.04, 0.5, 0xf4f4f0, x, TY + 0.06, -150));
+    for (const z of [-164, -136]) g.add(box(560, 0.04, 0.4, 0xf4f4f0, 0, TY + 0.06, z));
+    const show = airliner(0x1f3d5a);
+    show.scale.setScalar(S);
+    show.visible = false;
+    g.add(show);
+    this.showPlane = show;
+    this.showBase = { x: o.x, y: o.y + TY, z: o.z - 150 };
     // another plane waiting on the far stand, and the control tower
-    const P2 = planeMesh(0x1d6b3a);
+    const P2 = airliner(0x1d6b3a);
     P2.scale.setScalar(S);
     P2.position.set(70, TY, -70);
     P2.rotation.y = -0.6;
     g.add(P2);
     const tower = cyl(2.2, 2.6, 30, 0xe9e4d8, 10);
-    tower.position.set(-80, TY + 15, -90);
+    tower.position.set(-80, TY + 15, -230);
     g.add(tower);
     const cab = cyl(5, 4, 4, 0x2a3a44, 10);
-    cab.position.set(-80, TY + 32, -90);
+    cab.position.set(-80, TY + 32, -230);
     g.add(cab);
     // walls of the tunnel
     this.addCollider("jetbridge", o.x - 9, o.x - W / 2 + 0.3, o.z - L, o.z + L);
@@ -11856,10 +11970,19 @@ export class IlmCityEngine {
       glass.rotation.y = -Math.PI / 2;
       glass.position.set(19.75, 2.4, 4);
       g.add(glass);
-      const outsidePlane = planeMesh(0x1f3d5a);
-      outsidePlane.scale.setScalar(0.55);
-      outsidePlane.position.set(26, 0, 4);
+      // outside the gate window: the tarmac, your plane and the jet bridge out to its door
+      const apron = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), mat(0x6b6f72));
+      apron.rotation.x = -Math.PI / 2;
+      apron.position.set(55, 0.01, 4);
+      g.add(apron);
+      g.add(box(0.4, 0.04, 60, 0xf2c230, 36, 0.03, 4));
+      const outsidePlane = airliner(0x1f3d5a);
+      outsidePlane.scale.setScalar(1.1);
+      outsidePlane.position.set(37, 0, -2);
       g.add(outsidePlane);
+      // the jet bridge: a tube on legs from the gate to the front door
+      g.add(box(13.5, 2.4, 2.6, 0xc9ced2, 26.9, 2.2, 7.2));
+      for (const x of [24, 30]) g.add(box(0.4, 2.2, 0.4, 0x8a939b, x, 0, 7.2));
       const gd = new THREE.Group();
       gd.add(B(2.4, 1.1, 0.9, 0x1f3d5a, 0, 0, 0));
       gd.position.set(15.5, 0, 8.5);
@@ -13755,8 +13878,15 @@ export class IlmCityEngine {
     }
     const target = this.camTarget();
     const want = target.clone().add(this.camOffset());
-    this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
-    this.camera.lookAt(target.x, this.preview ? 0.2 : this.where === "out" ? 1.6 : 1, target.z);
+    if (this.show) this.stepShow(dt);
+    else {
+      this.camera.position.lerp(want, 1 - Math.exp(-dt * (this.where === "out" ? 8 : 5)));
+      this.camera.lookAt(
+        target.x,
+        (this.preview ? 0.2 : this.where === "out" ? 1.6 : 1) + (this.driving ? target.y : 0),
+        target.z,
+      );
+    }
     this.sun.target.position.set(target.x, 0, target.z);
     this.sky?.position.set(this.camera.position.x, 0, this.camera.position.z);
     const sunDir =
@@ -14178,6 +14308,7 @@ export class IlmCityEngine {
     this.showOutside(this.where === "out");
     const c = this.clock;
     if (!c) return;
+    if (this.show) return; // watching the plane outside: keep the sky
     if (this.sky) this.sky.visible = this.where === "out";
     if (this.where === "jetbridge") {
       // the glass bridge: the sky and the tarmac outside, day or night

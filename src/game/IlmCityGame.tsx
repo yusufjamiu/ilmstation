@@ -10478,6 +10478,7 @@ function CityGame({
         <FlightCard
           t={flight}
           onServe={(stage, meal) => engine.current?.cabinServe(stage, meal)}
+          onShow={(kind) => engine.current?.planeShow(kind, kind === "takeoff" ? 7500 : 6400)}
           onAte={(full) => {
             need({ hunger: full ? 60 : 15 });
             if (full) update((x) => ({ ...x, coins: x.coins + 2 }));
@@ -18430,14 +18431,18 @@ function FlightCard({
   onAte,
   onLand,
   onMiqat,
+  onShow,
 }: {
   t: Ticket;
+  /** watch the plane from outside: taking off, or landing */
+  onShow?: (kind: "takeoff" | "landing") => void;
   onMiqat?: () => void;
   onServe: (stage: "coming" | "served" | "away", meal?: boolean) => void;
   onAte: (full: boolean) => void;
   onLand: () => void;
 }) {
   const [phase, setPhase] = useState<"belt" | "fly" | "meal" | "miqat" | "landing">("belt");
+  const [landing, setLanding] = useState(false);
   const [q] = useState(() => QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)]);
   const [picked, setPicked] = useState<number | null>(null);
   const d = PLACE_DHIKR.ride;
@@ -18448,7 +18453,7 @@ function FlightCard({
     const id = setTimeout(() => {
       serve.current("coming");
       setPhase("meal");
-    }, 3500);
+    }, 9000);
     return () => clearTimeout(id);
   }, [phase]);
   return (
@@ -18472,7 +18477,10 @@ function FlightCard({
             </p>
             <p className="text-[12.5px] italic opacity-80">{d.say}</p>
             <button
-              onClick={() => setPhase("fly")}
+              onClick={() => {
+                onShow?.("takeoff");
+                setPhase("fly");
+              }}
               className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
             >
               Ameen · take off
@@ -18481,7 +18489,7 @@ function FlightCard({
         )}
         {phase === "fly" && (
           <div className="font-bold">
-            We're in the air. The cabin crew will be with you soon… ☁️
+            Down the runway and up into the sky, bismillah… ✈️ ☁️
           </div>
         )}
         {phase === "meal" && (
@@ -18558,10 +18566,15 @@ function FlightCard({
           <div className="space-y-2">
             <div className="font-bold">We'll soon land in {t.destName}. Seatbelts on, please.</div>
             <button
-              onClick={onLand}
-              className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white"
+              disabled={landing}
+              onClick={() => {
+                setLanding(true);
+                onShow?.("landing");
+                setTimeout(onLand, onShow ? 6600 : 0);
+              }}
+              className="w-full rounded-xl bg-[#1f3d5a] px-4 py-3 font-bold text-white disabled:opacity-60"
             >
-              Land and get off ✈
+              {landing ? "Touching down… alhamdulillah" : "Land and get off ✈"}
             </button>
           </div>
         )}
