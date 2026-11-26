@@ -720,6 +720,9 @@ export class IlmCityEngine {
     this.scene.background = new THREE.Color(0x9fd3e8);
     this.scene.fog = new THREE.Fog(0x9fd3e8, 70, 260);
     this.scene.add(this.hemi);
+    // the Haram's floodlights: one warm light high over the Kaaba, on only after dark (it is
+    // always in the scene so turning it on never recompiles anything)
+    this.scene.add(this.haramLight);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
     const sc = this.sun.shadow.camera;
@@ -1743,7 +1746,7 @@ export class IlmCityEngine {
       { outfit: "abaya", robe: 0x1d1d22, skin: 0x8d5a3b, cap: null, hijab: 0xf4f4ef, shoe: 0x111111 },
       { outfit: "abaya", robe: 0xf4f2ec, skin: 0xe0b48a, cap: null, hijab: 0xf4f2ec, shoe: 0xf4f2ec },
     ];
-    const N = real ? 650 : 1500;
+    const N = real ? 520 : 1500;
     const people: { r: number; a: number; w: number; kind: number; slot: number }[] = [];
     const counts = looks.map(() => 0);
     for (let i = 0; i < N; i++) {
@@ -1767,7 +1770,7 @@ export class IlmCityEngine {
           bakeHuman(look, 0.15 + k * 0.11, 0.05).map((p) => {
             // their own copy of the clothes, lit by the Haram's floodlights after dark
             const m = (p.mat as THREE.MeshStandardMaterial).clone();
-            this.glow(m, 0.55, m.color.getHex(), m.map ?? undefined);
+            this.glow(m, 0.12, m.color.getHex(), m.map ?? undefined);
             return inst(p.geo, m, counts[k]);
           }),
         );
@@ -4878,6 +4881,7 @@ export class IlmCityEngine {
   } = {};
   /** Materials that light up after dark (floodlit marble, glowing arcades), and how much. */
   private nightGlow: { m: THREE.MeshStandardMaterial; k: number }[] = [];
+  private haramLight = new THREE.PointLight(0xfff0d8, 0, 150, 0);
   private dkNow = 0;
   private glow<M extends THREE.MeshStandardMaterial>(
     m: M,
@@ -5232,7 +5236,7 @@ export class IlmCityEngine {
     // the courtyard in white marble, and the round mataf, brighter still, where tawaf is made
     const court = new THREE.Mesh(
       new THREE.PlaneGeometry(IN * 2, IN * 2),
-      this.glow(new THREE.MeshStandardMaterial({ color: 0xf2efe8, roughness: 0.6 }), 0.45),
+      this.glow(new THREE.MeshStandardMaterial({ color: 0xf2efe8, roughness: 0.6 }), 0.12),
     );
     court.rotation.x = -Math.PI / 2;
     court.position.y = 0.04;
@@ -5240,7 +5244,7 @@ export class IlmCityEngine {
     g.add(court);
     const mataf = new THREE.Mesh(
       new THREE.CircleGeometry(31, 64),
-      this.glow(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }), 0.62),
+      this.glow(new THREE.MeshStandardMaterial({ color: 0xe9e9e6, roughness: 0.35 }), 0.1),
     );
     mataf.rotation.x = -Math.PI / 2;
     mataf.position.y = 0.05;
@@ -5455,20 +5459,6 @@ export class IlmCityEngine {
     });
     bl.position.set(Math.SQRT1_2 * 20, 3, Math.SQRT1_2 * 20);
     g.add(bl);
-    // tall lamp posts round the edge of the mataf, their lanterns lit after dark
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2 + 0.2;
-      const x = Math.cos(a) * 32.5,
-        z = Math.sin(a) * 32.5;
-      const post = cyl(0.14, 0.2, 7.5, 0x8a7a50, 8);
-      post.position.set(x, 3.75, z);
-      g.add(post);
-      for (const s2 of [-1, 1]) {
-        const lan = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.5), this.lampMat);
-        lan.position.set(x + s2 * 0.6 * Math.sin(a), 7.2, z - s2 * 0.6 * Math.cos(a));
-        g.add(lan);
-      }
-    }
     // Zamzam taps along the west colonnade
     for (let i = 0; i < 5; i++) {
       const t = box(1.6, 1.1, 0.6, 0xc0c4c8, -IN + 1.2, 0, -8 + i * 4);
@@ -5495,6 +5485,7 @@ export class IlmCityEngine {
       safa = W(IN - 6, -IN + 6),
       marwah = W(IN - 6, IN - 6);
     this.holy.kaaba = kz;
+    this.haramLight.position.set(kz.x, 46, kz.z);
     this.holy.safa = safa;
     this.holy.marwah = marwah;
     const zone = (id: string, label2: string, p: { x: number; z: number }, r = 3.4) =>
@@ -13030,6 +13021,7 @@ export class IlmCityEngine {
     this.lampMat.emissiveIntensity = dk * 2.2;
     this.dkNow = dk;
     for (const n of this.nightGlow) n.m.emissiveIntensity = dk * n.k;
+    this.haramLight.intensity = this.holy.kaaba ? Math.min(1, dk * 1.5) * 2.6 : 0;
   }
 }
 

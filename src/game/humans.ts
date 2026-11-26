@@ -852,8 +852,9 @@ export function bakeHuman(look: Look, phase = 0.3, keep = 1) {
       ? Uint32Array.from(src.index.array as ArrayLike<number>)
       : Uint32Array.from({ length: n }, (_, i) => i);
     // a crowd is seen from a distance: keep only a fraction of the triangles
-    if (keep < 1 && simplifierReady && idx.length > 300) {
-      const target = Math.max(36, Math.floor((idx.length * keep) / 3) * 3);
+    if (keep < 1 && simplifierReady && idx.length > 1500) {
+      // faces and headscarves keep enough triangles to stay whole
+      const target = Math.max(720, Math.floor((idx.length * keep) / 3) * 3);
       idx = MeshoptSimplifier.simplify(idx, pos, 3, target, 0.2)[0];
     }
     g.setIndex(new THREE.BufferAttribute(idx, 1));
