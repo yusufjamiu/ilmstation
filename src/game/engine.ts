@@ -609,6 +609,61 @@ export class IlmCityEngine {
     emissive: 0xffd27a,
     emissiveIntensity: 0,
   });
+  /** The warm pool of light a street lamp throws on the road after dark. */
+  private poolMat = new THREE.MeshBasicMaterial({
+    color: 0xffc070,
+    map: (() => {
+      // soft at the edges: bright under the lamp, fading out to nothing
+      if (typeof document === "undefined") return null;
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = 128;
+      const c = cv.getContext("2d")!;
+      const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, "rgba(255,255,255,1)");
+      g.addColorStop(0.35, "rgba(255,255,255,0.55)");
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = g;
+      c.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })(),
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  private static lampGeo: { pole: THREE.BufferGeometry; head: THREE.BufferGeometry; pool: THREE.BufferGeometry } | null = null;
+  /** A tall street lamp: a pole with its arm reaching out over the road (+x), the lamp at its
+      end, and the circle of light under it. Shared by every lamp in the city. */
+  private static lampParts() {
+    if (this.lampGeo) return this.lampGeo;
+    const pole = new THREE.CylinderGeometry(0.13, 0.19, 8.6, 8);
+    pole.translate(0, 4.3, 0);
+    const base = new THREE.CylinderGeometry(0.32, 0.36, 0.7, 8);
+    base.translate(0, 0.35, 0);
+    const arm = new THREE.BoxGeometry(2.9, 0.16, 0.16);
+    arm.translate(1.35, 8.45, 0);
+    const brace = new THREE.BoxGeometry(1.3, 0.1, 0.1);
+    brace.rotateZ(0.6);
+    brace.translate(0.55, 7.95, 0);
+    const keep = (g: THREE.BufferGeometry) => {
+      const n = g.toNonIndexed();
+      n.deleteAttribute("uv");
+      return n;
+    };
+    const head = new THREE.BoxGeometry(1.5, 0.32, 0.62);
+    head.translate(2.75, 8.3, 0);
+    const pool = new THREE.CircleGeometry(6, 24);
+    pool.rotateX(-Math.PI / 2);
+    pool.translate(2.75, 0.09, 0);
+    this.lampGeo = {
+      pole: mergeGeometries([pole, base, arm, brace].map(keep))!,
+      head,
+      pool,
+    };
+    return this.lampGeo;
+  }
   private colliders: Record<string, Box[]> = {
     out: [],
     masjid: [],
@@ -1574,27 +1629,37 @@ export class IlmCityEngine {
     S.add(wires);
 
     // street lamps
-    const lampPole = new THREE.CylinderGeometry(0.08, 0.1, 5, 6),
-      lampHead = new THREE.SphereGeometry(0.32, 8, 6);
-    const lamps: [number, number][] = [];
+    // tall lamps with their arms out over the road, and pools of warm light under them at night
+    const LP = IlmCityEngine.lampParts();
+    const lamps: [number, number, number][] = [];
     zs.forEach((sz) => {
-      for (let x = -(XR - 6); x <= XR - 6; x += 20) {
+      for (let x = -(XR - 6); x <= XR - 6; x += 18) {
         if (Math.abs(x) <= 8) continue;
-        if (this.boxFree(x - 0.5, x + 0.5, sz + 7.5, sz + 8.5)) lamps.push([x, sz + 8]);
-        if (this.boxFree(x + 9.5, x + 10.5, sz - 8.5, sz - 7.5)) lamps.push([x + 10, sz - 8]);
+        // the arm points across the road: north from the south pavement, south from the north
+        if (this.boxFree(x - 0.5, x + 0.5, sz + 7.5, sz + 8.5)) lamps.push([x, sz + 8, Math.PI / 2]);
+        if (this.boxFree(x + 8.5, x + 9.5, sz - 8.5, sz - 7.5))
+          lamps.push([x + 9, sz - 8, -Math.PI / 2]);
       }
     });
-    const poleMesh = new THREE.InstancedMesh(lampPole, mat(0x5a5f66), lamps.length);
-    const headMesh = new THREE.InstancedMesh(lampHead, this.lampMat, lamps.length);
+    const saudiLamp = !!D.holy || saudiCity(D);
+    const poleMesh = new THREE.InstancedMesh(
+      LP.pole,
+      mat(saudiLamp ? 0xdfe2de : 0x4f555c, { metalness: 0.3 }),
+      lamps.length,
+    );
+    const headMesh = new THREE.InstancedMesh(LP.head, this.lampMat, lamps.length);
+    const poolMesh = new THREE.InstancedMesh(LP.pool, this.poolMat, lamps.length);
+    poolMesh.renderOrder = 1;
     const m4 = new THREE.Matrix4();
-    lamps.forEach(([x, z], i) => {
-      this.addCollider("out", x - 0.2, x + 0.2, z - 0.2, z + 0.2);
-      m4.makeTranslation(x, 2.5, z);
+    lamps.forEach(([x, z, ry], i) => {
+      this.addCollider("out", x - 0.3, x + 0.3, z - 0.3, z + 0.3);
+      m4.makeRotationY(ry).setPosition(x, 0, z);
       poleMesh.setMatrixAt(i, m4);
-      m4.makeTranslation(x, 5.1, z);
       headMesh.setMatrixAt(i, m4);
+      poolMesh.setMatrixAt(i, m4);
     });
-    S.add(poleMesh, headMesh);
+    poleMesh.castShadow = true;
+    S.add(poleMesh, headMesh, poolMesh);
 
     // greenery
     const clear = (x: number, z: number) =>
@@ -2306,6 +2371,8 @@ export class IlmCityEngine {
     // the lagoon with its bridges, and the city that fills the land between the areas
     this.buildLagoon();
     this.buildCityFill();
+    this.buildRingFlyover("madinah");
+    this.buildRingFlyover("makkah");
     this.buildSaudiFill("madinah");
 
     // big roadside billboards along every expressway and Ikorodu Road
@@ -2900,7 +2967,7 @@ export class IlmCityEngine {
       return { d: best, dist: bd };
     };
     const blocked = (x: number, z: number) => {
-      if (center && Math.hypot(x - center.x, z - center.z) < 70) return true;
+      if (center && Math.hypot(x - center.x, z - center.z) < 84) return true;
       for (const d of DISTRICTS) {
         const H = halfOf(d);
         if (Math.abs(x - d.origin.x) < H.x + 16 && Math.abs(z - d.origin.z) < H.z + 16) return true;
@@ -2927,7 +2994,8 @@ export class IlmCityEngine {
           z = k * C - 1600;
         if (blocked(x, z)) continue;
         const { d, dist } = owner(x, z);
-        if (dist > 170 || rnd() < 0.3 + dist / 400) continue; // open lots, thinner to the desert
+        // the city fills the land between the areas, thinning out towards the desert
+        if (dist > 260 || rnd() < 0.14 + dist / 620) continue;
         let b = batches.get(d.id);
         if (!b) batches.set(d.id, (b = new Batch()));
         const lx = x - d.origin.x,
@@ -2971,6 +3039,80 @@ export class IlmCityEngine {
     }
   }
 
+  /** The raised ring road round the heart of Makkah and Madinah: a four-lane flyover on
+      pillars, high over the roundabout and the expressways, lit along its parapets. */
+  private buildRingFlyover(city: string) {
+    const c = CITY_CENTER[city];
+    if (!c) return;
+    const b = this.worldBatch;
+    const R0 = 56,
+      R1 = 72,
+      Y = 9; // inner and outer edge, deck height
+    const concrete = this.glow(new THREE.MeshStandardMaterial({ color: 0xdcd6ca, flatShading: true }), 0.35, 0xfff0d8);
+    const under = this.glow(new THREE.MeshStandardMaterial({ color: 0xb9b2a5, flatShading: true }), 0.25, 0xfff0d8);
+    // the deck: a ring slab
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, R1, 0, Math.PI * 2, false);
+    const hole = new THREE.Path();
+    hole.absarc(0, 0, R0, 0, Math.PI * 2, true);
+    shape.holes.push(hole);
+    const deck = new THREE.ExtrudeGeometry(shape, { depth: 1.4, bevelEnabled: false, curveSegments: 72 });
+    deck.rotateX(Math.PI / 2);
+    b.add(deck, under, c.x, Y, c.z);
+    const top = new THREE.RingGeometry(R0, R1, 96, 1);
+    top.rotateX(-Math.PI / 2);
+    b.add(top, MAT.asphalt(), c.x, Y + 0.02, c.z, 0, false);
+    // parapets, with a green band that glows after dark
+    const green = this.glow(new THREE.MeshStandardMaterial({ color: 0x2f8f63 }), 1.4, 0x3fe08a);
+    for (const r of [R0 + 0.3, R1 - 0.3]) {
+      b.add(new THREE.CylinderGeometry(r, r, 1.2, 96, 1, true), concrete, c.x, Y + 0.6, c.z);
+      b.add(new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.3, 96, 1, true), green, c.x, Y - 0.7, c.z);
+    }
+    // lane lines: a dashed white ring between the two lanes each way, a yellow one in the middle
+    const white = mat(0xf4f4f0),
+      yellow = mat(PALETTE.line);
+    for (let i = 0; i < 120; i++) {
+      const a = (i / 120) * Math.PI * 2;
+      for (const [r, m] of [
+        [R0 + 4, white],
+        [(R0 + R1) / 2, yellow],
+        [R1 - 4, white],
+      ] as [number, THREE.Material][]) {
+        if (m === white && i % 2) continue;
+        b.add(new THREE.BoxGeometry(0.3, 0.04, 2.2), m, c.x + Math.cos(a) * r, Y + 0.05, c.z + Math.sin(a) * r, -a);
+      }
+    }
+    // pillars, kept off the roads below
+    const segs = this.roadSegments();
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      const r = (R0 + R1) / 2;
+      const x = c.x + Math.cos(a) * r,
+        z = c.z + Math.sin(a) * r;
+      if (segs.some((sg) => IlmCityEngine.distToSeg(x, z, sg) < 17)) continue;
+      b.add(new THREE.BoxGeometry(2.6, Y, 7), concrete, x, Y / 2, z, Math.PI / 2 - a);
+      b.add(new THREE.BoxGeometry(3.6, 1, R1 - R0 - 2), concrete, x, Y - 0.5, z, Math.PI / 2 - a);
+      this.colliders.out.push({ x0: x - 2.2, x1: x + 2.2, z0: z - 2.2, z1: z + 2.2 });
+    }
+    // lamps along the outer parapet, leaning in over the deck
+    const LP = IlmCityEngine.lampParts();
+    const poleM = mat(0xdfe2de, { metalness: 0.3 });
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2 + 0.13;
+      for (const m of [new THREE.Mesh(LP.pole, poleM), new THREE.Mesh(LP.head, this.lampMat)]) {
+        m.position.set(c.x + Math.cos(a) * (R1 - 0.6), Y, c.z + Math.sin(a) * (R1 - 0.6));
+        m.rotation.y = -a + Math.PI;
+        b.addObject(m);
+      }
+    }
+    const t = label(city === "makkah" ? "Third Ring Road · الطريق الدائري الثالث" : "King Faisal Ring Road · طريق الملك فيصل الدائري", {
+      bg: "rgba(31,111,99,0.92)",
+      size: 1.4,
+    });
+    t.position.set(c.x, Y + 6, c.z + R1);
+    this.scene.add(t);
+  }
+
   /** Where an area's main street meets its expressway. */
   private roadEnd(d: District): [number, number] {
     const side = d.origin.x > centerOf(d).x ? -1 : 1;
@@ -2985,27 +3127,59 @@ export class IlmCityEngine {
     const g = new THREE.Group();
     g.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
     g.rotation.y = Math.atan2(dx, dz);
-    const k = new THREE.Mesh(groundGeo(19, len + 2, 2), MAT.pavement());
+    // in Makkah and Madinah: a four-lane dual carriageway with a planted median
+    const four = x0 < -3000;
+    const RW = four ? 25 : 15,
+      KW = four ? 31 : 19,
+      PX = four ? 14.2 : 12.5; // where the palms stand
+    const k = new THREE.Mesh(groundGeo(KW, len + 2, 2), MAT.pavement());
     k.position.y = 0.02;
     k.receiveShadow = true;
     g.add(k);
-    const r = new THREE.Mesh(groundGeo(15, len, 4), MAT.asphalt());
+    const r = new THREE.Mesh(groundGeo(RW, len, 4), MAT.asphalt());
     r.position.y = 0.04;
     r.receiveShadow = true;
     g.add(r);
     const dash = new THREE.MeshBasicMaterial({ color: PALETTE.line });
-    for (let t = -len / 2 + 4; t < len / 2 - 4; t += 8) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 4), dash);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(0, 0.06, t);
-      g.add(m);
+    const white = new THREE.MeshBasicMaterial({ color: 0xf4f4f0 });
+    for (let t = -len / 2 + 4; t < len / 2 - 4; t += 8)
+      for (const lx of four ? [-6.9, 6.9] : [0]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 4), four ? white : dash);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(lx, 0.06, t);
+        g.add(m);
+      }
+    if (four) {
+      // the solid edge lines, the kerbed median with its strip of grass, and lamps down the
+      // middle every 30 m with an arm over each carriageway
+      for (const lx of [-12, -1.9, 1.9, 12]) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.25, len - 2), lx > -3 && lx < 3 ? dash : white);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(lx, 0.06, 0);
+        g.add(m);
+      }
+      g.add(box(2.6, 0.35, len - 4, 0xd8d2c2, 0, 0, 0));
+      g.add(box(2.0, 0.08, len - 5, 0x6f9440, 0, 0.35, 0));
+      const LP = IlmCityEngine.lampParts();
+      const poleM = mat(0xdfe2de, { metalness: 0.3 });
+      for (let t = -len / 2 + 15; t < len / 2 - 15; t += 30)
+        for (const ry of [0, Math.PI]) {
+          const a = new THREE.Mesh(LP.pole, poleM);
+          const h = new THREE.Mesh(LP.head, this.lampMat);
+          const pl = new THREE.Mesh(LP.pool, this.poolMat);
+          for (const m of [a, h, pl]) {
+            m.position.set(0, 0, t);
+            m.rotation.y = ry;
+            g.add(m);
+          }
+        }
     }
     for (let t = -len / 2 + 14; t < len / 2 - 14; t += 26) {
-      g.add(palm(-12.5, t, 0.9));
-      g.add(palm(12.5, t + 13, 0.9));
+      g.add(palm(-PX, t, 0.9));
+      g.add(palm(PX, t + 13, 0.9));
       for (const [lx, lt] of [
-        [-12.5, t],
-        [12.5, t + 13],
+        [-PX, t],
+        [PX, t + 13],
       ]) {
         const a = g.rotation.y;
         const wx = g.position.x + lx * Math.cos(a) + lt * Math.sin(a),
@@ -3019,7 +3193,7 @@ export class IlmCityEngine {
       const fb = new THREE.Group();
       fb.position.copy(g.position);
       fb.rotation.y = g.rotation.y;
-      const towers = this.footbridge(this.worldBatch, 0, 0, 25, true, fb);
+      const towers = this.footbridge(this.worldBatch, 0, 0, 34, true, fb);
       const a = g.rotation.y;
       for (const t of towers) {
         const wx = g.position.x + t.x * Math.cos(a) + t.z * Math.sin(a),
@@ -9249,9 +9423,43 @@ export class IlmCityEngine {
       r: 3.2,
       scene: "out",
     });
-    const t = label("Masjid Dhul Hulayfah · مسجد ذي الحليفة", { size: 1.1, bg: "rgba(31,111,99,0.92)" });
-    t.position.set(X(0), GH + 2.4, Z(hd + 1));
-    this.dg.add(t);
+    // the name in big bold letters on the gate, Arabic above English, lit day and night
+    const nameBoard = (w: number, h: number) =>
+      canvasPlane(
+        w,
+        h,
+        (c, W, H) => {
+          c.fillStyle = "#17493d";
+          c.fillRect(0, 0, W, H);
+          c.strokeStyle = "#d9b44a";
+          c.lineWidth = H * 0.05;
+          c.strokeRect(H * 0.05, H * 0.05, W - H * 0.1, H - H * 0.1);
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.fillStyle = "#f6dd8a";
+          c.direction = "rtl";
+          c.font = `700 ${Math.round(H * 0.44)}px "Amiri", "Noto Naskh Arabic", "Geeza Pro", serif`;
+          c.fillText("مسجد ذي الحليفة · الميقات", W / 2, H * 0.36, W * 0.9);
+          c.direction = "ltr";
+          c.fillStyle = "#ffffff";
+          c.font = `800 ${Math.round(H * 0.24)}px "Inter", "Arial Black", Arial, sans-serif`;
+          c.fillText("MASJID DHUL HULAYFAH · MIQAT", W / 2, H * 0.75, W * 0.9);
+        },
+        1024,
+      ).mesh;
+    const nb = nameBoard(14.5, 2.8);
+    nb.position.set(X(0), GH - 1.45, Z(hd + 0.75));
+    this.dg.add(nb);
+    // and a tall sign by the road, seen from far down Hijrah Road
+    const rs = nameBoard(10, 2.4);
+    rs.position.set(X(hw - 6), 7.2, Z(hd + 4.5));
+    this.dg.add(rs);
+    for (const s of [-1, 1]) {
+      const post = cyl(0.18, 0.2, 6, 0xdfe2de, 8);
+      post.position.set(X(hw - 6) + s * 4.2, 3, Z(hd + 4.5));
+      this.dg.add(post);
+    }
+    this.addCollider("out", X(hw - 10.6), X(hw - 1.4), Z(hd + 4.2), Z(hd + 4.8));
     const t2 = label("Pray two rak'ahs, then make the intention", { size: 0.75 });
     t2.position.set(X(0), 8, Z(mf + 1));
     this.dg.add(t2);
@@ -13526,7 +13734,8 @@ export class IlmCityEngine {
     this.hemi.intensity = 1.15 - dk * 0.55;
     this.hemi.color.set(0xdde9f2).lerp(new THREE.Color(0x6a7fb8), dk);
     this.winMat.emissiveIntensity = dk * 1.6;
-    this.lampMat.emissiveIntensity = dk * 2.2;
+    this.lampMat.emissiveIntensity = dk * 2.6;
+    this.poolMat.opacity = dk * 0.75;
     this.dkNow = dk;
     for (const n of this.nightGlow) n.m.emissiveIntensity = dk * n.k;
     this.haramLight.intensity = this.holy.kaaba ? Math.min(1, dk * 1.5) * 2.6 : 0;
