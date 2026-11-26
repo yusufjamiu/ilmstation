@@ -52,7 +52,7 @@ import { QuranScreen } from "@/components/quran";
 import { FamilyScreen } from "@/components/family";
 import { LibraryScreen } from "@/components/library";
 import { ThemeToggle, useTheme } from "@/components/theme";
-import { adultBadges, earnedBadges, isEarned, nextBadge, progressToNext, remainingFor, stageOf } from "@/components/kids-progress";
+import { adultBadges, kidBadges, earnedBadges, isEarned, nextBadge, progressToNext, remainingFor, stageOf } from "@/components/kids-progress";
 import { ShareActions, type ShareCard } from "@/components/share-actions";
 import { QuizVisual, quizQuestionsFor } from "@/components/quiz-visual";
 
@@ -137,11 +137,11 @@ function AchievementsTab() {
 import { cn } from "@/lib/utils";
 import { awardXp } from "@/lib/xp";
 
-type Screen = "home" | "you" | "kidrank" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games";
+type Screen = "home" | "you" | "kidrank" | "study" | "play" | "quests" | "hifz" | "halaqah" | "chatrooms" | "challenge" | "library" | "wisdom" | "bot" | "community" | "progress" | "rewards" | "ramadan" | "family" | "settings" | "cards" | "kidgames" | "games" | "kidprogress";
 type QuizStep = "choose" | "topics" | "difficulty" | "lobby" | "question" | "reveal" | "results" | "badge";
 
 const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Tafsir", "Dua"];
-const KID_SCREENS = ["kidrank", "home", "kidgames", "study", "library", "settings", "you"];
+const KID_SCREENS = ["kidrank", "home", "kidgames", "study", "library", "settings", "you", "kidprogress"];
 const kidNav = [
   { label: "Learn & play", items: [["home", "Home", Home], ["kidrank", "Leaderboard", Trophy], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library]] },
   { label: "You", items: [["settings", "Settings", Settings]] },
@@ -236,6 +236,7 @@ export function IlmStationApp() {
         {screen === "bot" && <BotScreen />}
         {screen === "community" && <CommunityScreen go={selectScreen} onShare={openShare} />}
         {screen === "you" && <YouScreen go={selectScreen} />}
+        {screen === "kidprogress" && <KidProgressScreen />}
         {screen === "progress" && <ProgressScreen onShare={openShare} />}
         {screen === "rewards" && <RewardsScreen />}
         {screen === "ramadan" && <RamadanScreen />}
@@ -507,8 +508,8 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
     </section>
     <div className="mt-5 grid gap-3 sm:grid-cols-2 max-sm:gap-0 max-sm:overflow-hidden max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:border-foreground max-sm:bg-card max-sm:shadow-[0_4px_0_var(--foreground)]">
       {kid ? <>
-        {tile(YTrend, "My progress", "Stars, levels and streak", () => go("progress"))}
-        {tile(YAward, "My badges", "Everything you’ve earned", () => { try { sessionStorage.setItem("iq_growth_tab", "Achievements"); } catch { /* */ } go("progress"); })}
+        {tile(YTrend, "My progress", "Stars, levels and streak", () => go("kidprogress" as Screen))}
+        {tile(YAward, "My badges", "Everything you’ve earned", () => go("kidprogress" as Screen))}
         {tile(YBook, "My lessons", "Keep learning", () => go("study"))}
         {tile(YCog, "Settings", "Language and more", () => go("settings"))}
       </> : <>
@@ -662,4 +663,50 @@ function CommunityProfile({ name, username, initial, onShare }: { name: string; 
         : <p className="mt-3 text-sm text-muted-foreground">No badges yet. Keep learning to earn your first one.</p>}
     </Panel>
   </div>;
+}
+
+/* ---------------- Kids: my stars and badges ---------------- */
+Object.assign(BADGE_AR, { seed: "بَذْرَةُ العِلْم", lantern: "فانوسُ الهِداية", sabr: "رَوْضَةُ الصَّبْر", ikhlas: "نَجْمَةُ الإخْلاص", akhlaq: "تاجُ الأخْلاق" });
+Object.assign(BADGE_ICON, { seed: BSprout, lantern: BLamp, sabr: BSun, ikhlas: BStar, akhlaq: BCrown });
+function KidProgressScreen() {
+  const p = useMyRecord();
+  const [open, setOpen] = useState<BadgeT | null>(null);
+  const earned = kidBadges.filter((b) => isEarned(b, p));
+  const up = kidBadges.find((b) => !isEarned(b, p));
+  const prev = up ? (kidBadges[kidBadges.indexOf(up) - 1]?.points ?? 0) : 0;
+  const pct = up ? Math.round(Math.min(1, Math.max(0, (p.stars - prev) / Math.max(1, up.points - prev))) * 100) : 100;
+  const got = open ? isEarned(open, p) : false;
+  return <Frame eyebrow="My stars" title="My badges">
+    <section className="rounded-3xl border-[1.5px] border-foreground bg-primary p-5 text-[#1c1a17]">
+      <div className="flex flex-wrap gap-x-6 gap-y-2"><p className="text-3xl font-black">⭐ {p.stars.toLocaleString()} <span className="text-base font-bold">stars</span></p>
+        <p className="text-3xl font-black">🔥 {p.streak} <span className="text-base font-bold">{p.streak === 1 ? "day" : "days"} in a row</span></p></div>
+      <p className="mt-3 font-bold">{earned.length} of {kidBadges.length} badges</p>
+      {up ? <>
+        <div className="mt-2 h-4 overflow-hidden rounded-full border-[1.5px] border-[#1c1a17] bg-white"><div className="h-full rounded-full bg-[#2f7352]" style={{ width: `${pct}%` }} /></div>
+        <p className="mt-2 text-sm font-semibold">Next: {up.name}{p.stars < up.points ? ` · ${(up.points - p.stars).toLocaleString()} more stars` : ""}{up.streak && p.streak < up.streak ? ` · ${up.streak - p.streak} more days in a row` : ""}</p>
+      </> : <p className="mt-2 font-bold">You earned every badge, masha’Allah! 🎉</p>}
+    </section>
+    <div className="mt-5 grid grid-cols-2 gap-3">{kidBadges.map((b) => { const g = isEarned(b, p);
+      return <button key={b.id} type="button" onClick={() => setOpen(b)} className={cn("flex flex-col items-center rounded-3xl border-[1.5px] border-foreground p-4 text-center", g ? "bg-primary/25" : "bg-muted")}>
+        <Medal b={b} got={g} size={76} />
+        <span dir="rtl" lang="ar" className="mt-4 font-arabic text-base leading-tight">{BADGE_AR[b.id]}</span>
+        <b className="mt-0.5 block text-sm leading-tight">{b.name}</b>
+        <small className="mt-1 font-semibold text-muted-foreground">{g ? "Earned ✓" : `${b.points.toLocaleString()} ⭐`}</small>
+      </button>; })}</div>
+    {open && typeof document !== "undefined" && yPortal(<div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-5" onClick={() => setOpen(null)}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm">
+        <div className="overflow-hidden rounded-3xl border-2 border-black bg-[#1c1a17] text-white">
+          <p className={cn("py-3 text-center text-lg font-black uppercase text-[#1c1a17]", got ? "bg-[#f5c542]" : "bg-[#bdbdbd]")}>{got ? "You earned it! 🎉" : "Keep going! 💪"}</p>
+          <div className="flex flex-col items-center px-6 pb-7 pt-9">
+            <Medal b={open} got={got} size={150} />
+            <p dir="rtl" lang="ar" className="mt-7 font-arabic text-2xl">{BADGE_AR[open.id]}</p>
+            <p className="mt-1 text-center text-xl font-bold">{open.name}</p>
+            <p className="mt-2 text-center text-sm text-white/80">{open.meaning}</p>
+            {!got && <p className="mt-3 text-center text-sm text-white/70">To earn it: {open.points.toLocaleString()} stars{open.streak ? ` and ${open.streak} days in a row` : ""}</p>}
+          </div>
+        </div>
+        <button type="button" onClick={() => setOpen(null)} className="mt-4 w-full rounded-2xl border-2 border-black bg-white py-3.5 font-black uppercase text-[#1c1a17]">Close</button>
+      </div>
+    </div>, document.body)}
+  </Frame>;
 }
