@@ -29,7 +29,8 @@ export function IlmBot() {
   const [busy, setBusy] = useState(false);
   const [left, setLeft] = useState<number | null>(null);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { try { sessionStorage.setItem(KEY, JSON.stringify(msgs.slice(-30))); } catch { /* ignore */ } if (msgs.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
+  const lastA = useRef<HTMLDivElement>(null);
+  useEffect(() => { try { sessionStorage.setItem(KEY, JSON.stringify(msgs.slice(-30))); } catch { /* ignore */ } if (!msgs.length) return; const last = msgs[msgs.length - 1]; if (last.role === "assistant" && !busy) lastA.current?.scrollIntoView({ behavior: "smooth", block: "start" }); else end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
   useEffect(() => auth.onAuthStateChanged((u) => { if (u) void call({ peek: true }).then((r) => { if (typeof r.left === "number") setLeft(r.left); }); }), []);
 
   const send = async (text = input) => {
@@ -58,9 +59,9 @@ export function IlmBot() {
 
     <div className="grid gap-3">{msgs.map((m, i) => m.role === "user"
       ? <div key={i} className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-[#1c1a17]">{m.content}</div>
-      : <div key={i} className="mr-auto max-w-[92%] rounded-2xl rounded-bl-md border-[1.5px] border-foreground/20 bg-card px-4 py-3 leading-relaxed"><Rich text={m.content} /></div>)}
+      : <div key={i} ref={i === msgs.length - 1 ? lastA : undefined} className="mr-auto max-w-[92%] scroll-mt-28 rounded-2xl rounded-bl-md border-[1.5px] border-foreground/20 bg-card px-4 py-3 leading-relaxed"><Rich text={m.content} /></div>)}
       {busy && <div className="mr-auto flex items-center gap-2 rounded-2xl rounded-bl-md border-[1.5px] border-foreground/20 bg-card px-4 py-3 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Thinking…</div>}
-      <div ref={end} />
+      <div ref={end} className="h-2 scroll-mb-44" />
     </div>
 
     <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="sticky bottom-[calc(env(safe-area-inset-bottom)+88px)] z-10 flex items-end gap-2 bg-background pt-2 lg:bottom-4">
