@@ -15,6 +15,7 @@ import {
   takeIumGlow,
   qubaMosque,
   qubaWalkway,
+  parkingLot,
 } from "./ium";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
@@ -2031,10 +2032,13 @@ export class IlmCityEngine {
     if (D.id === "nabawi" || D.id === "quba") this.buildBikeDock(D, S);
 
     yield;
-    for (const m of batch.build()) S.add(m);
-    // posts and palms on open squares: solid now that the area's plots are laid out
+    // car parks beside the big buildings, wherever there is room (after everything else is
+    // laid out, so no plot moves)
+    // (posts and palms on open squares go solid first: the area's plots are laid out now)
     this.colliders.out.push(...this.lateBoxes);
     this.lateBoxes = [];
+    this.buildParks(D, batch);
+    for (const m of batch.build()) S.add(m);
     this.ox = 0;
     this.oz = 0;
   }
@@ -3944,6 +3948,7 @@ export class IlmCityEngine {
     else if (l.kind === "masjid" && l.id === "masjid-quba") this.buildQuba(l, sz);
     else if (l.kind === "masjid") {
       this.buildMasjid(l.x, sz - 23, l);
+      if (!D.holy) this.notePark(D, l.x, sz - 23, 40, 24, 0);
       // the famous mosques of Madinah keep their own shape: minarets and white domes
       if (l.id === "masjid-quba") this.masjidCrown(l.x, sz - 23, 4, 6);
       if (l.id === "masjid-qiblatayn") this.masjidCrown(l.x, sz - 23, 2, 2);
@@ -3952,9 +3957,15 @@ export class IlmCityEngine {
       // Mosque: two minarets and green domes
       if (l.id === "abuja-national-mosque") this.masjidCrown(l.x, sz - 23, 4, 1, 0xd4a72c, 9);
       if (l.id === "kano-central-mosque") this.masjidCrown(l.x, sz - 23, 2, 3, 0x2e8b57);
-    } else if (l.kind === "school") this.buildSchool(l.x, sz - 20, l);
+    } else if (l.kind === "school") {
+      this.buildSchool(l.x, sz - 20, l);
+      this.notePark(D, l.x, sz - 20, 24, 18, 0);
+    }
     else if (l.kind === "home") this.buildHome(l.x, sz - 17);
-    else if (l.kind === "souq") this.buildSouq(l.x, sz - 19, l);
+    else if (l.kind === "souq") {
+      this.buildSouq(l.x, sz - 19, l);
+      this.notePark(D, l.x, sz - 19, 30, 22, 0);
+    }
     else if (l.kind === "market") this.buildMarket(D);
     else {
       const south = l.side === "s";
@@ -4092,6 +4103,8 @@ export class IlmCityEngine {
           z1: this.oz + cz + d / 2,
         });
       for (const c of built.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+      if (["office", "campus", "station", "airport", "faculty"].includes(l.kind) && !D.campus)
+        this.notePark(D, l.x, cz, w, d, turn);
       for (const sp of built.spots) {
         if (sp.key === "gate" && l.kind === "campus") {
           const t = label(sp.label, { size: 1.1 });
@@ -4601,6 +4614,7 @@ export class IlmCityEngine {
         name: `${D.name} Police Station`,
       });
       put(ps, `police:${D.id}`, "Police station", q.x - 10.5, q.x + 10.5, pz);
+      this.notePark(D, q.x, pz, 22, 21, q.north ? 0 : Math.PI);
     }
     const sc = sistersCorner(b, {
       x: cornerX,
@@ -9132,7 +9146,12 @@ export class IlmCityEngine {
   }
   /** A lawn with palms where a plot was taken out (the entrance of the Islamic University). */
   private ghostGarden(batch: Batch, x: number, cz: number) {
-    for (const b of iumGarden(batch, x, cz)) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
+    // the one beside the gate is the visitors' car park
+    const cols =
+      x === -18
+        ? parkingLot(batch, { x, z: cz, turn: 0, w: 20, d: 18, seed: 4242 + Math.round(this.ox) })
+        : iumGarden(batch, x, cz);
+    for (const b of cols) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
     this.reserved.push({
       x0: this.ox + x - 11,
       x1: this.ox + x + 11,
@@ -10338,6 +10357,86 @@ export class IlmCityEngine {
     this.dg.add(t);
   }
 
+  /* ---------- car parks ---------- */
+  private parkWants = new Map<string, { x: number; z: number; w: number; d: number; turn: number; big: boolean }[]>();
+  /** A building that should have a car park: its centre, size and which way it faces. */
+  private notePark(D: District, x: number, z: number, w: number, d: number, turn: number, big = false) {
+    const list = this.parkWants.get(D.id) ?? [];
+    list.push({ x, z, w, d, turn, big });
+    this.parkWants.set(D.id, list);
+  }
+  /** Is this box (area coords) clear of the area's roads and pavements and inside its edge? */
+  private offRoads(D: District, x0: number, x1: number, z0: number, z1: number) {
+    const H = halfOf(D);
+    if (x0 < -H.x + 6 || x1 > H.x - 6 || z0 < -H.z + 6 || z1 > H.z - 6) return false;
+    for (const st of D.streets) if (z0 < st.z + 11 && z1 > st.z - 11) return false;
+    if (x0 < 11 && x1 > -11) return false; // the cross road
+    if (saudiCity(D) && !D.holy && !D.campus)
+      for (const bx of [-(H.x - 36), H.x - 36]) if (x0 < bx + 11 && x1 > bx - 11) return false;
+    return true;
+  }
+  /** every car park made (where, how wide): for checking and for the map */
+  parksMade: { area: string; x: number; z: number; w: number }[] = [];
+  parkAsked: Record<string, number> = {};
+  private buildParks(D: District, batch: Batch) {
+    const wants = this.parkWants.get(D.id) ?? [];
+    this.parkWants.delete(D.id);
+    this.parkAsked[D.id] = wants.length;
+    let seed = 0;
+    for (const ch of D.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    let made = 0;
+    for (const f of wants) {
+      if (made >= 12) break;
+      const sizes: [number, number][] = f.big ? [[32, 18], [24, 18], [16, 12]] : [[16, 12], [11, 12]];
+      const cos = Math.cos(f.turn),
+        sin = Math.sin(f.turn);
+      let done = false;
+      for (const [LW, LD] of sizes) {
+        if (done) break;
+        // beside it (front edges in line), then behind it, then any free ground near it
+        const spots: [number, number][] = [];
+        for (const gap of [1.5, 5, 9])
+          for (const side of [1, -1]) spots.push([side * (f.w / 2 + gap + LW / 2), f.d / 2 - LD / 2]);
+        spots.push([0, -f.d / 2 - 1 - LD / 2], [0, -f.d / 2 - 5 - LD / 2]);
+        const near: [number, number, number][] = [];
+        for (let gx = -50; gx <= 50; gx += 4)
+          for (let gz = -50; gz <= 50; gz += 4) {
+            // not on the building itself
+            if (Math.abs(gx) < (f.w + LW) / 2 && Math.abs(gz) < (f.d + LD) / 2) continue;
+            near.push([gx, gz, Math.hypot(gx, gz)]);
+          }
+        near.sort((a, b) => a[2] - b[2]);
+        for (const [gx, gz] of near) spots.push([gx, gz]);
+        for (const [lx, lz] of spots) {
+          const x = f.x + lx * cos + lz * sin,
+            z = f.z - lx * sin + lz * cos;
+          const turned = Math.abs(sin) > 0.5;
+          const hw = (turned ? LD : LW) / 2 + 0.3,
+            hd = (turned ? LW : LD) / 2 + 0.3;
+          if (!this.offRoads(D, x - hw + 0.3, x + hw - 0.3, z - hd + 0.3, z + hd - 0.3)) continue;
+          // (Quba's ground held for the market it moved is empty: only real things count there)
+          const blocked = f.big
+            ? this.outIndex
+                .sync(this.colliders.out)
+                .hitBox(x - hw + this.ox, x + hw + this.ox, z - hd + this.oz, z + hd + this.oz)
+            : !this.boxFree(x - hw, x + hw, z - hd, z + hd);
+          if (blocked) continue;
+          const cols = parkingLot(batch, { x, z, turn: f.turn, w: LW, d: LD, seed: seed + made * 7919 });
+          for (const c of cols) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+          this.reserved.push({
+            x0: this.ox + x - hw,
+            x1: this.ox + x + hw,
+            z0: this.oz + z - hd,
+            z1: this.oz + z + hd,
+          });
+          made++;
+          this.parksMade.push({ area: D.id, x: x + this.ox, z: z + this.oz, w: LW });
+          done = true;
+          break;
+        }
+      }
+    }
+  }
   private lateBoxes: { x0: number; x1: number; z0: number; z1: number }[] = [];
   /** Masjid Quba's ground behind Awali Street: whatever would be built there (the market,
       the flats) is moved back by dz instead, its own ground still held. */
@@ -10380,6 +10479,7 @@ export class IlmCityEngine {
     for (const c of [...q.colliders, ...q.late, ...fore])
       this.lateBoxes.push({ x0: c.x0 + this.ox, x1: c.x1 + this.ox, z0: c.z0 + this.oz, z1: c.z1 + this.oz });
     this.qubaShift = { x0: cx - 33, x1: cx + 33, z0: cz - 15, z1: cz + 12, dz: -40 };
+    this.notePark(districtById("quba"), cx, cz, 66, 20, 0, true);
     this.door(q.door.x, q.door.z, `door:masjid:${l.id}`, `Enter ${l.name}`, 17);
     for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
   }

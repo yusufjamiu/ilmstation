@@ -1916,3 +1916,80 @@ export function qubaForecourt(b: Batch, x0: number, x1: number, z0: number, z1: 
   }
   return late;
 }
+
+/* ================= car parks ================= */
+const CAR_COLOURS = [0xf2f2ee, 0x1d1f22, 0x9aa0a6, 0x2b4f86, 0x8a1c22, 0xd8d2c4, 0x3a5a40, 0x5a5f66];
+function parkSignTex() {
+  return canvasTex("park-sign", 128, 128, (c) => {
+    c.fillStyle = "#1f5fbf";
+    c.fillRect(0, 0, 128, 128);
+    c.strokeStyle = "#ffffff";
+    c.lineWidth = 6;
+    c.strokeRect(6, 6, 116, 116);
+    c.fillStyle = "#ffffff";
+    c.font = `800 92px ${EN}`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText("P", 64, 70);
+  });
+}
+/** A car park: dark asphalt with a kerb, white bays along the back (and the front too when
+    deep enough), cars parked in some of them, and a blue P sign at the entrance. Local
+    frame: the entrance side towards +z. Returns the parked cars and the sign as solid. */
+export function parkingLot(
+  b: Batch,
+  o: { x: number; z: number; turn: number; w: number; d: number; seed: number },
+) {
+  const { colliders, solid } = frameOf(b, o.x, o.z, o.turn);
+  const { w, d } = o;
+  let s = o.seed >>> 0 || 1;
+  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const asphalt = mat("park-asphalt", () => new THREE.MeshStandardMaterial({ color: 0x4a4d50, roughness: 0.95 }), 0);
+  const line = mat("park-line", () => new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 }), 0.3);
+  const kerb = MAT.plain(0xd8d2c2);
+  b.add(groundGeo(w, d, 2), asphalt, 0, 0.045, 0, 0, false);
+  // kerbs on three sides, open at the entrance
+  b.box(w + 0.4, 0.18, 0.3, kerb, 0, 0, -d / 2);
+  b.box(0.3, 0.18, d, kerb, -w / 2, 0, 0);
+  b.box(0.3, 0.18, d, kerb, w / 2, 0, 0);
+  const BAY = 2.7,
+    BD = 5;
+  const rows = d >= 17 ? [-d / 2 + BD / 2, d / 2 - BD / 2 - 0.4] : [-d / 2 + BD / 2];
+  const n = Math.floor((w - 0.6) / BAY);
+  const x0 = -(n * BAY) / 2;
+  for (const rz of rows) {
+    for (let i = 0; i <= n; i++) {
+      const g = new THREE.PlaneGeometry(0.14, BD);
+      g.rotateX(-Math.PI / 2);
+      b.add(g, line, x0 + i * BAY, 0.06, rz, 0, false);
+    }
+    for (let i = 0; i < n; i++) {
+      if (rnd() < 0.35) continue; // an empty bay
+      const cx = x0 + (i + 0.5) * BAY,
+        col = CAR_COLOURS[Math.floor(rnd() * CAR_COLOURS.length)];
+      const body = MAT.plain(col, 0.4);
+      // a simple car, nose to the aisle
+      const face = rz < 0 ? 1 : -1;
+      b.box(1.8, 0.75, 4.2, body, cx, 0.32, rz);
+      b.box(1.6, 0.6, 2.2, body, cx, 1.07, rz - face * 0.2);
+      b.box(1.62, 0.42, 2.0, MAT.plain(0x1c2a33, 0.2), cx, 1.12, rz - face * 0.2);
+      for (const wx of [-0.82, 0.82])
+        for (const wz of [-1.35, 1.35]) {
+          const wh = new THREE.CylinderGeometry(0.34, 0.34, 0.26, 10);
+          wh.rotateZ(Math.PI / 2);
+          b.add(wh, MAT.plain(0x161616), cx + wx, 0.34, rz + wz);
+        }
+      solid(cx - 0.95, cx + 0.95, rz - 2.15, rz + 2.15);
+    }
+  }
+  // the P sign at the entrance corner
+  const sx = w / 2 - 0.8,
+    sz = d / 2 - 0.6;
+  b.add(new THREE.CylinderGeometry(0.06, 0.06, 2.8, 8), MAT.plain(0x9a9a92), sx, 1.4, sz);
+  const sign = M.sign("park", parkSignTex());
+  b.add(new THREE.PlaneGeometry(0.9, 0.9), sign, sx, 2.9, sz + 0.05, 0, false);
+  b.add(new THREE.PlaneGeometry(0.9, 0.9), sign, sx, 2.9, sz - 0.05, Math.PI, false);
+  solid(sx - 0.15, sx + 0.15, sz - 0.15, sz + 0.15);
+  b.base.identity();
+  return colliders;
+}
