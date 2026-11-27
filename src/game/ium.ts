@@ -2329,7 +2329,7 @@ let umbrellaGeo: { canopy: THREE.BufferGeometry; ribs: THREE.BufferGeometry[] } 
 const U_S = 4.6,
   U_PEAK = 1.7,
   U_POLE = 6.6;
-function madinahUmbrella(b: Batch, x: number, z: number) {
+function madinahUmbrella(b: Batch, x: number, z: number, open: Batch = b, shut?: Batch) {
   if (!umbrellaGeo) {
     const N = 12,
       pos: number[] = [],
@@ -2375,9 +2375,16 @@ function madinahUmbrella(b: Batch, x: number, z: number) {
   const pole = mat("madinah-pole", () => new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.5 }), 0.3, 0xfff4e0);
   b.add(new THREE.CylinderGeometry(0.2, 0.3, U_POLE, 10), pole, x, U_POLE / 2, z);
   b.add(new THREE.CylinderGeometry(0.4, 0.3, 0.55, 10), pole, x, U_POLE - 0.2, z);
-  b.add(umbrellaGeo.canopy.clone(), fabric, x, U_POLE, z);
-  for (const r of umbrellaGeo.ribs) b.add(r.clone(), pole, x, U_POLE, z);
-  b.add(new THREE.ConeGeometry(0.25, 0.6, 10), pole, x, U_POLE + U_PEAK + 0.25, z);
+  // open by day: the canopy spread on its ribs
+  open.add(umbrellaGeo.canopy.clone(), fabric, x, U_POLE, z);
+  for (const r of umbrellaGeo.ribs) open.add(r.clone(), pole, x, U_POLE, z);
+  open.add(new THREE.ConeGeometry(0.25, 0.6, 10), pole, x, U_POLE + U_PEAK + 0.25, z);
+  // shut at night: the fabric folded down tight round the top of the pole
+  if (shut) {
+    shut.add(new THREE.CylinderGeometry(0.34, 0.62, 4.2, 12), fabric, x, U_POLE - 1.2, z);
+    shut.add(new THREE.CylinderGeometry(0.66, 0.66, 0.12, 12), pole, x, U_POLE - 3.25, z);
+    shut.add(new THREE.ConeGeometry(0.34, 0.7, 12), pole, x, U_POLE + 1.25, z);
+  }
 }
 
 export function qubaCompound(
@@ -2392,6 +2399,7 @@ export function qubaCompound(
     park: Box & { gate: number };
     free: (x0: number, x1: number, z0: number, z1: number) => boolean;
     seed: number;
+    umbrellas?: { open: Batch; shut: Batch };
   },
 ) {
   const colliders: Box[] = [];
@@ -2507,7 +2515,7 @@ export function qubaCompound(
     for (let x = o.x0 + EDGE + R + 1; x < o.x1 - EDGE - R; x += 13) {
       if (inPark(x, z, R) || onDrive(x, z, 7.5 + R) || inSkip(x, z, R) || atGate(x, z, R)) continue;
       if (blocked(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) continue;
-      madinahUmbrella(b, x, z);
+      madinahUmbrella(b, x, z, o.umbrellas?.open, o.umbrellas?.shut);
       solid(x - 0.4, x + 0.4, z - 0.4, z + 0.4);
     }
   b.base.identity();

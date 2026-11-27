@@ -2052,7 +2052,7 @@ export class IlmCityEngine {
     this.colliders.out.push(...this.lateBoxes);
     this.lateBoxes = [];
     this.buildCampusParks(D, batch);
-    this.buildQubaCompound(D, batch);
+    this.buildQubaCompound(D, batch, S);
     this.buildParks(D, batch);
     for (const m of batch.build()) S.add(m);
     this.ox = 0;
@@ -10498,14 +10498,25 @@ export class IlmCityEngine {
     }
   }
   private qubaYard: { cx: number; aw: number; plaza: Box } | null = null;
+  /** Things shown only by day or only by night (Masjid Quba's umbrellas), by area. */
+  private dayNight = new Map<string, { day: THREE.Object3D; night: THREE.Object3D }>();
+  private setDayNight() {
+    const day = this.dkNow < 0.4;
+    for (const v of this.dayNight.values()) {
+      v.day.visible = day;
+      v.night.visible = !day;
+    }
+  }
   /** Masjid Quba's big walled compound behind Awali Street, with its covered car park (built
       last, so nothing else moves). */
-  private buildQubaCompound(D: District, batch: Batch) {
+  private buildQubaCompound(D: District, batch: Batch, S: THREE.Object3D) {
     const q = this.qubaYard;
     this.qubaYard = null;
     if (!q || D.id !== "quba") return;
     const free = (x0: number, x1: number, z0: number, z1: number) =>
       !this.outIndex.sync(this.colliders.out).hitBox(x0 + this.ox, x1 + this.ox, z0 + this.oz, z1 + this.oz);
+    const uOpen = new Batch(),
+      uShut = new Batch();
     const cols = qubaCompound(batch, {
       x0: -130,
       x1: 130,
@@ -10521,7 +10532,16 @@ export class IlmCityEngine {
       park: { x0: 22, x1: 120, z0: -170, z1: -104, gate: 70 },
       free,
       seed: 7331,
+      umbrellas: { open: uOpen, shut: uShut },
     });
+    // the umbrellas open in the morning and fold away at night
+    const gOpen = new THREE.Group(),
+      gShut = new THREE.Group();
+    for (const m of uOpen.build()) gOpen.add(m);
+    for (const m of uShut.build()) gShut.add(m);
+    S.add(gOpen, gShut);
+    this.dayNight.set(D.id, { day: gOpen, night: gShut });
+    this.setDayNight();
     for (const c of cols) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
     this.reserved.push({ x0: this.ox - 130, x1: this.ox + 130, z0: this.oz - 178, z1: this.oz + q.aw - 6.5 });
     this.parksMade.push({ area: D.id, x: this.ox + 71, z: this.oz - 137, w: 98 });
@@ -16088,6 +16108,7 @@ export class IlmCityEngine {
     this.lampMat.emissiveIntensity = dk * 2.6;
     this.poolMat.opacity = dk * 0.75;
     this.dkNow = dk;
+    this.setDayNight();
     for (const n of this.nightGlow) n.m.emissiveIntensity = dk * n.k;
     this.haramLight.intensity = this.holy.kaaba ? Math.min(1, dk * 1.5) * 2.6 : 0;
   }
