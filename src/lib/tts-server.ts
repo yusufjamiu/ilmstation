@@ -1,6 +1,7 @@
 /** Qira'ah lessons: read Arabic aloud with every harakah (kataba, not katab), using OpenAI text-to-speech.
  *  Called as GET /api/tts?text=كَتَبَ&say=ka-ta-ba  (add &slow=1 for slower),
  *  or for spoken English instructions: GET /api/tts?text=Tap%20the%20mic&lang=en
+ *  Hadith lessons add &voice=naya or &voice=abdullah (ElevenLabs reads both the Arabic and the instructions).
  *  GET so Vercel's CDN keeps each word: OpenAI is paid once per word, then it's free and instant. */
 
 const READ_RULE =
@@ -155,6 +156,25 @@ function mp3Rate(buf: ArrayBuffer): number {
   return 0;
 }
 
+
+/* ---- ElevenLabs readers per language (Hadith lessons, and the instructions in Qira'ah and Arabiyyah) ----
+   male = men (Hadith) and adult lessons; female = women and kids. AR also reads the hadith itself.
+   To change one without editing code, set e.g. HADITH_AR_MALE_VOICE_ID in Vercel (it wins over this list). */
+const LANG_VOICES: Record<string, { male?: string; female?: string }> = {
+  AR: { male: "drMurExmkWVIH5nW8snR", female: "jAAHNNqlbAX9iWjJPEtE" },   // Khaled Alnajjar / Sara (the hadith + Arabic)
+  EN: { male: "z7i51AlFqQJ8JzM16o7e", female: "ZF6FPAbjXT4488VcRRnw" },   // Nathaniel / Amelia
+  FR: { male: "a5n9pJUnAhX4fn7lx3uo", female: "WQKwBV2Uzw1gSGr69N8I" },   // Martin Dupont / Mylène
+  MS: { male: "NpVSXJvYSdIbjOaMbShj", female: "qAJVXEQ6QgjOQ25KuoU8" },   // Jawid Iqbal Anwar / Aisyah
+  TL: { male: "HyI7lAFGUyIWLOTuaREJ", female: "RnW8EXHv9GqGMgyP0sXG" },   // Ate Jen / Ate Lyn (Filipino)
+  ID: { male: "ACRfKVNOAnzVitkYerdl", female: "I7sakys8pBZ1Z5f0UhT9" },   // Mizan / Putri Maharani (Indonesian)
+  UR: { male: "vH5LP38dcYJ3CIbC2rKX", female: "UT6USLtoAlXHj5k4sOLY" },   // Amjid / Reva (Urdu)
+  BN: { male: "j5PhP1QJv2DvlhRv3mEv", female: "q4yUdydpWxqfmkQH7gK7" },   // Subhajit / Swati S (Bengali)
+};
+function langVoice(lang: string, male: boolean): string | undefined {
+  const L = lang.toUpperCase();
+  return process.env[`HADITH_${L}_${male ? "MALE" : "FEMALE"}_VOICE_ID`] || LANG_VOICES[L]?.[male ? "male" : "female"];
+}
+
 export async function handleTts(request: Request): Promise<Response> {
   const cors = { "access-control-allow-origin": "*" }; // lesson files may be served from storage
   const json = (o: unknown, status = 200) =>
@@ -171,6 +191,56 @@ export async function handleTts(request: Request): Promise<Response> {
   const ilang = (url.searchParams.get("lang") ?? "").toLowerCase();
   const english = /^[a-z]{2,3}$/.test(ilang);          // "english" = spoken instructions, in the learner's language
   const adult = url.searchParams.get("who") === "adult";   // adult narrator, otherwise Nuri for children
+
+  // ---- Hadith lessons (?voice=naya|abdullah): ElevenLabs reads the Arabic AND the instructions ----
+  // Naya = kids and women, Abdullah = men. Made once, kept in Firebase Storage (tts-cache), then free.
+  const HADITH_VOICES: Record<string, string> = { naya: "pG78raDdMo3wMovvBZyC", abdullah: "usjDi9nBY6UHvtKrL4ba" };
+  const hv = url.searchParams.get("voice") ?? "";
+  if (HADITH_VOICES[hv]) {
+    const arabic = !english;
+    const okText = arabic
+      ? text.length <= 200 && /^[\u0600-\u06FF\uFD3E\uFD3F\s:.!\-]+$/.test(text)
+      : text.length <= 500 && /^[\p{L}\p{M}\p{N}\s.,!?'’ʿʾ:;()\-–—«»"“”،؟·۔।%]+$/u.test(text);
+    if (!text || !okText) return json({ error: "Hadith lesson text only." }, 400);
+    const eleven = process.env.ELEVENLABS_API_KEY;
+    if (!eleven) return json({ error: "Voice isn't set up yet." }, 503);
+    // Which reader: the LANG_VOICES list above (AR = the hadith itself and Arabic instructions).
+    // "female" = women and all kids. Yoruba, Igbo, Hausa use your Qira'ah settings (Yomi / Olufunmilola).
+    // Any other language: Abdullah (men) / Naya (women and kids).
+    const L = (arabic ? "ar" : ilang).toUpperCase();
+    const male = hv === "abdullah";
+    const naija = ["YO", "IG", "HA"].includes(L)
+      ? (male ? process.env[`ELEVENLABS_${L}_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_VOICE_ID
+              : process.env[`ELEVENLABS_${L}_KID_VOICE_ID`] ?? process.env.ELEVENLABS_NAIJA_KID_VOICE_ID)
+      : undefined;
+    const voiceId = naija
+      || langVoice(L, male)
+      || HADITH_VOICES[hv];
+    const hKey = await voiceKey([process.env.TTS_STORE_VERSION ?? "1", "hadith", voiceId, ilang, text]);
+    const send = (buf: ArrayBuffer) => new Response(buf, {
+      headers: { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400, s-maxage=31536000, immutable", ...cors },
+    });
+    const keptH = await storedVoice(hKey);
+    if (keptH) return send(keptH);
+    const said = arabic ? text : speakable(text, ilang);
+    const settings = { stability: 0.7, similarity_boost: 0.8, speed: arabic ? 0.85 : 0.92 };  // slow and clear
+    for (const body of [
+      { text: said, model_id: "eleven_v4", language_code: arabic ? "ar" : ilang, voice_settings: settings },
+      { text: said, model_id: "eleven_multilingual_v2", voice_settings: settings },   // if a setting is refused
+    ]) {
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+          method: "POST",
+          headers: { "xi-api-key": eleven, "content-type": "application/json", accept: "audio/mpeg" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(20000),
+        });
+        if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) { await keepVoice(hKey, buf); return send(buf); } }
+        else { console.error("eleven hadith", r.status, (await r.text().catch(() => "")).slice(0, 300)); if (r.status === 401) break; }
+      } catch (e) { console.error("eleven hadith", String(e)); }
+    }
+    return json({ error: "Voice service error." }, 502);
+  }
   // Only short lesson text, so nobody can use this to read other things on your bill
   if (english) {
     const ok = ilang === "en" ? /^[A-Za-z0-9\s.,!?'’:;()\-]+$/.test(text) : /^[\p{L}\p{M}\p{N}\s.,!?'’:;()\-–—«»"“”،؟·۔।]+$/u.test(text);
@@ -197,7 +267,8 @@ export async function handleTts(request: Request): Promise<Response> {
   const L = ilang.toUpperCase();
   const storeKey = await voiceKey([
     process.env.TTS_STORE_VERSION ?? "1", url.searchParams.get("v") ?? "", ilang, adult ? "adult" : "kid", tajweed ? "tj" : "", slow ? "slow" : "", say, text,
-    ["yo", "ig", "ha"].includes(ilang) ? (process.env[`ELEVENLABS_${L}_${adult ? "" : "KID_"}VOICE_ID`] ?? process.env[`ELEVENLABS_NAIJA_${adult ? "" : "KID_"}VOICE_ID`] ?? "") : "",
+    ["yo", "ig", "ha"].includes(ilang) ? (process.env[`ELEVENLABS_${L}_${adult ? "" : "KID_"}VOICE_ID`] ?? process.env[`ELEVENLABS_NAIJA_${adult ? "" : "KID_"}VOICE_ID`] ?? "")
+      : english ? (langVoice(ilang, adult) ?? "") : "",   // a new reader for a language = made again once in that voice
   ]);
   const kept = await storedVoice(storeKey);
   // made before: no cost. But if an instruction was saved in a backup voice while ElevenLabs is the chosen voice,
@@ -265,13 +336,16 @@ export async function handleTts(request: Request): Promise<Response> {
   // Optional: ELEVENLABS_VOICE_ID (adults) and ELEVENLABS_KID_VOICE_ID (children) to pick the voices.
   const eleven = process.env.ELEVENLABS_API_KEY;
   if (english && eleven && !["yo", "ig", "ha"].includes(ilang)) {
-    const voiceId = (adult ? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB" /* Adam: male */ : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
+    const voiceId = langVoice(ilang, adult)   // the language's reader from LANG_VOICES (adult = male, kids = female)
+      ?? (adult ? process.env.ELEVENLABS_VOICE_ID ?? "pNInz6obpgDQGcFmaJgB" /* Adam: male */ : process.env.ELEVENLABS_KID_VOICE_ID ?? process.env.ELEVENLABS_VOICE_ID) ?? "21m00Tcm4TlvDq8ikWAM";
     for (let attempt = 0; attempt < 2; attempt++) {   // ElevenLabs can refuse requests that arrive together: try twice
       try {
         const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
           method: "POST",
           headers: { "xi-api-key": eleven, "content-type": "application/json", accept: "audio/mpeg" },
-          body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.55, similarity_boost: 0.75 } }),
+          body: JSON.stringify(attempt === 0
+            ? { text, model_id: "eleven_v4", language_code: ilang, voice_settings: { stability: 0.55, similarity_boost: 0.75 } }
+            : { text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.55, similarity_boost: 0.75 } }),
           signal: AbortSignal.timeout(20000),
         });
         if (r.ok) { const buf = await r.arrayBuffer(); if (buf.byteLength > 1000) return audio(buf); }
