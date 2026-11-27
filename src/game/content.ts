@@ -5041,6 +5041,8 @@ export type Job = {
   tasks: JobQ[];
   /** a job you do with your hands in the city rather than by answering questions */
   play?: "porter" | "caretaker" | "rider";
+  /** places starting with `at` that are not this workplace */
+  atNot?: string;
 };
 const J = (q: string, a: string, ...w: string[]): JobQ => {
   const o = [a, ...w];
@@ -5282,9 +5284,9 @@ export const JOBS: Job[] = [
   {
     id: "albaik",
     name: "AlBaik crew",
-    place: "AlBaik, Madinah Business District",
-    at: "office:food-albaik",
-    area: "bizdistrict",
+    place: "Any AlBaik (or the area's restaurant) in Madinah and Makkah",
+    at: "door:restaurant:food:",
+    area: "",
     pay: 45,
     hours: [11, 23],
     about: "Take orders, pack the broast and keep the queue moving with a smile.",
@@ -5299,9 +5301,10 @@ export const JOBS: Job[] = [
   {
     id: "barista",
     name: "Barista",
-    place: "½ Million, Madinah Business District",
-    at: "office:food-halfmillion",
-    area: "bizdistrict",
+    place: "Any ½ Million (or the area's café) in Madinah and Makkah",
+    at: "door:restaurant:",
+    atNot: "door:restaurant:food:",
+    area: "",
     pay: 45,
     hours: [7, 15],
     about: "Make Spanish lattes, cold brews and Arabic coffee for the morning rush.",

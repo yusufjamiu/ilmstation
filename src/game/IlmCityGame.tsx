@@ -259,6 +259,14 @@ type Save = {
   job?: string;
   /** the day you last worked a shift */
   worked?: string;
+  /** on leave from work up to and including this day (YYYY-MM-DD) */
+  leaveUntil?: string;
+  /** leave days taken this month: { month: "YYYY-MM", days } */
+  leaveUsed?: { month: string; days: number };
+  /** shifts missed in a row without leave (three and you're let go) */
+  absences?: number;
+  /** the last day checked for a missed shift */
+  absentChecked?: string;
   streak?: { n: number; last: string };
   items?: string[];
   needs?: Needs;
@@ -1154,6 +1162,26 @@ function CityGame({
   const [clock, setClock] = useState<Clock>(() => clockFor(city, Date.now() + offset));
   const clockRef = useRef(clock);
   clockRef.current = clock;
+  // a shift missed without leave: noticed once the shift is over (while you're playing)
+  useEffect(() => {
+    const s = saveRef.current;
+    const job = JOBS.find((j) => j.id === s.job);
+    if (!job?.hours || !s.profile) return;
+    const c = clock;
+    if (c.min < job.hours[1] * 60 || s.worked === c.key || s.absentChecked === c.key) return;
+    if (onLeave(s, c.key)) return;
+    // only counts from the day after you got the job
+    if (s.jobSince && Date.now() - s.jobSince < 86400000) return;
+    const n = (s.absences ?? 0) + 1;
+    if (n >= 3) {
+      update((x) => ({ ...x, job: undefined, jobSince: undefined, jobTested: undefined, absences: 0, absentChecked: c.key }));
+      toast(`You missed three shifts in a row without leave, so you lost your job as ${job.name.toLowerCase()}. Find work again in 💼 Jobs.`, "warn");
+    } else {
+      update((x) => ({ ...x, absences: n, absentChecked: c.key }));
+      toast(`You missed today's shift at work without leave (${n} of 3). Take leave next time from Profile → Work.`, "warn");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clock.key, Math.floor(clock.min / 10)]);
   const [ctx, setCtx] = useState<Context>(null);
   const [place, setPlace] = useState(() => {
     const d = districtById(save.district ?? DEFAULT_AREA);
@@ -6007,24 +6035,37 @@ function CityGame({
     total: number;
     text: string;
   } | null>(null);
+  /** how many minutes late you started today's shift */
+  const lateBy = useRef(0);
   const payShift = useCallback(
     (job: Job, quality: number) => {
-      const pay = Math.round(
+      const full = Math.round(
         job.pay * (0.5 + 0.5 * quality) * (1 + ilmLevel(saveRef.current.ilm).bonus),
       );
+      // late: 10% less for every 15 minutes after the first 15 (half the pay at most)
+      const cut = latePenalty(lateBy.current);
+      const pay = Math.round(full * (1 - cut));
       update((x) => ({
         ...x,
         coins: x.coins + pay,
         ilm: x.ilm + 2,
         worked: clockRef.current.key,
+        absences: 0,
       }));
       need({ energy: -15, social: 10 });
-      toast(`Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`, "good");
+      toast(
+        cut > 0
+          ? `Salary paid: +${N(pay)}. You were ${Math.round(lateBy.current)} minutes late, so ${N(full - pay)} was taken off. Be on time tomorrow, in shaa Allah.`
+          : `Salary paid: +${N(pay)}. Hard work is worship when the intention is right.`,
+        cut > 0 ? "warn" : "good",
+      );
+      lateBy.current = 0;
     },
     [update, need, toast],
   );
   const startWork = useCallback(
     (job: Job, tested = false) => {
+      lateBy.current = job.hours ? Math.max(0, clockRef.current.min - job.hours[0] * 60) : 0;
       // once a week: a short assessment before work. Fail it and you are laid off
       const since = saveRef.current.jobTested ?? saveRef.current.jobSince;
       if (!since) {
@@ -6166,7 +6207,34 @@ function CityGame({
                 );
                 return;
               }
-              if (!engine.current?.goToZone(j.at)) toast("Go outside first.");
+              if (!engine.current?.goToZone(workPrefix(j, engine.current?.districtId() ?? ""))) toast("Go outside first.");
+            }}
+            onLeave={(days) => {
+              const c = clockRef.current;
+              const month = c.key.slice(0, 7);
+              const used = saveRef.current.leaveUsed?.month === month ? saveRef.current.leaveUsed.days : 0;
+              if (days === 0) {
+                update((x) => ({ ...x, leaveUntil: undefined }));
+                toast("Welcome back! Your shift is waiting.", "good");
+                setPanel(null);
+                return;
+              }
+              if (used + days > LEAVE_PER_MONTH) {
+                toast(`You have ${LEAVE_PER_MONTH - used} leave days left this month.`);
+                return;
+              }
+              const until = addDays(c.key, days - 1);
+              update((x) => ({ ...x, leaveUntil: until, leaveUsed: { month, days: used + days } }));
+              toast(`Leave approved until ${until}. Rest well!`, "good");
+              setPanel(null);
+            }}
+            leave={{
+              until: onLeave(saveRef.current, clockRef.current.key) ? saveRef.current.leaveUntil : undefined,
+              left:
+                LEAVE_PER_MONTH -
+                (saveRef.current.leaveUsed?.month === clockRef.current.key.slice(0, 7)
+                  ? saveRef.current.leaveUsed.days
+                  : 0),
             }}
           />
         ),
@@ -6305,8 +6373,10 @@ function CityGame({
         return;
       }
       const job = JOBS.find((j) => j.id === s.job);
-      if (job && id.startsWith(job.at) && s.worked !== c.key && !workSkip.current) {
-        if (!onShift(job, c)) {
+      if (job && atWork(job, id) && s.worked !== c.key && !workSkip.current) {
+        if (onLeave(s, c.key)) {
+          toast(`You're on leave until ${s.leaveUntil}. Enjoy your rest! (Profile → Work to come back early.)`);
+        } else if (!onShift(job, c)) {
           toast(`Your shift is ${hoursText(job)}. Come back then, in shaa Allah.`);
         } else {
           setPanel({
@@ -15808,19 +15878,39 @@ const onShift = (j: Job, c: Clock) =>
 const hoursText = (j: Job) =>
   j.hours ? `${fmtTime(j.hours[0] * 60)} – ${fmtTime(j.hours[1] * 60)}` : "Any time";
 
+/** Leave days a worker can take in a month. */
+const LEAVE_PER_MONTH = 6;
+const onLeave = (s: { leaveUntil?: string }, today: string) => !!s.leaveUntil && today <= s.leaveUntil;
+/** 10% off for every 15 minutes late after the first 15, half the pay at most. */
+const latePenalty = (min: number) => (min <= 15 ? 0 : Math.min(0.5, Math.ceil((min - 15) / 15) * 0.1));
+function addDays(key: string, n: number) {
+  const d = new Date(key + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** Where to walk to for this job in an area. */
+const workPrefix = (j: Job, area: string) => (j.atNot && area ? `${j.at}${area}` : j.at);
+/** Is this place where this job is done? */
+const atWork = (j: Job, id: string) => id.startsWith(j.at) && !(j.atNot && id.startsWith(j.atNot));
 function JobsView({
   current,
   onTake,
   onGo,
+  onLeave: takeLeave,
+  leave,
 }: {
   current?: string;
   onTake: (j: Job) => void;
   onGo: (j: Job) => void;
+  onLeave: (days: number) => void;
+  leave: { until?: string; left: number };
 }) {
   return (
     <div className="space-y-2">
       <p className="text-[13px] opacity-75">
-        One shift a day, paid when you finish. You can change jobs any time.
+        One shift a day, paid when you finish. Be on time: after 15 minutes late, 10% of the pay
+        is taken off for every 15 minutes. Missing three shifts in a row without leave and you
+        lose the job. You can take up to {LEAVE_PER_MONTH} days of leave a month.
       </p>
       {JOBS.map((j) => {
         const mine = j.id === current;
@@ -15851,6 +15941,32 @@ function JobsView({
             >
               {mine ? "Go to work" : "Apply · short interview"}
             </button>
+            {mine && (
+              <div className="mt-2 rounded-lg bg-[#f4efe2] p-2 text-[12.5px]">
+                {leave.until ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>🌴 On leave until {leave.until}</span>
+                    <button onClick={() => takeLeave(0)} className="rounded-md bg-white px-2 py-1 font-bold">
+                      Come back now
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1">🌴 Take leave ({leave.left} days left this month):</span>
+                    {[1, 3, 6].map((d) => (
+                      <button
+                        key={d}
+                        disabled={d > leave.left}
+                        onClick={() => takeLeave(d)}
+                        className="rounded-md bg-white px-2 py-1 font-bold disabled:opacity-40"
+                      >
+                        {d === 1 ? "Today" : `${d} days`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
@@ -16018,8 +16134,8 @@ function nextGoal(s: Save, c: Clock, inside: boolean, area: string): Goal | null
       ? { text: "You're tired: book a hotel or travel home", act: "rest" }
       : { text: "You're tired: go home and rest", prefix: inside ? "sleep" : homeDoor };
   const job = JOBS.find((j) => j.id === s.job);
-  if (job && s.worked !== c.key && onShift(job, c))
-    return { text: `Go to work: ${job.name}`, prefix: job.at };
+  if (job && s.worked !== c.key && onShift(job, c) && !onLeave(s, c.key))
+    return { text: `Go to work: ${job.name}`, prefix: workPrefix(job, s.district ?? "") };
   const night = c.min >= c.times.isha || c.min < c.times.fajr;
   // low iman in the night: stand for Tahajjud or read the Qur'an
   if (night && n && n.iman < 50 && !t.night)
