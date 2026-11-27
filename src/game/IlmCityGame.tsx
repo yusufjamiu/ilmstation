@@ -13526,6 +13526,26 @@ function placesIn(id: string): Place[] {
       sub: "Running and cycling races · between Agege and Ikeja",
       prefix: "arena",
     });
+  if (["madinah", "makkah"].includes(cityOf(D))) {
+    const cafe = cafeName(D.id);
+    out.push(
+      {
+        icon: "☕",
+        name: /coffee|caf/i.test(cafe) ? cafe : `${cafe} Coffee`,
+        sub: "Coffee, and a garden of tables to sit at · by the main crossroad",
+        prefix: "door:restaurant:",
+      },
+      {
+        icon: "🍗",
+        name: eateryName(D.id),
+        sub: "Broasted chicken and more",
+        prefix: "eatery:",
+      },
+      { icon: "🌳", name: "Brothers' garden", sub: "Sit and rest · brothers only", prefix: `rest:b:${D.id}:` },
+      { icon: "🌸", name: "Sisters' garden", sub: "Sit and rest · sisters only, walled", prefix: `rest:s:${D.id}:` },
+      { icon: "👨‍👩‍👧", name: "Family garden", sub: "Sit and rest · families", prefix: `rest:f:${D.id}:` },
+    );
+  }
   out.push({
     icon: "🏓",
     name: `${D.name} Table Tennis`,
