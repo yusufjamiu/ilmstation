@@ -144,7 +144,7 @@ const topics = ["Aqeedah", "Hadith", "Seerah", "Fiqh", "Arabic", "Qur’an", "Ta
 const KID_SCREENS = ["kidrank", "home", "kidgames", "study", "library", "settings", "you", "kidprogress"];
 const kidNav = [
   { label: "Learn & play", items: [["home", "Home", Home], ["kidrank", "Leaderboard", Trophy], ["kidgames", "Games", Play], ["study", "Study", GraduationCap], ["library", "Library", Library]] },
-  { label: "You", items: [["settings", "Settings", Settings]] },
+  { label: "You", items: [["you", "Me", CircleUserRound], ["kidprogress", "My stars & badges", YAward], ["settings", "Settings", Settings]] },
 ] as const;
 const navGroups = [
   { label: "Today", items: [["home", "Today", Home], ["quests", "Quest map", Sparkles], ["ramadan", "Ramadan", MoonStar], ["cards", "Cards", CardsIcon]] },
