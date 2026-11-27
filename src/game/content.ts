@@ -293,14 +293,18 @@ export const STREETS: Record<string, Street> = {
   },
   iumsroad: {
     id: "iumsroad",
-    name: "University Road (Sisters)",
-    bio: "The road through the sisters' campus of the Islamic University of Madinah.",
+    name: "Taibah University Road",
+    bio: "The road through the female campus of Taibah University.",
   },
-  iumsavenue: { id: "iumsavenue", name: "Students' Avenue (Sisters)", bio: IUM_ST },
+  iumsavenue: {
+    id: "iumsavenue",
+    name: "Taibah Avenue",
+    bio: "The avenue of Taibah University's colleges, between the gate and the star roundabout.",
+  },
   iumslodge: {
     id: "iumslodge",
     name: "Al-Ilm Street",
-    bio: "Sisters' residences, bookshops and cafés outside the sisters' campus.",
+    bio: "Sisters' residences, bookshops and cafés outside Taibah University.",
   },
   miqatroad: {
     id: "miqatroad",
@@ -764,7 +768,10 @@ export type District = {
   /** Makkah and Madinah: no football pitch, police station or sisters' corner */
   holy?: boolean;
   /** a walled university campus behind the main road, entered through a named gate */
-  campus?: { gate: string; z: number; arabic?: string };
+  campus?: { gate: string; z: number; arabic?: string; style?: "ium" | "taibah" };
+  /** the name the area's layout was first built from, if it has been renamed since (so its
+      houses and shops keep their numbers) */
+  seedName?: string;
   /** a campus for brothers only or sisters only */
   only?: "brothers" | "sisters";
   /** the students' society that runs the hostels (default MSSN) */
@@ -776,7 +783,7 @@ export function hostelInfo(area: string, k: number) {
   const club = D.club ?? "MSSN";
   const ab = ["A", "B", "C"][k] ?? "A";
   // the Islamic University of Madinah: Student Hostels 1, 2 and 3 inside the campus
-  if (D.only === "sisters") return { name: `Sisters' Hostel ${k + 1}`, sisters: true };
+  if (D.only === "sisters") return { name: `Taibah Student Housing ${k + 1}`, sisters: true };
   if (D.only === "brothers") return { name: `Student Hostel ${k + 1}`, sisters: false };
   return k === 1
     ? { name: `${club} Sisters' Hostel`, sisters: true }
@@ -794,6 +801,18 @@ const IUM_COLLEGES = [
   "College of Science",
   "College of Engineering",
   "College of Computer Science",
+];
+
+/** The colleges of Taibah University (its female campus). */
+const TAIBAH_COLLEGES = [
+  "College of Medicine",
+  "College of Pharmacy",
+  "College of Engineering",
+  "College of Computer Science and Engineering",
+  "College of Science",
+  "College of Education",
+  "College of Arts and Humanities",
+  "College of Business Administration",
 ];
 
 /** A university area: faculties on the main road, and the MSSN mosque, secretariat,
@@ -821,6 +840,10 @@ function universityArea(o: {
   gate?: string;
   /** the name in Arabic on a gate built in the Madinah style */
   gateArabic?: string;
+  /** which university's buildings: the Islamic University's (default) or Taibah's */
+  style?: "ium" | "taibah";
+  /** the area's first name, if renamed (keeps the layout) */
+  seedName?: string;
   /** more places in the area */
   extra?: Landmark[];
   link?: "north" | "east" | "south";
@@ -862,7 +885,13 @@ function universityArea(o: {
     toLet: 0.5,
     shops: 0.3,
     land: 0.12,
-    campus: { gate: (o.gate ?? o.short).toUpperCase(), z: -34, arabic: o.gateArabic },
+    seedName: o.seedName,
+    campus: {
+      gate: (o.gate ?? o.short).toUpperCase(),
+      z: -34,
+      arabic: o.gateArabic,
+      style: o.style,
+    },
     streets: [
       { id: o.road, z: 0, decor: true },
       { id: o.avenue, z: -75 },
@@ -3553,16 +3582,18 @@ export const DISTRICTS: District[] = [
   }),
   universityArea({
     id: "iumsisters",
-    gate: "Islamic University of Madinah · Sisters",
-    gateArabic: "الجامعة الإسلامية بالمدينة المنورة",
+    gate: "Taibah University",
+    gateArabic: "جامعة طيبة",
     ium: true,
-    name: "Islamic University (Sisters)",
-    uni: "the Islamic University of Madinah (sisters' campus)",
-    short: "IUM Sisters",
+    style: "taibah",
+    name: "Taibah University (Female)",
+    seedName: "Islamic University (Sisters)",
+    uni: "Taibah University (female campus)",
+    short: "Taibah",
     origin: { x: -4680, z: -4320 },
     highway: "University Road",
     parent: "shuran",
-    busStop: "IUM Sisters Gate",
+    busStop: "Taibah University Gate",
     road: "iumsroad",
     avenue: "iumsavenue",
     homes: "iumslodge",
@@ -3572,11 +3603,11 @@ export const DISTRICTS: District[] = [
     only: "sisters",
     club: "Student Affairs",
     clubAbout:
-      "Student Affairs of the Islamic University of Madinah: registration, free residences for students, scholarships, Qur'an circles and trips to the masjids of Madinah.",
-    faculties: IUM_COLLEGES.slice(0, 4),
-    more: IUM_COLLEGES.slice(4),
+      "Student Affairs of Taibah University (female campus): registration, free student housing, scholarships, Qur'an circles and trips to the masjids of Madinah.",
+    faculties: TAIBAH_COLLEGES.slice(0, 4),
+    more: TAIBAH_COLLEGES.slice(4),
     about:
-      "Where students of the Islamic University meet between lectures: they revise together, share notes and remind one another.",
+      "Where the students of Taibah University meet between lectures: they revise together, share notes and remind one another.",
   }),
   {
     id: "dhulhulayfah",

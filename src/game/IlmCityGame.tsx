@@ -576,7 +576,7 @@ const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] =
     id: "student",
     icon: "🎓",
     name: "Student",
-    text: "Study at the Islamic University of Madinah: classes in your faculty, questions and friends on campus.",
+    text: "Study at the Islamic University of Madinah (brothers) or Taibah University (sisters): classes in your faculty, questions and friends on campus.",
   },
   {
     id: "worker",
@@ -6334,12 +6334,12 @@ function CityGame({
       // a faculty building: a corridor with a classroom for each department and level, the
       // higher levels upstairs
       const fac0 = id.startsWith("faculty:") ? landmarkById(id.slice(8)) : null;
-      // the Islamic University of Madinah has a brothers' campus and a sisters' campus
+      // the Islamic University of Madinah is for brothers; sisters study at Taibah University
       if (fac0?.d.only && (fac0.d.only === "sisters") !== !!saveRef.current.profile?.female) {
         toast(
           fac0.d.only === "sisters"
-            ? "This is the sisters' campus. The brothers' campus is in Sultanah, take the bus there."
-            : "This is the brothers' campus. The sisters' campus is in Shuran, take the bus there.",
+            ? "Taibah University is for sisters. Brothers study at the Islamic University in Sultanah: take the bus there."
+            : "The Islamic University is for brothers. Sisters study at Taibah University in Shuran: take the bus there.",
           "warn",
         );
         return;
@@ -10354,7 +10354,7 @@ function CityGame({
               }
               msg = `Welcome, ${look.name}! Your first shop is free for 7 days. Find it with Places → Shops, name it and add products.`;
             } else if (path === "student")
-              msg = `Welcome, ${look.name}! You are now a student of the Islamic University of Madinah. Your classes are on campus; My Day shows you the way. Here is ₦1,000 to start.`;
+              msg = `Welcome, ${look.name}! You are now a student of ${look.female ? "Taibah University" : "the Islamic University of Madinah"}. Your classes are on campus; My Day shows you the way. Here is ₦1,000 to start.`;
             else
               msg = `Welcome home, ${look.name}! Choose your job from 👤 Profile → Work. Here is ₦1,000 to start.`;
             if (!homePlot) {
@@ -12907,8 +12907,8 @@ function Onboarding({
             Which faculty?
           </h2>
           <p className="text-[13px] opacity-75">
-            Islamic University of Madinah,{" "}
-            {look.female ? "sisters' campus" : "brothers' campus"}. You'll attend classes,
+            {look.female ? "Taibah University (female campus)" : "Islamic University of Madinah"}
+            . You'll attend classes,
             answer questions in your faculty and meet other students.
           </p>
           <div className="mt-3 space-y-2 overflow-y-auto">

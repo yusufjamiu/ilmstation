@@ -963,3 +963,487 @@ export function iumPlaza(b: Batch, cx: number, cz: number) {
   b.add(new THREE.CylinderGeometry(0.6, 0.6, 1.2, 12), M.cream(), tx, TH + 6.6, tz);
   return colliders;
 }
+
+/* ================= Taibah University (the female campus) ================= */
+const ROSE = "#d2a594";
+/** Rose sandstone in square panels, each with a carved lattice: a ring, a star, a grid of
+    diamonds or nested squares, as on the faces of Taibah's gate. 3.2 m a panel. */
+function roseLatticeTex() {
+  const t = canvasTex(
+    "taibah-lattice",
+    256,
+    256,
+    (c) => {
+      c.fillStyle = ROSE;
+      c.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 600; i++) {
+        c.fillStyle = `rgba(${120 + Math.random() * 60},70,60,0.07)`;
+        c.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      const panel = (px: number, py: number, kind: number) => {
+        const s = 128,
+          m = 16;
+        c.fillStyle = "rgba(255,240,230,0.18)";
+        c.fillRect(px + 4, py + 4, s - 8, s - 8);
+        c.fillStyle = "#7a5246";
+        c.fillRect(px + m, py + m, s - 2 * m, s - 2 * m);
+        c.strokeStyle = ROSE;
+        c.lineWidth = 9;
+        const cx = px + s / 2,
+          cy = py + s / 2,
+          r = s / 2 - m - 6;
+        c.save();
+        c.beginPath();
+        c.rect(px + m, py + m, s - 2 * m, s - 2 * m);
+        c.clip();
+        if (kind === 0) {
+          c.beginPath();
+          c.arc(cx, cy, r, 0, Math.PI * 2);
+          c.stroke();
+          c.beginPath();
+          c.arc(cx, cy, r * 0.45, 0, Math.PI * 2);
+          c.stroke();
+          for (let k = 0; k < 4; k++) {
+            c.beginPath();
+            c.moveTo(cx, cy);
+            c.lineTo(cx + Math.cos((k * Math.PI) / 2) * r * 1.4, cy + Math.sin((k * Math.PI) / 2) * r * 1.4);
+            c.stroke();
+          }
+        } else if (kind === 1) {
+          for (const rot of [0, Math.PI / 4]) {
+            c.save();
+            c.translate(cx, cy);
+            c.rotate(rot);
+            c.strokeRect(-r * 0.72, -r * 0.72, r * 1.44, r * 1.44);
+            c.restore();
+          }
+          c.strokeRect(cx - r * 0.25, cy - r * 0.25, r * 0.5, r * 0.5);
+        } else if (kind === 2) {
+          for (let k = -3; k <= 3; k++) {
+            c.beginPath();
+            c.moveTo(px + m + k * 28, py + m);
+            c.lineTo(px + m + k * 28 + 96, py + m + 96);
+            c.moveTo(px + s - m - k * 28, py + m);
+            c.lineTo(px + s - m - k * 28 - 96, py + m + 96);
+            c.stroke();
+          }
+        } else {
+          for (const f of [0.95, 0.62, 0.3]) c.strokeRect(cx - r * f, cy - r * f, r * 2 * f, r * 2 * f);
+          c.beginPath();
+          c.moveTo(cx - r, cy);
+          c.lineTo(cx + r, cy);
+          c.moveTo(cx, cy - r);
+          c.lineTo(cx, cy + r);
+          c.stroke();
+        }
+        c.restore();
+      };
+      panel(0, 0, 0);
+      panel(128, 0, 1);
+      panel(0, 128, 2);
+      panel(128, 128, 3);
+    },
+    true,
+  );
+  t.repeat.set(1 / 6.4, 1 / 6.4);
+  return t;
+}
+const TM = {
+  lattice: () =>
+    mat(
+      "tb-lat",
+      () => new THREE.MeshStandardMaterial({ map: roseLatticeTex(), roughness: 0.85 }),
+      0.22,
+      0xffe0d0,
+    ),
+  rose: () =>
+    mat("tb-rose", () => new THREE.MeshStandardMaterial({ color: 0xd4a999, roughness: 0.85 }), 0.2, 0xffe0d0),
+  roseDark: () =>
+    mat("tb-rose2", () => new THREE.MeshStandardMaterial({ color: 0xb9887a, roughness: 0.85 }), 0.15, 0xffe0d0),
+  glass: () =>
+    mat(
+      "tb-glass",
+      () =>
+        new THREE.MeshStandardMaterial({ color: 0x3f7f8a, roughness: 0.2, metalness: 0.5 }),
+      0.25,
+      0xbfe8f0,
+    ),
+  housing: () =>
+    mat("tb-house", () => new THREE.MeshStandardMaterial({ color: 0xece0c8, roughness: 0.85 }), 0.18),
+  base: () =>
+    mat("tb-base", () => new THREE.MeshStandardMaterial({ color: 0xa88a72, roughness: 0.85 }), 0.12),
+};
+/** The name in blue letters, English on the left of the beam and Arabic on the right. */
+function letterTex(text: string, rtl: boolean) {
+  return canvasTex(`tb-letters-${text}`, 1024, 128, (c, w, h) => {
+    c.fillStyle = "#2a55a8";
+    c.strokeStyle = "#ffffff";
+    c.lineWidth = 3;
+    c.save();
+    c.direction = rtl ? "rtl" : "ltr";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.font = rtl ? `700 96px ${AR}` : `800 84px ${EN}`;
+    c.strokeText(text, w / 2, h / 2 + (rtl ? 8 : 4), w - 20);
+    c.fillText(text, w / 2, h / 2 + (rtl ? 8 : 4), w - 20);
+    c.restore();
+  });
+}
+/** A plain emblem for the middle of the beam: a white teardrop in a sea-green oval. */
+function emblemTex() {
+  return canvasTex("tb-emblem", 256, 256, (c) => {
+    const g = c.createRadialGradient(128, 110, 10, 128, 128, 120);
+    g.addColorStop(0, "#bfe8e4");
+    g.addColorStop(1, "#3c9a9a");
+    c.fillStyle = g;
+    c.beginPath();
+    c.ellipse(128, 128, 118, 96, 0, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "#ffffff";
+    c.lineWidth = 8;
+    c.stroke();
+    c.fillStyle = "#ffffff";
+    c.beginPath();
+    c.moveTo(128, 56);
+    c.bezierCurveTo(176, 120, 172, 176, 128, 184);
+    c.bezierCurveTo(84, 176, 80, 120, 128, 56);
+    c.fill();
+  });
+}
+/** Taibah University's gate: a tall frame of rose sandstone carved in lattice panels, two
+    round arches over the road, the name in blue letters along the top beam, and an open
+    lattice crown above. Same frame as iumGate (centred, road side +z). */
+export function taibahGate(arName: string, enName: string) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, shadow = true) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.castShadow = shadow;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+    return mesh;
+  };
+  const W2 = 19.5, // half the width
+    H = 20.5, // to the top of the beam
+    DP = 4.8,
+    pier = 1.4, // half the middle pier
+    inner = 12.8, // where the side pylons begin
+    spring = 8.6;
+  const r = (inner - pier) / 2,
+    cxs = [-(pier + r), pier + r];
+  // the frame, with two round arches cut through it
+  const s = new THREE.Shape();
+  s.moveTo(-W2, 0);
+  for (const cx of cxs) {
+    s.lineTo(cx - r, 0);
+    s.lineTo(cx - r, spring);
+    s.absarc(cx, spring, r, Math.PI, 0, true);
+    s.lineTo(cx + r, 0);
+  }
+  s.lineTo(W2, 0);
+  s.lineTo(W2, H);
+  s.lineTo(-W2, H);
+  s.closePath();
+  const body = new THREE.ExtrudeGeometry(s, { depth: DP, bevelEnabled: false, curveSegments: 20 });
+  body.translate(0, 0, -DP / 2);
+  add(worldUV(body), TM.lattice());
+  // the darker arch rings, front and back
+  for (const cx of cxs)
+    for (const fz of [1, -1]) {
+      const ring = new THREE.Shape();
+      ring.absarc(cx, spring, r + 0.9, 0, Math.PI, false);
+      ring.lineTo(cx - r, spring);
+      ring.absarc(cx, spring, r, Math.PI, 0, true);
+      ring.lineTo(cx + r + 0.9, spring);
+      const geo = new THREE.ExtrudeGeometry(ring, { depth: 0.25, bevelEnabled: false, curveSegments: 20 });
+      geo.translate(0, 0, fz > 0 ? DP / 2 : -DP / 2 - 0.25);
+      add(geo, TM.roseDark());
+    }
+  // the top beam stands a little proud, with a ledge under it
+  add(boxAt(W2 * 2 + 0.4, 0.35, DP + 0.6, 0, H - 4.6, 0), TM.roseDark());
+  add(boxAt(W2 * 2 + 0.3, 0.3, DP + 0.4, 0, H, 0), TM.roseDark());
+  // the open lattice crown on top
+  const CW = 6.5,
+    CH = 4.2;
+  for (const sx of [-1, 1]) {
+    add(boxAt(0.9, CH, DP * 0.7, sx * (CW - 0.45), H + 0.3, 0), TM.rose());
+    add(boxAt(0.9, CH, DP * 0.7, sx * (CW / 3), H + 0.3, 0), TM.rose());
+  }
+  add(boxAt(CW * 2, 0.9, DP * 0.7, 0, H + 0.3 + CH - 0.9, 0), TM.rose());
+  add(boxAt(CW * 2, 0.6, DP * 0.7, 0, H + 0.3 + CH * 0.45, 0), TM.rose());
+  // the name in blue letters and the emblem, front and back
+  const enM = new THREE.MeshStandardMaterial({
+    map: letterTex(enName.toUpperCase(), false),
+    transparent: true,
+    alphaTest: 0.2,
+    roughness: 0.5,
+  });
+  const arM = new THREE.MeshStandardMaterial({
+    map: letterTex(arName, true),
+    transparent: true,
+    alphaTest: 0.2,
+    roughness: 0.5,
+  });
+  const emM = new THREE.MeshStandardMaterial({ map: emblemTex(), transparent: true, alphaTest: 0.3 });
+  for (const m of [enM, arM, emM]) glowing.push({ m, k: 0.8, c: 0xffffff });
+  for (const side of [1, -1]) {
+    const z = side * (DP / 2 + 0.06),
+      ry = side < 0 ? Math.PI : 0;
+    const en = add(new THREE.PlaneGeometry(13, 1.6), enM, false);
+    en.position.set(-side * 10.5, H - 0.85, z);
+    en.rotation.y = ry;
+    const arp = add(new THREE.PlaneGeometry(9, 1.6), arM, false);
+    arp.position.set(side * 10.5, H - 0.85, z);
+    arp.rotation.y = ry;
+    const em = add(new THREE.PlaneGeometry(2.6, 2.1), emM, false);
+    em.position.set(0, H - 1.4, z + side * 0.02);
+    em.rotation.y = ry;
+  }
+  const colliders: Box[] = [
+    { x0: -pier - 0.2, x1: pier + 0.2, z0: -DP / 2, z1: DP / 2 },
+    { x0: inner, x1: W2, z0: -DP / 2, z1: DP / 2 },
+    { x0: -W2, x1: -inner, z0: -DP / 2, z1: DP / 2 },
+  ];
+  return { group: g, colliders, halfWidth: W2, height: H + CH + 0.3, front: DP / 2 };
+}
+
+const TAIBAH_AR: [RegExp, string][] = [
+  [/Medicine/, "كلية الطب"],
+  [/Pharmacy/, "كلية الصيدلة"],
+  [/Computer/, "كلية علوم وهندسة الحاسب الآلي"],
+  [/Engineering/, "كلية الهندسة"],
+  [/Science/, "كلية العلوم"],
+  [/Education/, "كلية التربية"],
+  [/Arts/, "كلية الآداب والعلوم الإنسانية"],
+  [/Business/, "كلية إدارة الأعمال"],
+  [/Library/, "المكتبة المركزية"],
+  [/Complex/, "مجمع الكليات"],
+];
+/** A college of Taibah University: rose sandstone four storeys high, a tall arched front of
+    blue-green glass in a stone frame, glass strips down the wings, and the name over the
+    door in Arabic and English. */
+export function taibahCollege(
+  b: Batch,
+  o: { x: number; z: number; turn: number; width: number; depth: number; name: string },
+) {
+  const { to, colliders, solid } = frameOf(b, o.x, o.z, o.turn);
+  const W = o.width,
+    D = o.depth,
+    front = D / 2;
+  const en = o.name.split(" · ")[0];
+  const ar = TAIBAH_AR.find(([re]) => re.test(en))?.[1] ?? "جامعة طيبة";
+  b.add(groundGeo(W, D, 2), MAT.paving(), 0, 0.035, 0, 0, false);
+  const P = 0.6,
+    FH = 3.7,
+    floors = /Library|Complex/.test(en) ? 3 : 4,
+    H = P + floors * FH;
+  const BW = W - 2,
+    BD = D - 10,
+    bz = -front + 1 + BD / 2,
+    fz = bz + BD / 2;
+  const wall = TM.rose(),
+    dark = TM.roseDark(),
+    glass = TM.glass();
+  b.box(BW, H, BD, wall, 0, 0, bz);
+  b.box(BW + 0.3, 0.8, BD + 0.3, dark, 0, 0, bz);
+  b.box(BW + 0.4, 0.3, BD + 0.4, dark, 0, H, bz);
+  b.box(BW, 0.8, BD, wall, 0, H + 0.3, bz);
+  for (let f = 1; f < floors; f++) b.box(BW + 0.12, 0.18, BD + 0.12, dark, 0, P + f * FH, bz);
+  // the tall glass front in a stone frame with a round arch over the door
+  const PW = 8.4,
+    PH = H + 2,
+    PD = 1.2;
+  b.box(PW, PH, PD, wall, 0, 0, fz + PD / 2);
+  b.box(PW + 0.4, 0.3, PD + 0.4, dark, 0, PH, fz + PD / 2);
+  b.box(PW - 2, PH - 3.6, 0.2, glass, 0, 0.6, fz + PD + 0.02);
+  for (let y = 0.6 + 3.7; y < PH - 3; y += 3.7) b.box(PW - 2, 0.12, 0.3, dark, 0, y, fz + PD + 0.06);
+  for (const x of [-1.6, 0, 1.6]) b.box(0.1, PH - 3.6, 0.3, dark, x, 0.6, fz + PD + 0.06);
+  const arch = new THREE.TorusGeometry(2.1, 0.22, 6, 18, Math.PI);
+  b.add(arch, dark, 0, 4.2, fz + PD + 0.18);
+  b.plane(PW + 1.4, 2.0, M.sign(`np-${en}`, namePanelTex(ar, en)), 0, PH - 1.75, fz + PD + 0.06);
+  // glass strips down the wings, between stone piers
+  const wingX: number[] = [];
+  for (let x = PW / 2 + 1.5; x < BW / 2 - 0.8; x += 2.6) wingX.push(x);
+  for (const s of [-1, 1])
+    for (const x of wingX) {
+      b.box(1.5, H - P - 1.2, 0.12, glass, s * x, P + 0.6, fz + 0.04);
+      b.box(0.5, H - P, 0.3, dark, s * (x + 1.3), P, fz + 0.15);
+    }
+  // the sides and back: windows in rows
+  const win = M.tex("win", winTex(), 0.35, 0.4);
+  for (let f = 0; f < floors; f++) {
+    const y = P + f * FH + 1.8;
+    for (let z = bz - BD / 2 + 1.8; z < fz - 1; z += 3)
+      for (const s of [-1, 1]) b.plane(1.4, 1.8, win, s * (BW / 2 + 0.02), y, z, (s * Math.PI) / 2);
+    for (let x = -BW / 2 + 1.8; x < BW / 2 - 1; x += 3)
+      b.plane(1.4, 1.8, win, x, y, bz - BD / 2 - 0.02, Math.PI);
+  }
+  for (let i = 0; i < 3; i++) b.box(PW + 1 - i * 0.8, 0.2 * (i + 1), 1.0, dark, 0, 0, fz + PD + 2.4 - i);
+  for (const s of [-1, 1]) {
+    palm(b, s * (W / 2 - 1.6), front - 2.2, 0.9);
+    solid(s * (W / 2 - 1.6) - 0.3, s * (W / 2 - 1.6) + 0.3, front - 2.5, front - 1.9);
+  }
+  solid(-BW / 2 - 0.3, BW / 2 + 0.3, bz - BD / 2 - 0.3, fz + 0.3);
+  solid(-PW / 2, PW / 2, fz, fz + PD + 0.3);
+  const door = to(0, Math.min(front - 0.6, fz + PD + 3.4));
+  b.base.identity();
+  return {
+    colliders,
+    spots: [{ key: "door", x: door.x, z: door.z, label: o.name, labelY: H + 4 }],
+  };
+}
+
+/** An air-conditioning box under a window. */
+function acTex() {
+  return canvasTex("tb-ac", 64, 48, (c, w, h) => {
+    c.fillStyle = "#e8e8e2";
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = "#9a9a94";
+    for (let y = 8; y < h - 6; y += 6) c.fillRect(6, y, w - 12, 2);
+  });
+}
+/** Taibah's student housing: a tall cream block five storeys high, windows in pairs with
+    air-conditioning boxes, piers standing out between the bays, a brown base and its name
+    over the door. Front faces +z. */
+export function taibahHousing(
+  b: Batch,
+  o: { x: number; z: number; w: number; d: number; n: number; name: string },
+) {
+  const { colliders, solid, to } = frameOf(b, o.x, o.z, 0);
+  const { w, d } = o;
+  const FH = 3.2,
+    floors = 5,
+    H = 0.8 + floors * FH;
+  const wall = TM.housing(),
+    base = TM.base(),
+    trim = M.trim();
+  b.add(groundGeo(w + 6, d + 8, 2), MAT.paving(), 0, 0.03, 1, 0, false);
+  b.box(w, H, d, wall, 0, 0, 0);
+  b.box(w + 0.2, 1.2, d + 0.2, base, 0, 0, 0);
+  b.box(w + 0.4, 0.3, d + 0.4, trim, 0, H, 0);
+  b.box(w, 0.8, d, wall, 0, H + 0.3, 0);
+  const win = M.tex("win", winTex(), 0.45, 0.4),
+    ac = M.tex("ac", acTex(), 0.1, 0.6);
+  const bay = 4.2;
+  const nb = Math.max(2, Math.floor((w - 1) / bay));
+  for (let i = 0; i < nb; i++) {
+    const x = -w / 2 + 0.5 + (w - 1) * ((i + 0.5) / nb);
+    if (Math.abs(x) < 2.8) continue;
+    for (let f = 0; f < floors; f++) {
+      const y = 0.8 + f * FH + 1.7;
+      for (const dx of [-0.8, 0.8]) b.plane(1.2, 1.4, win, x + dx, y, d / 2 + 0.02);
+      b.box(2.9, 0.12, 0.3, trim, x, y - 0.85, d / 2 + 0.1);
+      b.box(0.7, 0.5, 0.45, ac, x + (f % 2 ? 0.8 : -0.8), y + 0.95, d / 2 + 0.22);
+    }
+    // a pier standing out between bays
+    if (i < nb - 1) b.box(0.8, H - 1.2, 0.6, wall, x + (w - 1) / nb / 2, 1.2, d / 2 + 0.3);
+  }
+  for (let f = 0; f < floors; f++) {
+    const y = 0.8 + f * FH + 1.7;
+    for (let x = -w / 2 + 1.6; x < w / 2 - 1; x += 2.8)
+      b.plane(1.2, 1.4, win, x, y, -d / 2 - 0.02, Math.PI);
+    for (let z = -d / 2 + 1.6; z < d / 2 - 1; z += 2.8)
+      for (const s of [-1, 1]) b.plane(1.2, 1.4, win, s * (w / 2 + 0.02), y, z, (s * Math.PI) / 2);
+  }
+  // the entrance: steps, a flat canopy on two columns, glass doors and the name
+  b.box(4.6, H, 1.0, wall, 0, 0, d / 2 + 0.5);
+  b.box(2.6, 2.6, 0.12, TM.glass(), 0, 0.6, d / 2 + 1.04);
+  for (let i = 0; i < 3; i++) b.box(4.4 - i * 0.6, 0.2 * (i + 1), 0.8, trim, 0, 0, d / 2 + 3 - i * 0.7);
+  b.box(4.4, 0.25, 2.4, trim, 0, 3.4, d / 2 + 2.1);
+  for (const s of [-1, 1]) {
+    b.add(new THREE.CylinderGeometry(0.18, 0.18, 3.4, 10), MAT.plain(0xf2efe6), s * 1.9, 1.7, d / 2 + 3.1);
+    solid(s * 1.9 - 0.2, s * 1.9 + 0.2, d / 2 + 2.9, d / 2 + 3.3);
+  }
+  const ar = `سكن الطالبات ${AR_DIGITS[o.n]}`;
+  b.plane(7, 1.5, M.sign(`np-${o.name}`, namePanelTex(ar, o.name)), 0, 4.8, d / 2 + 1.04);
+  solid(-w / 2 - 0.2, w / 2 + 0.2, -d / 2 - 0.2, d / 2 + 1.1);
+  const door = to(0, d / 2 + 2.6);
+  b.base.identity();
+  return { colliders, door, top: H + 2 };
+}
+
+function flagTex() {
+  return canvasTex("tb-flag", 192, 128, (c, w, h) => {
+    c.fillStyle = "#1f7a3c";
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = "#ffffff";
+    c.fillRect(40, 84, 110, 6);
+    c.beginPath();
+    c.moveTo(150, 80);
+    c.lineTo(162, 87);
+    c.lineTo(150, 94);
+    c.fill();
+  });
+}
+/** Taibah's star roundabout: a white-edged circle with an eight-pointed star of lawn, a
+    golden flower in the middle and a tall flagpole flying the green flag, with palms. */
+export function taibahPlaza(b: Batch, cx: number, cz: number) {
+  const colliders: Box[] = [];
+  const solid = (x: number, z: number, r: number) =>
+    colliders.push({ x0: x - r, x1: x + r, z0: z - r, z1: z + r });
+  const lawn = MAT2.lawn();
+  const disc = (r: number) => {
+    const s = new THREE.Shape();
+    s.absarc(0, 0, r, 0, Math.PI * 2, false);
+    return flat(s);
+  };
+  // the paved square it sits in, with palms round it
+  b.add(groundGeo(70, 44, 3), MAT.paving(), cx, 0.045, cz, 0, false);
+  b.add(disc(18), MAT.plain(0xb4614a), cx, 0.05, cz, 0, false);
+  b.add(disc(17.2), MAT.plain(0xf3efe6), cx, 0.06, cz, 0, false);
+  b.add(disc(15.4), lawn, cx, 0.07, cz, 0, false);
+  // white star points over the lawn, then the green star, then the gold flower
+  const star = (ro: number, ri: number, rot: number) => {
+    const s = new THREE.Shape();
+    for (let i = 0; i < 16; i++) {
+      const r = i % 2 ? ri : ro,
+        a = (i / 16) * Math.PI * 2 + rot;
+      if (i) s.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      else s.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    return flat(s);
+  };
+  b.add(star(15.2, 11.6, Math.PI / 8), MAT.plain(0xf3efe6), cx, 0.08, cz, 0, false);
+  b.add(star(13.4, 9.8, Math.PI / 8), lawn, cx, 0.09, cz, 0, false);
+  b.add(star(7, 3.4, 0), MAT.plain(0xd4a63a), cx, 0.1, cz, 0, false);
+  b.add(disc(2.4), MAT.plain(0x5a4a30), cx, 0.11, cz, 0, false);
+  // the flagpole and the green flag
+  const FH = 34;
+  b.add(new THREE.CylinderGeometry(1.1, 1.4, 1.2, 16), MAT.plain(0x6a6a64), cx, 0.6, cz);
+  b.add(new THREE.CylinderGeometry(0.18, 0.32, FH, 10), MAT.plain(0xe8e8e4), cx, FH / 2, cz);
+  const flag = new THREE.PlaneGeometry(9, 6, 8, 1);
+  const p = flag.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin((p.getX(i) + 4.5) * 0.7) * 0.5 * ((p.getX(i) + 4.5) / 9));
+  flag.computeVertexNormals();
+  const flagM = mat(
+    "tb-flagm",
+    () =>
+      new THREE.MeshStandardMaterial({ map: flagTex(), side: THREE.DoubleSide, roughness: 0.8 }),
+    0.3,
+  );
+  b.add(flag, flagM, cx + 4.7, FH - 3.4, cz, 0, false);
+  solid(cx, cz, 1.4);
+  // low lamps round the circle and palms round the square
+  const lamp = M.tex("lamp", winTex(), 1.2);
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4 + Math.PI / 8;
+    const x = cx + Math.cos(a) * 19.6,
+      z = cz + Math.sin(a) * 19.6;
+    b.add(new THREE.CylinderGeometry(0.08, 0.12, 4.5, 8), MAT.plain(0x2e2e2a), x, 2.25, z);
+    b.add(new THREE.SphereGeometry(0.32, 10, 8), lamp, x, 4.7, z);
+    solid(x, z, 0.2);
+  }
+  for (const s of [-1, 1])
+    for (let k = -2; k <= 2; k++) {
+      const x = cx + s * 30,
+        z = cz + k * 8;
+      palm(b, x, z, 1);
+      solid(x, z, 0.3);
+      const x2 = cx + k * 10,
+        z2 = cz + s * 20.5;
+      if (Math.abs(k) === 2) {
+        palm(b, x2, z2, 1);
+        solid(x2, z2, 0.3);
+      }
+    }
+  return colliders;
+}

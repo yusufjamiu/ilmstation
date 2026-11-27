@@ -6,6 +6,10 @@ import {
   iumGate,
   iumHostel,
   iumPlaza,
+  taibahCollege,
+  taibahGate,
+  taibahHousing,
+  taibahPlaza,
   takeIumGlow,
 } from "./ium";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -1403,7 +1407,7 @@ export class IlmCityEngine {
     const S = this.dg;
     const batch = new Batch();
     this.curBatch = batch;
-    const rnd = mulberry(D.id.length * 97 + D.name.charCodeAt(0));
+    const rnd = mulberry(D.id.length * 97 + (D.seedName ?? D.name).charCodeAt(0));
 
     // Lekki's beach and the ocean
     const H = halfOf(D);
@@ -3787,7 +3791,9 @@ export class IlmCityEngine {
             ? mansion(b, o)
             : l.kind === "faculty"
               ? D.campus?.arabic
-                ? iumCollege(b, o)
+                ? D.campus.style === "taibah"
+                  ? taibahCollege(b, o)
+                  : iumCollege(b, o)
                 : faculty(b, o)
               : l.kind === "field"
                 ? (() => {
@@ -5480,7 +5486,11 @@ export class IlmCityEngine {
       );
     };
     // the front wall, open at the gate on the cross road
-    const ium = c.arabic ? iumGate(c.arabic) : null;
+    const ium = !c.arabic
+      ? null
+      : c.style === "taibah"
+        ? taibahGate(c.arabic, c.gate)
+        : iumGate(c.arabic);
     const gw = ium ? ium.halfWidth : 11.3;
     wall(x0, z, -gw, z);
     wall(gw, z, x1, z);
@@ -5488,7 +5498,7 @@ export class IlmCityEngine {
     wall(x1, z, x1, zb);
     wall(x0, zb, x1, zb);
     if (ium) {
-      // the Islamic University's gate: two striped arches, a domed block on each side
+      // the university gate (the Islamic University's striped arches, or Taibah's lattice frame)
       // a little in front of the wall line, so it greets you from the main road
       const gz = z - ium.front + 6;
       ium.group.position.set(0, 0, gz);
@@ -5509,7 +5519,8 @@ export class IlmCityEngine {
       });
       // the star plaza in the middle of the campus, with the water tower beside it
       const pz = av - 34;
-      for (const q of iumPlaza(this.curBatch, 0, pz)) this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      const plaza = c.style === "taibah" ? taibahPlaza : iumPlaza;
+      for (const q of plaza(this.curBatch, 0, pz)) this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
       this.reserved.push({
         x0: this.ox - 40,
         x1: this.ox + 40,
@@ -8901,7 +8912,10 @@ export class IlmCityEngine {
     ];
     spots.forEach((p, k) => {
       const { name, sisters } = hostelInfo(D.id, k);
-      const h = iumHostel(this.curBatch, { ...p, n: k + 1, sisters, name });
+      const h =
+        D.campus?.style === "taibah"
+          ? taibahHousing(this.curBatch, { ...p, n: k + 1, name })
+          : iumHostel(this.curBatch, { ...p, n: k + 1, sisters, name });
       for (const b of h.colliders) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
       this.reserved.push({
         x0: this.ox + p.x - p.w / 2 - 1,

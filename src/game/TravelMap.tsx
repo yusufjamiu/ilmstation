@@ -68,7 +68,7 @@ const PLACES: Record<string, P & { name: string; hub?: boolean }> = {
   awali: { name: "Al-Awali", lat: 24.445, lng: 39.62 },
   khalidiyyah: { name: "Al-Khalidiyyah", lat: 24.49, lng: 39.635 },
   iumbrothers: { name: "Islamic University (Brothers)", lat: 24.497, lng: 39.555 },
-  iumsisters: { name: "Islamic University (Sisters)", lat: 24.425, lng: 39.665 },
+  iumsisters: { name: "Taibah University (Female)", lat: 24.425, lng: 39.665 },
   dhulhulayfah: { name: "Dhul Hulayfah (Miqat)", lat: 24.413, lng: 39.543 },
   iskan: { name: "Al-Iskan", lat: 24.455, lng: 39.66 },
   baniharithah: { name: "Bani Harithah", lat: 24.5, lng: 39.645 },

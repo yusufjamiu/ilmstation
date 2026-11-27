@@ -1384,6 +1384,8 @@ const ALIAS: Record<string, string> = {
   "Communication and Information": "Computing",
   "Information and Communication": "Computing",
   "Communication and Media": "Social Sciences",
+  "Computer Science and Engineering": "Computing",
+  "Business Administration": "Management",
 };
 
 export const LEVELS = [100, 200, 300, 400, 500];
