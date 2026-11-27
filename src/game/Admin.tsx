@@ -48,6 +48,8 @@ const CLOUD = {
   preset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined,
 };
 const naira = (n: number) => "₦" + n.toLocaleString("en-NG");
+/** game money (wallet units are riyals) */
+const sar = (n: number) => "SAR " + Math.round(n).toLocaleString();
 const when = (t: number) =>
   new Date(t).toLocaleString("en-GB", {
     day: "numeric",
@@ -70,6 +72,10 @@ export default function Admin() {
     | "races"
     | "content"
     | "fresh"
+    | "players"
+    | "rentals"
+    | "prices"
+    | "notice"
   >("overview");
   useEffect(() => {
     let off = () => {};
@@ -115,6 +121,10 @@ export default function Admin() {
     );
   const tabs: [typeof tab, string][] = [
     ["overview", "📊 Overview"],
+    ["players", "👥 Players"],
+    ["rentals", "🏠 Who rents what"],
+    ["prices", "🏷️ Prices"],
+    ["notice", "📢 In-game message"],
     ["reports", "🚩 Reports"],
     ["ads", "📣 Adverts"],
     ["award", "🏆 Award"],
@@ -139,6 +149,10 @@ export default function Admin() {
         ))}
       </div>
       {tab === "overview" && <Overview />}
+      {tab === "players" && <Players />}
+      {tab === "rentals" && <Rentals />}
+      {tab === "prices" && <Prices />}
+      {tab === "notice" && <Notice />}
       {tab === "reports" && <Reports />}
       {tab === "ads" && <Ads />}
       {tab === "award" && <AwardTab />}
@@ -850,7 +864,7 @@ function Overview() {
         ["🟢", "Played today", st.active.toLocaleString()],
         ["🏠", "Homes owned or rented", st.houses.toLocaleString()],
         ["🏪", "Shops open", st.shops.toLocaleString()],
-        ["💰", "Money in wallets", naira(st.money)],
+        ["💰", "Money in wallets", sar(st.money)],
         ["🚩", "Open reports", st.reports.toLocaleString()],
       ]
     : [];
@@ -1187,6 +1201,358 @@ function SponsoredCard({ q }: { q: SponsoredQuiz }) {
             ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ---------- players, rentals, prices and the in-game message ---------- */
+
+/** Ask the IlmWorld server (admins only). */
+async function api<T>(body: Record<string, unknown>): Promise<T & { ok?: boolean; error?: string }> {
+  try {
+    const { auth } = await import("@/lib/firebase");
+    const token = await auth.currentUser?.getIdToken();
+    const r = await fetch("/api/money", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const j = (await r.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
+    return r.ok ? j : { ...j, ok: false, error: j.error ?? String(r.status) };
+  } catch {
+    return { ok: false, error: "no connection" } as T & { ok?: boolean; error?: string };
+  }
+}
+const areaName = (id: string) => DISTRICTS.find((d) => d.id === id)?.name ?? id;
+const day = (t: number) =>
+  t > Date.now() + 50 * 365 * 86400000
+    ? "for ever"
+    : new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+type PlayerRow = {
+  uid: string;
+  name: string;
+  area: string;
+  female: boolean;
+  savedAt: number;
+  money: number;
+  blocked: string | null;
+};
+type Place = {
+  kind: "plot" | "shop";
+  id: string;
+  area?: string;
+  how?: string;
+  owner?: string;
+  ownerName?: string;
+  name?: string;
+  until: number;
+};
+
+function Players() {
+  const [q, setQ] = useState("");
+  const [list, setList] = useState<PlayerRow[] | null>(null);
+  const [err, setErr] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const load = async (query = q) => {
+    setErr("");
+    const j = await api<{ players: PlayerRow[] }>({ op: "adminPlayers", q: query });
+    if (!j.ok) setErr(`Could not load: ${j.error}`);
+    else setList(j.players);
+  };
+  useEffect(() => {
+    void load("");
+  }, []);
+  return (
+    <div className="space-y-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void load();
+        }}
+        className="flex gap-2"
+      >
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search by name or player number"
+          className="flex-1 rounded-xl border border-black/15 px-3 py-2.5"
+        />
+        <button className={`${btn} bg-[#1f6f63] text-white`}>Search</button>
+      </form>
+      {err && <p className="font-bold text-[#b3261e]">{err}</p>}
+      <Empty items={list} text="No players found." />
+      <p className="text-[12px] opacity-60">{q ? "Matching players" : "Players who played most recently"}</p>
+      {list?.map((p) => (
+        <div key={p.uid} className={card}>
+          <button className="flex w-full items-center gap-3 text-left" onClick={() => setOpen(open === p.uid ? null : p.uid)}>
+            <span className="text-2xl">{p.female ? "🧕" : "👳"}</span>
+            <span className="flex-1">
+              <span className="font-bold">{p.name || "(no name yet)"}</span>
+              {p.blocked !== null && <span className="ml-2 rounded bg-[#b3261e] px-1.5 text-[11px] font-bold text-white">BLOCKED</span>}
+              <span className="block text-[12px] opacity-70">
+                {areaName(p.area) || "—"} · last played {p.savedAt ? when(p.savedAt) : "—"}
+              </span>
+            </span>
+            <span className="font-extrabold">{sar(p.money)}</span>
+          </button>
+          {open === p.uid && <PlayerDetail p={p} onChanged={() => void load()} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlayerDetail({ p, onChanged }: { p: PlayerRow; onChanged: () => void }) {
+  const [places, setPlaces] = useState<Place[] | null>(null);
+  const [amt, setAmt] = useState("");
+  const [note, setNote] = useState("");
+  const [reason, setReason] = useState("");
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    void api<{ places: Place[] }>({ op: "adminPlayer", uid: p.uid }).then((j) => setPlaces(j.places ?? []));
+  }, [p.uid]);
+  const give = async (sign: 1 | -1) => {
+    const n = Math.round(Number(amt.replace(/[^0-9]/g, "")));
+    if (!n) return setMsg("Enter an amount in riyals.");
+    const j = await api<{ naira: number }>({ op: "adminGive", uid: p.uid, delta: sign * n, note });
+    setMsg(j.ok ? `Done. ${p.name || "The player"} now has ${sar(j.naira)}.` : `Not done: ${j.error}`);
+    if (j.ok) {
+      setAmt("");
+      setNote("");
+      onChanged();
+    }
+  };
+  const ban = async (on: boolean) => {
+    const j = await api({ op: "adminBan", uid: p.uid, ban: on, reason });
+    setMsg(j.ok ? (on ? "Blocked. They can't play until you unblock them." : "Unblocked.") : `Not done: ${j.error}`);
+    if (j.ok) onChanged();
+  };
+  return (
+    <div className="mt-3 space-y-3 border-t border-black/10 pt-3 text-[14px]">
+      <div className="text-[12px] opacity-70">
+        Player number: <code className="select-all">{p.uid}</code>
+      </div>
+      <div>
+        <div className="mb-1 font-bold">Homes and shops</div>
+        {places === null && <p className="opacity-60">Loading…</p>}
+        {places?.length === 0 && <p className="opacity-60">None.</p>}
+        {places?.map((x) => (
+          <div key={x.kind + x.id} className="text-[13px]">
+            {x.kind === "plot" ? "🏠" : "🏪"} {x.id}
+            {x.how ? ` · ${x.how}` : ""}
+            {x.name ? ` · ${x.name}` : ""} · until {day(x.until)}
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <div className="font-bold">Money</div>
+        <div className="flex flex-wrap gap-2">
+          <input value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="numeric" placeholder="SAR amount" className="w-32 rounded-lg border border-black/15 px-3 py-2" />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why (for your records)" className="min-w-0 flex-1 rounded-lg border border-black/15 px-3 py-2" />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => void give(1)} className={`${btn} bg-[#1f6f63] text-white`}>➕ Give</button>
+          <button onClick={() => void give(-1)} className={`${btn} bg-[#f4efe2]`}>➖ Take</button>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div className="font-bold">Block</div>
+        {p.blocked !== null ? (
+          <button onClick={() => void ban(false)} className={`${btn} bg-[#f4efe2]`}>Unblock</button>
+        ) : (
+          <div className="flex gap-2">
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (the player sees this)" className="min-w-0 flex-1 rounded-lg border border-black/15 px-3 py-2" />
+            <button onClick={() => void ban(true)} className={`${btn} bg-[#b3261e] text-white`}>🚫 Block</button>
+          </div>
+        )}
+      </div>
+      {msg && <p className="font-bold">{msg}</p>}
+    </div>
+  );
+}
+
+function Rentals() {
+  const [list, setList] = useState<Place[] | null>(null);
+  const [err, setErr] = useState("");
+  const [area, setArea] = useState("");
+  const [kind, setKind] = useState<"" | "house" | "shop" | "stall">("");
+  const load = async () => {
+    setErr("");
+    const j = await api<{ places: Place[] }>({ op: "adminRentals" });
+    if (!j.ok) setErr(`Could not load: ${j.error}`);
+    else setList(j.places.sort((a, b) => (a.area ?? "").localeCompare(b.area ?? "") || a.id.localeCompare(b.id, undefined, { numeric: true })));
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  const free = async (x: Place) => {
+    if (!confirm(`Free ${x.id}? ${x.ownerName || "The player"} loses it straight away.`)) return;
+    const j = await api({ op: "adminFree", kind: x.kind, id: x.id });
+    if (j.ok) setList((l) => l?.filter((y) => !(y.kind === x.kind && y.id === x.id)) ?? null);
+    else alert(`Not done: ${j.error}`);
+  };
+  const areas = [...new Set((list ?? []).map((x) => x.area ?? ""))].filter(Boolean);
+  const shown = (list ?? []).filter(
+    (x) =>
+      (!area || x.area === area) &&
+      (!kind || (kind === "house" ? x.kind === "plot" : x.how === kind)),
+  );
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <select value={area} onChange={(e) => setArea(e.target.value)} className="rounded-lg border border-black/15 bg-white px-3 py-2">
+          <option value="">All areas</option>
+          {areas.map((a) => (
+            <option key={a} value={a}>{areaName(a)}</option>
+          ))}
+        </select>
+        <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className="rounded-lg border border-black/15 bg-white px-3 py-2">
+          <option value="">Houses, shops and stalls</option>
+          <option value="house">Houses</option>
+          <option value="shop">Shops</option>
+          <option value="stall">Market stalls</option>
+        </select>
+        <button onClick={() => void load()} className={`${btn} bg-white`}>↻ Refresh</button>
+      </div>
+      {err && <p className="font-bold text-[#b3261e]">{err}</p>}
+      <Empty items={list && shown} text="Nobody rents or owns anything here yet." />
+      {list && <p className="text-[12px] opacity-60">{shown.length} taken</p>}
+      <div className="space-y-2">
+        {shown.map((x) => (
+          <div key={x.kind + x.id} className={`${card} flex items-center gap-3 py-3`}>
+            <span className="text-xl">{x.kind === "plot" ? "🏠" : x.how === "stall" ? "🧺" : "🏪"}</span>
+            <span className="flex-1 text-[14px]">
+              <span className="font-bold">{x.id}</span> · {areaName(x.area ?? "")}
+              <span className="block text-[12px] opacity-70">
+                {x.ownerName || "A player"} · {x.how}
+                {x.name ? ` · “${x.name}”` : ""} · until {day(x.until)}
+              </span>
+            </span>
+            <button onClick={() => void free(x)} className={`${btn} bg-[#f4efe2]`}>Free it</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const PRICE_ROWS: [string, string, string][] = [
+  ["rent", "🏠 House rent", "Weekly and monthly rent of every house and flat"],
+  ["buy", "🔑 Buying a house", "The price to buy a house outright"],
+  ["land", "🟫 Land", "The price of a plot of land"],
+  ["shop", "🏪 Shop rent", "Shops on the streets, per week or month"],
+  ["stall", "🧺 Market stall rent", "Stalls in the markets, per week"],
+  ["food", "🍗 Food and coffee", "Meals and coffee at the restaurants and cafés"],
+];
+function Prices() {
+  const [lv, setLv] = useState<Record<string, number> | null>(null);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    void api<{ levels: Record<string, number> }>({ op: "adminPrices" }).then((j) =>
+      j.ok ? setLv(j.levels) : setMsg(`Could not load: ${j.error}`),
+    );
+  }, []);
+  const save = async () => {
+    const j = await api<{ levels: Record<string, number> }>({ op: "adminPrices", levels: lv });
+    if (j.ok) {
+      setLv(j.levels);
+      setMsg("Saved. Every player sees the new prices within a minute.");
+    } else setMsg(`Not saved: ${j.error}`);
+  };
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px]">
+        100% is the normal price. Raise it to make things dearer, lower it for a sale (from 25% to
+        400%). Card payments with Paystack follow the same level.
+      </p>
+      {!lv && !msg && <p>Loading…</p>}
+      {lv &&
+        PRICE_ROWS.map(([k, label, about]) => (
+          <div key={k} className={`${card} flex items-center gap-3`}>
+            <span className="flex-1">
+              <span className="font-bold">{label}</span>
+              <span className="block text-[12px] opacity-70">{about}</span>
+            </span>
+            <input
+              type="range"
+              min={25}
+              max={400}
+              step={5}
+              value={lv[k] ?? 100}
+              onChange={(e) => setLv({ ...lv, [k]: Number(e.target.value) })}
+              className="w-32"
+            />
+            <span className="w-14 text-right font-extrabold tabular-nums">{lv[k] ?? 100}%</span>
+          </div>
+        ))}
+      {lv && (
+        <div className="flex gap-2">
+          <button onClick={() => void save()} className={`${btn} bg-[#1f6f63] text-white`}>Save prices</button>
+          <button
+            onClick={() => setLv(Object.fromEntries(PRICE_ROWS.map(([k]) => [k, 100])))}
+            className={`${btn} bg-white`}
+          >
+            Back to normal
+          </button>
+        </div>
+      )}
+      {msg && <p className="font-bold">{msg}</p>}
+    </div>
+  );
+}
+
+function Notice() {
+  const [text, setText] = useState("");
+  const [hours, setHours] = useState(24);
+  const [cur, setCur] = useState<{ text: string; until: number } | null>(null);
+  const [msg, setMsg] = useState("");
+  const load = () =>
+    void api<{ notice: { text: string; until: number } | null }>({ op: "adminNotice" }).then((j) =>
+      setCur(j.notice?.text && j.notice.until > Date.now() ? j.notice : null),
+    );
+  useEffect(load, []);
+  const send = async (t: string) => {
+    const j = await api({ op: "adminNotice", text: t, hours });
+    setMsg(j.ok ? (t ? "Sent. Every player sees it at the top of the screen." : "Removed.") : `Not done: ${j.error}`);
+    if (j.ok) {
+      setText("");
+      load();
+    }
+  };
+  return (
+    <div className="space-y-3">
+      {cur && (
+        <div className={`${card} border-l-4 border-[#1f6f63]`}>
+          <div className="text-[12px] opacity-70">Showing now, until {when(cur.until)}</div>
+          <p className="my-1 font-bold">📢 {cur.text}</p>
+          <button onClick={() => void send("")} className={`${btn} bg-[#f4efe2]`}>Remove it</button>
+        </div>
+      )}
+      <div className={`${card} space-y-2`}>
+        <div className="font-bold">New message to every player</div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={240}
+          rows={3}
+          placeholder="e.g. Eid Mubarak! Eid prayer at Masjid Quba at 6:30am."
+          className="w-full rounded-xl border border-black/15 px-3 py-2"
+        />
+        <div className="flex items-center gap-2 text-[14px]">
+          Show for
+          <select value={hours} onChange={(e) => setHours(Number(e.target.value))} className="rounded-lg border border-black/15 bg-white px-2 py-1.5">
+            <option value={3}>3 hours</option>
+            <option value={24}>1 day</option>
+            <option value={72}>3 days</option>
+            <option value={168}>1 week</option>
+          </select>
+          <button disabled={!text.trim()} onClick={() => void send(text)} className={`${btn} ml-auto bg-[#1f6f63] text-white disabled:opacity-40`}>
+            Send
+          </button>
+        </div>
+      </div>
+      {msg && <p className="font-bold">{msg}</p>}
     </div>
   );
 }

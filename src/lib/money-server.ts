@@ -146,6 +146,45 @@ export const FRESH_START_WIPES = [
   "city_race_runs",
 ];
 
+/** The admin's price levels (city_config/prices), read at most once a minute. */
+let pricesAt = 0;
+async function loadPrices(db: FirebaseFirestore.Firestore) {
+  if (Date.now() - pricesAt < 60000) return;
+  const { applyPrices } = await import("../game/prices");
+  const d = await db.collection("city_config").doc("prices").get().catch(() => null);
+  applyPrices(d?.data());
+  pricesAt = Date.now();
+}
+/** Blocked players (city_config/bans: uid → reason), read at most every 30 seconds. */
+let bansAt = 0;
+let bans: Record<string, string> = {};
+async function bannedReason(db: FirebaseFirestore.Firestore, uid: string) {
+  if (Date.now() - bansAt > 30000) {
+    const d = await db.collection("city_config").doc("bans").get().catch(() => null);
+    bans = ((d?.data() as { uids?: Record<string, string> } | undefined)?.uids ?? {}) as Record<string, string>;
+    bansAt = Date.now();
+  }
+  return bans[uid] ?? null;
+}
+type SaveInfo = { uid: string; name: string; area: string; female: boolean; savedAt: number };
+function saveInfo(id: string, d: FirebaseFirestore.DocumentData): SaveInfo {
+  let name = "",
+    area = "",
+    female = false;
+  try {
+    const j = JSON.parse(String(d.data ?? "{}")) as {
+      profile?: { name?: string; female?: boolean };
+      homeArea?: string;
+    };
+    name = j.profile?.name ?? "";
+    female = !!j.profile?.female;
+    area = j.homeArea ?? "";
+  } catch {
+    /* unreadable */
+  }
+  return { uid: id, name, area, female, savedAt: Number(d.savedAt ?? 0) };
+}
+
 const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
     status,
@@ -167,7 +206,23 @@ type Body = {
     | "richHouse"
     | "starterHouse"
     | "raceStart"
-    | "raceFinish";
+    | "raceFinish"
+    | "adminPlayers"
+    | "adminPlayer"
+    | "adminGive"
+    | "adminBan"
+    | "adminRentals"
+    | "adminFree"
+    | "adminPrices"
+    | "adminNotice";
+  q?: string;
+  uid?: string;
+  ban?: boolean;
+  kind?: "plot" | "shop";
+  id?: string;
+  levels?: Record<string, unknown>;
+  text?: string;
+  hours?: number;
   race?: string;
   /** plot: rent a house, buy it, or buy land */
   how?: "rent" | "buy" | "land";
@@ -209,10 +264,19 @@ export async function handleMoney(request: Request): Promise<Response> {
   const walletRef = db.collection("city_wallets").doc(uid);
   const now = Date.now();
   try {
+    if (String(body.op ?? "").startsWith("admin")) {
+      const out = await adminOp(db, uid, body, now);
+      if (out) return out;
+    } else if (body.op !== "init") {
+      // a blocked player can't spend, earn or rent
+      const why = await bannedReason(db, uid);
+      if (why !== null) return reply(403, { ok: false, error: "blocked", reason: why });
+    }
     if (body.op === "plot" && body.plot) {
       // rent a house, buy one, or buy land: the price is checked, the money taken and the
       // house recorded as yours in one step
-      const { housePrice, LAND_PRICE, MAX_MARKUP, r10 } = await import("../game/prices");
+      const { housePrice, landPrice, MAX_MARKUP, r10 } = await import("../game/prices");
+      await loadPrices(db);
       const cat = (await catalog()).plots[plotBase(body.plot)];
       const how = body.how;
       if (!cat || !how) return reply(400, { ok: false, error: "no-such-place" });
@@ -223,7 +287,7 @@ export async function handleMoney(request: Request): Promise<Response> {
       if (how === "rent" && cat.t === "tower") return reply(400, { ok: false, error: "buy-only" });
       const floor =
         how === "land"
-          ? LAND_PRICE
+          ? landPrice()
           : how === "buy"
             ? hp.buy
             : days === 30
@@ -263,6 +327,7 @@ export async function handleMoney(request: Request): Promise<Response> {
     if ((body.op === "shop" || body.op === "starterShop") && body.sid) {
       // rent a shop or a market stall (the first shop of a new trader is free for a week)
       const { shopPrice, MAX_MARKUP } = await import("../game/prices");
+      await loadPrices(db);
       const cat = (await catalog()).shops[body.sid];
       if (!cat) return reply(400, { ok: false, error: "no-such-place" });
       const starter = body.op === "starterShop";
@@ -480,7 +545,8 @@ export async function handleMoney(request: Request): Promise<Response> {
         tx.set(walletRef, w);
         return w;
       });
-      return reply(200, { ok: true, naira: out.naira });
+      const why = await bannedReason(db, uid);
+      return reply(200, { ok: true, naira: out.naira, ...(why !== null ? { blocked: why || "—" } : {}) });
     }
 
     if (body.op === "change") {
@@ -608,4 +674,149 @@ export async function handleMoney(request: Request): Promise<Response> {
     console.error("IlmWorld money", e);
     return reply(500, { error: "server" });
   }
+}
+
+/** The admin's tools: players, money, blocking, who rents what, prices and notices.
+    Returns null for ops it doesn't know (adminStats and freshStart are handled above). */
+async function adminOp(
+  db: FirebaseFirestore.Firestore,
+  uid: string,
+  body: Body,
+  now: number,
+): Promise<Response | null> {
+  const ops = ["adminPlayers", "adminPlayer", "adminGive", "adminBan", "adminRentals", "adminFree", "adminPrices", "adminNotice"];
+  if (!ops.includes(body.op)) return null;
+  if (!(await db.collection("admins").doc(uid).get()).exists) return reply(403, { error: "admins-only" });
+  const log = (what: string, extra: Record<string, unknown> = {}) =>
+    db.collection("city_admin_log").add({ by: uid, what, at: now, ...extra });
+  const bansRef = db.collection("city_config").doc("bans");
+  const banList = async () =>
+    ((await bansRef.get()).data() as { uids?: Record<string, string> } | undefined)?.uids ?? {};
+
+  if (body.op === "adminPlayers") {
+    // the players who played most recently, or those whose name or number matches
+    const q = String(body.q ?? "").trim().toLowerCase();
+    const snap = await db.collection("city_saves").orderBy("savedAt", "desc").limit(q ? 1500 : 80).get();
+    let list = snap.docs.map((d) => saveInfo(d.id, d.data()));
+    if (q) list = list.filter((p) => p.name.toLowerCase().includes(q) || p.uid.toLowerCase().includes(q));
+    list = list.slice(0, 60);
+    const wallets = list.length
+      ? await db.getAll(...list.map((p) => db.collection("city_wallets").doc(p.uid)))
+      : [];
+    const b = await banList();
+    return reply(200, {
+      ok: true,
+      players: list.map((p, i) => ({
+        ...p,
+        money: Number(wallets[i]?.get("naira") ?? 0),
+        blocked: b[p.uid] ?? null,
+      })),
+    });
+  }
+  if (body.op === "adminPlayer" && body.uid) {
+    const [plots, shops, w, sv] = await Promise.all([
+      db.collection("city_plots").where("owner", "==", body.uid).get(),
+      db.collection("city_shops").where("owner", "==", body.uid).get(),
+      db.collection("city_wallets").doc(body.uid).get(),
+      db.collection("city_saves").doc(body.uid).get(),
+    ]);
+    return reply(200, {
+      ok: true,
+      player: sv.exists ? saveInfo(sv.id, sv.data()!) : { uid: body.uid, name: "", area: "", female: false, savedAt: 0 },
+      money: Number(w.get("naira") ?? 0),
+      places: [
+        ...plots.docs.map((d) => ({ kind: "plot", id: d.id, area: d.get("area"), how: d.get("kind"), until: d.get("until") })),
+        ...shops.docs.map((d) => ({ kind: "shop", id: d.id, name: d.get("name") ?? "", until: d.get("until") })),
+      ],
+    });
+  }
+  if (body.op === "adminGive" && body.uid) {
+    const delta = Math.round(Number(body.delta));
+    if (!Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 1000000)
+      return reply(400, { ok: false, error: "bad-amount" });
+    const ref = db.collection("city_wallets").doc(body.uid);
+    const out = await db.runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      if (!s.exists) return { ok: false, error: "no-wallet" };
+      const n = Math.max(0, Number(s.get("naira") ?? 0) + delta);
+      tx.update(ref, { naira: n, updatedAt: now });
+      return { ok: true, naira: n };
+    });
+    if (out.ok) await log("money", { uid: body.uid, delta, note: String(body.note ?? "").slice(0, 120) });
+    return reply(out.ok ? 200 : 409, out);
+  }
+  if (body.op === "adminBan" && body.uid) {
+    const reason = String(body.reason ?? "").slice(0, 160);
+    await db.runTransaction(async (tx) => {
+      const s = await tx.get(bansRef);
+      const uids = { ...(((s.data() as { uids?: Record<string, string> } | undefined)?.uids) ?? {}) };
+      if (body.ban) uids[body.uid!] = reason;
+      else delete uids[body.uid!];
+      tx.set(bansRef, { uids, at: now });
+    });
+    bansAt = 0;
+    await log(body.ban ? "block" : "unblock", { uid: body.uid, reason });
+    return reply(200, { ok: true });
+  }
+  if (body.op === "adminRentals") {
+    const [plots, shops] = await Promise.all([
+      db.collection("city_plots").where("until", ">", now).get(),
+      db.collection("city_shops").where("until", ">", now).get(),
+    ]);
+    return reply(200, {
+      ok: true,
+      places: [
+        ...plots.docs.map((d) => ({
+          kind: "plot",
+          id: d.id,
+          area: String(d.get("area") ?? ""),
+          how: String(d.get("kind") ?? ""),
+          owner: String(d.get("owner") ?? ""),
+          ownerName: String(d.get("name") ?? ""),
+          until: Number(d.get("until") ?? 0),
+        })),
+        ...shops.docs.map((d) => ({
+          kind: "shop",
+          id: d.id,
+          area: d.id.split("-")[0],
+          how: d.id.includes("-m") ? "stall" : "shop",
+          owner: String(d.get("owner") ?? ""),
+          ownerName: String(d.get("ownerName") ?? ""),
+          name: String(d.get("name") ?? ""),
+          until: Number(d.get("until") ?? 0),
+        })),
+      ],
+    });
+  }
+  if (body.op === "adminFree" && body.id && (body.kind === "plot" || body.kind === "shop")) {
+    const col = body.kind === "plot" ? "city_plots" : "city_shops";
+    const ref = db.collection(col).doc(body.id);
+    const was = (await ref.get()).data();
+    await ref.delete();
+    if (body.kind === "plot") await db.collection("city_house_sales").doc(body.id).delete().catch(() => {});
+    await log("free", { kind: body.kind, id: body.id, owner: was?.owner ?? null });
+    return reply(200, { ok: true });
+  }
+  if (body.op === "adminPrices") {
+    const { cleanLevels } = await import("../game/prices");
+    const ref = db.collection("city_config").doc("prices");
+    if (body.levels) {
+      const levels = cleanLevels(body.levels);
+      await ref.set({ ...levels, at: now, by: uid });
+      pricesAt = 0;
+      await log("prices", { levels });
+      return reply(200, { ok: true, levels });
+    }
+    return reply(200, { ok: true, levels: cleanLevels((await ref.get()).data()) });
+  }
+  if (body.op === "adminNotice") {
+    const ref = db.collection("city_config").doc("notice");
+    if (body.text === undefined) return reply(200, { ok: true, notice: (await ref.get()).data() ?? null });
+    const text = String(body.text).trim().slice(0, 240);
+    const hours = Math.min(24 * 30, Math.max(1, Number(body.hours) || 24));
+    await ref.set(text ? { text, at: now, until: now + hours * 3600000, by: uid } : { text: "", at: now, until: 0, by: uid });
+    await log("notice", { text, hours });
+    return reply(200, { ok: true });
+  }
+  return null;
 }

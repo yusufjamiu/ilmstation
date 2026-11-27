@@ -1007,14 +1007,104 @@ export default function IlmCityGame() {
   if (!uid && (!import.meta.env.DEV || new URLSearchParams(window.location.search).has("gate")))
     return <SignInGate />;
   return (
-    <CityGame
-      key={uid ?? "guest"}
-      uid={uid}
-      loggedIn={!!uid}
-      firstName={firstName}
-      female={female}
-      adult={adult}
-    />
+    <>
+      <CityGame
+        key={uid ?? "guest"}
+        uid={uid}
+        loggedIn={!!uid}
+        firstName={firstName}
+        female={female}
+        adult={adult}
+      />
+      <WorldConfig uid={uid} />
+    </>
+  );
+}
+
+/** What the admin sets for everyone, live: price levels, a notice on every screen, and
+    blocked players (who can't play while blocked). */
+function WorldConfig({ uid }: { uid: string | null }) {
+  const [notice, setNotice] = useState<{ text: string; at: number; until: number } | null>(null);
+  const [blocked, setBlocked] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return Number(localStorage.getItem("ilmworld-notice-seen") ?? 0);
+    } catch {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    const offs: (() => void)[] = [];
+    void (async () => {
+      try {
+        const { db } = await import("@/lib/firebase");
+        const { doc, onSnapshot } = await import("firebase/firestore");
+        const { applyPrices } = await import("./prices");
+        offs.push(
+          onSnapshot(doc(db, "city_config", "prices"), (s) => applyPrices(s.data()), () => {}),
+          onSnapshot(
+            doc(db, "city_config", "notice"),
+            (s) => {
+              const d = s.data() as { text?: string; at?: number; until?: number } | undefined;
+              setNotice(d?.text ? { text: d.text, at: d.at ?? 0, until: d.until ?? 0 } : null);
+            },
+            () => {},
+          ),
+          onSnapshot(
+            doc(db, "city_config", "bans"),
+            (s) => {
+              const u = (s.data() as { uids?: Record<string, string> } | undefined)?.uids ?? {};
+              setBlocked(uid && uid in u ? u[uid] || "" : null);
+            },
+            () => {},
+          ),
+        );
+      } catch {
+        /* offline */
+      }
+    })();
+    return () => offs.forEach((f) => f());
+  }, [uid]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <>
+      {notice && notice.until > now && notice.at > hidden && blocked === null && (
+        <div className="pointer-events-auto fixed inset-x-3 top-[calc(env(safe-area-inset-top)+64px)] z-[60] mx-auto flex max-w-md items-start gap-3 rounded-2xl bg-[#1f6f63] px-4 py-3 text-[14px] text-white shadow-lg">
+          <span className="text-lg">📢</span>
+          <span className="flex-1">{notice.text}</span>
+          <button
+            onClick={() => {
+              setHidden(notice.at);
+              try {
+                localStorage.setItem("ilmworld-notice-seen", String(notice.at));
+              } catch {
+                /* storage blocked */
+              }
+            }}
+            className="rounded-lg bg-white/20 px-2 py-0.5 font-bold"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {blocked !== null && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-[#10201e]/95 p-6 text-center text-[#fdf8ec]">
+          <div className="max-w-sm space-y-3">
+            <div className="text-4xl">🚫</div>
+            <div className="font-serif text-2xl">Your IlmWorld account is blocked</div>
+            {blocked && <p className="text-[15px] opacity-90">Reason: {blocked}</p>}
+            <p className="text-[14px] opacity-75">
+              If you think this is a mistake, contact IlmStation support.
+            </p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -5991,6 +5991,8 @@ export const MENU: Dish[] = [
   { id: "suya", name: "Spanish latte & date cake", icon: "☕", points: 8, fills: 45 },
 ];
 export const EATERY_MARKUP = 1.5;
-export const eateryPrice = (d: Dish) => Math.ceil(d.points * EATERY_MARKUP);
+/** Price levels the admin sets (1 = normal); see applyPrices in prices.ts. */
+export const PRICE_X = { rent: 1, buy: 1, land: 1, shop: 1, stall: 1, food: 1 };
+export const eateryPrice = (d: Dish) => Math.ceil(d.points * EATERY_MARKUP * PRICE_X.food);
 /** At or below this, you're too hungry to do anything but eat (and pray). */
 export const HUNGRY_AT = 5;
