@@ -8344,7 +8344,11 @@ function CityGame({
         return;
       }
       if (id.startsWith("door:restaurant:")) {
-        e.enterInterior("restaurant", cafeName(id.slice(16)));
+        const rest = id.slice(16);
+        e.enterInterior(
+          "restaurant",
+          rest.startsWith("food:") ? eateryName(rest.slice(5)) : cafeName(rest),
+        );
         setInside(true);
         tuneRef.current();
         toast("Assalamu alaikum! Order at the counter, then sit and eat.");
@@ -13533,13 +13537,13 @@ function placesIn(id: string): Place[] {
         icon: "☕",
         name: /coffee|caf/i.test(cafe) ? cafe : `${cafe} Coffee`,
         sub: "Coffee, and a garden of tables to sit at · by the main crossroad",
-        prefix: "door:restaurant:",
+        prefix: `door:restaurant:${D.id}`,
       },
       {
         icon: "🍗",
         name: eateryName(D.id),
-        sub: "Broasted chicken and more",
-        prefix: "eatery:",
+        sub: "Restaurant and drive thru · broasted chicken and more",
+        prefix: `door:restaurant:food:${D.id}`,
       },
       { icon: "🌳", name: "Brothers' garden", sub: "Sit and rest · brothers only", prefix: `rest:b:${D.id}:` },
       { icon: "🌸", name: "Sisters' garden", sub: "Sit and rest · sisters only, walled", prefix: `rest:s:${D.id}:` },
@@ -14997,7 +15001,14 @@ function outingsFor(tab: string, here: string, c: Clock, has: (id: string) => bo
           sub: "Walk in · sit at a table and eat",
           prefix: `door:restaurant:${D.id}`,
         });
-      if (has(`eatery:${D.id}`))
+      if (has(`door:restaurant:food:${D.id}`))
+        at({
+          icon: "🍗",
+          name: `${eateryName(D.id)}, ${D.name}`,
+          sub: "Restaurant and drive thru · walk in, order and eat",
+          prefix: `door:restaurant:food:${D.id}`,
+        });
+      else if (has(`eatery:${D.id}`))
         at({
           icon: "🍗",
           name: `${eateryName(D.id)}, ${D.name}`,

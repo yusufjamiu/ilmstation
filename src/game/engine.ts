@@ -1669,6 +1669,10 @@ export class IlmCityEngine {
     const cafe = brandsOf(D.id) ? this.chooseCafePlot(D, zs, H, southEdge, play) : null;
     if (cafe) this.cafePlot.set(D.id, cafe);
     else this.cafePlot.delete(D.id);
+    // and the big fast-food restaurant (AlBaik and the like) on the next plot along
+    const food = cafe ? this.chooseCafePlot(D, zs, H, southEdge, play, cafe) : null;
+    if (food) this.foodPlot.set(D.id, food);
+    else this.foodPlot.delete(D.id);
     // hold the pitch, sisters' corner and police station plots, so the shops built before
     // them (eatery, dealer, mall, boutique) don't land on top of them
     const playHold: Box[] = [];
@@ -1688,10 +1692,11 @@ export class IlmCityEngine {
         playHold.push({ x0: this.ox + q.x0, x1: this.ox + q.x1, z0: this.oz + q.z0, z1: this.oz + q.z1 });
       }
     }
-    if (cafe) {
-      const cz = cafe.north ? cafe.sz - 21.5 : cafe.sz + 21.5;
-      playHold.push({ x0: this.ox + cafe.x - 12, x1: this.ox + cafe.x + 12, z0: this.oz + cz - 11, z1: this.oz + cz + 11 });
-    }
+    for (const cp of [cafe, food])
+      if (cp) {
+        const cz = cp.north ? cp.sz - 21.5 : cp.sz + 21.5;
+        playHold.push({ x0: this.ox + cp.x - 12, x1: this.ox + cp.x + 12, z0: this.oz + cz - 11, z1: this.oz + cz + 11 });
+      }
     const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
     for (const [si, sz] of zs.entries()) {
@@ -1723,6 +1728,7 @@ export class IlmCityEngine {
           if (
             atGate ||
             (cafe && cafe.sz === sz && cafe.north === north && cafe.x === x) ||
+            (food && food.sz === sz && food.north === north && food.x === x) ||
             (play &&
               ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
                 (play.police &&
@@ -4566,12 +4572,14 @@ export class IlmCityEngine {
   /** Where an area's café and its garden go: a free plot as near the main cross road as can
       be, on the main street first, clear of the pitch and the police station. */
   cafePlot = new Map<string, { sz: number; north: boolean; x: number }>();
+  foodPlot = new Map<string, { sz: number; north: boolean; x: number }>();
   private chooseCafePlot(
     D: District,
     zs: number[],
     H: { x: number; z: number },
     southEdge: number,
     play: { sz: number; north: boolean; xs: number[]; police: PolicePlot | null } | null,
+    not?: { sz: number; north: boolean; x: number },
   ) {
     const slots: number[] = [];
     for (let x = -(H.x - 26); x <= H.x - 26; x += 24) if (Math.abs(x) >= 16) slots.push(x);
@@ -4584,6 +4592,7 @@ export class IlmCityEngine {
         if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
         for (const x of slots) {
           if (play && play.sz === sz && play.north === north && play.xs.includes(x)) continue;
+          if (not && not.sz === sz && not.north === north && not.x === x) continue;
           const q = play?.police?.box;
           if (q && x - 12 < q.x1 && x + 12 > q.x0 && cz - 11 < q.z1 && cz + 11 > q.z0) continue;
           if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
@@ -5628,7 +5637,118 @@ export class IlmCityEngine {
   }
 
   /** The eatery: a food truck parked on the pavement near the market. */
+  /** The big fast-food restaurant on its own plot: a dining hall to walk into, a drive-thru
+      lane round the side with a menu board and a window, and a tall sign by the road. */
+  private buildBigEatery(D: District, fp: { sz: number; north: boolean; x: number }) {
+    const cz = fp.north ? fp.sz - 21.5 : fp.sz + 21.5;
+    const s = fp.north ? 1 : -1;
+    const g = new THREE.Group();
+    g.position.set(fp.x, 0, cz);
+    g.rotation.y = fp.north ? 0 : Math.PI;
+    const fb = brandsOf(D.id)?.food;
+    const red = fb?.bg ?? 0xc8102e,
+      fg = fb?.fg ?? 0xffffff;
+    const hex = (c: number) => "#" + c.toString(16).padStart(6, "0");
+    const fname = eateryName(D.id);
+    const sign = (w: number, h: number, text: string, bg = hex(red), col = hex(fg)) =>
+      canvasPlane(
+        w,
+        h,
+        (c, W, H) => {
+          c.fillStyle = bg;
+          c.fillRect(0, 0, W, H);
+          c.fillStyle = col;
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          let fs = Math.round(H * 0.56);
+          c.font = `900 ${fs}px "Work Sans", system-ui, sans-serif`;
+          const tw = c.measureText(text.toUpperCase()).width;
+          if (tw > W * 0.88) {
+            fs = Math.floor((fs * W * 0.88) / tw);
+            c.font = `900 ${fs}px "Work Sans", system-ui, sans-serif`;
+          }
+          c.fillText(text.toUpperCase(), W / 2, H * 0.54);
+        },
+        512,
+      ).mesh;
+    // the lot: paving, and the drive-thru lane in asphalt down the right side and round the back
+    const pave = new THREE.Mesh(groundGeo(22, 20, 2), mat(0xd9cfbd));
+    pave.position.set(0, 0.03, 0);
+    g.add(pave);
+    const lane = new THREE.Mesh(groundGeo(4.6, 19, 2), mat(0x3a3a3c));
+    lane.position.set(8.4, 0.04, 0);
+    g.add(lane);
+    const back = new THREE.Mesh(groundGeo(20, 3.6, 2), mat(0x3a3a3c));
+    back.position.set(0, 0.041, -8.1);
+    g.add(back);
+    for (let z = 7; z > -6; z -= 3.2) {
+      const a = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 1.4), mat(0xf4f4ee));
+      a.rotation.x = -Math.PI / 2;
+      a.position.set(8.4, 0.06, z);
+      g.add(a);
+    }
+    // the dining hall: white with a red band and a red roof edge, glass all along the front
+    const BX = -3,
+      BZ = -1.2,
+      BW = 14,
+      BD = 9.5,
+      BH = 5.4;
+    g.add(box(BW, BH, BD, 0xf7f4ee, BX, 0, BZ));
+    g.add(box(BW + 0.3, 1.1, BD + 0.3, red, BX, BH - 1.1, BZ));
+    g.add(box(BW + 0.6, 0.25, BD + 0.6, 0xf7f4ee, BX, BH, BZ));
+    for (const gx of [-8.2, -5.4, 0.6, 3.2])
+      g.add(box(2.4, 2.6, 0.08, 0x2c4a5e, gx, 0.5, BZ + BD / 2 + 0.03));
+    g.add(box(2, 2.9, 0.1, 0x2c4a5e, BX, 0, BZ + BD / 2 + 0.05));
+    // a red canopy over the door
+    g.add(box(4.4, 0.25, 2.2, red, BX, 3.1, BZ + BD / 2 + 1.1));
+    const front = sign(10, 1, fname);
+    front.position.set(BX, BH - 0.55, BZ + BD / 2 + 0.17);
+    g.add(front);
+    const roof = sign(8, 1.6, fname);
+    roof.position.set(BX, BH + 1.25, BZ);
+    g.add(roof, box(0.15, 0.6, 0.15, 0x2e2e2a, BX - 3, BH, BZ), box(0.15, 0.6, 0.15, 0x2e2e2a, BX + 3, BH, BZ));
+    // the drive-thru window on the side, its canopy, and the menu board before it
+    g.add(box(0.08, 1.2, 1.8, 0x2c4a5e, BX + BW / 2 + 0.03, 1.1, -3.2));
+    g.add(box(1.6, 0.2, 2.6, red, BX + BW / 2 + 0.8, 2.8, -3.2));
+    const board = sign(2.2, 1.4, "MENU", "#1d1d1d", "#f2c230");
+    board.position.set(10.9, 1.6, 2);
+    board.rotation.y = -Math.PI / 2;
+    g.add(board, box(0.15, 1, 0.15, 0x2e2e2a, 10.95, 0, 2));
+    const dt = sign(3.2, 0.7, "Drive thru ➜");
+    dt.position.set(8.4, 2.6, 9.6);
+    g.add(dt, box(0.12, 2.3, 0.12, 0x2e2e2a, 7, 0, 9.6), box(0.12, 2.3, 0.12, 0x2e2e2a, 9.8, 0, 9.6));
+    // the tall sign by the road
+    g.add(box(0.5, 8, 0.5, 0x8a8a8a, -9.4, 0, 8.6));
+    const pyl = sign(3.6, 2.2, fname);
+    pyl.position.set(-9.4, 9, 8.86);
+    g.add(pyl, box(3.8, 2.4, 0.4, red, -9.4, 7.8, 8.6));
+    // tables outside under red parasols
+    for (const tx of [-8, -3, 2]) {
+      g.add(cyl(0.5, 0.5, 0.06, 0x6d4a2b, 14).translateX(tx).translateY(0.78).translateZ(7));
+      const umb = new THREE.Mesh(new THREE.ConeGeometry(1.3, 0.5, 8, 1, true), mat(red));
+      umb.position.set(tx, 2.4, 7);
+      g.add(umb, box(0.05, 2.3, 0.05, 0xeeeeee, tx, 0, 7));
+      for (const cx of [-0.85, 0.85]) g.add(box(0.45, 0.45, 0.45, 0xf7f4ee, tx + cx, 0, 7));
+    }
+    this.dg.add(g);
+    const W = (lx: number, lz: number) => ({ x: fp.x + lx * s, z: cz + lz * s });
+    const a = W(BX - BW / 2, BZ - BD / 2),
+      c = W(BX + BW / 2, BZ + BD / 2);
+    this.addCollider("out", Math.min(a.x, c.x), Math.max(a.x, c.x), Math.min(a.z, c.z), Math.max(a.z, c.z));
+    const py = W(-9.4, 8.6);
+    this.addCollider("out", py.x - 0.4, py.x + 0.4, py.z - 0.4, py.z + 0.4);
+    this.reserved.push({ x0: this.ox + fp.x - 11, x1: this.ox + fp.x + 11, z0: this.oz + cz - 10, z1: this.oz + cz + 10 });
+    const door = W(BX, BZ + BD / 2 + 1.6);
+    this.zones.push({ id: `door:restaurant:food:${D.id}`, label: `Enter ${fname}`, x: this.ox + door.x, z: this.oz + door.z, r: 2.2, scene: "out" });
+    const win = W(BX + BW / 2 + 1.6, -3.2);
+    this.zones.push({ id: "eatery:" + D.id, label: `Drive thru · ${fname}`, x: this.ox + win.x, z: this.oz + win.z, r: 2.4, scene: "out" });
+    const t = label(`${fname} · restaurant & drive thru`, { size: 0.9, bg: hex(red) });
+    t.position.set(fp.x, 9.5, cz);
+    this.dg.add(t);
+  }
   private buildEatery(D: District) {
+    const fp = this.foodPlot.get(D.id);
+    if (fp) return this.buildBigEatery(D, fp);
     const m = this.marketSpot.get(D.id);
     const sz = m?.sz ?? 0,
       north = m?.north ?? true;
