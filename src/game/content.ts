@@ -864,8 +864,9 @@ function universityArea(o: {
     ...[-52, 26, -76, 116].map((x) => ({ x, side: "n" as const })),
   ];
   if (o.ium)
-    [-38, 38, -59, 59, -80, 80, -101, 101].forEach((x, i) => (slots[i] = { x, side: "s" }));
-  const facW = o.ium ? 19 : 22;
+    // well back from the gate (20 m of gardens), with room between the colleges
+    [-49, 49, -72, 72, -95, 95, -118, 118].forEach((x, i) => (slots[i] = { x, side: "s" }));
+  const facW = o.ium ? 17 : 22;
   const allFaculties = [...o.faculties, ...(o.more ?? [])].slice(0, slots.length);
   return {
     id: o.id,
@@ -954,10 +955,12 @@ function universityArea(o: {
         kind: "office",
         name: o.club ? `${o.club} Office` : `MSSN ${o.short} Secretariat`,
         street: o.avenue,
-        x: 122,
+        // the Madinah campuses: at the back by the hostels, leaving the avenue to the colleges
+        x: o.ium ? 128 : 122,
         side: "s",
-        width: 22,
-        depth: 18,
+        width: o.ium ? 15 : 22,
+        depth: o.ium ? 16 : 18,
+        at: o.ium ? { z: -128 } : undefined,
         floors: 1,
         brand: { color: 0x1f6f63, accent: 0xfdf8ec },
         about:
@@ -969,10 +972,11 @@ function universityArea(o: {
         kind: "hangout",
         name: `MSSN ${o.short} Meeting Point`,
         street: o.avenue,
-        x: -122,
+        x: o.ium ? 84 : -122,
         side: "s",
-        width: 22,
-        depth: 18,
+        width: o.ium ? 13 : 22,
+        depth: o.ium ? 16 : 18,
+        at: o.ium ? { z: -128 } : undefined,
         about: o.about,
       },
       ...(o.extra ?? []),

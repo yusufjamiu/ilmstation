@@ -9005,7 +9005,7 @@ export class IlmCityEngine {
       colleges: two along the back wall and one beside the library. */
   private buildIumHostels(D: District) {
     const spots = [
-      { x: 60, z: -128, w: 36, d: 14 },
+      { x: 59, z: -128, w: 30, d: 14 },
       { x: 120, z: -101, w: 24, d: 22 },
       { x: -68, z: -124, w: 32, d: 16 },
     ];
