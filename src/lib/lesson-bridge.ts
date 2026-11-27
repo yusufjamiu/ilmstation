@@ -1,15 +1,18 @@
 import { useEffect, type RefObject } from "react";
 import { auth } from "@/lib/firebase";
+import { useAuth } from "@/components/auth";
 
 /** Bridge between the app and an uploaded HTML lesson running in a sandbox.
  *  The sandbox blocks the mic, the login and storage, so the lesson asks the app instead:
- *   - {type:"ilmstation:hello"}                          → {type:"ilmstation:welcome", state}
+ *   - {type:"ilmstation:hello"}                          → {type:"ilmstation:welcome", state, lang, gender}
  *   - {type:"ilmstation:save", state}                    → app keeps the lesson's progress (resume after closing)
  *   - {type:"ilmstation:record", id, ms, check, hint}    → app records the mic; with check it also runs /api/hifz-stt;
  *                                                          replies {type:"ilmstation:recorded", id, audio, mime, text?, error?}
  *   - {type:"ilmstation:stop", id}                       → stop recording early
  *  The login token never leaves the app: the lesson only gets back the audio and the words heard. */
 export function useLessonBridge(frame: RefObject<HTMLIFrameElement | null>, key: string, lang = "en") {
+  const { account } = useAuth();
+  const gender = account?.gender ?? null;   // Brother/Sister: lessons pick the male or female voice
   useEffect(() => {
     const store = `ilm-lesson:${key}`;
     let rec: MediaRecorder | null = null;
@@ -25,7 +28,7 @@ export function useLessonBridge(frame: RefObject<HTMLIFrameElement | null>, key:
         let state: unknown = null;
         try { state = JSON.parse(localStorage.getItem(store) ?? "null"); } catch { /* ignore */ }
         let test = false; try { test = localStorage.getItem("ilm-test-mode") === "1"; } catch { /* */ }
-        reply({ type: "ilmstation:welcome", state, test, lang });   // the lesson switches its instructions to this language
+        reply({ type: "ilmstation:welcome", state, test, lang, gender });   // the lesson switches its instructions to this language, and its voice to Brother/Sister
       } else if (d.type === "ilmstation:save") {
         try { localStorage.setItem(store, JSON.stringify(d.state ?? null).slice(0, 50_000)); } catch { /* ignore */ }
       } else if (d.type === "ilmstation:stop") {
@@ -75,5 +78,5 @@ export function useLessonBridge(frame: RefObject<HTMLIFrameElement | null>, key:
       window.clearTimeout(timer);
       if (rec?.state === "recording") rec.stop();
     };
-  }, [frame, key, lang]);
+  }, [frame, key, lang, gender]);
 }
