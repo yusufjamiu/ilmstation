@@ -784,7 +784,14 @@ export function makeHuman(look: Look) {
     if (m.isSkinnedMesh) {
       m.material = material(m.userData.role ?? "skin", look, !!m.userData.double);
       m.castShadow = true;
-      m.frustumCulled = false;
+      // only drawn when on screen: a sphere round the standing figure, made roomy enough for
+      // walking, sitting and arms out (without this every person everywhere, even inside
+      // buildings you are not in, was drawn every frame)
+      if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+      const bs = m.geometry.boundingSphere!.clone();
+      bs.radius = bs.radius * 1.6 + 0.3;
+      m.boundingSphere = bs;
+      m.frustumCulled = true;
     }
   });
   const mixer = new THREE.AnimationMixer(root);

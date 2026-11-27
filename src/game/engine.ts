@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BoxIndex } from "./boxindex";
 import {
   iumCollege,
   iumForecourt,
@@ -947,9 +948,11 @@ export class IlmCityEngine {
       antialias: true,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.renderer.setPixelRatio(Math.min(IlmCityEngine.maxDpr(), window.devicePixelRatio || 1));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // shadows are drawn every other frame (see loop): half the cost, and nobody can tell
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
@@ -1341,11 +1344,76 @@ export class IlmCityEngine {
   private startId = "lekki";
   /** Build the areas of a city now, if they are still waiting. */
   ensureCity(city: string) {
+    if (this.stepping && cityOf(districtById(this.stepping.id)) === city) this.finishStepping();
     for (const id of [...this.placeholders.keys()])
       if (cityOf(districtById(id)) === city) this.buildLater(id);
   }
+  /** The area being built in the background, a few milliseconds each frame. */
+  private stepping: {
+    id: string;
+    it: Generator<void, void, void>;
+    dg: THREE.Group;
+    ox: number;
+    oz: number;
+    batch: Batch;
+  } | null = null;
+  /** Start building an area in the background. */
+  private startStepping(id: string) {
+    if (this.stepping || !this.placeholders.has(id)) return;
+    this.stepping = {
+      id,
+      it: this.buildSteps(id),
+      dg: this.dg,
+      ox: this.ox,
+      oz: this.oz,
+      batch: this.curBatch,
+    };
+    this.runSteps(4);
+  }
+  /** Go on building the background area for up to `budget` ms, then hand the frame back. */
+  private runSteps(budget: number) {
+    const st = this.stepping;
+    if (!st) return;
+    const keep = { dg: this.dg, ox: this.ox, oz: this.oz, batch: this.curBatch };
+    this.dg = st.dg;
+    this.ox = st.ox;
+    this.oz = st.oz;
+    this.curBatch = st.batch;
+    let done = false;
+    const t0 = performance.now();
+    try {
+      do {
+        if (st.it.next().done) {
+          done = true;
+          break;
+        }
+      } while (performance.now() - t0 < budget);
+    } catch (err) {
+      console.warn("IlmCity: an area could not be built", st.id, err);
+      done = true;
+    } finally {
+      st.dg = this.dg;
+      st.ox = this.ox;
+      st.oz = this.oz;
+      st.batch = this.curBatch;
+      this.dg = keep.dg;
+      this.ox = keep.ox;
+      this.oz = keep.oz;
+      this.curBatch = keep.batch;
+    }
+    if (done) {
+      this.stepping = null;
+      this.applyLight();
+      this.ev.onAreaBuilt?.(st.id);
+    }
+  }
+  /** Finish the background area now (you are going there). */
+  private finishStepping() {
+    if (this.stepping) this.runSteps(Infinity);
+  }
   /** Build one waiting area (keeping the engine's building state as it was). */
   private buildLater(id: string) {
+    if (this.stepping?.id === id) return this.finishStepping();
     if (!this.placeholders.has(id)) return;
     const keep = { dg: this.dg, ox: this.ox, oz: this.oz, batch: this.curBatch };
     this.buildDistrict(id);
@@ -1377,15 +1445,22 @@ export class IlmCityEngine {
     setTimeout(
       () => {
         if (this.disposed) return;
-        // not while travelling or in a cut-scene: wait for a calm moment
-        if (!this.cine) this.buildLater(next);
+        // one area at a time, built a little each frame (see runSteps), and not while
+        // travelling or in a cut-scene
+        if (!this.cine && !this.stepping) this.startStepping(next);
         this.buildInBackground();
       },
-      this.cine ? 1500 : 400,
+      this.cine || this.stepping ? 1500 : 400,
     );
   }
   private disposed = false;
+  /** Build an area in one go (at the start, or when you travel there). */
   private buildDistrict(id: string) {
+    for (const _ of this.buildSteps(id));
+  }
+  /** Build an area a piece at a time: each `yield` is a point where the game may draw a
+      frame before going on, so building the next areas in the background never freezes it. */
+  private *buildSteps(id: string): Generator<void, void, void> {
     const D = districtById(id);
     this.ox = D.origin.x;
     this.oz = D.origin.z;
@@ -1535,11 +1610,18 @@ export class IlmCityEngine {
     });
 
     // landmarks along their streets, front doors facing the street
-    D.landmarks.forEach((l) => this.buildLandmark(l, D));
+    yield;
+    for (const l of D.landmarks) {
+      this.buildLandmark(l, D);
+      yield;
+    }
     if (D.campus) this.buildCampusWall(D);
+    yield;
     if (!D.landmarks.some((l) => l.kind === "market")) this.buildLocalMarket(D, XR);
     if (!D.landmarks.some((l) => l.kind === "home")) this.buildEstate(D, XR, rnd);
+    yield;
     if (D.campus) this.buildHostels(D, XR, rnd);
+    yield;
 
     // bus park
     this.buildBusPark(-72, 15, !!D.holy);
@@ -1589,9 +1671,10 @@ export class IlmCityEngine {
     }
     const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
-    zs.forEach((sz, si) => {
+    for (const [si, sz] of zs.entries()) {
       let num = 1 + si * 40;
       for (const north of [true, false]) {
+        yield;
         const cz = north ? sz - 21.5 : sz + 21.5;
         if (!north && cz + 10 > southEdge - 3) continue;
         for (let x = -(H.x - 26); x <= H.x - 26; x += 24) {
@@ -1733,13 +1816,15 @@ export class IlmCityEngine {
           }
         }
       }
-    });
+    }
+    yield;
     this.reserved = this.reserved.filter((r) => !ghosts.includes(r));
     this.reserved.push(...playHold);
     this.buildEatery(D);
     this.buildRestaurant(D);
     if (D.id === "ikeja" || D.id === "lekki" || D.id === "shuran" || D.id === "khalidiyyah") this.buildDealer(D);
     if (D.id === "ikeja") this.buildMall(D);
+    yield;
     if (
       [
         "lekki",
@@ -1761,8 +1846,10 @@ export class IlmCityEngine {
     if (play && !D.holy) this.buildPlay(D, play);
     // the tennis court gets its own lot, clear of the pitch and the sisters' corner
     if (!D.holy) this.buildCourt(D);
+    yield;
     // quiet residential closes behind the main streets, lined with houses ready to let
     if (!D.campus) this.buildCloses(D, zs, D.holy ? -8 : north, southEdge, batch);
+    yield;
     // Manaar University College, going up at the end of Sheikh Habeeb Adewuyi Street
     if (D.id === "ikorodu") this.buildManaarSite(batch, -110);
     const wires = new THREE.Group();
@@ -1838,6 +1925,7 @@ export class IlmCityEngine {
     S.add(wires);
 
     // street lamps
+    yield;
     // tall lamps with their arms out over the road, and pools of warm light under them at night
     const LP = IlmCityEngine.lampParts();
     const lamps: [number, number, number][] = [];
@@ -1871,6 +1959,7 @@ export class IlmCityEngine {
     S.add(poleMesh, headMesh, poolMesh);
 
     // greenery
+    yield;
     const clear = (x: number, z: number) =>
       this.free(x + this.ox, z + this.oz, 3) &&
       this.boxFree(x - 2, x + 2, z - 2, z + 2) &&
@@ -1892,12 +1981,14 @@ export class IlmCityEngine {
       n++;
     }
 
+    yield;
     // welcome gate where the expressway meets the main street
     this.welcomeGate(D, side);
 
     // (no made-up neighbours on the pavements: the people you meet outside are real players)
     rnd(); // keeps the rest of the area's random layout as it was
 
+    yield;
     // the Hisbah officer on patrol
     {
       const officers = ["Musa", "Abubakar", "Sulaiman", "Idris", "Yunus"];
@@ -1927,10 +2018,13 @@ export class IlmCityEngine {
     // Mina and Arafat are shown as in the days of Hajj: crowds of pilgrims
     if (D.id === "arafat" || D.id === "mina") this.buildPilgrims(D, S);
     // everywhere else: people on the pavements and traders by the road, so streets feel alive
-    else this.buildStreetLife(D, S, batch);
+    // (the people are made a few at a time: they are the heaviest part of an area)
+    else yield* this.buildStreetLife(D, S, batch);
+    yield;
     // Madinah: bicycles for hire by the street
     if (D.id === "nabawi" || D.id === "quba") this.buildBikeDock(D, S);
 
+    yield;
     for (const m of batch.build()) S.add(m);
     this.ox = 0;
     this.oz = 0;
@@ -2124,7 +2218,7 @@ export class IlmCityEngine {
   /** Passers-by walking the pavements, people standing and chatting, and roadside traders
       under umbrellas. They have no names and no homes: houses, flats and stalls are for real
       players. As real players come into an area, the crowd thins out to make room. */
-  private buildStreetLife(D: District, S: THREE.Object3D, batch: Batch) {
+  private *buildStreetLife(D: District, S: THREE.Object3D, batch: Batch): Generator<void, void, void> {
     let h = 17;
     for (const ch of D.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     const rnd = mulberry(h);
@@ -2186,11 +2280,12 @@ export class IlmCityEngine {
         skin,
       ];
     };
-    D.streets.forEach((st, k) => {
+    for (const [k, st] of D.streets.entries()) {
       for (const side of [-1, 1]) {
         // walkers going up and down the pavement
         const n = k === 0 ? 14 : 8;
         for (let i = 0; i < n; i++) {
+          if (i % 3 === 0) yield;
           const z = st.z + side * (8.7 + rnd() * 0.8);
           const a = (rnd() * 2 - 1) * XR,
             b = Math.max(-XR, Math.min(XR, a + (rnd() < 0.5 ? -1 : 1) * (40 + rnd() * 70)));
@@ -2215,6 +2310,7 @@ export class IlmCityEngine {
           const x = (rnd() * 2 - 1) * (XR - 10),
             z = st.z + side * 9.6;
           const m = 2 + Math.floor(rnd() * 2);
+          yield;
           for (let j = 0; j < m; j++) {
             const g = someone();
             const ang = (j / m) * Math.PI * 2;
@@ -2235,9 +2331,10 @@ export class IlmCityEngine {
         }
       }
       // roadside traders: an umbrella, a table of goods and the trader on a stool
-      if (holy) return;
+      if (holy) continue;
       const traders = k === 0 ? 6 : 2;
       for (let i = 0; i < traders; i++) {
+        yield;
         const side = rnd() < 0.5 ? -1 : 1;
         const x = (rnd() * 2 - 1) * (XR - 8),
           z = st.z + side * 10.6;
@@ -2287,7 +2384,7 @@ export class IlmCityEngine {
           crowd: idx++,
         });
       }
-    });
+    }
     void batch;
   }
 
@@ -3748,10 +3845,14 @@ export class IlmCityEngine {
     x1 += this.ox;
     z0 += this.oz;
     z1 += this.oz;
-    for (const b of [...this.colliders.out, ...this.reserved])
-      if (x0 < b.x1 && x1 > b.x0 && z0 < b.z1 && z1 > b.z0) return false;
-    return true;
+    return (
+      !this.outIndex.sync(this.colliders.out).hitBox(x0, x1, z0, z1) &&
+      !this.resIndex.sync(this.reserved).hitBox(x0, x1, z0, z1)
+    );
   }
+  /** grids over the solid boxes outside and the held plots, for quick "is it free?" checks */
+  private outIndex = new BoxIndex();
+  private resIndex = new BoxIndex();
 
   private buildLandmark(l: Landmark, D: District) {
     const sz = D.streets.find((s) => s.id === l.street)?.z ?? 0;
@@ -8486,9 +8587,7 @@ export class IlmCityEngine {
   } | null = null;
   private carrying: { mesh: THREE.Object3D; how: Carry } | null = null;
   private freeAt(x: number, z: number, r: number) {
-    for (const b of this.colliders.out)
-      if (x - r < b.x1 && x + r > b.x0 && z - r < b.z1 && z + r > b.z0) return false;
-    return true;
+    return !this.outIndex.sync(this.colliders.out).hitBox(x - r, x + r, z - r, z + r);
   }
   /** A clear straight walk between two points. */
   private clearLine(x0: number, z0: number, x1: number, z1: number) {
@@ -9261,6 +9360,7 @@ export class IlmCityEngine {
       under the area's welcome gate and along the main street. */
   /** Arrive straight at a place (off a plane): outside, standing at its zone. */
   arriveAt(zoneId: string) {
+    this.finishStepping();
     if (!this.zones.some((q) => q.id === zoneId))
       for (const id of [...this.placeholders.keys()]) this.buildLater(id);
     const z = this.zones.find((q) => q.id === zoneId);
@@ -14133,8 +14233,7 @@ export class IlmCityEngine {
   private fillCells = new Set<string>();
   /** Free ground outside, wherever you are. */
   private freeOut(x: number, z: number, r: number) {
-    for (const b of this.colliders.out)
-      if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
+    if (this.outIndex.sync(this.colliders.out).hitPoint(x, z, r)) return false;
     // your parked car (and the car you are driving) is in the way too
     if (this.car.visible && Math.hypot(x - this.car.position.x, z - this.car.position.z) < 2.6 + r)
       return false;
@@ -14153,6 +14252,7 @@ export class IlmCityEngine {
           if (Math.abs(x - bx) < C / 2 - 1 + r && Math.abs(z - bz) < C / 2 - 1 + r) return false;
         }
     }
+    if (this.where === "out") return !this.outIndex.sync(this.colliders.out).hitPoint(x, z, r);
     for (const b of this.colliders[this.where])
       if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return false;
     return true;
@@ -14270,13 +14370,21 @@ export class IlmCityEngine {
     fog.near = 50;
     fog.far = this.viewDist - 10;
   }
+  /** The sharpest the picture is drawn: phones have very dense screens (3 pixels to a
+      point), and drawing every one of them is most of the work; 1.5 looks the same there. */
+  static maxDpr() {
+    const phone =
+      typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    return phone ? 1.5 : 2;
+  }
+  private frameNo = 0;
   /** Smooth: fewer pixels, no shadows, a shorter view. Beautiful: everything. */
   setQuality(q: "low" | "high", auto = false) {
     this.low = q === "low";
     this.fps.auto = auto;
     const dpr = window.devicePixelRatio || 1;
     // smooth keeps the look: full sharpness on normal screens, lighter shadows, a little less view
-    this.renderer.setPixelRatio(this.low ? Math.min(1.25, dpr) : Math.min(2, dpr));
+    this.renderer.setPixelRatio(this.low ? Math.min(1.25, dpr) : Math.min(IlmCityEngine.maxDpr(), dpr));
     const size = this.low ? 512 : 1024;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.mapSize.set(size, size);
@@ -14304,7 +14412,8 @@ export class IlmCityEngine {
       f.frames++;
       if (f.t > 8) {
         f.checked = true;
-        if (f.frames / f.t < 20) {
+        // under 28 frames a second feels sluggish: switch to smooth
+        if (f.frames / f.t < 28) {
           this.setQuality("low", true);
           this.onSlowPhone?.();
         }
@@ -14314,11 +14423,14 @@ export class IlmCityEngine {
     this.update(dt, now / 1000);
     // while the graphics card is resetting there is nothing to draw on
     if (this.renderer.getContext().isContextLost()) return;
+    if (this.frameNo++ % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
     try {
       this.renderer.render(this.scene, this.camera);
     } catch (err) {
       console.warn("IlmCity: a frame could not be drawn", err);
     }
+    // the next area, built a few milliseconds a frame so the game never freezes
+    if (this.stepping && !this.cine) this.runSteps(this.low ? 4 : 6);
   };
 
   private moveVec() {
