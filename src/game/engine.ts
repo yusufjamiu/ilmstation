@@ -1673,6 +1673,24 @@ export class IlmCityEngine {
     const food = cafe ? this.chooseCafePlot(D, zs, H, southEdge, play, cafe) : null;
     if (food) this.foodPlot.set(D.id, food);
     else this.foodPlot.delete(D.id);
+    // and its car park on the plot beside it
+    let fpark: { sz: number; north: boolean; x: number } | null = null;
+    if (food) {
+      const cz = food.north ? food.sz - 21.5 : food.sz + 21.5;
+      for (const dx of [24, -24]) {
+        const x = food.x + dx;
+        if (Math.abs(x) < 16 || Math.abs(x) > H.x - 26) continue;
+        if (cafe && cafe.sz === food.sz && cafe.north === food.north && cafe.x === x) continue;
+        if (play && play.sz === food.sz && play.north === food.north && play.xs.includes(x)) continue;
+        const q = play?.police?.box;
+        if (q && x - 12 < q.x1 && x + 12 > q.x0 && cz - 11 < q.z1 && cz + 11 > q.z0) continue;
+        if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
+        fpark = { sz: food.sz, north: food.north, x };
+        break;
+      }
+    }
+    if (fpark) this.foodPark.set(D.id, fpark);
+    else this.foodPark.delete(D.id);
     // hold the pitch, sisters' corner and police station plots, so the shops built before
     // them (eatery, dealer, mall, boutique) don't land on top of them
     const playHold: Box[] = [];
@@ -1692,7 +1710,7 @@ export class IlmCityEngine {
         playHold.push({ x0: this.ox + q.x0, x1: this.ox + q.x1, z0: this.oz + q.z0, z1: this.oz + q.z1 });
       }
     }
-    for (const cp of [cafe, food])
+    for (const cp of [cafe, food, fpark])
       if (cp) {
         const cz = cp.north ? cp.sz - 21.5 : cp.sz + 21.5;
         playHold.push({ x0: this.ox + cp.x - 12, x1: this.ox + cp.x + 12, z0: this.oz + cz - 11, z1: this.oz + cz + 11 });
@@ -1729,6 +1747,7 @@ export class IlmCityEngine {
             atGate ||
             (cafe && cafe.sz === sz && cafe.north === north && cafe.x === x) ||
             (food && food.sz === sz && food.north === north && food.x === x) ||
+            (fpark && fpark.sz === sz && fpark.north === north && fpark.x === x) ||
             (play &&
               ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
                 (play.police &&
@@ -4573,6 +4592,7 @@ export class IlmCityEngine {
       be, on the main street first, clear of the pitch and the police station. */
   cafePlot = new Map<string, { sz: number; north: boolean; x: number }>();
   foodPlot = new Map<string, { sz: number; north: boolean; x: number }>();
+  foodPark = new Map<string, { sz: number; north: boolean; x: number }>();
   private chooseCafePlot(
     D: District,
     zs: number[],
@@ -5742,6 +5762,25 @@ export class IlmCityEngine {
     this.zones.push({ id: `door:restaurant:food:${D.id}`, label: `Enter ${fname}`, x: this.ox + door.x, z: this.oz + door.z, r: 2.2, scene: "out" });
     const win = W(BX + BW / 2 + 1.6, -3.2);
     this.zones.push({ id: "eatery:" + D.id, label: `Drive thru · ${fname}`, x: this.ox + win.x, z: this.oz + win.z, r: 2.4, scene: "out" });
+    // its car park: covered bays on the plot beside it, or as near as there is room
+    const pk = this.foodPark.get(D.id);
+    if (pk) {
+      const pz = pk.north ? pk.sz - 21.5 : pk.sz + 21.5;
+      const cols = coveredParking(this.curBatch, {
+        x: pk.x,
+        z: pz,
+        turn: pk.north ? 0 : Math.PI,
+        w: 22,
+        d: 19.6,
+        seed: 77 + D.id.length * 13,
+      });
+      for (const q of cols) this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      this.reserved.push({ x0: this.ox + pk.x - 11, x1: this.ox + pk.x + 11, z0: this.oz + pz - 10, z1: this.oz + pz + 10 });
+      this.parksMade.push({ area: D.id, x: this.ox + pk.x, z: this.oz + pz, w: 22 });
+      const pt = label(`${fname} parking`, { size: 0.75, bg: hex(red) });
+      pt.position.set(pk.x, 4.6, pz + (pk.north ? 9.6 : -9.6));
+      this.dg.add(pt);
+    } else this.notePark(D, fp.x, cz, 22, 20, fp.north ? 0 : Math.PI, true);
     const t = label(`${fname} · restaurant & drive thru`, { size: 0.9, bg: hex(red) });
     t.position.set(fp.x, 9.5, cz);
     this.dg.add(t);
