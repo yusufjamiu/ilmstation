@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { BoxIndex } from "./boxindex";
 import {
+  qubaForecourt,
   iumCollege,
   iumForecourt,
   iumGarden,
@@ -5387,12 +5388,21 @@ export class IlmCityEngine {
           const band = north ? [st.z - 32, st.z - 10] : [st.z + 10, st.z + 32];
           if (!this.boxFree(cx - 25, cx + 25, band[0], band[1])) continue;
           const turn = north ? 0 : Math.PI;
+          // (in Quba, moved back behind the mosque; its first ground stays held)
+          const dz = this.shiftedZ(D, cx - 25, cx + 25, band[0], band[1]);
           const row = stallRow(this.curBatch, {
             x0: north ? cx - 23 : -(cx + 23),
             x1: north ? cx + 23 : -(cx - 23),
-            z,
+            z: z + dz,
             turn,
           });
+          if (dz)
+            this.reserved.push({
+              x0: this.ox + cx - 25,
+              x1: this.ox + cx + 25,
+              z0: this.oz + band[0] + dz,
+              z1: this.oz + band[1] + dz,
+            });
           for (const c of row.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
           row.units.forEach((u, k) =>
             this.addShopUnit(
@@ -5411,7 +5421,7 @@ export class IlmCityEngine {
             z1: this.oz + band[1],
           });
           const t = label(`${D.name} Market`, { size: 1.1, bg: "rgba(31,111,99,0.92)" });
-          t.position.set(cx, 5.2, z);
+          t.position.set(cx, 5.2, z + dz);
           this.dg.add(t);
           this.marketSpot.set(D.id, { x: cx, z, sz: st.z, north });
           return;
@@ -5429,6 +5439,9 @@ export class IlmCityEngine {
     for (const dx of [30, -30, 38, -38, 46, -46, 54, -54, 22, -22]) {
       const x = x0 + dx;
       if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 20) continue;
+      // not parked in front of Masjid Quba
+      const q = this.qubaShift;
+      if (D.id === "quba" && q && x > q.x0 - 6 && x < q.x1 + 6) continue;
       if (!this.boxFree(x - 3.6, x + 3.6, z - 1.8, z + 1.8)) continue;
       const g = new THREE.Group();
       g.position.set(x, 0, z);
@@ -9220,9 +9233,18 @@ export class IlmCityEngine {
           // Lekki and Ikeja: an apartment tower with as many flats as there are players (the
           // dry run keeps the area's random layout as it was); elsewhere a Lagos block of flats
           const prime = isPrimeArea(D.id);
+          // (in Quba, moved back behind the mosque; its first ground stays held)
+          const edz = this.shiftedZ(D, cx - 12, cx + 12, cz - 10.5, cz + 10.5);
+          if (edz)
+            this.reserved.push({
+              x0: this.ox + cx - 12,
+              x1: this.ox + cx + 12,
+              z0: this.oz + cz - 10.5 + edz,
+              z1: this.oz + cz + 10.5 + edz,
+            });
           const c = compound(prime ? new Batch(true) : this.curBatch, {
             x: cx,
-            z: cz,
+            z: cz + edz,
             turn: north ? 0 : Math.PI,
             number: 1,
             rnd,
@@ -10317,22 +10339,47 @@ export class IlmCityEngine {
   }
 
   private lateBoxes: { x0: number; x1: number; z0: number; z1: number }[] = [];
+  /** Masjid Quba's ground behind Awali Street: whatever would be built there (the market,
+      the flats) is moved back by dz instead, its own ground still held. */
+  private qubaShift: { x0: number; x1: number; z0: number; z1: number; dz: number } | null = null;
+  private shiftedZ(D: District, x0: number, x1: number, z0: number, z1: number) {
+    const q = this.qubaShift;
+    if (D.id !== "quba" || !q) return 0;
+    return x0 < q.x1 && x1 > q.x0 && z0 < q.z1 && z1 > q.z0 ? q.dz : 0;
+  }
   /** Masjid Quba as it stands today (see qubaMosque), its white plaza reaching the road. */
   private buildQuba(l: Landmark, sz: number) {
-    // well back from the road, its back by Awali Street, with a long white plaza and gardens
-    // in front; the ground it stood on is held, so every plot keeps its number
-    const cx = l.x,
-      cz = sz - 45;
+    // across Awali Street, a long white forecourt with gardens running back to it from Quba
+    // Road. The ground it used to stand on is held, so every plot keeps its number; the
+    // market and the flats behind Awali Street are moved back behind it (see quba below).
+    const cx = l.x - 2,
+      cz = sz - 91;
     this.reserved.push({
-      x0: this.ox + cx - 32.9,
-      x1: this.ox + cx + 32.9,
+      x0: this.ox + l.x - 32.9,
+      x1: this.ox + l.x + 32.9,
       z0: this.oz + sz - 56.9,
       z1: this.oz + sz - 23.1,
     });
-    const q = qubaMosque(this.curBatch, cx, cz, { x0: cx - 38, x1: cx + 38, z1: sz - 11 });
-    for (const c of q.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
-    for (const c of q.late)
+    const aw = sz - 66; // Awali Street
+    const q = qubaMosque(this.curBatch, cx, cz, {
+      x0: cx - 36,
+      x1: cx + 30,
+      z1: aw - 6.2,
+      gardens: false,
+    });
+    const fore = qubaForecourt(this.curBatch, cx - 36, cx + 30, sz - 11, aw + 5.6);
+    // a wide zebra over Awali Street between the forecourt and the mosque
+    for (let x = cx - 9; x <= cx + 9; x += 1.2) {
+      const zb = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 11.4), mat(0xf6f6f2));
+      zb.rotation.x = -Math.PI / 2;
+      zb.position.set(x, 0.07, aw);
+      this.curBatch.addObject(zb);
+    }
+    // the mosque itself goes solid once the area is laid out: until then the market and the
+    // flats are placed as if it were not there, and moved out of its way
+    for (const c of [...q.colliders, ...q.late, ...fore])
       this.lateBoxes.push({ x0: c.x0 + this.ox, x1: c.x1 + this.ox, z0: c.z0 + this.oz, z1: c.z1 + this.oz });
+    this.qubaShift = { x0: cx - 33, x1: cx + 33, z0: cz - 15, z1: cz + 12, dz: -40 };
     this.door(q.door.x, q.door.z, `door:masjid:${l.id}`, `Enter ${l.name}`, 17);
     for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
   }

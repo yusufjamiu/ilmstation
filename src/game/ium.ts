@@ -1559,7 +1559,7 @@ function qubaMinaret(b: Batch, x: number, z: number, H: number) {
       const a = (k / 16) * Math.PI * 2;
       b.box(0.22, 0.9, 0.22, w, x + Math.cos(a) * (r - 0.15), y + 0.25, z + Math.sin(a) * (r - 0.15));
     }
-    b.add(new THREE.TorusGeometry(r - 0.15, 0.1, 4, 20), w, x, y + 1.2, z, 0);
+    b.add(new THREE.TorusGeometry(r - 0.15, 0.1, 4, 20).rotateX(Math.PI / 2), w, x, y + 1.2, z, 0);
   };
   let y = H + 4;
   oct(2.0, 1.9, 9, y);
@@ -1593,7 +1593,12 @@ function qubaMinaret(b: Batch, x: number, z: number, H: number) {
     prayer hall, rows of little domes over the rest, a shaded court in the middle, and a
     wide white plaza round it with palms, lamps and folded umbrellas.
     Local frame: centred on the mosque, the front (the road) towards +z. */
-export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number; x1: number; z1: number }) {
+export function qubaMosque(
+  b: Batch,
+  cx: number,
+  cz: number,
+  plaza: { x0: number; x1: number; z1: number; gardens?: boolean },
+) {
   b.base.makeTranslation(cx, 0, cz);
   const colliders: Box[] = [];
   const solid = (x0: number, x1: number, z0: number, z1: number) =>
@@ -1686,6 +1691,7 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
   }
   // palms in round lawns, lamps and folded umbrellas on the plaza
   const lamp = M.tex("lamp", winTex(), 1.2);
+  if (plaza.gardens !== false) {
   // the gardens in front: four big round lawns with palms, and long beds along the road
   for (const [lx, r] of [
     [-W / 2 + 2, 4.2],
@@ -1697,7 +1703,7 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
     const ring = new THREE.Shape();
     ring.absarc(0, 0, r, 0, Math.PI * 2, false);
     b.add(flat(ring), MAT2.lawn(), lx, 0.07, lz, 0, false);
-    b.add(new THREE.TorusGeometry(r + 0.1, 0.12, 4, 32), MAT.plain(0x2f7a52), lx, 0.25, lz, 0);
+    b.add(new THREE.TorusGeometry(r + 0.1, 0.12, 4, 32).rotateX(Math.PI / 2), MAT.plain(0x2f7a52), lx, 0.25, lz, 0);
     palm(b, lx, lz, 1.15);
     decor(lx - 0.4, lx + 0.4, lz - 0.4, lz + 0.4);
     if (r > 4) {
@@ -1716,6 +1722,7 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
       palm(b, bx + k * 4, bz, 0.7);
       decor(bx + k * 4 - 0.3, bx + k * 4 + 0.3, bz - 0.3, bz + 0.3);
     }
+  }
   }
   for (const x of [px0 + 3, px1 - 3])
     for (let z = pz0 + 3; z < pz1 - 2; z += 6) {
@@ -1863,4 +1870,49 @@ export function qubaWalkway(
     }
   }
   return colliders;
+}
+
+/** Quba's great forecourt: white paving from Quba Road back towards the mosque, with big
+    round lawns, palms in rows, long garden beds and lamps (x0..x1, z0 near the road down to
+    z1 further back, z1 < z0). Returns posts to make solid once the area is laid out. */
+export function qubaForecourt(b: Batch, x0: number, x1: number, z0: number, z1: number) {
+  const late: Box[] = [];
+  const post = (x: number, z: number, r: number) => late.push({ x0: x - r, x1: x + r, z0: z - r, z1: z + r });
+  const cx = (x0 + x1) / 2,
+    W = x1 - x0,
+    L = z0 - z1;
+  b.add(groundGeo(W, L, 1), QM.pave(), cx, 0.055, (z0 + z1) / 2, 0, false);
+  const lamp = M.tex("lamp", winTex(), 1.2);
+  // a broad walk down the middle to the mosque, lawns and palms either side
+  for (const s of [-1, 1]) {
+    // long lawns with a row of palms down each
+    const lx = cx + s * (W / 2 - 8);
+    b.add(groundGeo(7, L - 8, 1), MAT2.lawn(), lx, 0.07, (z0 + z1) / 2, 0, false);
+    b.box(7.4, 0.3, L - 7.6, MAT.plain(0x2f7a52), lx, 0, (z0 + z1) / 2);
+    b.add(groundGeo(6.4, L - 9, 1), MAT2.lawn(), lx, 0.31, (z0 + z1) / 2, 0, false);
+    for (let z = z0 - 7; z > z1 + 4; z -= 7) {
+      palm(b, lx, z, 1.05);
+      post(lx, z, 0.35);
+    }
+    // round lawns with palms nearer the middle
+    for (let k = 0; k < 3; k++) {
+      const rx = cx + s * 13,
+        rz = z0 - 9 - k * ((L - 18) / 2);
+      const ring = new THREE.Shape();
+      ring.absarc(0, 0, 3.8, 0, Math.PI * 2, false);
+      b.add(flat(ring), MAT2.lawn(), rx, 0.08, rz, 0, false);
+      b.add(new THREE.TorusGeometry(3.9, 0.12, 4, 32).rotateX(Math.PI / 2), MAT.plain(0x2f7a52), rx, 0.25, rz, 0);
+      palm(b, rx, rz, 1.15);
+      post(rx, rz, 0.4);
+    }
+    // double lamps down the walk
+    for (let z = z0 - 4; z > z1 + 3; z -= 12) {
+      const x = cx + s * 5;
+      b.add(new THREE.CylinderGeometry(0.08, 0.12, 4.6, 8), MAT.plain(0xe8e8e2), x, 2.3, z);
+      b.add(new THREE.SphereGeometry(0.3, 10, 8), lamp, x - 0.45, 4.5, z);
+      b.add(new THREE.SphereGeometry(0.3, 10, 8), lamp, x + 0.45, 4.5, z);
+      post(x, z, 0.2);
+    }
+  }
+  return late;
 }
