@@ -1604,7 +1604,7 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
     late.push({ x0: cx + x0, x1: cx + x1, z0: cz + z0, z1: cz + z1 });
   // 58 m long: the back corner minarets stop just short of the local market's ground
   const W = 58,
-    D = 32,
+    D = 26,
     H = 13,
     BH = 4.6;
   const w = QM.white();
@@ -1657,11 +1657,11 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
   ribbedDome(b, 16, H, 3, 6.6, 20);
   ribbedDome(b, 5.5, H, 4, 4.2);
   ribbedDome(b, 26.5, H, 4, 4.2);
-  ribbedDome(b, 16, H, -8.5, 4.4);
-  b.box(30, 1.2, 22, w, 16, H, -1); // the raised roof they stand on
+  ribbedDome(b, 16, H, -6.5, 4.0);
+  b.box(30, 1.2, 20, w, 16, H, -0.5); // the raised roof they stand on
   // little domes in rows over the west end, round the shaded court
   for (let x = -27; x <= -1; x += 3.4)
-    for (let z = -13; z <= 13; z += 3.4) {
+    for (let z = -10.2; z <= 10.2; z += 3.4) {
       if (x > -20 && x < -6 && z > -7 && z < 7) continue;
       b.add(new THREE.CylinderGeometry(1.2, 1.25, 0.5, 10), w, x, H + 0.25, z);
       b.add(new THREE.SphereGeometry(1.2, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), w, x, H + 0.5, z);

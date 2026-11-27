@@ -10321,7 +10321,7 @@ export class IlmCityEngine {
   private buildQuba(l: Landmark, sz: number) {
     // set back from the road so the billboard beside it keeps its place (and every plot its number)
     const cx = l.x,
-      cz = sz - 37;
+      cz = sz - 40; // its back on the same line as before, a long white plaza in front
     const q = qubaMosque(this.curBatch, cx, cz, { x0: cx - 38, x1: cx + 38, z1: sz - 11 });
     for (const c of q.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
     for (const c of q.late)
