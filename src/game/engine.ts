@@ -6,6 +6,7 @@ import {
   coveredParking,
   qubaCompound,
   coffeeGarden,
+  restGarden,
   iumCollege,
   iumForecourt,
   iumGarden,
@@ -149,6 +150,8 @@ type Zone = {
   z: number;
   r: number;
   scene: "out" | InteriorKind;
+  /** a chair or bench: where you sit and which way you face */
+  seat?: { x: number; z: number; ry: number };
 };
 type Walker = {
   g: THREE.Group;
@@ -2024,7 +2027,7 @@ export class IlmCityEngine {
     {
       const officers = ["Musa", "Abubakar", "Sulaiman", "Idris", "Yunus"];
       const name =
-        "Hisbah Officer " + officers[DISTRICTS.findIndex((d) => d.id === D.id) % officers.length];
+        "Guard " + officers[DISTRICTS.findIndex((d) => d.id === D.id) % officers.length];
       const g = person(0x5f6b48, {
         outfit: "hisbah",
         cap: 0x2e5b2e,
@@ -2063,6 +2066,7 @@ export class IlmCityEngine {
     this.lateBoxes = [];
     this.buildCampusParks(D, batch);
     this.buildQubaCompound(D, batch, S);
+    this.buildRestGardens(D, batch);
     this.buildParks(D, batch);
     for (const m of batch.build()) S.add(m);
     this.ox = 0;
@@ -3320,7 +3324,8 @@ export class IlmCityEngine {
       if (center && Math.hypot(x - center.x, z - center.z) < 84) return true;
       for (const d of DISTRICTS) {
         const H = halfOf(d);
-        if (Math.abs(x - d.origin.x) < H.x + 16 && Math.abs(z - d.origin.z) < H.z + 16) return true;
+        // (wider at the east and west edges, where the rest gardens are)
+        if (Math.abs(x - d.origin.x) < H.x + 36 && Math.abs(z - d.origin.z) < H.z + 16) return true;
       }
       for (const sg of segs) if (IlmCityEngine.distToSeg(x, z, sg) < 24) return true;
       for (const sg of this.openRoads) if (IlmCityEngine.distToSeg(x, z, sg) < 20) return true;
@@ -5807,11 +5812,12 @@ export class IlmCityEngine {
         g.seats.forEach((p, i) =>
           this.zones.push({
             id: `seat:cafe-${D.id}-${i}`,
-            label: "Sit in the garden",
+            label: "Sit with your coffee",
             x: this.ox + p.x,
             z: this.oz + p.z,
-            r: 1.3,
+            r: 0.9,
             scene: "out",
+            seat: { x: this.ox + p.sx, z: this.oz + p.sz, ry: p.ry },
           }),
         );
         // the name over the way in
@@ -5825,7 +5831,7 @@ export class IlmCityEngine {
             c.textAlign = "center";
             c.textBaseline = "middle";
             c.font = `800 ${Math.round(CH * 0.48)}px "Work Sans", system-ui, sans-serif`;
-            c.fillText((cname + " garden").toUpperCase(), CW2 / 2, CH * 0.53);
+            c.fillText((/coffee|caf/i.test(cname) ? cname : cname + " coffee").toUpperCase(), CW2 / 2, CH * 0.53);
           },
           512,
         );
@@ -7081,6 +7087,14 @@ export class IlmCityEngine {
     zone("zamzam", "💧 Drink Zamzam", W(-IN + 3.5, 0));
     zone("safa:sai", "Sa'i between Safa and Marwah", W(IN - 6, -IN + 10));
     zone(`door:masjid:${l.id}`, `Enter ${l.name} for salah`, W(0, OUT + 4), 4);
+    // every other gate opens too (King Fahd, Umrah, King Abdullah, Bab As-Salam)
+    for (const [gx, gz, nx, nz] of [
+      [-OUT, 0, -1, 0],
+      [-OUT, -52, -1, 0],
+      [0, -OUT, 0, -1],
+      [OUT, 22, 1, 0],
+    ])
+      zone(`door:masjid:${l.id}`, `Enter ${l.name} for salah`, W(gx + nx * 10, gz + nz * 10), 4);
     // a great crowd making tawaf, the Kaaba on their left
     this.buildTawafCrowd(g, IN);
     // pilgrims in ihram walking round the Kaaba, the Kaaba on their left
@@ -8376,6 +8390,17 @@ export class IlmCityEngine {
       r: 4,
       scene: "out",
     });
+    // every gate opens: four along the front, three at the back and two on each side
+    const gates: [number, number][] = [
+      ...[-56, -18, 18, 56].map((x) => [x, -10 + Dd / 2 + 5] as [number, number]),
+      ...[-50, 0, 50].map((x) => [x, -10 - Dd / 2 - 5] as [number, number]),
+      ...[-34, 14].flatMap((z) => [
+        [-W / 2 - 5, -10 + z] as [number, number],
+        [W / 2 + 5, -10 + z] as [number, number],
+      ]),
+    ];
+    for (const [x, z] of gates)
+      this.zones.push({ id: `door:masjid:${l.id}`, label: `Enter ${l.name}`, ...P(x, z), r: 4, scene: "out" });
     this.zones.push({
       id: "nabawi:salam",
       label: "Send salam to the Prophet ﷺ",
@@ -8873,6 +8898,28 @@ export class IlmCityEngine {
       .filter((z) => z.scene === this.where && !z.off && z.id.startsWith(prefix))
       .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
     if (!zone) return false;
+    this.guideZone(zone);
+    return true;
+  }
+  /** Where the gold arrow is taking you (shown with a Stop button), or null. */
+  onGoing: ((label: string | null) => void) | null = null;
+  private goingLabel: string | null = null;
+  private setGoing(l: string | null) {
+    if (this.goingLabel === l) return;
+    this.goingLabel = l;
+    this.onGoing?.(l);
+  }
+  /** Stop going: no more arrow, and stop walking there. */
+  stopGoing() {
+    this.clearGuide();
+    if (this.tapZone || this.tapTarget) {
+      this.tapTarget = null;
+      this.tapZone = null;
+      this.marker.visible = false;
+    }
+  }
+  private guideZone(zone: Zone) {
+    this.clearGuide();
     const shape = new THREE.Shape();
     shape.moveTo(0, 0.9);
     shape.lineTo(0.55, 0.25);
@@ -8908,13 +8955,14 @@ export class IlmCityEngine {
     this.scene.add(arrow, pin);
     arrow.userData.pin = pin;
     this.guide = { zone, arrow };
-    return true;
+    this.setGoing(zone.label.replace(/^(Enter|Visit) /, ""));
   }
   clearGuide() {
     if (!this.guide) return;
     (this.guide.arrow.userData.pin as THREE.Object3D).removeFromParent();
     this.guide.arrow.removeFromParent();
     this.guide = null;
+    this.setGoing(null);
   }
   private stepGuide(t: number) {
     const g = this.guide;
@@ -10027,6 +10075,8 @@ export class IlmCityEngine {
     this.tapTarget = new THREE.Vector3(z.x, 0, z.z);
     this.marker.position.set(z.x, 0.05, z.z);
     this.marker.visible = true;
+    // and the gold arrow shows the way, even if you take over walking
+    this.guideZone(z);
     return true;
   }
   /** Begin in this area: you stand on the main street, your car parked beside you. */
@@ -10723,6 +10773,81 @@ export class IlmCityEngine {
   }
   /** Masjid Quba's big walled compound behind Awali Street, with its covered car park (built
       last, so nothing else moves). */
+  /** Gardens to sit and rest in, at the area's east and west edges: one for brothers, one
+      for sisters (walled), one for families. Built last, so no plot moves. */
+  private buildRestGardens(D: District, batch: Batch) {
+    if (!brandsOf(D.id)) return;
+    const H = halfOf(D);
+    const GW = 26, // along the edge
+      GD = 18; // into the area
+    const zs: number[] = [];
+    for (let z = -H.z + GW / 2 + 2; z <= H.z - GW / 2 - 2; z += 4) {
+      if (Math.abs(z) < GW / 2 + 12) continue; // the road out of the area
+      if (D.streets.some((st) => Math.abs(z - st.z) < GW / 2 + 8)) continue;
+      zs.push(z);
+    }
+    zs.sort((a, b) => Math.abs(a) - Math.abs(b) || a - b);
+    // keep off the roads between the areas
+    const near = (x: number, z: number) =>
+      Math.abs(x - D.origin.x) < H.x + 120 && Math.abs(z - D.origin.z) < H.z + 120;
+    const roads = [...this.roadSegments(), ...this.openRoads, ...IlmCityEngine.walkSegs()].filter(
+      ([ax, az, bx, bz]) => near(ax, az) || near(bx, bz) || near((ax + bx) / 2, (az + bz) / 2),
+    );
+    const offRoad = (x0: number, x1: number, z0: number, z1: number) => {
+      for (let x = x0; x <= x1 + 0.01; x += (x1 - x0) / 6)
+        for (let z = z0; z <= z1 + 0.01; z += (z1 - z0) / 8)
+          for (const sg of roads)
+            if (IlmCityEngine.distToSeg(this.ox + x, this.oz + z, sg) < 14) return false;
+      return true;
+    };
+    const plan: ["b" | "s" | "f", number[]][] = [
+      ["b", [-1, 1]],
+      ["s", [1, -1]],
+      ["f", [-1, 1]],
+    ];
+    const names = { b: "Brothers' garden · للرجال", s: "Sisters' garden · للنساء", f: "Family garden · للعائلات" };
+    for (const [kind, sides] of plan) {
+      let done = false;
+      for (const side of sides) {
+        if (done) break;
+        // just outside the road round the area's edge
+        for (const inset of [1, 4, 8]) {
+          if (done) break;
+          const x = side * (H.x + GD / 2 + inset);
+          for (const z of zs) {
+            const x0 = x - GD / 2,
+              x1 = x + GD / 2,
+              z0 = z - GW / 2,
+              z1 = z + GW / 2;
+            if (!this.boxFree(x0 - 1, x1 + 1, z0 - 1, z1 + 1)) continue;
+            if (!offRoad(x0, x1, z0, z1)) continue;
+            const g = restGarden(batch, { x, z, turn: side < 0 ? Math.PI / 2 : -Math.PI / 2, w: GW, d: GD, kind });
+            for (const c of g.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+            this.reserved.push({ x0: this.ox + x0, x1: this.ox + x1, z0: this.oz + z0, z1: this.oz + z1 });
+            g.seats.forEach((p, i) =>
+              this.zones.push({
+                id: `rest:${kind}:${D.id}:${i}`,
+                label: kind === "b" ? "Sit and rest (brothers)" : kind === "s" ? "Sit and rest (sisters)" : "Sit and rest",
+                x: this.ox + p.x,
+                z: this.oz + p.z,
+                r: 0.9,
+                scene: "out",
+                seat: { x: this.ox + p.sx, z: this.oz + p.sz, ry: p.ry },
+              }),
+            );
+            const t = label(names[kind], {
+              size: 0.9,
+              bg: "#" + g.tint.toString(16).padStart(6, "0"),
+            });
+            t.position.set(g.gate.x, 4.2, g.gate.z);
+            this.dg.add(t);
+            done = true;
+            break;
+          }
+        }
+      }
+    }
+  }
   private buildQubaCompound(D: District, batch: Batch, S: THREE.Object3D) {
     const q = this.qubaYard;
     this.qubaYard = null;
@@ -10846,6 +10971,9 @@ export class IlmCityEngine {
     this.qubaShift = { x0: cx - 33, x1: cx + 33, z0: cz - 15, z1: cz + 12, dz: -40 };
     this.qubaYard = { cx, aw, plaza: { x0: cx - 36, x1: cx + 30, z0: cz - 16, z1: aw - 6.2 } };
     this.door(q.door.x, q.door.z, `door:masjid:${l.id}`, `Enter ${l.name}`, 17);
+    // its other doors, front, back and both ends
+    for (const d of q.doors)
+      this.zones.push({ id: `door:masjid:${l.id}`, label: `Enter ${l.name}`, x: d.x + this.ox, z: d.z + this.oz, r: 2.6, scene: "out" });
     for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
   }
 
@@ -15314,6 +15442,16 @@ export class IlmCityEngine {
     if (!z) return false;
     this.tapTarget = null;
     this.marker.visible = false;
+    if (z.seat) {
+      // a garden chair or bench: sit on it, and get up where you were
+      const back = { x: this.player.position.x, z: this.player.position.z, rot: this.player.rotation.y };
+      this.homeActEnd();
+      this.player.position.set(z.seat.x, 0, z.seat.z);
+      this.player.rotation.set(0, z.seat.ry, 0);
+      poseHuman(this.player, "sit");
+      this.acting = { ...back, scene: this.where };
+      return true;
+    }
     this.player.position.set(z.x, 0, z.z - 0.8);
     this.player.rotation.y = Math.PI;
     poseHuman(this.player, "sit");
@@ -15434,14 +15572,14 @@ export class IlmCityEngine {
       if (!w.hisbah || !w.g.parent) continue;
       const x = w.g.position.x + w.g.parent.position.x,
         z = w.g.position.z + w.g.parent.position.z;
-      if (Math.hypot(x - p.x, z - p.z) < radius) return w.name ?? "Hisbah";
+      if (Math.hypot(x - p.x, z - p.z) < radius) return w.name ?? "Community Guard";
     }
     for (const v of this.traffic.vehicles)
       if (
         v.kind === "hisbah" &&
         Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z) < radius
       )
-        return "The Hisbah patrol";
+        return "The Community Guard patrol";
     return null;
   }
   /** The Hisbah officer walking right next to you (index for talkTo), or null. */
@@ -15553,7 +15691,7 @@ export class IlmCityEngine {
     for (const m of b.build()) this.scene.add(m);
     for (const v of this.traffic.vehicles)
       if (v.kind === "hisbah") {
-        const t = label("HISBAH", { size: 0.8, bg: "rgba(29,122,58,0.92)" });
+        const t = label("COMMUNITY GUARD", { size: 0.8, bg: "rgba(29,122,58,0.92)" });
         t.position.y = 3.6;
         v.mesh.add(t);
       }

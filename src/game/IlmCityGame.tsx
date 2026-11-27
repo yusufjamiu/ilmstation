@@ -1170,6 +1170,8 @@ function CityGame({
   const [toasts, setToasts] = useState<{ id: number; text: string; tone?: "good" | "warn" }[]>([]);
   const [driving, setDriving] = useState(false);
   const [inside, setInside] = useState(false);
+  /** where the gold arrow is taking you */
+  const [going, setGoing] = useState<string | null>(null);
   /** the area's name shows for a moment when you come outside or walk into a new area */
   const [placeShown, setPlaceShown] = useState(false);
   useEffect(() => {
@@ -6253,6 +6255,7 @@ function CityGame({
       const allowed =
         id.startsWith("stairs:") ||
         id.startsWith("seat:") ||
+        id.startsWith("rest:") ||
         id === "exit" ||
         id === "eat" ||
         id === "cook" ||
@@ -6662,7 +6665,7 @@ function CityGame({
                 update((x) => ({ ...x, carrying: kind }));
                 setPanel(null);
                 toast(
-                  `Take the ${it.name} to the police station or a Hisbah officer. 📱 Phone → Places shows the way.`,
+                  `Take the ${it.name} to the police station or a Community Guard. 📱 Phone → Places shows the way.`,
                 );
               }}
               onKeep={() => {
@@ -8024,7 +8027,7 @@ function CityGame({
             h.commended.add(k);
             update((x) => ({ ...x, ilm: x.ilm + 5 }));
             setTimeout(
-              () => toast('The Hisbah officer smiles: "May Allah accept from you!" +5 Ilm', "good"),
+              () => toast('The Community Guard smiles: "May Allah accept from you!" +5 Ilm', "good"),
               1200,
             );
           }
@@ -8294,6 +8297,40 @@ function CityGame({
       }
       if (id === "stairs:up" || id === "stairs:down") {
         e.changeFloor(id === "stairs:up");
+        return;
+      }
+      if (id.startsWith("rest:")) {
+        // a bench in one of the rest gardens: brothers', sisters' or families'
+        const kind = id.split(":")[1];
+        const fem = !!saveRef.current.profile?.female;
+        if ((kind === "b" && fem) || (kind === "s" && !fem)) {
+          toast(
+            kind === "b"
+              ? "This garden is for brothers. The sisters' garden and the family garden are at the edge of the area too."
+              : "This garden is for sisters. The brothers' garden and the family garden are at the edge of the area too.",
+          );
+          return;
+        }
+        e.sitAt(id);
+        need({ energy: 10, social: 5 });
+        setPanel({
+          kind: "info",
+          title: kind === "f" ? "Resting in the family garden" : "Resting in the garden",
+          body: (
+            <div className="space-y-3 text-[14px]">
+              <p>
+                You sit in the shade by the fountain and rest. A good time for dhikr: SubhanAllah,
+                Alhamdulillah, Allahu akbar.
+              </p>
+              <button
+                onClick={() => setPanel(null)}
+                className="w-full rounded-xl bg-[#1f6f63] px-4 py-3 font-bold text-white"
+              >
+                Stand up
+              </button>
+            </div>
+          ),
+        });
         return;
       }
       if (id.startsWith("seat:")) {
@@ -9039,6 +9076,7 @@ function CityGame({
       return;
     }
     engine.current = e;
+    e.onGoing = setGoing;
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => setShown(true), 250)));
     if (import.meta.env.DEV) Object.assign(window, { __ilmcity: e, __districts: DISTRICTS });
     e.setAds(adsRef.current);
@@ -9306,25 +9344,25 @@ function CityGame({
         if (hi !== null) {
           if (!h.asked.has(key)) {
             h.asked.add(key);
-            const who = hi >= 0 ? e.talkTo(hi) : { name: "Hisbah patrol officer" };
+            const who = hi >= 0 ? e.talkTo(hi) : { name: "Community Guard" };
             talkingRef.current = hi >= 0 ? hi : null;
             const ask = cp2
               ? ({ kind: "prayer", name: cp2.name } as const)
               : ({ kind: "quran" } as const);
             setPanel({
               kind: "info",
-              title: who?.name ?? "Hisbah",
+              title: who?.name ?? "Community Guard",
               body: (
                 <HisbahStop
                   sister={!!saveRef.current.profile?.female}
-                  who={who?.name ?? "Hisbah"}
+                  who={who?.name ?? "Community Guard"}
                   ask={ask}
                   onAnswer={(yes) => {
                     const gain = ask.kind === "prayer" ? 3 : 2;
                     if (yes) {
                       engine.current?.talkGesture(hi, "agree");
                       update((x) => ({ ...x, coins: x.coins + gain }));
-                      toast(`+${N(gain)} from the Hisbah`, "good");
+                      toast(`+${N(gain)} from the Community Guard`, "good");
                       return ask.kind === "prayer"
                         ? `MashaAllah! May Allah accept it from you. Keep guarding your salah. (+${N(gain)})`
                         : `Barakallahu fik! The Qur'an will come on the Day of Judgement to intercede for its companions. (+${N(gain)})`;
@@ -10314,6 +10352,18 @@ function CityGame({
                   : `opens ${ms.next ? fmtTime(ms.next.start - 10) : "for Fajr"}`}
             </span>
           )}
+        {going && (
+          <div className="pointer-events-auto flex max-w-[min(92vw,420px)] items-center gap-2 rounded-xl border-2 border-[#f2c230] bg-[#10201e]/90 py-1.5 pl-3 pr-1.5 text-[13px] font-semibold text-[#fdf8ec] shadow-lg">
+            <span className="text-[#f2c230]">➜</span>
+            <span className="min-w-0 flex-1 truncate">Going to {going}</span>
+            <button
+              onClick={() => engine.current?.stopGoing()}
+              className="rounded-lg bg-[#f2c230] px-3 py-1 font-bold text-[#10201e]"
+            >
+              Stop
+            </button>
+          </div>
+        )}
         {rite && (
           <div className="pointer-events-auto max-w-[min(92vw,520px)] rounded-xl border-2 border-[#2bd47a] bg-[#0e2a1c]/92 px-3 py-2 text-[#fdf8ec] shadow-lg">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#7ee8a8]">
@@ -11364,11 +11414,11 @@ function TalkView({
     options.splice(3, 1);
     options.unshift({
       key: "hisbah",
-      label: "What does the Hisbah do?",
+      label: "What does the Community Guard do?",
       run: () =>
         say(
           "hisbah",
-          "What does the Hisbah do?",
+          "What does the Community Guard do?",
           "We remind people about salah, help keep the streets clean and safe, and settle small quarrels with good words. Respect everyone, brothers and sisters alike.",
         ),
     });
@@ -12687,7 +12737,7 @@ function HisbahStop({
           </button>
         </div>
       )}
-      <p className="text-[12px] opacity-60">{who} · Hisbah</p>
+      <p className="text-[12px] opacity-60">{who} · Community Guard</p>
     </div>
   );
 }

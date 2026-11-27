@@ -1653,6 +1653,8 @@ export function qubaMosque(
       b.box(0.1, 1.8, 1.0, QM.dark(), s * (W / 2 + 0.05), 7.6, z);
       if (Math.round(z) % 8 === 0) b.box(0.14, 2.8, 1.8, QM.wood(), s * (W / 2 + 0.12), 0, z);
     }
+  // a door at each end
+  for (const s of [1, -1]) b.box(0.14, 2.8, 1.8, QM.wood(), s * (W / 2 + 0.12), 0, 0);
   b.box(9, H + 2.4, 1.6, w, 0, 0, D / 2 + 0.8);
   b.box(9.2, BH, 1.8, QM.basalt(), 0, 0, D / 2 + 0.8);
   b.box(4.2, 7.5, 0.1, QM.dark(), 0, 0, D / 2 + 1.65);
@@ -1744,7 +1746,15 @@ export function qubaMosque(
   solid(-W / 2 - 0.3, W / 2 + 0.3, -D / 2 - 0.3, D / 2 + 0.3);
   solid(-4.6, 4.6, D / 2, D / 2 + 1.7);
   b.base.identity();
-  return { colliders, late, door: { x: cx, z: cz + D / 2 + 3.6 }, top: H + 32 };
+  const doors = [
+    ...[9, 17].flatMap((x) => [
+      { x: cx + x, z: cz + D / 2 + 1.6 },
+      { x: cx + x, z: cz - D / 2 - 1.6 },
+    ]),
+    { x: cx + W / 2 + 1.6, z: cz },
+    { x: cx - W / 2 - 1.6, z: cz },
+  ];
+  return { colliders, late, door: { x: cx, z: cz + D / 2 + 3.6 }, doors, top: H + 32 };
 }
 
 /* ================= the Quba Walkway ================= */
@@ -2562,16 +2572,21 @@ export function coffeeGarden(
     b.add(new THREE.SphereGeometry(0.22, 10, 8), lamp, s * 2, 2.75, D / 2 - 0.25);
   }
   b.base.identity();
-  // the tables: two rows, as many across as fit between the lawns
-  const seats: { x: number; z: number }[] = [];
+  // the tables: two rows, as many across as fit between the lawns, four chairs round each
+  // (every chair can be sat on), and benches along the lawns
+  const seats: { x: number; z: number; sx: number; sz: number; ry: number }[] = [];
   const wood = MAT.plain(0x6d4a2b);
   const chairM = MAT.plain(o.trim);
   const shade = mat(
     "cafe-shade-" + o.color.toString(16),
     () => new THREE.MeshStandardMaterial({ color: o.color, roughness: 0.85, side: THREE.DoubleSide }),
   );
+  const seatAt = (cx: number, cz: number, fx: number, fz: number) => {
+    // a chair at (cx, cz), its sitter facing (fx, fz); the spot to tap is just behind it
+    seats.push({ x: cx - fx * 0.7, z: cz - fz * 0.7, sx: cx, sz: cz, ry: Math.atan2(fx, fz) });
+  };
   const across = Math.max(1, Math.floor((W - 8) / 4));
-  for (const lz of [-D / 4 + 0.3, D / 4 - 0.6])
+  for (const lz of [-D / 4 + 0.4, D / 4 - 0.7])
     for (let i = 0; i < across; i++) {
       const lx = (i - (across - 1) / 2) * 4;
       const p = to(lx, lz);
@@ -2580,13 +2595,136 @@ export function coffeeGarden(
       // the parasol
       b.add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), MAT.plain(0xeeeeee), p.x, 1.2, p.z);
       b.add(new THREE.ConeGeometry(1.5, 0.55, 8, 1, true), shade, p.x, 2.55, p.z);
-      // chairs either side (in the world), the +z one free to sit on
-      for (const cz of [-0.95, 0.95]) {
-        b.box(0.5, 0.45, 0.5, chairM, p.x, 0, p.z + cz);
-        b.box(0.5, 0.5, 0.08, chairM, p.x, 0.45, p.z + cz + Math.sign(cz) * 0.22);
+      for (const [dx, dz] of [
+        [0, 1],
+        [0, -1],
+        [1, 0],
+        [-1, 0],
+      ]) {
+        const cx = p.x + dx * 0.95,
+          cz = p.z + dz * 0.95;
+        b.box(0.5, 0.45, 0.5, chairM, cx, 0, cz);
+        // the chair back, on the far side from the table
+        b.box(dz ? 0.5 : 0.08, 0.5, dz ? 0.08 : 0.5, chairM, cx + dx * 0.22, 0.45, cz + dz * 0.22);
+        seatAt(cx, cz, -dx, -dz);
       }
       colliders.push({ x0: p.x - 0.6, x1: p.x + 0.6, z0: p.z - 0.6, z1: p.z + 0.6 });
-      seats.push({ x: p.x, z: p.z + 1.75 });
+    }
+  // benches on the lawns, facing in
+  for (const s of [-1, 1])
+    for (const lz of [-D / 4 + 0.4, D / 4 - 0.7]) {
+      const bx = s * (W / 2 - 2.6);
+      const p = to(bx, lz);
+      const q = to(bx - s, lz);
+      const fx = q.x - p.x,
+        fz = q.z - p.z;
+      const rot = Math.abs(fx) > Math.abs(fz) ? Math.PI / 2 : 0;
+      b.add(new THREE.BoxGeometry(1.8, 0.1, 0.5), wood, p.x, 0.45, p.z, rot);
+      b.add(new THREE.BoxGeometry(1.8, 0.5, 0.08), wood, p.x - fx * 0.24, 0.7, p.z - fz * 0.24, rot);
+      for (const t of [-0.5, 0.5]) {
+        const ox = rot ? 0 : t,
+          oz = rot ? t : 0;
+        seatAt(p.x + ox, p.z + oz, fx, fz);
+      }
     }
   return { colliders, seats, gate: to(0, D / 2 + 0.4), sign: to(0, D / 2 - 0.25) };
+}
+
+/* ---------------- gardens to sit and rest in ---------------- */
+/** A walled garden with lawns, a fountain, palms, lamps and benches round it.
+    kind "b": brothers only (a hedge), "s": sisters only (a tall screen wall all round, the way
+    in turned so no one sees in), "f": families (a low hedge). Its way in faces +z (before
+    turning). Every bench seat can be sat on. */
+export function restGarden(
+  b: Batch,
+  o: { x: number; z: number; turn: number; w: number; d: number; kind: "b" | "s" | "f" },
+) {
+  const { to, colliders, solid } = frameOf(b, o.x, o.z, o.turn);
+  const W = o.w,
+    D = o.d;
+  const tint = o.kind === "s" ? 0xb46b8f : o.kind === "b" ? 0x2f6f9f : 0x1f6f63;
+  b.add(groundGeo(W, D, 2), MAT2.lawn(), 0, 0.04, 0, 0, false);
+  // paths: a cross from the gate to the fountain and round it
+  const path = MAT.plain(0xe6dcc6);
+  b.add(groundGeo(2.4, D, 2), path, 0, 0.055, 0, 0, false);
+  b.add(groundGeo(W - 2, 2.4, 2), path, 0, 0.055, 0, 0, false);
+  // the fountain in the middle
+  b.add(new THREE.CylinderGeometry(2.2, 2.4, 0.6, 20), MAT.plain(0xf1ece0), 0, 0.3, 0);
+  b.add(new THREE.CylinderGeometry(1.9, 1.9, 0.08, 20), MAT.plain(0x5fb0c8), 0, 0.58, 0);
+  b.add(new THREE.CylinderGeometry(0.25, 0.35, 1.4, 10), MAT.plain(0xf1ece0), 0, 1.0, 0);
+  b.add(new THREE.CylinderGeometry(0.8, 0.5, 0.25, 14), MAT.plain(0xf1ece0), 0, 1.75, 0);
+  solid(-2.4, 2.4, -2.4, 2.4);
+  // the wall round it: a gap at the front for the way in
+  const tall = o.kind === "s";
+  const wallH = tall ? 2.4 : o.kind === "b" ? 1.1 : 0.7;
+  const wallM = tall ? MAT.plain(0xe9dcc4) : MAT.plain(0x3f7a3a);
+  const gap = 3;
+  b.box(W, wallH, 0.5, wallM, 0, 0, -D / 2 + 0.25);
+  solid(-W / 2, W / 2, -D / 2, -D / 2 + 0.5);
+  for (const s of [-1, 1]) {
+    b.box(0.5, wallH, D, wallM, s * (W / 2 - 0.25), 0, 0);
+    solid(s * (W / 2 - 0.5), s * (W / 2), -D / 2, D / 2);
+    const fw = W / 2 - gap / 2;
+    b.box(fw, wallH, 0.5, wallM, s * (W / 2 - fw / 2), 0, D / 2 - 0.25);
+    solid(s * (W / 2 - fw), s * (W / 2), D / 2 - 0.5, D / 2);
+    if (tall) b.box(fw, 0.2, 0.7, MAT.plain(tint), s * (W / 2 - fw / 2), wallH, D / 2 - 0.25);
+  }
+  if (tall) {
+    // a screen just inside the way in, so the garden can't be seen from the street
+    b.box(gap + 3, wallH, 0.4, wallM, 0, 0, D / 2 - 2.2);
+    solid(-(gap + 3) / 2, (gap + 3) / 2, D / 2 - 2.4, D / 2 - 2.0);
+    b.box(W, 0.2, 0.7, MAT.plain(tint), 0, wallH, -D / 2 + 0.25);
+  }
+  // gate posts in the garden's colour, with lamps
+  const lamp = mat("rest-lamp", () => new THREE.MeshStandardMaterial({ color: 0xfff3d0, emissive: 0xffd890 }), 1.4, 0xffd890);
+  for (const s of [-1, 1]) {
+    b.box(0.45, wallH + 0.9, 0.6, MAT.plain(tint), s * (gap / 2 + 0.22), 0, D / 2 - 0.25);
+    b.add(new THREE.SphereGeometry(0.22, 10, 8), lamp, s * (gap / 2 + 0.22), wallH + 1.1, D / 2 - 0.25);
+  }
+  // palms in the four corners and lamps along the paths
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) {
+      const px = sx * (W / 2 - 2),
+        pz = sz * (D / 2 - 2.2);
+      palm(b, px, pz, 0.9);
+      solid(px - 0.3, px + 0.3, pz - 0.3, pz + 0.3);
+      const lx = sx * (W / 4 + 1),
+        lz = sz * 1.9;
+      b.add(new THREE.CylinderGeometry(0.06, 0.09, 2.8, 8), MAT.plain(0x2e2e2a), lx, 1.4, lz);
+      b.add(new THREE.SphereGeometry(0.2, 10, 8), lamp, lx, 2.9, lz);
+    }
+  // flower beds by the fountain
+  for (const [fx, fz] of [
+    [-4.2, -3.6],
+    [4.2, -3.6],
+    [-4.2, 3.6],
+    [4.2, 3.6],
+  ]) {
+    b.add(groundGeo(3, 1.6, 1), MAT.plain(0x6b4a2e), fx, 0.07, fz, 0, false);
+    for (let k = 0; k < 6; k++)
+      b.add(new THREE.SphereGeometry(0.22, 6, 5), MAT.plain([0xe0466e, 0xf2c230, 0xffffff][k % 3]), fx - 1.1 + (k % 3) * 1.1, 0.25, fz - 0.35 + Math.floor(k / 3) * 0.7);
+  }
+  b.base.identity();
+  // benches all round the edge, facing in
+  const seats: { x: number; z: number; sx: number; sz: number; ry: number }[] = [];
+  const wood = MAT.plain(0x7a5432);
+  const bench = (lx: number, lz: number, fx: number, fz: number) => {
+    const p = to(lx, lz),
+      q = to(lx + fx, lz + fz);
+    const dx = q.x - p.x,
+      dz = q.z - p.z;
+    const rot = Math.abs(dx) > Math.abs(dz) ? Math.PI / 2 : 0;
+    b.add(new THREE.BoxGeometry(2, 0.1, 0.55), wood, p.x, 0.45, p.z, rot);
+    b.add(new THREE.BoxGeometry(2, 0.55, 0.08), wood, p.x - dx * 0.26, 0.72, p.z - dz * 0.26, rot);
+    for (const t of [-0.5, 0.5]) {
+      const sx = p.x + (rot ? 0 : t),
+        sz = p.z + (rot ? t : 0);
+      seats.push({ x: sx + dx * 0.7, z: sz + dz * 0.7, sx, sz, ry: Math.atan2(dx, dz) });
+    }
+    colliders.push({ x0: p.x - (rot ? 0.35 : 1), x1: p.x + (rot ? 0.35 : 1), z0: p.z - (rot ? 1 : 0.35), z1: p.z + (rot ? 1 : 0.35) });
+  };
+  for (const lx of [-W / 4 - 1.5, W / 4 + 1.5]) bench(lx, -D / 2 + 1.1, 0, 1);
+  for (const s of [-1, 1]) for (const lz of [-D / 4, D / 4]) bench(s * (W / 2 - 1.1), lz, -s, 0);
+  for (const lx of [-W / 4 - 1.5, W / 4 + 1.5]) bench(lx, D / 2 - 1.1, 0, -1);
+  return { colliders, seats, gate: to(0, D / 2 + 0.6), tint };
 }

@@ -80,8 +80,8 @@ export const VEHICLE_INFO: Record<
     top: 20,
   },
   hisbah: {
-    name: "Hisbah Patrol",
-    blurb: "The Hisbah patrol van.",
+    name: "Community Guard",
+    blurb: "The Community Guard patrol van.",
     length: 5.6,
     width: 2.1,
     top: 22,

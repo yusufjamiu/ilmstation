@@ -283,10 +283,11 @@ export const currentPrayer = (c: Clock) =>
   c.prayers.find((p) => c.min >= p.start && c.min < p.end) ?? null;
 export const nextPrayer = (c: Clock) => c.prayers.find((p) => p.start > c.min) ?? null;
 
-/** The masjid opens 10 minutes before each adhan and closes 45 minutes after it. */
+/** The masjid opens 10 minutes before each adhan and stays open until that prayer's time
+    ends (so it is open for as long as the prayer can be prayed). */
 export function masjidStatus(c: Clock): { open: boolean; prayer?: Prayer; next?: Prayer } {
   for (const p of c.prayers)
-    if (c.min >= p.start - 10 && c.min < p.start + 45) return { open: true, prayer: p };
+    if (c.min >= p.start - 10 && c.min < p.end) return { open: true, prayer: p };
   return { open: false, next: c.prayers.find((p) => p.start - 10 > c.min) };
 }
 
