@@ -31,7 +31,7 @@ function notice(text: string) {
   el.textContent = text; el.style.display = "block";
   setTimeout(() => { if (el) el.style.display = "none"; }, 7000);
 }
-const VOICE = 0.02;        // loudness that counts as speaking
+const VOICE_MIN = 0.006;   // softest loudness that can count as speaking (the real level adapts to the room)
 const END_SILENCE = 600;   // ms of silence = you've stopped
 const PIECE_MIN = 2500;    // ms of speech before a near-live piece can be sent
 const GAP = 150;           // ms of quiet between words where a piece can be cut
@@ -81,11 +81,20 @@ class CloudRecognition {
     ctx ??= new (window.AudioContext || (window as any).webkitAudioContext)();
     if (ctx.state === "suspended") { try { await ctx.resume(); } catch { /* ignore */ } }
     const src = ctx.createMediaStreamSource(stream); const an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+    // gently boost soft voices (a compressor keeps loud ones from distorting) before the recording is checked
+    let recStream: MediaStream = stream;
+    try {
+      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -40; comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.2;
+      const gain = ctx.createGain(); gain.gain.value = 2.2;
+      const dest = ctx.createMediaStreamDestination();
+      src.connect(comp); comp.connect(gain); gain.connect(dest);
+      if (ctx.state === "running") recStream = dest.stream;
+    } catch { /* fall back to the plain microphone */ }
     const data = new Float32Array(an.fftSize);
     const mime = pickMime();
     const segment = () => {
       const chunks: Blob[] = [];
-      const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const r = new MediaRecorder(recStream, mime ? { mimeType: mime } : undefined);
       const seg = { r, spoke: false, at: Date.now() };
       r.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       r.onstop = () => { void this.deliver(chunks, r.mimeType || mime, seg.spoke, Date.now() - seg.at); };
@@ -95,13 +104,15 @@ class CloudRecognition {
     this.cur = segment();
     this.emit("start"); this.emit("audiostart");
     if (this.ending) { this.cur.r.stop(); return; }
-    const began = Date.now(); let lastVoice = Date.now(); let quietSince = 0; let anySpeech = false;
+    const began = Date.now(); let lastVoice = Date.now(); let quietSince = 0; let anySpeech = false; let noise = 0.003;
     const cut = () => { const old = this.cur!; this.cur = segment(); old.r.stop(); quietSince = 0; };
     this.timer = window.setInterval(() => {
       if (this.ending) return;
       an.getFloatTimeDomainData(data); let sum = 0; for (const v of data) sum += v * v;
       const rms = Math.sqrt(sum / data.length); const now = Date.now(); const seg = this.cur!;
-      if (rms > VOICE) {
+      const level = Math.max(VOICE_MIN, noise * 3);
+      if (rms <= level) noise = noise * 0.97 + rms * 0.03; // learn the background noise while quiet
+      if (rms > level) {
         if (!anySpeech) { this.emit("soundstart"); this.emit("speechstart"); }
         anySpeech = true; seg.spoke = true; lastVoice = now; quietSince = 0;
       } else if (seg.spoke && !quietSince) quietSince = now;
