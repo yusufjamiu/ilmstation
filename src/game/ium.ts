@@ -2324,6 +2324,62 @@ export function policeCompound(
     railings and lamp pillars (open at the gates), rows of palms and lamps, and a big covered
     car park reached from its own gate. `free` says if a spot is clear of what's already
     there; `skip` lists ground already paved (the mosque's own plaza). */
+/** The Madinah umbrella: white fabric peaked at the pole, four corners lifted on ribs. */
+let umbrellaGeo: { canopy: THREE.BufferGeometry; ribs: THREE.BufferGeometry[] } | null = null;
+const U_S = 4.6,
+  U_PEAK = 1.7,
+  U_POLE = 6.6;
+function madinahUmbrella(b: Batch, x: number, z: number) {
+  if (!umbrellaGeo) {
+    const N = 12,
+      pos: number[] = [],
+      idx: number[] = [];
+    for (let j = 0; j <= N; j++)
+      for (let i = 0; i <= N; i++) {
+        const u = (i / N) * 2 - 1,
+          v = (j / N) * 2 - 1;
+        const r = Math.max(Math.abs(u), Math.abs(v));
+        const w = r > 0 ? Math.min(Math.abs(u), Math.abs(v)) / r : 0;
+        const pull = 1 - 0.12 * r * (1 - w * w);
+        const y = U_PEAK * Math.pow(1 - r, 1.25) + 0.36 * r * w * w - 0.16 * r * (1 - w);
+        pos.push(u * U_S * pull, y, v * U_S * pull);
+      }
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        const a = j * (N + 1) + i;
+        idx.push(a, a + N + 1, a + 1, a + 1, a + N + 1, a + N + 2);
+      }
+    const canopy = new THREE.BufferGeometry();
+    canopy.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    canopy.setIndex(idx);
+    canopy.computeVertexNormals();
+    const ribs: THREE.BufferGeometry[] = [];
+    const head = new THREE.Vector3(0, U_PEAK - 0.6, 0);
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const tip = new THREE.Vector3(sx * U_S * 0.98, 0.16, sz * U_S * 0.98);
+      const rg = new THREE.CylinderGeometry(0.05, 0.06, head.distanceTo(tip), 5);
+      rg.rotateX(Math.PI / 2);
+      const m = new THREE.Matrix4().lookAt(head, tip, new THREE.Vector3(0, 1, 0));
+      m.setPosition(head.clone().add(tip).multiplyScalar(0.5));
+      rg.applyMatrix4(m);
+      ribs.push(rg);
+    }
+    umbrellaGeo = { canopy, ribs };
+  }
+  const fabric = mat(
+    "madinah-fabric",
+    () => new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.9, side: THREE.DoubleSide }),
+    0.5,
+    0xfff4e0,
+  );
+  const pole = mat("madinah-pole", () => new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.5 }), 0.3, 0xfff4e0);
+  b.add(new THREE.CylinderGeometry(0.2, 0.3, U_POLE, 10), pole, x, U_POLE / 2, z);
+  b.add(new THREE.CylinderGeometry(0.4, 0.3, 0.55, 10), pole, x, U_POLE - 0.2, z);
+  b.add(umbrellaGeo.canopy.clone(), fabric, x, U_POLE, z);
+  for (const r of umbrellaGeo.ribs) b.add(r.clone(), pole, x, U_POLE, z);
+  b.add(new THREE.ConeGeometry(0.25, 0.6, 10), pole, x, U_POLE + U_PEAK + 0.25, z);
+}
+
 export function qubaCompound(
   b: Batch,
   o: {
@@ -2421,15 +2477,18 @@ export function qubaCompound(
       seed: o.seed,
     }),
   );
-  // rows of palms, and lamps between them, on the open paving
-  const inPark = (x: number, z: number) => x > P.x0 - 2 && x < P.x1 + 2 && z > P.z0 - 2 && z < P.z1 + 3;
-  const onDrive = (x: number, z: number) => Math.abs(x - P.gate) < 7.5 && z > P.z1 - 1;
-  const inSkip = (x: number, z: number) =>
-    o.skip.some((s) => x > s.x0 - 2 && x < s.x1 + 2 && z > s.z0 - 2 && z < s.z1 + 2);
-  const atGate = (x: number, z: number) => z > o.z1 - 6 && o.gates.some(([a, c]) => x > a - 2 && x < c + 2);
+  // palms and lamps along the walls, and the great white Madinah umbrellas on the open paving
+  const inPark = (x: number, z: number, m = 2) => x > P.x0 - m && x < P.x1 + m && z > P.z0 - m && z < P.z1 + m + 1;
+  const onDrive = (x: number, z: number, m = 7.5) => Math.abs(x - P.gate) < m && z > P.z1 - 1;
+  const inSkip = (x: number, z: number, m = 2) =>
+    o.skip.some((s) => x > s.x0 - m && x < s.x1 + m && z > s.z0 - m && z < s.z1 + m);
+  const atGate = (x: number, z: number, m = 2) => z > o.z1 - 4 - m * 2 && o.gates.some(([a, c]) => x > a - m && x < c + m);
+  const EDGE = 6;
   let i = 0;
   for (let z = o.z1 - 4; z > o.z0 + 3; z -= 8)
     for (let x = o.x0 + 4; x < o.x1 - 3; x += 8) {
+      const edge = x < o.x0 + EDGE || x > o.x1 - EDGE || z < o.z0 + EDGE || z > o.z1 - EDGE;
+      if (!edge) continue;
       i++;
       if (inPark(x, z) || onDrive(x, z) || inSkip(x, z) || atGate(x, z)) continue;
       if (i % 3 === 0) {
@@ -2442,6 +2501,14 @@ export function qubaCompound(
         palm(b, x, z, 1.05);
         solid(x - 0.3, x + 0.3, z - 0.3, z + 0.3);
       }
+    }
+  const R = 5.2; // half the umbrella's width, and a little room
+  for (let z = o.z1 - EDGE - 8; z > o.z0 + EDGE + R; z -= 13)
+    for (let x = o.x0 + EDGE + R + 1; x < o.x1 - EDGE - R; x += 13) {
+      if (inPark(x, z, R) || onDrive(x, z, 7.5 + R) || inSkip(x, z, R) || atGate(x, z, R)) continue;
+      if (blocked(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) continue;
+      madinahUmbrella(b, x, z);
+      solid(x - 0.4, x + 0.4, z - 0.4, z + 0.4);
     }
   b.base.identity();
   return colliders;

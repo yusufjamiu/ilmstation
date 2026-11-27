@@ -1992,6 +1992,9 @@ export class IlmCityEngine {
       if (!clear(x, z)) continue;
       const isPalm = rnd() < 0.55,
         sc = isPalm ? 0.8 + rnd() * 0.3 : 0.9 + rnd() * 0.4;
+      // Masjid Quba's compound has its umbrellas instead (the draw is kept so nothing moves)
+      const qy = D.id === "quba" ? this.qubaYard : null;
+      if (qy && Math.abs(x) < 132 && z > -180 && z < qy.aw - 6) continue;
       // date palms in Makkah and Madinah, neem trees on Arafat
       if (D.holy || saudiCity(D)) datePalmInto(batch, x, z, sc);
       else batch.addObject(isPalm ? palm(x, z, sc) : tree(x, z, sc));
