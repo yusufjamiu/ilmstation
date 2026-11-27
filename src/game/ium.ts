@@ -1447,3 +1447,399 @@ export function taibahPlaza(b: Batch, cx: number, cz: number) {
     }
   return colliders;
 }
+
+/* ================= Masjid Quba ================= */
+function basaltTex() {
+  const t = canvasTex(
+    "quba-basalt",
+    128,
+    64,
+    (c, w, h) => {
+      c.fillStyle = "#5e605c";
+      c.fillRect(0, 0, w, h);
+      for (let y = 0; y < h; y += 16)
+        for (let x = (y / 16) % 2 ? -16 : 0; x < w; x += 32) {
+          c.fillStyle = ["#666864", "#5a5c58", "#626460", "#6c6e69"][(x + y) & 3];
+          c.fillRect(x + 1, y + 1, 30, 14);
+        }
+    },
+    true,
+  );
+  t.repeat.set(1 / 4, 1 / 2);
+  return t;
+}
+/** White marble paving with grey bands in a large diamond pattern, as round Quba. */
+function qubaPaveTex() {
+  const t = canvasTex(
+    "quba-pave",
+    256,
+    256,
+    (c, w, h) => {
+      c.fillStyle = "#eef0f0";
+      c.fillRect(0, 0, w, h);
+      c.strokeStyle = "rgba(160,168,172,0.5)";
+      c.lineWidth = 1;
+      for (let x = 0; x <= w; x += 32) {
+        c.beginPath();
+        c.moveTo(x, 0);
+        c.lineTo(x, h);
+        c.moveTo(0, x);
+        c.lineTo(w, x);
+        c.stroke();
+      }
+      c.strokeStyle = "#7d868c";
+      c.lineWidth = 10;
+      c.beginPath();
+      c.moveTo(w / 2, 0);
+      c.lineTo(w, h / 2);
+      c.lineTo(w / 2, h);
+      c.lineTo(0, h / 2);
+      c.closePath();
+      c.stroke();
+    },
+    true,
+  );
+  t.repeat.set(1 / 16, 1 / 16);
+  return t;
+}
+const QM = {
+  white: () =>
+    mat("q-white", () => new THREE.MeshStandardMaterial({ color: 0xf6f5f1, roughness: 0.7 }), 0.4, 0xfff6e8),
+  basalt: () =>
+    mat("q-basalt", () => new THREE.MeshStandardMaterial({ map: basaltTex(), roughness: 0.9 }), 0.12, 0xfff0d8),
+  cone: () =>
+    mat(
+      "q-cone",
+      () => new THREE.MeshStandardMaterial({ color: 0x5d6266, roughness: 0.45, metalness: 0.3 }),
+      0.1,
+    ),
+  dark: () => mat("q-dark", () => new THREE.MeshStandardMaterial({ color: 0x3a3f44, roughness: 0.6 }), 0),
+  wood: () =>
+    mat("q-wood", () => new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.7 }), 0.15),
+  canopy: () =>
+    mat(
+      "q-canopy",
+      () =>
+        new THREE.MeshStandardMaterial({ color: 0x8e9499, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide }),
+      0.1,
+    ),
+  pave: () =>
+    mat("q-pave", () => new THREE.MeshStandardMaterial({ map: qubaPaveTex(), roughness: 0.6 }), 0.12),
+};
+/** A white dome with soft ribs, on a short drum, with a small finial. */
+function ribbedDome(b: Batch, x: number, y: number, z: number, r: number, ribs = 16) {
+  const g = new THREE.SphereGeometry(r, 32, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const px = p.getX(i),
+      pz = p.getZ(i);
+    const k = 1 + 0.035 * Math.cos(ribs * Math.atan2(pz, px));
+    p.setX(i, px * k);
+    p.setZ(i, pz * k);
+  }
+  g.computeVertexNormals();
+  b.add(new THREE.CylinderGeometry(r * 1.02, r * 1.04, r * 0.32, 32), QM.white(), x, y + r * 0.16, z);
+  b.add(g, QM.white(), x, y + r * 0.32, z);
+  b.add(new THREE.CylinderGeometry(0.06 * r, 0.1 * r, 0.35 * r, 8), QM.cone(), x, y + r * 1.48, z);
+}
+/** A tall white minaret: a square foot, an eight-sided shaft with two carved balconies,
+    a slender lantern and a dark pointed cap with the crescent. */
+function qubaMinaret(b: Batch, x: number, z: number, H: number) {
+  const w = QM.white();
+  b.box(4.6, H + 4, 4.6, w, x, 0, z);
+  b.box(4.8, 4.6, 4.8, QM.basalt(), x, 0, z);
+  for (let k = 0; k < 6; k++) b.box(0.6, 0.9, 0.6, w, x - 2 + k * 0.8, H + 4, z + 2.1);
+  const oct = (r0: number, r1: number, h: number, y: number) =>
+    b.add(new THREE.CylinderGeometry(r1, r0, h, 8), w, x, y + h / 2, z, Math.PI / 8);
+  const balcony = (r: number, y: number) => {
+    b.add(new THREE.CylinderGeometry(r, r * 0.72, 1.2, 16), w, x, y - 0.6, z); // corbel
+    b.add(new THREE.CylinderGeometry(r, r, 0.25, 16), w, x, y + 0.12, z);
+    // the carved railing: a ring of little posts under a rail
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      b.box(0.22, 0.9, 0.22, w, x + Math.cos(a) * (r - 0.15), y + 0.25, z + Math.sin(a) * (r - 0.15));
+    }
+    b.add(new THREE.TorusGeometry(r - 0.15, 0.1, 4, 20), w, x, y + 1.2, z, 0);
+  };
+  let y = H + 4;
+  oct(2.0, 1.9, 9, y);
+  y += 9;
+  balcony(2.7, y);
+  oct(1.7, 1.6, 6.5, y + 1.3);
+  y += 7.8;
+  balcony(2.3, y);
+  oct(1.3, 1.25, 3.4, y + 1.3);
+  y += 4.7;
+  // the dark cap and the crescent
+  b.add(new THREE.CylinderGeometry(1.45, 1.45, 0.4, 16), w, x, y + 0.2, z);
+  const cone = new THREE.LatheGeometry(
+    [
+      new THREE.Vector2(1.45, 0),
+      new THREE.Vector2(1.5, 1.2),
+      new THREE.Vector2(1.2, 3),
+      new THREE.Vector2(0.55, 4.6),
+      new THREE.Vector2(0.05, 5.6),
+    ],
+    16,
+  );
+  b.add(cone, QM.cone(), x, y + 0.4, z);
+  b.add(new THREE.CylinderGeometry(0.05, 0.05, 1.2, 6), QM.cone(), x, y + 6.4, z);
+  const cr = new THREE.TorusGeometry(0.35, 0.07, 6, 16, Math.PI * 1.4);
+  b.add(cr, QM.cone(), x, y + 7.3, z, Math.PI / 2);
+  return y + 7.6;
+}
+/** Masjid Quba: a long white mosque on a dark basalt base with small crenellations along
+    its top, four tall white minarets with dark caps, a cluster of big ribbed domes over the
+    prayer hall, rows of little domes over the rest, a shaded court in the middle, and a
+    wide white plaza round it with palms, lamps and folded umbrellas.
+    Local frame: centred on the mosque, the front (the road) towards +z. */
+export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number; x1: number; z1: number }) {
+  b.base.makeTranslation(cx, 0, cz);
+  const colliders: Box[] = [];
+  const solid = (x0: number, x1: number, z0: number, z1: number) =>
+    colliders.push({ x0: cx + x0, x1: cx + x1, z0: cz + z0, z1: cz + z1 });
+  // posts on the open plaza: solid to walk into, but added after the area is laid out
+  const late: Box[] = [];
+  const decor = (x0: number, x1: number, z0: number, z1: number) =>
+    late.push({ x0: cx + x0, x1: cx + x1, z0: cz + z0, z1: cz + z1 });
+  // 58 m long: the back corner minarets stop just short of the local market's ground
+  const W = 58,
+    D = 32,
+    H = 13,
+    BH = 4.6;
+  const w = QM.white();
+  // the plaza
+  const px0 = plaza.x0 - cx,
+    px1 = plaza.x1 - cx,
+    pz1 = plaza.z1 - cz,
+    pz0 = -D / 2 - 6;
+  b.add(groundGeo(px1 - px0, pz1 - pz0, 1), QM.pave(), (px0 + px1) / 2, 0.05, (pz0 + pz1) / 2, 0, false);
+  // the body: basalt below, white above, a cornice and small crenellations all round
+  b.box(W, H, D, w, 0, 0, 0);
+  b.box(W + 0.2, BH, D + 0.2, QM.basalt(), 0, 0, 0);
+  b.box(W + 0.5, 0.3, D + 0.5, w, 0, H - 1.2, 0);
+  for (const [len, fixed, alongX] of [
+    [W, D / 2, true],
+    [W, -D / 2, true],
+    [D, W / 2, false],
+    [D, -W / 2, false],
+  ] as [number, number, boolean][])
+    for (let t = -len / 2 + 0.5; t < len / 2 - 0.3; t += 1.1) {
+      const x = alongX ? t : fixed,
+        z = alongX ? fixed : t;
+      b.box(0.6, 0.8, 0.6, w, x, H, z);
+      b.box(0.3, 0.35, 0.3, w, x, H + 0.8, z);
+    }
+  // windows high in the white wall, doors in the basalt base, and the tall front portal
+  for (let x = -W / 2 + 3; x < W / 2 - 2; x += 4) {
+    if (Math.abs(x) < 5) continue;
+    for (const s of [1, -1]) {
+      b.box(1.0, 1.8, 0.1, QM.dark(), x, 7.6, s * (D / 2 + 0.05));
+      b.add(new THREE.CircleGeometry(0.5, 10, 0, Math.PI), QM.dark(), x, 9.4, s * (D / 2 + 0.11), s < 0 ? Math.PI : 0, false);
+    }
+    if (Math.round(x) % 8 === 1) {
+      b.box(1.8, 2.8, 0.14, QM.wood(), x, 0, D / 2 + 0.12);
+      b.box(1.8, 2.8, 0.14, QM.wood(), x, 0, -D / 2 - 0.12);
+    }
+  }
+  for (let z = -D / 2 + 4; z < D / 2 - 2; z += 4)
+    for (const s of [1, -1]) {
+      b.box(0.1, 1.8, 1.0, QM.dark(), s * (W / 2 + 0.05), 7.6, z);
+      if (Math.round(z) % 8 === 0) b.box(0.14, 2.8, 1.8, QM.wood(), s * (W / 2 + 0.12), 0, z);
+    }
+  b.box(9, H + 2.4, 1.6, w, 0, 0, D / 2 + 0.8);
+  b.box(9.2, BH, 1.8, QM.basalt(), 0, 0, D / 2 + 0.8);
+  b.box(4.2, 7.5, 0.1, QM.dark(), 0, 0, D / 2 + 1.65);
+  b.add(new THREE.CircleGeometry(2.1, 16, 0, Math.PI), QM.dark(), 0, 7.5, D / 2 + 1.66, 0, false);
+  b.box(3, 3.4, 0.12, QM.wood(), 0, 0, D / 2 + 1.72);
+  for (let k = -4; k <= 4; k++) b.box(0.6, 0.8, 0.6, w, k * 1.0, H + 2.4, D / 2 + 1.4);
+  // the domes: the great dome and three more over the prayer hall, at the east end
+  ribbedDome(b, 16, H, 3, 6.6, 20);
+  ribbedDome(b, 5.5, H, 4, 4.2);
+  ribbedDome(b, 26.5, H, 4, 4.2);
+  ribbedDome(b, 16, H, -8.5, 4.4);
+  b.box(30, 1.2, 22, w, 16, H, -1); // the raised roof they stand on
+  // little domes in rows over the west end, round the shaded court
+  for (let x = -27; x <= -1; x += 3.4)
+    for (let z = -13; z <= 13; z += 3.4) {
+      if (x > -20 && x < -6 && z > -7 && z < 7) continue;
+      b.add(new THREE.CylinderGeometry(1.2, 1.25, 0.5, 10), w, x, H + 0.25, z);
+      b.add(new THREE.SphereGeometry(1.2, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), w, x, H + 0.5, z);
+    }
+  // the shaded court: a grey sliding canopy in peaks over its middle
+  for (let i = 0; i < 4; i++) {
+    const g = new THREE.ConeGeometry(2.6, 1.6, 4, 1, true);
+    g.rotateY(Math.PI / 4);
+    b.add(g, QM.canopy(), -16.5 + i * 3.5, H + 1.6, -3.5, 0, false);
+    b.add(g.clone(), QM.canopy(), -16.5 + i * 3.5, H + 1.6, 3.5, 0, false);
+  }
+  b.box(15, 0.3, 15, QM.dark(), -11.25, H + 0.6, 0);
+  // the four minarets at the corners
+  for (const [mx, mz] of [
+    [-W / 2 - 1.5, D / 2 + 1.5],
+    [W / 2 + 1.5, D / 2 + 1.5],
+    [-W / 2 - 1.5, -D / 2 - 1.5],
+    [W / 2 + 1.5, -D / 2 - 1.5],
+  ]) {
+    qubaMinaret(b, mx, mz, H);
+    solid(mx - 2.4, mx + 2.4, mz - 2.4, mz + 2.4);
+  }
+  // palms in round lawns, lamps and folded umbrellas on the plaza
+  const lamp = M.tex("lamp", winTex(), 1.2);
+  for (const s of [-1, 1]) {
+    const lx = s * (W / 2 - 4),
+      lz = pz1 - 3.5;
+    const ring = new THREE.Shape();
+    ring.absarc(0, 0, 2.6, 0, Math.PI * 2, false);
+    b.add(flat(ring), MAT2.lawn(), lx, 0.07, lz, 0, false);
+    b.add(new THREE.TorusGeometry(2.7, 0.12, 4, 24), MAT.plain(0x2f7a52), lx, 0.25, lz, 0);
+    palm(b, lx, lz, 1.1);
+    decor(lx - 0.4, lx + 0.4, lz - 0.4, lz + 0.4);
+  }
+  for (const x of [px0 + 3, px1 - 3])
+    for (let z = pz0 + 3; z < pz1 - 2; z += 6) {
+      if (Math.abs(x) < W / 2 + 4 && z > -D / 2 - 4 && z < D / 2 + 4) continue;
+      // a folded umbrella: a tall white pole with its canopy closed round it
+      b.add(new THREE.CylinderGeometry(0.16, 0.2, 7, 8), w, x, 3.5, z);
+      b.add(new THREE.ConeGeometry(0.6, 3.6, 8), w, x, 6.2, z);
+      decor(x - 0.3, x + 0.3, z - 0.3, z + 0.3);
+    }
+  for (let x = px0 + 15; x < px1 - 6; x += 12) {
+    const z = pz1 - 1.2;
+    if (Math.abs(x) < 6) continue;
+    b.add(new THREE.CylinderGeometry(0.08, 0.12, 4.6, 8), MAT.plain(0xe8e8e2), x, 2.3, z);
+    b.add(new THREE.SphereGeometry(0.3, 10, 8), lamp, x - 0.45, 4.5, z);
+    b.add(new THREE.SphereGeometry(0.3, 10, 8), lamp, x + 0.45, 4.5, z);
+    decor(x - 0.2, x + 0.2, z - 0.2, z + 0.2);
+  }
+  solid(-W / 2 - 0.3, W / 2 + 0.3, -D / 2 - 0.3, D / 2 + 0.3);
+  solid(-4.6, 4.6, D / 2, D / 2 + 1.7);
+  b.base.identity();
+  return { colliders, late, door: { x: cx, z: cz + D / 2 + 3.6 }, top: H + 32 };
+}
+
+/* ================= the Quba Walkway ================= */
+function bikeTex() {
+  return canvasTex("walk-bike", 128, 128, (c) => {
+    c.fillStyle = "#3f8f5a";
+    c.fillRect(0, 0, 128, 128);
+    c.strokeStyle = "#ffffff";
+    c.lineWidth = 7;
+    for (const x of [34, 94]) {
+      c.beginPath();
+      c.arc(x, 82, 20, 0, Math.PI * 2);
+      c.stroke();
+    }
+    c.beginPath();
+    c.moveTo(34, 82);
+    c.lineTo(56, 50);
+    c.lineTo(84, 50);
+    c.lineTo(94, 82);
+    c.moveTo(56, 50);
+    c.lineTo(66, 82);
+    c.lineTo(84, 50);
+    c.moveTo(50, 40);
+    c.lineTo(62, 40);
+    c.moveTo(80, 50);
+    c.lineTo(78, 38);
+    c.lineTo(88, 38);
+    c.stroke();
+  });
+}
+function walkTex() {
+  const t = canvasTex(
+    "walk-pave",
+    64,
+    64,
+    (c) => {
+      c.fillStyle = "#e6d7bb";
+      c.fillRect(0, 0, 64, 64);
+      c.fillStyle = "#dcc9a8";
+      for (let y = 0; y < 64; y += 16) for (let x = (y / 16) % 2 ? 8 : 0; x < 64; x += 16) c.fillRect(x + 1, y + 1, 14, 6);
+    },
+    true,
+  );
+  t.repeat.set(1 / 2, 1 / 2);
+  return t;
+}
+/** The Quba Walkway: a paved footpath and a green cycle lane side by side, from the
+    Prophet's Mosque to Masjid Quba. `pts` is the line of the path (world x, z); the cycle
+    lane runs on its left as you walk to Quba, the footpath on its right. Where it crosses a
+    road it is striped as a crossing; where it is out on its own it has lamps, palms and
+    benches. Returns the solid boxes (lamp posts, palms, benches). */
+export function qubaWalkway(
+  b: Batch,
+  pts: [number, number][],
+  onRoad: (x: number, z: number) => boolean,
+  furnished: (x: number, z: number) => boolean,
+) {
+  const colliders: Box[] = [];
+  const walkM = mat("walk-m", () => new THREE.MeshStandardMaterial({ map: walkTex(), roughness: 0.85 }), 0.1);
+  const bikeM = mat("bike-m", () => new THREE.MeshStandardMaterial({ color: 0x3f8f5a, roughness: 0.8 }), 0.1);
+  const iconM = mat("bike-icon", () => new THREE.MeshStandardMaterial({ map: bikeTex(), roughness: 0.8 }), 0.2);
+  const lineM = mat("walk-line", () => new THREE.MeshStandardMaterial({ color: 0xf8f8f4, roughness: 0.6 }), 0.3);
+  const zebraM = lineM;
+  const lamp = M.tex("lamp", winTex(), 1.2);
+  const strip = (x0: number, z0: number, x1: number, z1: number, off0: number, off1: number, m: THREE.Material, y: number) => {
+    const dx = x1 - x0,
+      dz = z1 - z0,
+      len = Math.hypot(dx, dz),
+      ux = dx / len,
+      uz = dz / len;
+    const nx = uz,
+      nz = -ux; // the left-hand side, walking from the first point to the next
+    const mid = (off0 + off1) / 2;
+    const g = new THREE.PlaneGeometry(off1 - off0, len + (off1 - off0) * 0.6);
+    g.rotateX(-Math.PI / 2);
+    // stretch the texture in metres along the path
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (off1 - off0), uv.getY(i) * len);
+    b.add(g, m, (x0 + x1) / 2 + nx * mid, y, (z0 + z1) / 2 + nz * mid, Math.atan2(dx, dz), false);
+    return { len, ux, uz, nx, nz };
+  };
+  let run = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, z0] = pts[i],
+      [x1, z1] = pts[i + 1];
+    // footpath on the right, cycle lane on the left, white lines between and along
+    const s = strip(x0, z0, x1, z1, -2.2, 0, walkM, 0.075);
+    strip(x0, z0, x1, z1, 0.08, 2.1, bikeM, 0.075);
+    strip(x0, z0, x1, z1, -0.06, 0.08, lineM, 0.08);
+    strip(x0, z0, x1, z1, 2.1, 2.25, lineM, 0.08);
+    const { len, ux, uz, nx, nz } = s;
+    for (let t = 0; t < len; t += 1) {
+      const x = x0 + ux * t,
+        z = z0 + uz * t;
+      run++;
+      // a bicycle painted on the lane every 24 m
+      if (run % 24 === 12) {
+        const ic = new THREE.PlaneGeometry(1.6, 1.6);
+        ic.rotateX(-Math.PI / 2);
+        b.add(ic, iconM, x + nx * 1.1, 0.085, z + nz * 1.1, Math.atan2(ux, uz) + Math.PI / 2, false);
+      }
+      // a zebra crossing where it crosses a road
+      if (onRoad(x, z)) {
+        const zb = new THREE.PlaneGeometry(4.3, 0.5);
+        zb.rotateX(-Math.PI / 2);
+        if (Math.floor(t) % 2 === 0)
+          b.add(zb, zebraM, x + nx * 0.02, 0.09, z + nz * 0.02, Math.atan2(ux, uz), false);
+      }
+      // out on its own: a lamp every 25 m, a palm and a bench in between
+      if (!furnished(x, z) || onRoad(x, z)) continue;
+      const ex = x + nx * 3.2,
+        ez = z + nz * 3.2;
+      if (run % 25 === 0) {
+        b.add(new THREE.CylinderGeometry(0.09, 0.13, 5, 8), MAT.plain(0xeeeee8), ex, 2.5, ez);
+        b.add(new THREE.SphereGeometry(0.34, 10, 8), lamp, ex, 5.2, ez);
+        colliders.push({ x0: ex - 0.2, x1: ex + 0.2, z0: ez - 0.2, z1: ez + 0.2 });
+      } else if (run % 25 === 12) {
+        palm(b, ex, ez, 0.95);
+        colliders.push({ x0: ex - 0.3, x1: ex + 0.3, z0: ez - 0.3, z1: ez + 0.3 });
+      } else if (run % 50 === 19) {
+        b.add(new THREE.BoxGeometry(2, 0.45, 0.6), MAT.plain(0xd8cdb4), ex, 0.22, ez, Math.atan2(ux, uz) + Math.PI / 2);
+        colliders.push({ x0: ex - 1, x1: ex + 1, z0: ez - 1, z1: ez + 1 });
+      }
+    }
+  }
+  return colliders;
+}

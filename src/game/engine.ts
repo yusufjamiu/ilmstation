@@ -12,6 +12,8 @@ import {
   taibahHousing,
   taibahPlaza,
   takeIumGlow,
+  qubaMosque,
+  qubaWalkway,
 } from "./ium";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
@@ -1866,6 +1868,8 @@ export class IlmCityEngine {
           if (Math.abs(x) < 14) continue;
           for (const side of [-1, 1]) {
             const z = st.z + side * 10.5;
+            // the Quba Walkway has this pavement: its own palms and lamps stand beside it
+            if (st.z === 0 && side < 0 && this.onWalkway(D, x)) continue;
             if (!this.boxFree(x - 0.8, x + 0.8, z - 0.8, z + 0.8)) continue;
             this.addCollider(
               "out",
@@ -1934,8 +1938,9 @@ export class IlmCityEngine {
         if (Math.abs(x) <= 8) continue;
         // the arm points across the road: north from the south pavement, south from the north
         if (this.boxFree(x - 0.5, x + 0.5, sz + 7.5, sz + 8.5)) lamps.push([x, sz + 8, Math.PI / 2]);
-        if (this.boxFree(x + 8.5, x + 9.5, sz - 8.5, sz - 7.5))
-          lamps.push([x + 9, sz - 8, -Math.PI / 2]);
+        // (on the Quba Walkway, at the kerb, out of the lanes)
+        const kz = sz === 0 && this.onWalkway(D, x + 9) ? sz - 6.55 : sz - 8;
+        if (this.boxFree(x + 8.5, x + 9.5, kz - 0.5, kz + 0.5)) lamps.push([x + 9, kz, -Math.PI / 2]);
       }
     });
     const saudiLamp = !!D.holy || saudiCity(D);
@@ -2026,6 +2031,9 @@ export class IlmCityEngine {
 
     yield;
     for (const m of batch.build()) S.add(m);
+    // posts and palms on open squares: solid now that the area's plots are laid out
+    this.colliders.out.push(...this.lateBoxes);
+    this.lateBoxes = [];
     this.ox = 0;
     this.oz = 0;
   }
@@ -2679,6 +2687,7 @@ export class IlmCityEngine {
     this.buildCityFill();
     this.buildRingFlyover("madinah");
     this.buildRingFlyover("makkah");
+    this.buildQubaWalkway();
     this.buildOpenRoads();
     this.buildSaudiFill("madinah");
 
@@ -2735,7 +2744,9 @@ export class IlmCityEngine {
         const f = (i + 1) / (boards.length + 1);
         const side = i % 2 ? 1 : -1;
         // beside the four-lane roads of Makkah and Madinah, set back past the ramps
-        const off = d.parent ? 16 : x0 < -3000 ? 27 : 17;
+        let off = d.parent ? 16 : x0 < -3000 ? 27 : 17;
+        // the roads between the Prophet's Mosque and Quba: past the Quba Walkway on its side
+        if ((d.id === "nabawi" || d.id === "quba") && nz * side < 0) off = 34;
         const x = x0 + dx * f + nx * side * off,
           z = z0 + dz * f + nz * side * off;
         this.billboard(b, x, z, Math.atan2(-nx * side, -nz * side));
@@ -3508,6 +3519,72 @@ export class IlmCityEngine {
 
   /** The raised ring road round the heart of Makkah and Madinah: a four-lane flyover on
       pillars, high over the roundabout and the expressways, lit along its parapets. */
+  /** The Quba Walkway's line (world x, z): along the pavement of King Faisal Road from the
+      Prophet's Mosque, out beside the road to Quba (clear of the slip road up to the ring
+      flyover), and along the pavement of Quba Road to the mosque's plaza. */
+  private static walkPts(): [number, number][] {
+    const N = districtById("nabawi"),
+      Q = districtById("quba");
+    const z = N.origin.z,
+      nx = N.origin.x,
+      qx = Q.origin.x;
+    const nE = nx + halfOf(N).x,
+      qW = qx - halfOf(Q).x;
+    return [
+      [nx + 85, z - 8.75],
+      [nE - 14, z - 8.75],
+      [nE + 10, z - 26],
+      [qW - 10, z - 26],
+      [qW + 14, z - 8.75],
+      [qx - 76, z - 8.75],
+    ];
+  }
+  /** Is this stretch of an area's main-street north pavement part of the Quba Walkway? */
+  private onWalkway(D: District, x: number) {
+    const p = IlmCityEngine.walkPts();
+    if (D.id === "nabawi") return x > p[0][0] - D.origin.x - 2 && x < p[2][0] - D.origin.x;
+    if (D.id === "quba") return x > p[3][0] - D.origin.x && x < p[5][0] - D.origin.x + 2;
+    return false;
+  }
+  private static walkSegs(): [number, number, number, number][] {
+    const p = IlmCityEngine.walkPts();
+    return p.slice(1).map((q, i) => [p[i][0], p[i][1], q[0], q[1]]);
+  }
+  private buildQubaWalkway() {
+    const N = districtById("nabawi"),
+      Q = districtById("quba");
+    if (!N || !Q || N.origin.z !== Q.origin.z) return;
+    const pts = IlmCityEngine.walkPts();
+    const c = CITY_CENTER.madinah;
+    const segs = this.roadSegments();
+    const nE = N.origin.x + halfOf(N).x,
+      qW = Q.origin.x - halfOf(Q).x,
+      side = Q.origin.x - (halfOf(Q).x - 36); // Quba's road down its west side
+    const onRoad = (x: number, z: number) => {
+      if (x > nE && x < qW) {
+        const r = Math.hypot(x - c.x, z - c.z);
+        if (r > 16 && r < 30.5) return true;
+        return segs.some((sg) => IlmCityEngine.distToSeg(x, z, sg) < 12.6);
+      }
+      return Math.abs(x - side) < 6;
+    };
+    const furnished = (x: number) => x > nE + 4 && x < qW - 4;
+    const cols = qubaWalkway(this.worldBatch, pts, onRoad, (x) => furnished(x));
+    for (const b of cols) this.colliders.out.push(b);
+    // keep the city's filler buildings off it
+    for (const sg of IlmCityEngine.walkSegs()) this.openRoads.push(sg);
+    for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
+    // a sign at each end
+    const ends: [number, number, string][] = [
+      [pts[0][0] + 4, pts[0][1] - 3.6, "Quba Walkway · ممشى قباء  →  Masjid Quba 🚶 🚲"],
+      [pts[pts.length - 1][0] - 4, pts[pts.length - 1][1] - 3.6, "←  Al-Masjid An-Nabawi 🚶 🚲 · ممشى قباء"],
+    ];
+    for (const [x, z, text] of ends) {
+      const t = label(text, { size: 0.9, bg: "rgba(47,122,82,0.94)" });
+      t.position.set(x, 3.4, z);
+      this.scene.add(t);
+    }
+  }
   private buildRingFlyover(city: string) {
     const c = CITY_CENTER[city];
     if (!c) return;
@@ -3645,6 +3722,7 @@ export class IlmCityEngine {
       const x = c.x + Math.cos(a) * r,
         z = c.z + Math.sin(a) * r;
       if (segs.some((sg) => IlmCityEngine.distToSeg(x, z, sg) < 17)) continue;
+      if (IlmCityEngine.walkSegs().some((sg) => IlmCityEngine.distToSeg(x, z, sg) < 6)) continue;
       b.add(new THREE.BoxGeometry(2.6, Y, 7), concrete, x, Y / 2, z, Math.PI / 2 - a);
       b.add(new THREE.BoxGeometry(3.6, 1, R1 - R0 - 2), concrete, x, Y - 0.5, z, Math.PI / 2 - a);
       this.colliders.out.push({ x0: x - 2.2, x1: x + 2.2, z0: z - 2.2, z1: z + 2.2 });
@@ -3862,6 +3940,7 @@ export class IlmCityEngine {
     else if (l.kind === "rahmah") this.buildRahmah(l, D, sz);
     else if (l.kind === "clocktower") this.buildClockTower(l.x, sz - 30, l.name);
     else if (l.kind === "masjid" && l.id === "masjid-dhulhulayfah") this.buildMiqatMosque(l, sz);
+    else if (l.kind === "masjid" && l.id === "masjid-quba") this.buildQuba(l, sz);
     else if (l.kind === "masjid") {
       this.buildMasjid(l.x, sz - 23, l);
       // the famous mosques of Madinah keep their own shape: minarets and white domes
@@ -10235,6 +10314,20 @@ export class IlmCityEngine {
     const t = label(text.replace(/^Enter /, ""), { size: 0.85 });
     t.position.set(x, labelY, z - 0.5);
     this.dg.add(t);
+  }
+
+  private lateBoxes: { x0: number; x1: number; z0: number; z1: number }[] = [];
+  /** Masjid Quba as it stands today (see qubaMosque), its white plaza reaching the road. */
+  private buildQuba(l: Landmark, sz: number) {
+    // set back from the road so the billboard beside it keeps its place (and every plot its number)
+    const cx = l.x,
+      cz = sz - 37;
+    const q = qubaMosque(this.curBatch, cx, cz, { x0: cx - 38, x1: cx + 38, z1: sz - 11 });
+    for (const c of q.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+    for (const c of q.late)
+      this.lateBoxes.push({ x0: c.x0 + this.ox, x1: c.x1 + this.ox, z0: c.z0 + this.oz, z1: c.z1 + this.oz });
+    this.door(q.door.x, q.door.z, `door:masjid:${l.id}`, `Enter ${l.name}`, 17);
+    for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
   }
 
   private buildMasjid(cx: number, cz: number, l: Landmark) {
