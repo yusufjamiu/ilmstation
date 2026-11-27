@@ -582,7 +582,7 @@ const LIFE_PATHS: { id: LifePath; icon: string; name: string; text: string }[] =
     id: "worker",
     icon: "💼",
     name: "Worker",
-    text: "A job with a daily salary: teacher, developer, decorator, barista at Half Million, AlBaik crew…",
+    text: "A job with a daily salary: teacher, developer, decorator, barista at ½ Million, AlBaik crew…",
   },
   {
     id: "trader",

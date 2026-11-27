@@ -233,7 +233,7 @@ export const STREETS: Record<string, Street> = {
   kingsalmanroad: {
     id: "kingsalmanroad",
     name: "King Salman Road",
-    bio: "Madinah's business district: glass towers, company offices, AlBaik, Half Million and the busiest coffee corner in town.",
+    bio: "Madinah's business district: glass towers, company offices, AlBaik, ½ Million and the busiest coffee corner in town.",
   },
   marifahstreet: {
     id: "marifahstreet",
@@ -999,7 +999,7 @@ export const BRANDS: Brand[] = [
   { id: "albaik", name: "AlBaik", kind: "food", bg: 0xc8102e, fg: 0xffffff, about: "Broasted chicken, garlic sauce and shrimp: the taste of the Hijaz. Queue up and order." },
   { id: "kudu", name: "Kudu", kind: "food", bg: 0xd52b1e, fg: 0xffd200, about: "Burgers, sandwiches and breakfast, Saudi style." },
   { id: "tazaj", name: "Al Tazaj", kind: "food", bg: 0x0b7a3e, fg: 0xffffff, about: "Charcoal-grilled chicken, rice and fresh bread." },
-  { id: "halfmillion", name: "Half Million", kind: "coffee", bg: 0x1b1b1b, fg: 0xf4e9d4, about: "Specialty coffee and the famous Spanish latte. Grab a cup and sit with friends." },
+  { id: "halfmillion", name: "½ Million", kind: "coffee", bg: 0x1b1b1b, fg: 0xf4e9d4, about: "Specialty coffee and the famous Spanish latte. Grab a cup and sit with friends." },
   { id: "barns", name: "Barn's", kind: "coffee", bg: 0x5a3a22, fg: 0xf2c230, about: "Coffee, cold drinks and pastries on every corner of the city." },
   { id: "drcafe", name: "Dr.Cafe Coffee", kind: "coffee", bg: 0x8b1a1a, fg: 0xffffff, about: "Hot coffee, iced drinks and cakes." },
   { id: "dunkin", name: "Dunkin'", kind: "coffee", bg: 0xff671f, fg: 0xffffff, about: "Donuts and coffee." },
@@ -5299,7 +5299,7 @@ export const JOBS: Job[] = [
   {
     id: "barista",
     name: "Barista",
-    place: "Half Million, Madinah Business District",
+    place: "½ Million, Madinah Business District",
     at: "office:food-halfmillion",
     area: "bizdistrict",
     pay: 45,

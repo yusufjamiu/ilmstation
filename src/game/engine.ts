@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { BoxIndex } from "./boxindex";
 import {
   qubaForecourt,
+  policeCompound,
+  coveredParking,
+  qubaCompound,
   iumCollege,
   iumForecourt,
   iumGarden,
@@ -133,6 +136,7 @@ export type EngineEvents = {
 };
 
 type Box = { x0: number; x1: number; z0: number; z1: number };
+type PolicePlot = { sz: number; north: boolean; x: number; box: Box };
 export type WorkKind = "porter" | "caretaker" | "rider";
 type JobStep = { x: number; z: number; label: string; act: "pick" | "drop" | "sweep" };
 type Zone = {
@@ -1671,7 +1675,10 @@ export class IlmCityEngine {
         });
       };
       for (const x of play.xs) hold(play.sz, play.north, x);
-      if (play.police) hold(play.police.sz, play.police.north, play.police.x);
+      if (play.police) {
+        const q = play.police.box;
+        playHold.push({ x0: this.ox + q.x0, x1: this.ox + q.x1, z0: this.oz + q.z0, z1: this.oz + q.z1 });
+      }
     }
     const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
@@ -1705,7 +1712,11 @@ export class IlmCityEngine {
             atGate ||
             (play &&
               ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
-                (play.police?.sz === sz && play.police.north === north && play.police.x === x)))
+                (play.police &&
+                  x - 11 < play.police.box.x1 - 0.5 &&
+                  x + 11 > play.police.box.x0 + 0.5 &&
+                  cz - 10 < play.police.box.z1 - 0.5 &&
+                  cz + 10 > play.police.box.z0 + 0.5)))
           ) {
             // this plot is the pitch or the sisters' corner; draw the house it replaces into a
             // throwaway batch so every later plot keeps the same number and look as before
@@ -2037,6 +2048,8 @@ export class IlmCityEngine {
     // (posts and palms on open squares go solid first: the area's plots are laid out now)
     this.colliders.out.push(...this.lateBoxes);
     this.lateBoxes = [];
+    this.buildCampusParks(D, batch);
+    this.buildQubaCompound(D, batch);
     this.buildParks(D, batch);
     for (const m of batch.build()) S.add(m);
     this.ox = 0;
@@ -3298,6 +3311,9 @@ export class IlmCityEngine {
       }
       for (const sg of segs) if (IlmCityEngine.distToSeg(x, z, sg) < 24) return true;
       for (const sg of this.openRoads) if (IlmCityEngine.distToSeg(x, z, sg) < 20) return true;
+      // Masjid Quba's compound reaches beyond the area's edge
+      const Q = DISTRICTS.find((d) => d.id === "quba");
+      if (Q && x > Q.origin.x - 140 && x < Q.origin.x + 140 && z > Q.origin.z - 190 && z < Q.origin.z - 60) return true;
       for (const f of this.fuelSpots) if (Math.hypot(x - f.x, z - f.z) < 30) return true;
       return false;
     };
@@ -4488,6 +4504,47 @@ export class IlmCityEngine {
   }
 
   /** Three plots in a row, free of everything, for the pitch and the sisters' corner. */
+  /** The police station's walled compound: its own plot and the one beside it, and the two
+      behind them when they're free (the houses there make way; every other plot keeps its
+      number). Area coords; front on the street. */
+  private policeBox(
+    D: District,
+    zs: number[],
+    H: { x: number; z: number },
+    cz: number,
+    north: boolean,
+    x: number,
+    slots: number[],
+    playSz: number,
+    playNorth: boolean,
+    playXs: number[],
+  ) {
+    const front = north ? cz + 10 : cz - 10;
+    const playBoxes = playXs.map((px) => {
+      const pcz = playNorth ? playSz - 21.5 : playSz + 21.5;
+      return { x0: px - 11, x1: px + 11, z0: pcz - 10, z1: pcz + 10 };
+    });
+    const clear = (x0: number, x1: number, z0: number, z1: number) =>
+      x0 > -H.x + 4 &&
+      x1 < H.x - 4 &&
+      z0 > -H.z + 4 &&
+      z1 < H.z - 4 &&
+      !zs.some((z) => z0 < z + 9 && z1 > z - 9) &&
+      !(x0 < 11 && x1 > -11) &&
+      !playBoxes.some((p) => x0 < p.x1 && x1 > p.x0 && z0 < p.z1 && z1 > p.z0) &&
+      this.boxFree(x0, x1, z0, z1);
+    const s = x >= 0 ? 1 : -1;
+    for (const depth of [41, 20])
+      for (const nx of [x + s * 24, x - s * 24]) {
+        if (!slots.includes(nx)) continue;
+        const x0 = Math.min(x, nx) - 11.5,
+          x1 = Math.max(x, nx) + 11.5;
+        const z0 = north ? front - depth : front,
+          z1 = north ? front : front + depth;
+        if (clear(x0, x1, z0, z1)) return { x0, x1, z0, z1 };
+      }
+    return { x0: x - 11, x1: x + 11, z0: cz - 10, z1: cz + 10 };
+  }
   private choosePlayPlots(
     D: District,
     zs: number[],
@@ -4498,7 +4555,7 @@ export class IlmCityEngine {
     north: boolean;
     xs: number[];
     field: boolean;
-    police: { sz: number; north: boolean; x: number } | null;
+    police: PolicePlot | null;
   } | null {
     const field = !D.landmarks.some((l) => l.kind === "field");
     const slots: number[] = [];
@@ -4517,7 +4574,7 @@ export class IlmCityEngine {
         if (set.length < 3 || set[2] - set[0] !== 48) continue;
         if (!set.every((x) => this.boxFree(x - 11, x + 11, cz - 10, cz + 10))) continue;
         // and one more free plot for the police station, as near the cross road as possible
-        let police: { sz: number; north: boolean; x: number } | null = null;
+        let police: PolicePlot | null = null;
         for (const [sz2, n2] of [[0, false], [0, true], ...rows] as [number, boolean][]) {
           if (!zs.includes(sz2)) continue;
           const cz2 = n2 ? sz2 - 21.5 : sz2 + 21.5;
@@ -4531,7 +4588,7 @@ export class IlmCityEngine {
                 this.boxFree(x - 11, x + 11, cz2 - 10, cz2 + 10),
             );
           if (x2 !== undefined) {
-            police = { sz: sz2, north: n2, x: x2 };
+            police = { sz: sz2, north: n2, x: x2, box: this.policeBox(D, zs, H, cz2, n2, x2, slots, sz, isNorth, set) };
             break;
           }
         }
@@ -4547,7 +4604,7 @@ export class IlmCityEngine {
       north: boolean;
       xs: number[];
       field: boolean;
-      police: { sz: number; north: boolean; x: number } | null;
+      police: PolicePlot | null;
     },
   ) {
     const cz = p.north ? p.sz - 21.5 : p.sz + 21.5;
@@ -4603,18 +4660,21 @@ export class IlmCityEngine {
       this.registerPitch(`field:${D.id}-pitch`, f.pitch);
     }
     if (p.police) {
-      const q = p.police;
-      const pz = q.north ? q.sz - 21.5 : q.sz + 21.5;
-      const ps = policeStation(b, {
-        x: q.x,
-        z: pz,
-        turn: q.north ? 0 : Math.PI,
-        width: 21,
-        depth: 19.5,
+      const q = p.police.box;
+      const ps = policeCompound(b, {
+        x: (q.x0 + q.x1) / 2,
+        z: (q.z0 + q.z1) / 2,
+        turn: p.police.north ? 0 : Math.PI,
+        w: q.x1 - q.x0 - 0.4,
+        d: q.z1 - q.z0 - 0.4,
         name: `${D.name} Police Station`,
+        saudi: saudiCity(D),
+        seed: 977 + D.id.length * 31,
       });
-      put(ps, `police:${D.id}`, "Police station", q.x - 10.5, q.x + 10.5, pz);
-      this.notePark(D, q.x, pz, 22, 21, q.north ? 0 : Math.PI);
+      for (const q of takeIumGlow()) this.glow(q.m, q.k, q.c, q.map);
+      put(ps, `police:${D.id}`, "Police station", q.x0, q.x1, (q.z0 + q.z1) / 2);
+      // (put holds 20 m deep; hold the whole compound)
+      this.reserved.push({ x0: this.ox + q.x0, x1: this.ox + q.x1, z0: this.oz + q.z0, z1: this.oz + q.z1 });
     }
     const sc = sistersCorner(b, {
       x: cornerX,
@@ -5716,8 +5776,9 @@ export class IlmCityEngine {
       g.add(hint);
       // gardens and palms in the forecourt between the gate and the colleges
       const av = D.streets[1].z;
-      for (const q of iumForecourt(this.curBatch, gz - 4.6, av + 7))
-        this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      // (the covered car parks either side of the drive are built last, see buildCampusParks)
+      iumForecourt(this.curBatch, gz - 4.6, av + 7, false);
+      this.campusParks = { z0: av + 7, z1: gz - 4.6 };
       this.reserved.push({
         x0: this.ox - 28,
         x1: this.ox + 28,
@@ -9146,11 +9207,7 @@ export class IlmCityEngine {
   }
   /** A lawn with palms where a plot was taken out (the entrance of the Islamic University). */
   private ghostGarden(batch: Batch, x: number, cz: number) {
-    // the one beside the gate is the visitors' car park
-    const cols =
-      x === -18
-        ? parkingLot(batch, { x, z: cz, turn: 0, w: 20, d: 18, seed: 4242 + Math.round(this.ox) })
-        : iumGarden(batch, x, cz);
+    const cols = iumGarden(batch, x, cz);
     for (const b of cols) this.addCollider("out", b.x0, b.x1, b.z0, b.z1);
     this.reserved.push({
       x0: this.ox + x - 11,
@@ -10437,6 +10494,77 @@ export class IlmCityEngine {
       }
     }
   }
+  private qubaYard: { cx: number; aw: number; plaza: Box } | null = null;
+  /** Masjid Quba's big walled compound behind Awali Street, with its covered car park (built
+      last, so nothing else moves). */
+  private buildQubaCompound(D: District, batch: Batch) {
+    const q = this.qubaYard;
+    this.qubaYard = null;
+    if (!q || D.id !== "quba") return;
+    const free = (x0: number, x1: number, z0: number, z1: number) =>
+      !this.outIndex.sync(this.colliders.out).hitBox(x0 + this.ox, x1 + this.ox, z0 + this.oz, z1 + this.oz);
+    const cols = qubaCompound(batch, {
+      x0: -130,
+      x1: 130,
+      z0: -178,
+      z1: q.aw - 6.8,
+      gates: [
+        [q.cx - 10, q.cx + 10],
+        [-6, 6],
+        [64, 76],
+        [-112, -104],
+      ],
+      skip: [q.plaza],
+      park: { x0: 22, x1: 120, z0: -170, z1: -104, gate: 70 },
+      free,
+      seed: 7331,
+    });
+    for (const c of cols) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+    this.reserved.push({ x0: this.ox - 130, x1: this.ox + 130, z0: this.oz - 178, z1: this.oz + q.aw - 6.5 });
+    this.parksMade.push({ area: D.id, x: this.ox + 71, z: this.oz - 137, w: 98 });
+    for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
+  }
+  private campusParks: { z0: number; z1: number } | null = null;
+  /** Inside the university gate: a big covered car park either side of the drive, with
+      palms and lamps along it (built last, so nothing else moves). */
+  private buildCampusParks(D: District, batch: Batch) {
+    const c = this.campusParks;
+    this.campusParks = null;
+    if (!c) return;
+    // (a lamp or a bin may stand in it; only buildings and walls push it back)
+    const hit = (x0: number, x1: number, z0: number, z1: number) =>
+      this.colliders.out.some(
+        (c) =>
+          (c.x1 - c.x0 > 1.5 || c.z1 - c.z0 > 1.5) &&
+          c.x0 < x1 + this.ox &&
+          c.x1 > x0 + this.ox &&
+          c.z0 < z1 + this.oz &&
+          c.z1 > z0 + this.oz,
+      );
+    for (const s of [-1, 1]) {
+      const xin = 10.8;
+      let xout = 40;
+      while (xout > 26 && hit(Math.min(s * xin, s * xout), Math.max(s * xin, s * xout), c.z0, c.z1)) xout -= 0.5;
+      const xc = (s * (xin + xout)) / 2,
+        zc = (c.z0 + c.z1) / 2;
+      const cols = coveredParking(batch, {
+        x: xc,
+        z: zc,
+        turn: (-s * Math.PI) / 2,
+        w: c.z1 - c.z0,
+        d: xout - xin,
+        seed: 31 + (s > 0 ? 7 : 0) + D.id.length * 101,
+      });
+      for (const q of cols) this.addCollider("out", q.x0, q.x1, q.z0, q.z1);
+      this.reserved.push({
+        x0: this.ox + Math.min(s * xin, s * xout),
+        x1: this.ox + Math.max(s * xin, s * xout),
+        z0: this.oz + c.z0,
+        z1: this.oz + c.z1,
+      });
+      this.parksMade.push({ area: D.id, x: this.ox + xc, z: this.oz + zc, w: xout - xin });
+    }
+  }
   private lateBoxes: { x0: number; x1: number; z0: number; z1: number }[] = [];
   /** Masjid Quba's ground behind Awali Street: whatever would be built there (the market,
       the flats) is moved back by dz instead, its own ground still held. */
@@ -10479,7 +10607,7 @@ export class IlmCityEngine {
     for (const c of [...q.colliders, ...q.late, ...fore])
       this.lateBoxes.push({ x0: c.x0 + this.ox, x1: c.x1 + this.ox, z0: c.z0 + this.oz, z1: c.z1 + this.oz });
     this.qubaShift = { x0: cx - 33, x1: cx + 33, z0: cz - 15, z1: cz + 12, dz: -40 };
-    this.notePark(districtById("quba"), cx, cz, 66, 20, 0, true);
+    this.qubaYard = { cx, aw, plaza: { x0: cx - 36, x1: cx + 30, z0: cz - 16, z1: aw - 6.2 } };
     this.door(q.door.x, q.door.z, `door:masjid:${l.id}`, `Enter ${l.name}`, 17);
     for (const g of takeIumGlow()) this.glow(g.m, g.k, g.c, g.map);
   }

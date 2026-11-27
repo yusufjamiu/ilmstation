@@ -1,7 +1,7 @@
 /* The Islamic University of Madinah: its striped twin-arch main gate, the colleges with
    their names in Arabic and English, and the student hostels inside the campus. */
 import * as THREE from "three";
-import { Batch, MAT, MAT2, groundGeo, type Box } from "./buildings";
+import { Batch, MAT, MAT2, groundGeo, textMat, type Box } from "./buildings";
 
 const AR = '"Amiri", "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif';
 const EN = '"Work Sans", system-ui, sans-serif';
@@ -795,8 +795,9 @@ export function iumGarden(b: Batch, x: number, z: number) {
 /* ---------------- the forecourt and the star plaza ---------------- */
 /** Lawns, palms and lamps either side of the road between the gate and the colleges.
     z0 is just behind the gate, z1 by Students' Avenue (z1 < z0). */
-export function iumForecourt(b: Batch, z0: number, z1: number) {
+export function iumForecourt(b: Batch, z0: number, z1: number, gardens = true) {
   const colliders: Box[] = [];
+  if (!gardens) return colliders;
   const lamp = M.tex("lamp", winTex(), 1.2);
   for (const s of [-1, 1]) {
     const xc = s * 19.5;
@@ -1990,6 +1991,458 @@ export function parkingLot(
   b.add(new THREE.PlaneGeometry(0.9, 0.9), sign, sx, 2.9, sz + 0.05, 0, false);
   b.add(new THREE.PlaneGeometry(0.9, 0.9), sign, sx, 2.9, sz - 0.05, Math.PI, false);
   solid(sx - 0.15, sx + 0.15, sz - 0.15, sz + 0.15);
+  b.base.identity();
+  return colliders;
+}
+
+/** A simple parked car, nose to the aisle (face +1: nose to +z). */
+function carAt(
+  b: Batch,
+  cx: number,
+  rz: number,
+  face: number,
+  col: number,
+  solid: (x0: number, x1: number, z0: number, z1: number) => void,
+  police = false,
+) {
+  const body = MAT.plain(col, 0.4);
+  b.box(1.8, 0.75, 4.2, body, cx, 0.32, rz);
+  b.box(1.6, 0.6, 2.2, body, cx, 1.07, rz - face * 0.2);
+  b.box(1.62, 0.42, 2.0, MAT.plain(0x1c2a33, 0.2), cx, 1.12, rz - face * 0.2);
+  for (const wx of [-0.82, 0.82])
+    for (const wz of [-1.35, 1.35]) {
+      const wh = new THREE.CylinderGeometry(0.34, 0.34, 0.26, 10);
+      wh.rotateZ(Math.PI / 2);
+      b.add(wh, MAT.plain(0x161616), cx + wx, 0.34, rz + wz);
+    }
+  if (police) {
+    // a stripe down each side and the light bar on the roof
+    for (const sx of [-0.91, 0.91]) b.box(0.02, 0.22, 3.6, MAT.plain(0x1d3a6b, 0.4), cx + sx, 0.62, rz);
+    b.box(1.1, 0.16, 0.3, MAT.plain(0x2f6fe0, 0.2), cx - 0.28, 1.68, rz - face * 0.2);
+    b.box(0.55, 0.16, 0.3, MAT.plain(0xd83a3a, 0.2), cx + 0.28, 1.68, rz - face * 0.2);
+  }
+  solid(cx - 0.95, cx + 0.95, rz - 2.15, rz + 2.15);
+}
+
+/** A big covered car park: double rows of bays under white shade roofs on steel posts,
+    aisles between them, kerbs at the back and sides, open along the front (+z) and at the
+    ends of each aisle. w runs along x, d along z. */
+export function coveredParking(
+  b: Batch,
+  o: { x: number; z: number; turn: number; w: number; d: number; seed: number; police?: number },
+) {
+  const { colliders, solid } = frameOf(b, o.x, o.z, o.turn);
+  const { w, d } = o;
+  let s = o.seed >>> 0 || 1;
+  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const asphalt = mat("park-asphalt", () => new THREE.MeshStandardMaterial({ color: 0x4a4d50, roughness: 0.95 }), 0);
+  const line = mat("park-line", () => new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 }), 0.3);
+  const shade = mat(
+    "park-shade",
+    () => new THREE.MeshStandardMaterial({ color: 0xf4f1e8, roughness: 0.85, side: THREE.DoubleSide }),
+    0,
+  );
+  const steel = MAT.plain(0x8d9399, 0.35);
+  const trim = MAT.plain(0x1f6f63, 0.5);
+  const kerb = MAT.plain(0xd8d2c2);
+  b.add(groundGeo(w, d, 2), asphalt, 0, 0.045, 0, 0, false);
+  b.box(w + 0.4, 0.18, 0.3, kerb, 0, 0, -d / 2);
+  const BAY = 2.7,
+    BD = 5,
+    AISLE = 6,
+    DOUBLE = BD * 2 + 0.4;
+  const n = Math.floor((w - 1.4) / BAY);
+  const x0 = -(n * BAY) / 2;
+  let police = o.police ?? 0;
+  // double rows from the back, an aisle in front of each
+  const rows: number[] = [];
+  for (let z = -d / 2 + 0.4; z + DOUBLE <= d / 2 - 0.3; z += DOUBLE + AISLE) rows.push(z);
+  for (const zb of rows) {
+    const mid = zb + BD + 0.2;
+    for (const [rz, face] of [
+      [zb + BD / 2, -1],
+      [mid + 0.2 + BD / 2, 1],
+    ] as [number, number][]) {
+      for (let i = 0; i <= n; i++) {
+        const g = new THREE.PlaneGeometry(0.14, BD);
+        g.rotateX(-Math.PI / 2);
+        b.add(g, line, x0 + i * BAY, 0.06, rz, 0, false);
+      }
+      for (let i = 0; i < n; i++) {
+        if (police > 0) {
+          carAt(b, x0 + (i + 0.5) * BAY, rz, face, 0xf4f4f2, solid, true);
+          police--;
+          continue;
+        }
+        if (rnd() < 0.3) continue; // an empty bay
+        carAt(b, x0 + (i + 0.5) * BAY, rz, face, CAR_COLOURS[Math.floor(rnd() * CAR_COLOURS.length)], solid);
+      }
+    }
+    // the shade roof: posts down the middle, a beam on top, a white roof sloping to both sides
+    const span = n * BAY + 0.6;
+    for (let i = 0; i <= n; i += 2) {
+      const px = x0 + i * BAY;
+      b.add(new THREE.CylinderGeometry(0.11, 0.13, 3.3, 8), steel, px, 1.65, mid);
+      b.box(0.14, 0.14, DOUBLE, steel, px, 2.72, mid);
+      solid(px - 0.16, px + 0.16, mid - 0.16, mid + 0.16);
+    }
+    b.box(span, 0.2, 0.2, steel, 0, 3.12, mid);
+    for (const side of [-1, 1]) {
+      const g = new THREE.PlaneGeometry(span, DOUBLE / 2 + 0.5);
+      g.rotateX(-Math.PI / 2 + side * 0.09);
+      b.add(g, shade, 0, 3.45 - 0.25, mid + side * (DOUBLE / 4 + 0.25), 0, true);
+      b.box(span, 0.32, 0.08, trim, 0, 3.05, mid + side * (DOUBLE / 2 + 0.5));
+    }
+  }
+  // the P sign at the front corner
+  const sx = w / 2 - 0.25,
+    sz = d / 2 - 0.25;
+  b.add(new THREE.CylinderGeometry(0.06, 0.06, 2.8, 8), MAT.plain(0x9a9a92), sx, 1.4, sz);
+  const sign = M.sign("park", parkSignTex());
+  b.add(new THREE.PlaneGeometry(0.9, 0.9), sign, sx, 2.9, sz + 0.05, 0, false);
+  b.add(new THREE.PlaneGeometry(0.9, 0.9), sign, sx, 2.9, sz - 0.05, Math.PI, false);
+  solid(sx - 0.12, sx + 0.12, sz - 0.12, sz + 0.12);
+  b.base.identity();
+  return colliders;
+}
+
+function policeBadgeTex(saudi: boolean) {
+  return canvasTex(`police-badge-${saudi}`, 256, 256, (c, w, h) => {
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = saudi ? "#1f6f4a" : "#1d3a6b";
+    c.beginPath();
+    c.arc(w / 2, h / 2, 120, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "#d9b44a";
+    c.lineWidth = 12;
+    c.stroke();
+    // a gold star
+    c.fillStyle = "#e8c45a";
+    c.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 34 : 78,
+        a = -Math.PI / 2 + (i * Math.PI) / 5;
+      c.lineTo(w / 2 + r * Math.cos(a), h / 2 + r * Math.sin(a));
+    }
+    c.closePath();
+    c.fill();
+  });
+}
+
+/** A police station in its own walled compound: a grand gate with lanterns and a guard
+    booth, a forecourt with lawns, palms and the flag in a round garden, the two-storey station
+    at the back with a pillared porch and the badge over the door, and a covered car park with
+    the patrol cars along one side. Front (+z) on the street. */
+export function policeCompound(
+  b: Batch,
+  o: { x: number; z: number; turn: number; w: number; d: number; name: string; saudi: boolean; seed: number },
+) {
+  const { to, colliders, solid } = frameOf(b, o.x, o.z, o.turn);
+  const W = o.w,
+    D = o.d;
+  const navy = o.saudi ? 0x1f5f46 : 0x1d3a6b;
+  const wallM = MAT.plaster(0xefe8d8),
+    white = MAT.plaster(0xf6f4ee),
+    capM = MAT.plain(navy, 0.5),
+    stone = MAT.plain(0xd9cdb2, 0.8),
+    lamp = mat("police-lamp", () => new THREE.MeshStandardMaterial({ color: 0xfff1cc, roughness: 0.4 }), 1.3),
+    blue = mat("police-blue", () => new THREE.MeshStandardMaterial({ color: 0x3a7bd5, roughness: 0.3 }), 1.0, 0x6aa8ff);
+  // the ground: paving, with lawns either side of the drive
+  b.add(groundGeo(W, D, 2), MAT.pavement(), 0, 0.035, 0, 0, false);
+  // the walls, with pillars, and the gate in the middle of the front
+  const WH = 2.6,
+    GATE = 5;
+  const wallRun = (ax: number, az: number, bx: number, bz: number) => {
+    const along = Math.abs(bx - ax) > Math.abs(bz - az);
+    const len = along ? Math.abs(bx - ax) : Math.abs(bz - az);
+    const cx = (ax + bx) / 2,
+      cz = (az + bz) / 2;
+    b.box(along ? len : 0.4, WH, along ? 0.4 : len, wallM, cx, 0, cz);
+    b.box(along ? len + 0.2 : 0.6, 0.2, along ? 0.6 : len + 0.2, capM, cx, WH, cz);
+    const n = Math.max(1, Math.round(len / 6));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const px = ax + (bx - ax) * t,
+        pz = az + (bz - az) * t;
+      b.box(0.8, WH + 0.5, 0.8, wallM, px, 0, pz);
+      b.box(1.0, 0.18, 1.0, capM, px, WH + 0.5, pz);
+    }
+    solid(Math.min(ax, bx) - 0.25, Math.max(ax, bx) + 0.25, Math.min(az, bz) - 0.25, Math.max(az, bz) + 0.25);
+  };
+  const hw = W / 2 - 0.3,
+    hd = D / 2 - 0.3;
+  wallRun(-hw, -hd, hw, -hd);
+  wallRun(-hw, -hd, -hw, hd);
+  wallRun(hw, -hd, hw, hd);
+  wallRun(-hw, hd, -GATE - 0.9, hd);
+  wallRun(GATE + 0.9, hd, hw, hd);
+  // the gate: tall pillars with lanterns, a beam with the name, the sliding gate drawn back
+  for (const s of [-1, 1]) {
+    const px = s * (GATE + 0.2);
+    b.box(1.5, 5.2, 1.5, stone, px, 0, hd);
+    b.box(1.8, 0.3, 1.8, capM, px, 5.2, hd);
+    b.add(new THREE.BoxGeometry(0.5, 0.7, 0.5), lamp, px, 5.85, hd);
+    b.box(0.7, 0.12, 0.7, capM, px, 6.25, hd);
+    solid(px - 0.8, px + 0.8, hd - 0.8, hd + 0.8);
+  }
+  b.box(2 * GATE + 1.4, 1.1, 0.6, capM, 0, 5.0, hd);
+  const sign = textMat(o.name.toUpperCase(), { bg: o.saudi ? "#1f5f46" : "#1d3a6b", fg: "#ffffff" });
+  b.plane(2 * GATE - 0.4, 0.8, sign, 0, 5.55, hd + 0.32);
+  b.plane(2 * GATE - 0.4, 0.8, sign, 0, 5.55, hd - 0.32, Math.PI);
+  // the sliding gate, open, behind the wall on the right
+  for (let i = 0; i < 9; i++) b.box(0.08, 2.1, 0.08, MAT.plain(0x2a2d31, 0.4), GATE + 1.3 + i * 0.55, 0, hd - 0.6);
+  b.box(4.6, 0.12, 0.1, MAT.plain(0x2a2d31, 0.4), GATE + 3.5, 2.0, hd - 0.6);
+  b.box(4.6, 0.12, 0.1, MAT.plain(0x2a2d31, 0.4), GATE + 3.5, 0.15, hd - 0.6);
+  // the guard booth on the left, and its barrier (raised)
+  const gx = -GATE - 3.2,
+    gz = hd - 3;
+  b.box(3, 2.8, 3, white, gx, 0, gz);
+  b.box(3.6, 0.25, 3.6, capM, gx, 2.8, gz);
+  b.plane(2.2, 1.1, MAT.window(navy), gx, 1.7, gz + 1.52);
+  b.plane(1.1, 1.1, MAT.window(navy), gx + 1.52, 1.7, gz, Math.PI / 2);
+  solid(gx - 1.6, gx + 1.6, gz - 1.6, gz + 1.6);
+  const arm = new THREE.BoxGeometry(0.12, 0.12, 4.2);
+  arm.translate(0, 0, 2.1);
+  arm.rotateX(-0.9);
+  arm.rotateY(Math.PI / 2);
+  b.box(0.35, 1.1, 0.35, MAT.plain(0xd83a3a, 0.5), -GATE + 0.6, 0, hd - 1.6);
+  b.add(arm, MAT.plain(0xf2f2ee, 0.5), -GATE + 0.6, 1.05, hd - 1.6);
+  // the station at the back
+  const BW = Math.min(W - 14, 34),
+    BD = D >= 30 ? 12 : 8,
+    H = D >= 30 ? 8.6 : 5.2,
+    bz0 = -hd + 1.2,
+    front = bz0 + BD;
+  b.box(BW + 0.6, 0.45, BD + 0.6, stone, 0, 0, bz0 + BD / 2);
+  b.box(BW, H, BD, white, 0, 0.45, bz0 + BD / 2);
+  b.box(BW + 0.5, 0.7, BD + 0.5, capM, 0, H + 0.1, bz0 + BD / 2);
+  if (H > 6) b.box(BW + 0.15, 0.35, BD + 0.15, capM, 0, 4.4, bz0 + BD / 2);
+  const floors = H > 6 ? [2.3, 6.4] : [2.4];
+  for (const y of floors)
+    for (let x = -BW / 2 + 2.2; x <= BW / 2 - 2.1; x += 2.6) {
+      if (Math.abs(x) < 5) continue;
+      b.plane(1.7, 1.6, MAT.window(navy), x, y, front + 0.02);
+    }
+  for (const y of floors)
+    for (const s of [-1, 1])
+      for (let z = bz0 + 2; z <= front - 1.8; z += 2.6)
+        b.plane(1.7, 1.6, MAT.window(navy), s * (BW / 2 + 0.02), y, z, (s * Math.PI) / 2);
+  // the entrance: a taller middle block with a pillared porch, the badge and the name
+  const EW = 9;
+  b.box(EW, H + 1.6, 1.2, white, 0, 0.45, front + 0.6);
+  b.box(EW + 0.5, 0.6, 1.6, capM, 0, H + 2.0, front + 0.6);
+  const porchD = 4.2;
+  b.box(EW + 1.4, 0.4, porchD + 0.4, capM, 0, 4.0, front + 1.2 + porchD / 2);
+  for (const x of [-EW / 2, -EW / 6, EW / 6, EW / 2]) {
+    b.add(new THREE.CylinderGeometry(0.28, 0.32, 3.6, 12), white, x, 0.45 + 1.8, front + 1.2 + porchD - 0.3);
+    solid(x - 0.35, x + 0.35, front + porchD + 0.55, front + porchD + 1.25);
+  }
+  for (let i = 0; i < 3; i++)
+    b.box(EW + 1.4 - i * 0.6, 0.15, porchD + 1.2 - i * 0.5, stone, 0, i * 0.15, front + 1.2 + porchD / 2 + 0.3 - i * 0.25);
+  b.plane(3.2, 3.0, MAT.door(navy), 0, 0.45 + 1.5, front + 1.22);
+  b.plane(1.3, 1.6, MAT.window(navy), -2.9, 2.0, front + 1.22);
+  b.plane(1.3, 1.6, MAT.window(navy), 2.9, 2.0, front + 1.22);
+  b.plane(EW - 1, 1.2, textMat(o.name, { bg: o.saudi ? "#1f5f46" : "#1d3a6b", fg: "#ffffff" }), 0, H - 0.2, front + 1.22);
+  const badge = mat(`police-badge-${o.saudi}`, () => new THREE.MeshStandardMaterial({ map: policeBadgeTex(o.saudi), transparent: true, roughness: 0.5 }), 0.3);
+  b.add(new THREE.PlaneGeometry(2.4, 2.4), badge, 0, H + 1.0 - (H > 6 ? 0 : 0.2), front + 1.23, 0, false);
+  b.add(new THREE.BoxGeometry(0.6, 0.6, 0.6), blue, 0, 3.55, front + 1.5);
+  solid(-BW / 2 - 0.3, BW / 2 + 0.3, bz0 - 0.3, front + 1.25);
+  // the drive from the gate, a round garden with the flag, lawns and palms
+  const driveZ0 = front + porchD + 1.6;
+  const drive = MAT.plain(0xcfc6b2, 0.9);
+  b.add(groundGeo(2 * GATE, hd - driveZ0 + 0.3, 2), drive, 0, 0.05, (hd + driveZ0) / 2, 0, false);
+  const fz = (driveZ0 + hd) / 2;
+  const room = hd - driveZ0;
+  if (room > 9) {
+    const ring = new THREE.CircleGeometry(3.4, 28);
+    ring.rotateX(-Math.PI / 2);
+    b.add(ring, MAT.plain(0xb4614a), 0, 0.07, fz, 0, false);
+    const lawn = new THREE.CircleGeometry(3.0, 28);
+    lawn.rotateX(-Math.PI / 2);
+    b.add(lawn, MAT2.lawn(), 0, 0.08, fz, 0, false);
+    b.add(new THREE.CylinderGeometry(0.06, 0.08, 9, 8), MAT.plain(0xd8dce0, 0.3), 0, 4.5, fz);
+    const fc = o.saudi ? [0x1f7a3e, 0x1f7a3e, 0x1f7a3e] : [0x1f8a3a, 0xfdfdfd, 0x1f8a3a];
+    for (const [i, c] of fc.entries()) b.plane(0.6, 1.2, MAT.plain(c), 0.3 + i * 0.6, 8.2, fz, 0);
+    for (const [i, c] of fc.entries()) b.plane(0.6, 1.2, MAT.plain(c), 0.3 + i * 0.6, 8.2, fz - 0.01, Math.PI);
+    if (o.saudi) b.plane(1.2, 0.18, MAT.plain(0xfdfdfd), 0.9, 8.0, fz + 0.01);
+    solid(-0.4, 0.4, fz - 0.4, fz + 0.4);
+  }
+  // lawns with palms between the drive and the car park / the far wall
+  const lawnX0 = GATE + 1.2;
+  for (const s of [-1, 1]) {
+    if (s === 1) continue; // the right side is the car park
+    const x1 = s * (hw - 1.2);
+    const lw = Math.abs(x1) - lawnX0,
+      lx = s * (lawnX0 + lw / 2);
+    const lz0 = driveZ0 - 1,
+      lz1 = hd - 4.6;
+    if (lw > 3 && lz1 - lz0 > 3) {
+      b.add(groundGeo(lw, lz1 - lz0, 2), MAT2.lawn(), lx, 0.06, (lz0 + lz1) / 2, 0, false);
+      for (let z = lz0 + 2; z < lz1 - 1; z += 5)
+        for (const x of [s * (lawnX0 + 1.5), x1 - s * 1.5]) {
+          palm(b, x, z, 0.9);
+          solid(x - 0.3, x + 0.3, z - 0.3, z + 0.3);
+        }
+    }
+  }
+  // lamps along the drive
+  for (let z = driveZ0 + 1.5; z < hd - 2; z += 7)
+    for (const x of [-GATE - 0.6, GATE + 0.6]) {
+      b.add(new THREE.CylinderGeometry(0.07, 0.1, 4, 8), MAT.plain(0x2e2e2a), x, 2, z);
+      b.add(new THREE.SphereGeometry(0.28, 10, 8), lamp, x, 4.1, z);
+      solid(x - 0.15, x + 0.15, z - 0.15, z + 0.15);
+    }
+  b.base.identity();
+  // the covered car park with the patrol cars, along the right-hand side
+  const px0 = GATE + 1.6,
+    px1 = hw - 0.5;
+  const pz0 = front + 1.6,
+    pz1 = hd - 0.6;
+  if (px1 - px0 > 11 && pz1 - pz0 > 8) {
+    // turned so its bays face the drive (its front is the drive side)
+    const c = to((px0 + px1) / 2, (pz0 + pz1) / 2);
+    colliders.push(
+      ...coveredParking(b, {
+        x: c.x,
+        z: c.z,
+        turn: o.turn - Math.PI / 2,
+        w: pz1 - pz0,
+        d: px1 - px0,
+        seed: o.seed,
+        police: 4,
+      }),
+    );
+  }
+  const spot = to(0, front + porchD + 2.2);
+  return {
+    colliders,
+    spots: [{ key: "police", x: spot.x, z: spot.z, label: o.name, labelY: H + 3.4 }],
+  };
+}
+
+/** Masjid Quba's compound: white marble paving all round the mosque, a low white wall with
+    railings and lamp pillars (open at the gates), rows of palms and lamps, and a big covered
+    car park reached from its own gate. `free` says if a spot is clear of what's already
+    there; `skip` lists ground already paved (the mosque's own plaza). */
+export function qubaCompound(
+  b: Batch,
+  o: {
+    x0: number;
+    x1: number;
+    z0: number;
+    z1: number;
+    gates: [number, number][];
+    skip: Box[];
+    park: Box & { gate: number };
+    free: (x0: number, x1: number, z0: number, z1: number) => boolean;
+    seed: number;
+  },
+) {
+  const colliders: Box[] = [];
+  const solid = (x0: number, x1: number, z0: number, z1: number) => colliders.push({ x0, x1, z0, z1 });
+  const blocked = (x0: number, x1: number, z0: number, z1: number) =>
+    !o.free(x0, x1, z0, z1) || colliders.some((c) => x0 < c.x1 && x1 > c.x0 && z0 < c.z1 && z1 > c.z0);
+  b.base.identity();
+  // the paving, in strips around the plaza already there
+  const pave = (x0: number, x1: number, z0: number, z1: number) => {
+    if (x1 - x0 < 0.5 || z1 - z0 < 0.5) return;
+    b.add(groundGeo(x1 - x0, z1 - z0, 1), QM.pave(), (x0 + x1) / 2, 0.042, (z0 + z1) / 2, 0, false);
+  };
+  const sk = o.skip[0];
+  pave(o.x0, sk.x0, o.z0, o.z1);
+  pave(sk.x1, o.x1, o.z0, o.z1);
+  pave(sk.x0, sk.x1, o.z0, sk.z0);
+  // the car park's drive from its gate
+  const P = o.park;
+  const asphalt = mat("park-asphalt", () => new THREE.MeshStandardMaterial({ color: 0x4a4d50, roughness: 0.95 }), 0);
+  b.add(groundGeo(12, o.z1 - P.z1 + 0.2, 2), asphalt, P.gate, 0.047, (P.z1 + o.z1) / 2, 0, false);
+  // the wall: a white base and pillars, green railings between, a lamp on every other pillar
+  const base = QM.white(),
+    rail = MAT.rail(),
+    cap = MAT.plain(0x2f6b55, 0.5),
+    lamp = mat("q-lamp", () => new THREE.MeshStandardMaterial({ color: 0xfff1cc, roughness: 0.4 }), 1.3);
+  const openAt = (x: number) => o.gates.some(([a, c]) => x > a && x < c);
+  const run = (ax: number, az: number, bx: number, bz: number, gated: boolean) => {
+    const along = Math.abs(bx - ax) > Math.abs(bz - az);
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.round(len / 4);
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n,
+        t1 = (i + 1) / n;
+      const sx = ax + (bx - ax) * t0,
+        sz = az + (bz - az) * t0,
+        ex = ax + (bx - ax) * t1,
+        ez = az + (bz - az) * t1;
+      const mx = (sx + ex) / 2,
+        mz = (sz + ez) / 2;
+      if (gated && (openAt(sx + 0.5) || openAt(ex - 0.5))) continue;
+      const seg = len / n;
+      const bx0 = Math.min(sx, ex) - 0.25,
+        bx1 = Math.max(sx, ex) + 0.25,
+        bz0 = Math.min(sz, ez) - 0.25,
+        bz1 = Math.max(sz, ez) + 0.25;
+      if (!o.free(bx0, bx1, bz0, bz1)) continue;
+      b.box(along ? seg : 0.45, 0.6, along ? 0.45 : seg, base, mx, 0, mz);
+      b.box(along ? seg : 0.55, 0.08, along ? 0.55 : seg, cap, mx, 0.6, mz);
+      b.plane(seg, 1.4, rail, mx, 1.35, mz, along ? 0 : Math.PI / 2);
+      b.box(along ? seg : 0.1, 0.08, along ? 0.1 : seg, cap, mx, 2.05, mz);
+      solid(bx0, bx1, bz0, bz1);
+      // a pillar at the start of every segment (and both ends of a run)
+      for (const [px, pz] of i === n - 1 ? [[sx, sz], [ex, ez]] : [[sx, sz]]) {
+        b.box(0.7, 2.5, 0.7, base, px, 0, pz);
+        b.box(0.85, 0.14, 0.85, cap, px, 2.5, pz);
+        if (k++ % 2 === 0) b.add(new THREE.BoxGeometry(0.34, 0.45, 0.34), lamp, px, 2.86, pz);
+      }
+    }
+  };
+  run(o.x0, o.z1, o.x1, o.z1, true);
+  run(o.x0, o.z0, o.x1, o.z0, false);
+  run(o.x0, o.z0, o.x0, o.z1, false);
+  run(o.x1, o.z0, o.x1, o.z1, false);
+  // gate posts: two tall white pillars with lanterns at each opening
+  for (const [a, c] of o.gates)
+    for (const px of [a, c]) {
+      const pz = o.z1;
+      if (!o.free(px - 0.8, px + 0.8, pz - 0.8, pz + 0.8)) continue;
+      b.box(1.3, 4.2, 1.3, base, px, 0, pz);
+      b.box(1.6, 0.25, 1.6, cap, px, 4.2, pz);
+      b.add(new THREE.BoxGeometry(0.5, 0.7, 0.5), lamp, px, 4.8, pz);
+      solid(px - 0.7, px + 0.7, pz - 0.7, pz + 0.7);
+    }
+  // the covered car park
+  colliders.push(
+    ...coveredParking(b, {
+      x: (P.x0 + P.x1) / 2,
+      z: (P.z0 + P.z1) / 2,
+      turn: 0,
+      w: P.x1 - P.x0,
+      d: P.z1 - P.z0,
+      seed: o.seed,
+    }),
+  );
+  // rows of palms, and lamps between them, on the open paving
+  const inPark = (x: number, z: number) => x > P.x0 - 2 && x < P.x1 + 2 && z > P.z0 - 2 && z < P.z1 + 3;
+  const onDrive = (x: number, z: number) => Math.abs(x - P.gate) < 7.5 && z > P.z1 - 1;
+  const inSkip = (x: number, z: number) =>
+    o.skip.some((s) => x > s.x0 - 2 && x < s.x1 + 2 && z > s.z0 - 2 && z < s.z1 + 2);
+  const atGate = (x: number, z: number) => z > o.z1 - 6 && o.gates.some(([a, c]) => x > a - 2 && x < c + 2);
+  let i = 0;
+  for (let z = o.z1 - 4; z > o.z0 + 3; z -= 8)
+    for (let x = o.x0 + 4; x < o.x1 - 3; x += 8) {
+      i++;
+      if (inPark(x, z) || onDrive(x, z) || inSkip(x, z) || atGate(x, z)) continue;
+      if (i % 3 === 0) {
+        if (blocked(x - 0.2, x + 0.2, z - 0.2, z + 0.2)) continue;
+        b.add(new THREE.CylinderGeometry(0.08, 0.12, 4.6, 8), MAT.plain(0x2e2e2a), x, 2.3, z);
+        b.add(new THREE.SphereGeometry(0.3, 10, 8), lamp, x, 4.7, z);
+        solid(x - 0.2, x + 0.2, z - 0.2, z + 0.2);
+      } else {
+        if (blocked(x - 0.4, x + 0.4, z - 0.4, z + 0.4)) continue;
+        palm(b, x, z, 1.05);
+        solid(x - 0.3, x + 0.3, z - 0.3, z + 0.3);
+      }
+    }
   b.base.identity();
   return colliders;
 }
