@@ -5465,6 +5465,19 @@ export class IlmCityEngine {
           const band = north ? [st.z - 32, st.z - 10] : [st.z + 10, st.z + 32];
           if (!this.boxFree(cx - 25, cx + 25, band[0], band[1])) continue;
           const turn = north ? 0 : Math.PI;
+          // Quba: its first ground stays held, and the big market is built south of Uhud Street
+          if (D.id === "quba") {
+            this.reserved.push({
+              x0: this.ox + cx - 25,
+              x1: this.ox + cx + 25,
+              z0: this.oz + band[0],
+              z1: this.oz + band[1],
+            });
+            this.buildQubaSouq(D);
+            // (the flats look for their first ground near where the market first stood)
+            this.marketSpot.set(D.id, { x: cx, z, sz: st.z, north });
+            return;
+          }
           // (in Quba, moved back behind the mosque; its first ground stays held)
           const dz = this.shiftedZ(D, cx - 25, cx + 25, band[0], band[1]);
           const row = stallRow(this.curBatch, {
@@ -5505,6 +5518,70 @@ export class IlmCityEngine {
         }
   }
   marketSpot = new Map<string, { x: number; z: number; sz?: number; north?: boolean }>();
+  /** Quba Market: a souq of covered lanes south of Uhud Street, each lane opening onto the
+      street with a row of stalls down each side (stalls quba-m0 … m39). */
+  private buildQubaSouq(D: District) {
+    const b = this.curBatch;
+    const Z0 = 77,
+      Z1 = 99.4; // the lanes run from the pavement back to the area's edge
+    let k = 0;
+    for (let X = -104; X <= -40; X += 16) {
+      // a lane: one row facing east, one facing west, 6 m apart
+      const rows = [
+        stallRow(b, { x: X, z: 0, turn: Math.PI / 2, x0: -Z1, x1: -Z0 }),
+        stallRow(b, { x: X + 10, z: 0, turn: -Math.PI / 2, x0: Z0, x1: Z1 }),
+      ];
+      for (const row of rows) {
+        for (const c of row.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+        for (const u of row.units)
+          this.addShopUnit(`${D.id}-m${k++}`, "stall", u.center, u.front, D, STREETS.uhud?.name ?? D.name);
+      }
+      // the lane's sandy floor, and a sign over its mouth
+      const lane = new THREE.Mesh(new THREE.PlaneGeometry(6, Z1 - Z0), mat(0xd9ccb0));
+      lane.rotation.x = -Math.PI / 2;
+      lane.position.set(X + 5, 0.035, (Z0 + Z1) / 2);
+      b.addObject(lane);
+      for (const px of [X + 2.3, X + 7.7]) b.box(0.3, 4.2, 0.3, MAT.plain(0x8a6a3e), px, 0, Z0 - 1.2);
+      b.box(6, 0.7, 0.3, MAT.plain(0x1f6f63), X + 5, 3.8, Z0 - 1.2);
+    }
+    this.reserved.push({ x0: this.ox - 108, x1: this.ox - 26, z0: this.oz + 72, z1: this.oz + 100 });
+    const t = label(`${D.name} Market · ${k} stalls`, { size: 1.3, bg: "rgba(31,111,99,0.92)" });
+    t.position.set(-67, 6, Z0 - 1.2);
+    this.dg.add(t);
+  }
+  /** Quba's blocks of flats, south of Uhud Street across the cross road from the market. */
+  private buildQubaFlats(D: District) {
+    // (the food truck parks by the new market)
+    this.marketSpot.set(D.id, { x: -67, z: 88, sz: 66, north: false });
+    const rnd = mulberry(4471);
+    for (const cx of [30, 61, 92]) {
+      const cz = 66 + 21.5;
+      const c = compound(this.curBatch, {
+        x: cx,
+        z: cz,
+        turn: Math.PI,
+        number: 1,
+        rnd,
+        floors: 4,
+        width: 24,
+        wall: 0xe8dcb5,
+        style: "saudi",
+      });
+      for (const bx of c.colliders) this.addCollider("out", bx.x0, bx.x1, bx.z0, bx.z1);
+      this.reserved.push({ x0: this.ox + cx - 12, x1: this.ox + cx + 12, z0: this.oz + cz - 10.5, z1: this.oz + cz + 10.5 });
+      this.zones.push({
+        id: "door:home:" + D.id,
+        label: `${D.name} Estate`,
+        x: this.ox + c.door.x,
+        z: this.oz + c.door.z,
+        r: 3,
+        scene: "out",
+      });
+      const t = label(`${D.name} Estate · flats for every player`, { size: 1.1, bg: "rgba(31,111,99,0.92)" });
+      t.position.set(c.gate.x, 5.6, c.gate.z);
+      this.dg.add(t);
+    }
+  }
 
   /** The eatery: a food truck parked on the pavement near the market. */
   private buildEatery(D: District) {
@@ -9312,6 +9389,24 @@ export class IlmCityEngine {
           // Lekki and Ikeja: an apartment tower with as many flats as there are players (the
           // dry run keeps the area's random layout as it was); elsewhere a Lagos block of flats
           const prime = isPrimeArea(D.id);
+          // Quba: the first ground stays held (drawn nowhere, so the area's dice fall as they
+          // did), and the blocks of flats are built south of Uhud Street
+          if (D.id === "quba") {
+            compound(new Batch(true), {
+              x: cx,
+              z: cz,
+              turn: north ? 0 : Math.PI,
+              number: 1,
+              rnd,
+              floors: 3,
+              width: 24,
+              wall: 0xe8dcb5,
+              style: saudiCity(D) ? "saudi" : "storey",
+            });
+            this.reserved.push({ x0: this.ox + cx - 12, x1: this.ox + cx + 12, z0: this.oz + cz - 10.5, z1: this.oz + cz + 10.5 });
+            this.buildQubaFlats(D);
+            return;
+          }
           // (in Quba, moved back behind the mosque; its first ground stays held)
           const edz = this.shiftedZ(D, cx - 12, cx + 12, cz - 10.5, cz + 10.5);
           if (edz)

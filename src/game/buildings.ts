@@ -1532,8 +1532,8 @@ const AWNINGS = [0x3fa79a, 0xf2c230, 0x6aa84f, 0xe8584a, 0xff8a3d, 0x6b8be8, 0xd
 const PRODUCE = [0xe8443a, 0xf2a03a, 0xf2d33a, 0x6aa84f, 0x8a3a8a, 0xf28aa0];
 /** A row of market stalls: striped canopies with scalloped edges, wooden counters, crates of
     fruit and vegetables, potted plants, and string lights between the stalls. */
-export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn: number }) {
-  const { to, colliders, solid } = frame(b, 0, o.z, o.turn);
+export function stallRow(b: Batch, o: { x0: number; x1: number; z: number; turn: number; x?: number }) {
+  const { to, colliders, solid } = frame(b, o.x ?? 0, o.z, o.turn);
   const SW = 5,
     SD = 4;
   const units: { center: Placed; front: Placed; lx: number }[] = [];
