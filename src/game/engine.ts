@@ -5,6 +5,7 @@ import {
   policeCompound,
   coveredParking,
   qubaCompound,
+  coffeeGarden,
   iumCollege,
   iumForecourt,
   iumGarden,
@@ -1661,6 +1662,10 @@ export class IlmCityEngine {
 
     // a football pitch and the sisters' corner take three plots in a row
     const play = this.choosePlayPlots(D, zs, H, southEdge);
+    // the café and its garden take the plot nearest the cross road on the main street
+    const cafe = brandsOf(D.id) ? this.chooseCafePlot(D, zs, H, southEdge, play) : null;
+    if (cafe) this.cafePlot.set(D.id, cafe);
+    else this.cafePlot.delete(D.id);
     // hold the pitch, sisters' corner and police station plots, so the shops built before
     // them (eatery, dealer, mall, boutique) don't land on top of them
     const playHold: Box[] = [];
@@ -1679,6 +1684,10 @@ export class IlmCityEngine {
         const q = play.police.box;
         playHold.push({ x0: this.ox + q.x0, x1: this.ox + q.x1, z0: this.oz + q.z0, z1: this.oz + q.z1 });
       }
+    }
+    if (cafe) {
+      const cz = cafe.north ? cafe.sz - 21.5 : cafe.sz + 21.5;
+      playHold.push({ x0: this.ox + cafe.x - 12, x1: this.ox + cafe.x + 12, z0: this.oz + cz - 11, z1: this.oz + cz + 11 });
     }
     const ghosts: Box[] = [];
     // Lagos compounds line both sides of every street
@@ -1710,6 +1719,7 @@ export class IlmCityEngine {
           }
           if (
             atGate ||
+            (cafe && cafe.sz === sz && cafe.north === north && cafe.x === x) ||
             (play &&
               ((play.sz === sz && play.north === north && play.xs.includes(x)) ||
                 (play.police &&
@@ -4548,6 +4558,35 @@ export class IlmCityEngine {
       }
     return { x0: x - 11, x1: x + 11, z0: cz - 10, z1: cz + 10 };
   }
+  /** Where an area's café and its garden go: a free plot as near the main cross road as can
+      be, on the main street first, clear of the pitch and the police station. */
+  cafePlot = new Map<string, { sz: number; north: boolean; x: number }>();
+  private chooseCafePlot(
+    D: District,
+    zs: number[],
+    H: { x: number; z: number },
+    southEdge: number,
+    play: { sz: number; north: boolean; xs: number[]; police: PolicePlot | null } | null,
+  ) {
+    const slots: number[] = [];
+    for (let x = -(H.x - 26); x <= H.x - 26; x += 24) if (Math.abs(x) >= 16) slots.push(x);
+    slots.sort((m, n) => Math.abs(m) - Math.abs(n) || m - n);
+    const order = [...zs].sort((a, b) => Math.abs(a) - Math.abs(b));
+    for (const sz of order)
+      for (const north of [true, false]) {
+        const cz = north ? sz - 21.5 : sz + 21.5;
+        if (!north && cz + 10 > southEdge - 3) continue;
+        if (zs.some((z2) => z2 !== sz && Math.abs(cz - z2) < 18)) continue;
+        for (const x of slots) {
+          if (play && play.sz === sz && play.north === north && play.xs.includes(x)) continue;
+          const q = play?.police?.box;
+          if (q && x - 12 < q.x1 && x + 12 > q.x0 && cz - 11 < q.z1 && cz + 11 > q.z0) continue;
+          if (!this.boxFree(x - 11, x + 11, cz - 10, cz + 10)) continue;
+          return { sz, north, x };
+        }
+      }
+    return null;
+  }
   private choosePlayPlots(
     D: District,
     zs: number[],
@@ -5362,7 +5401,7 @@ export class IlmCityEngine {
         c.fillText(fx.kind === "shop" ? "SHOP TO LET" : "SPACE FOR RENT", W / 2, H * 0.42);
         c.font = "600 22px system-ui, sans-serif";
         c.fillText(
-          fx.kind === "shop" ? "Tap to view" : "₦2,000 a week · tap to rent",
+          fx.kind === "shop" ? "Tap to view" : "SAR 200 a week · tap to rent",
           W / 2,
           H * 0.8,
         );
@@ -5660,13 +5699,24 @@ export class IlmCityEngine {
     for (let k = 3; k < 30; k++) xs.push(k * 6, -k * 6);
     const sides = [m?.north ?? true, !(m?.north ?? true)];
     const spots: { x: number; z: number; north: boolean }[] = [];
+    // on its own plot by the cross road, at the back of its garden
+    const cp = this.cafePlot.get(D.id);
+    const forced = !!cp;
+    if (cp) {
+      const cz = cp.north ? cp.sz - 21.5 : cp.sz + 21.5,
+        s = cp.north ? 1 : -1;
+      spots.push({ x: cp.x, z: cz - s * 6.25, north: cp.north });
+    } else
     for (const north of sides)
       for (const off of [9.6, 10.6, 12])
         for (const dx of xs) spots.push({ x: x0 + dx, z: sz + (north ? -off : off), north });
     for (const { x, z, north } of spots) {
       {
-        if (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 12) continue;
-        if (!this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4))
+        if (!forced && (Math.abs(x) < 14 || Math.abs(x) > halfOf(D).x - 12)) continue;
+        if (
+          !forced &&
+          !this.boxFree(x - W / 2 - 0.4, x + W / 2 + 0.4, z - Dp / 2 - 0.4, z + Dp / 2 + 0.4)
+        )
           continue;
         const g = new THREE.Group();
         g.position.set(x, 0, z);
@@ -5715,7 +5765,76 @@ export class IlmCityEngine {
           r: 2.2,
           scene: "out",
         });
+        if (cp) this.buildCoffeeGarden(D, cp.x, z + (north ? 9.75 : -9.75), north, cname, cb?.bg ?? 0x1f6f63, cbg, cfg);
         return;
+      }
+    }
+  }
+  /** The café's garden, beside it with its front in line: tables under parasols where players
+      sit with what they ordered inside. */
+  private buildCoffeeGarden(
+    D: District,
+    x: number,
+    z: number,
+    north: boolean,
+    cname: string,
+    color: number,
+    cbg: string,
+    cfg: string,
+  ) {
+    const s = north ? 1 : -1;
+    {
+      {
+        const GW = 22,
+          GD = 12.5;
+        const g = coffeeGarden(this.curBatch, {
+          x,
+          z,
+          turn: north ? 0 : Math.PI,
+          w: GW,
+          d: GD,
+          color,
+          trim: 0xf4efe4,
+          back: false,
+        });
+        for (const c of g.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
+        this.reserved.push({
+          x0: this.ox + x - GW / 2,
+          x1: this.ox + x + GW / 2,
+          z0: this.oz + z - GD / 2,
+          z1: this.oz + z + GD / 2,
+        });
+        g.seats.forEach((p, i) =>
+          this.zones.push({
+            id: `seat:cafe-${D.id}-${i}`,
+            label: "Sit in the garden",
+            x: this.ox + p.x,
+            z: this.oz + p.z,
+            r: 1.3,
+            scene: "out",
+          }),
+        );
+        // the name over the way in
+        const { mesh } = canvasPlane(
+          4.4,
+          0.7,
+          (c, CW2, CH) => {
+            c.fillStyle = cbg;
+            c.fillRect(0, 0, CW2, CH);
+            c.fillStyle = cfg;
+            c.textAlign = "center";
+            c.textBaseline = "middle";
+            c.font = `800 ${Math.round(CH * 0.48)}px "Work Sans", system-ui, sans-serif`;
+            c.fillText((cname + " garden").toUpperCase(), CW2 / 2, CH * 0.53);
+          },
+          512,
+        );
+        mesh.position.set(g.sign.x, 3.1, g.sign.z);
+        mesh.rotation.y = north ? 0 : Math.PI;
+        this.dg.add(mesh);
+        for (const px of [-2.2, 2.2]) {
+          this.dg.add(box(0.12, 3.4, 0.12, 0x2e2e2a, g.sign.x + px * s, 0, g.sign.z - 0.05 * s));
+        }
       }
     }
   }

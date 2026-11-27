@@ -2139,8 +2139,8 @@ export function fillingStation(b: Batch, o: { x: number; z: number; turn: number
   b.box(0.35, 7, 0.35, steel, px, 0, pz);
   b.box(2.8, 3.2, 0.3, green, px, 6.5, pz);
   b.plane(2.4, 0.8, textMat("BARAKAH", { bg: "#1d7a3a", fg: "#fdf8ec" }), px, 9.0, pz + 0.17);
-  b.plane(2.4, 0.7, textMat("PETROL ₦7/L", { bg: "#fdf8ec", fg: "#1a1a1a" }), px, 7.9, pz + 0.17);
-  b.plane(2.4, 0.7, textMat("DIESEL ₦8/L", { bg: "#fdf8ec", fg: "#1a1a1a" }), px, 7.1, pz + 0.17);
+  b.plane(2.4, 0.7, textMat("PETROL SAR 0.70/L", { bg: "#fdf8ec", fg: "#1a1a1a" }), px, 7.9, pz + 0.17);
+  b.plane(2.4, 0.7, textMat("DIESEL SAR 0.80/L", { bg: "#fdf8ec", fg: "#1a1a1a" }), px, 7.1, pz + 0.17);
   solid(px - 0.25, px + 0.25, pz - 0.25, pz + 0.25);
   const spot = to(0, cz + 4.2);
   b.base.identity();

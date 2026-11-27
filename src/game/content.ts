@@ -4251,8 +4251,8 @@ export const JUNCTION_NAME: Record<string, string> = {
   makkah: "Makkah Junction",
   madinah: "Madinah Junction",
 };
-/** Travel between cities, in game units (₦10 each). */
-/** The Haramain train between Jeddah Airport and Makkah (same city): ₦8,000. */
+/** Travel between cities, in game units (riyals). */
+/** The Haramain train between Jeddah Airport and Makkah (same city): SAR 800. */
 export const TRAIN_LOCAL = 800;
 /** Areas with a Haramain railway station. */
 export const TRAIN_STATIONS = ["jeddahairport", "haram", "nabawi"];
@@ -4762,57 +4762,57 @@ export const MARKET_TRADERS: { name: string; items: [string, string, string][] }
   {
     name: "Mama Aisha Dates",
     items: [
-      ["🌴", "Ajwa dates", "₦4,500"],
-      ["🍯", "Pure honey", "₦3,000"],
+      ["🌴", "Ajwa dates", "SAR 45"],
+      ["🍯", "Pure honey", "SAR 30"],
     ],
   },
   {
     name: "Barakah Books",
     items: [
-      ["📗", "Mushaf (Qur'an)", "₦6,000"],
-      ["📚", "Islamic storybooks", "₦2,500"],
+      ["📗", "Mushaf (Qur'an)", "SAR 60"],
+      ["📚", "Islamic storybooks", "SAR 25"],
     ],
   },
   {
     name: "Al-Noor Perfumes",
     items: [
-      ["🧴", "Oud oil", "₦5,000"],
-      ["🌸", "White musk", "₦2,000"],
+      ["🧴", "Oud oil", "SAR 50"],
+      ["🌸", "White musk", "SAR 20"],
     ],
   },
   {
     name: "Sister Halimah Abayas",
     items: [
-      ["👗", "Abaya", "₦18,000"],
-      ["🧕", "Jersey hijab", "₦3,500"],
+      ["👗", "Abaya", "SAR 180"],
+      ["🧕", "Jersey hijab", "SAR 35"],
     ],
   },
   {
     name: "Iya Basira Foodstuff",
     items: [
-      ["🍚", "Rice (5kg)", "₦9,000"],
-      ["🫘", "Beans (paint)", "₦7,500"],
+      ["🍚", "Rice (5kg)", "SAR 40"],
+      ["🫘", "Beans (paint)", "SAR 30"],
     ],
   },
   {
     name: "Prayer Mat Corner",
     items: [
-      ["🕌", "Prayer mat", "₦6,500"],
-      ["📿", "Tasbih", "₦1,000"],
+      ["🕌", "Prayer mat", "SAR 45"],
+      ["📿", "Tasbih", "SAR 10"],
     ],
   },
   {
     name: "Fresh Fruits",
     items: [
-      ["🍉", "Watermelon", "₦2,500"],
-      ["🍌", "Banana (bunch)", "₦1,500"],
+      ["🍉", "Watermelon", "SAR 25"],
+      ["🍌", "Banana (bunch)", "SAR 12"],
     ],
   },
   {
     name: "Phone Gadgets",
     items: [
-      ["📱", "Phone case", "₦2,000"],
-      ["🔌", "Fast charger", "₦4,000"],
+      ["📱", "Phone case", "SAR 20"],
+      ["🔌", "Fast charger", "SAR 40"],
     ],
   },
 ];

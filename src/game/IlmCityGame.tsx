@@ -319,14 +319,15 @@ type Look = {
 };
 
 /* ---------- money ----------
-   Everything is priced in IlmWorld naira (₦). The save keeps whole units of ₦10. */
+   Everything is priced in Saudi riyals (SAR). The save keeps whole riyals (the server still
+   names the field `naira`, in tens). */
 const NAIRA_PER_POINT = 10;
-/** Show an amount (in ₦10 units) as naira, e.g. 25 → "₦250". */
-const N = (units: number) => "₦" + Math.round(units * NAIRA_PER_POINT).toLocaleString();
+/** Show an amount (in ₦10 units) in riyals, e.g. 25 → "SAR 25". */
+const N = (units: number) => "SAR " + Math.round(units).toLocaleString();
 /** Cashing out: ₦5 in the game is ₦1 in your bank, from ₦10,000. */
 const CASH_RATE = 5;
 const MIN_WITHDRAW = 1000;
-/** New clothes cost ₦500 each. */
+/** New clothes cost SAR 50 each. */
 const CLOTHES_PRICE = 50;
 
 /** What to do next in Umrah. */
@@ -429,8 +430,8 @@ const hajjIhram = (st?: HajjStage) => !!st && HAJJ_ORDER.indexOf(st) < HAJJ_ORDE
 const countryOf = (d: District) =>
   WORLD_CITIES.find((w) => w.id === cityOf(d))?.country ?? "Nigeria";
 
-/** Badges others see on your name: ✨ when Allah has blessed you with wealth (₦100,000 or a
-    house of your own), 💚 when you have given ₦5,000 or more in sadaqah. */
+/** Badges others see on your name: ✨ when Allah has blessed you with wealth (SAR 10,000 or a
+    house of your own), 💚 when you have given SAR 500 or more in sadaqah. */
 const BLESSED_MONEY = 10000;
 const GENEROUS_GIVING = 500;
 /** What you are worth, in ₦10 units: your money and the houses you own. */
@@ -440,7 +441,7 @@ function worthOf(s: Save) {
     if (o.kind === "bought" || o.kind === "built") w += ECONOMY.build[o.floors]?.points ?? 0;
   return w;
 }
-/** Wealth others can see on your name: 💰 ₦1m, 💎 ₦5m, 👑 ₦20m and more. */
+/** Wealth others can see on your name: 💰 SAR 100k, 💎 SAR 500k, 👑 SAR 2m and more. */
 const WEALTH_TIERS = [
   { min: 2000000, icon: "👑", name: "Very wealthy" },
   { min: 500000, icon: "💎", name: "Wealthy" },
@@ -451,14 +452,14 @@ function badgeOf(s: Save) {
   const owns = Object.values(s.plots ?? {}).some((o) => o.kind === "bought" || o.kind === "built");
   return `${(s.sadaqah ?? 0) >= GENEROUS_GIVING ? "💚" : ""}${s.coins >= BLESSED_MONEY || owns ? "✨" : ""}${(s.umrah?.done ?? 0) > 0 ? "🕋" : ""}${wealthTier(s)?.icon ?? ""}`;
 }
-/** Premium clothes for those who can afford them: ₦20,000 each. */
+/** Premium clothes for those who can afford them: SAR 2,000 each. */
 const PREMIUM_PRICE = 2000;
 const PREMIUM_THOBES = [0xc9a227, 0x5a1f6a, 0x0f2a5a, 0xf7f3e8, 0x7a1f1f];
 const PREMIUM_ABAYAS = [0xc9a227, 0x3a1f4a, 0x0f2a5a, 0x101014, 0x6a1f3a];
 const PREMIUM_CAPS = [0xc9a227, 0xe6d3a0, 0x5a1f6a];
 const PREMIUM_HIJABS = [0xc9a227, 0xe6d3a0, 0xf2e6f0, 0x5a1f6a];
 
-/** Weekly rent for a flat, by how costly the area is (₦1,400 in Lekki down to ₦500). */
+/** Weekly rent for a flat, by how costly the area is (in riyals). */
 const FLAT_RENT: Record<number, number> = { 1: 140, 2: 100, 3: 70, 4: 50 };
 const flatRent = (area: string) => FLAT_RENT[districtById(area).tier ?? 2] ?? 100;
 /** Taking your bicycle on a danfo to another area of your city costs this much more. */
@@ -520,7 +521,7 @@ function collectRent(before: Save, after: Save): Save {
 const TIER_LEVEL: Record<number, number> = { 1: 2, 2: 1, 3: 0, 4: 0 };
 /** How full each area's original houses are (0 to 1): prices rise with demand. */
 const AREA_DEMAND: Record<string, number> = {};
-/** Petrol: litres a trip uses, the tank, and the pump price (₦10 units per litre). */
+/** Petrol: litres a trip uses, the tank, and the pump price (riyals per litre). */
 const FUEL = { trip: 10, far: 25, tank: 50, start: 20, perLitre: 0.7 };
 function houseRent(area: string, floors: number, ilm: number, type?: HomeType) {
   const { base, buy, tier: t } = housePrice(area, floors, type, AREA_DEMAND[area] ?? 0);
@@ -1207,7 +1208,7 @@ function CityGame({
             return n;
           });
           toast(
-            `${diff > 0 ? "+" : "−"}₦${Math.abs(diff * NAIRA_UNIT).toLocaleString()} from IlmWorld admin`,
+            `${diff > 0 ? "+" : "−"}SAR ${Math.abs(diff).toLocaleString()} from IlmWorld admin`,
             "good",
           );
         });
@@ -1316,8 +1317,8 @@ function CityGame({
       toast(
         r.ok
           ? r.pack === "rich"
-            ? "Payment received. Your family house and naira are on the way!"
-            : "Payment received. Your naira is in your wallet!"
+            ? "Payment received. Your family house and riyals are on the way!"
+            : "Payment received. Your riyals are in your wallet!"
           : r.error === "not-paid"
             ? "That payment didn't go through. No money was taken."
             : "We couldn't confirm the payment yet. If you were charged, it will arrive shortly.",
@@ -1350,7 +1351,7 @@ function CityGame({
     };
   }, [syncCoins]);
 
-  /** Finish a step of the guided start: +₦100. */
+  /** Finish a step of the guided start: +SAR 10. */
   const advance = useCallback(
     (which: number | string) => {
       const step = typeof which === "number" ? which : GUIDE.findIndex((g) => g.id === which) + 1;
@@ -1360,7 +1361,7 @@ function CityGame({
       toast(
         step < GUIDE.length
           ? `Step ${step} done! +${N(10)}`
-          : "You're ready. Enjoy IlmWorld! +₦100",
+          : "You're ready. Enjoy IlmWorld! +SAR 10",
         "good",
       );
     },
@@ -3551,7 +3552,7 @@ function CityGame({
                   coins: x.coins + 2,
                 }));
                 toast(
-                  `You prayed ${fard.name} in jama'ah. May Allah accept it. +₦20, +5 Ilm`,
+                  `You prayed ${fard.name} in jama'ah. May Allah accept it. +SAR 2, +5 Ilm`,
                   "good",
                 );
               } else if (name === "Tahajjud") {
@@ -4729,7 +4730,7 @@ function CityGame({
       const t = transfers.current;
       const net = callNet.current;
       if (!o || !t || !net) return "Log in to IlmStation to send money.";
-      if (!Number.isFinite(units) || units < 1) return "Enter an amount of at least ₦10.";
+      if (!Number.isFinite(units) || units < 1) return "Enter an amount of at least SAR 1.";
       if (units > MAX_TRANSFER) return `You can send up to ${N(MAX_TRANSFER)} at a time.`;
       if (units > saveRef.current.coins) return `You only have ${N(saveRef.current.coins)}.`;
       const clean = cleanNumber(number);
@@ -4826,7 +4827,7 @@ function CityGame({
               return null;
             }
             return r.error === "not-configured"
-              ? "Buying naira opens soon, in shaa Allah."
+              ? "Buying riyals opens soon, in shaa Allah."
               : r.error === "no-email"
                 ? "Your account needs an email address to pay."
                 : "Couldn't start the payment. Please try again.";
@@ -8004,7 +8005,7 @@ function CityGame({
                 <div className="mt-3 rounded-xl border border-[#1d6b3a]/25 bg-[#eef6ef] p-3">
                   <div className="text-[13px] font-bold">💚 Sadaqah box</div>
                   <div className="mb-2 text-[12px] opacity-75">
-                    For the upkeep of the masjid and the needy. Give ₦5,000 in all to become a
+                    For the upkeep of the masjid and the needy. Give SAR 500 in all to become a
                     Generous giver.
                   </div>
                   <div className="flex gap-2">
@@ -10296,7 +10297,7 @@ function CityGame({
             let plots = saveRef.current.plots ?? {};
             let shops = saveRef.current.shops ?? {};
             let homePlot: string | undefined;
-            let msg = `Welcome home, ${look.name}! Your flat in ${estateName(area)} has a bed and a bathroom. Here is a gift of ₦1,000 to start.`;
+            let msg = `Welcome home, ${look.name}! Your flat in ${estateName(area)} has a bed and a bathroom. Here is a gift of SAR 100 to start.`;
             let lease: Save["lease"];
             if (path === "rich") {
               // the family house: a big house on the street that no other player has, furnished
@@ -10333,9 +10334,9 @@ function CityGame({
               }
               items = HOME_ITEMS.map((i) => i.id);
               bonus = 600;
-              msg = `Welcome to the family house, ${look.name}! It is fully furnished, and here is ₦6,000.`;
+              msg = `Welcome to the family house, ${look.name}! It is fully furnished, and here is SAR 600.`;
               if (!p)
-                msg = `Welcome, ${look.name}! Every family house here is taken, so you start in a furnished flat with ₦6,000.`;
+                msg = `Welcome, ${look.name}! Every family house here is taken, so you start in a furnished flat with SAR 600.`;
             } else if (path === "trader") {
               const sid = e.shopIds().find((id) => id.startsWith(area + "-") && !/-m\d+$/.test(id));
               // the free week is recorded by the server, once per player
@@ -10354,9 +10355,9 @@ function CityGame({
               }
               msg = `Welcome, ${look.name}! Your first shop is free for 7 days. Find it with Places → Shops, name it and add products.`;
             } else if (path === "student")
-              msg = `Welcome, ${look.name}! You are now a student of ${look.female ? "Taibah University" : "the Islamic University of Madinah"}. Your classes are on campus; My Day shows you the way. Here is ₦1,000 to start.`;
+              msg = `Welcome, ${look.name}! You are now a student of ${look.female ? "Taibah University" : "the Islamic University of Madinah"}. Your classes are on campus; My Day shows you the way. Here is SAR 100 to start.`;
             else
-              msg = `Welcome home, ${look.name}! Choose your job from 👤 Profile → Work. Here is ₦1,000 to start.`;
+              msg = `Welcome home, ${look.name}! Choose your job from 👤 Profile → Work. Here is SAR 100 to start.`;
             if (!homePlot) {
               // every new player is given a small house of their own in the area they chose
               const got = await starterHouse(e, area, look.name);
@@ -11406,7 +11407,7 @@ function topicReply(
     };
   if (has("shop", "market", "buy", "sell", "stall", "business"))
     return {
-      text: `${c.D.name} Market has stalls for ₦2,000 a week, and there are shops to let on the streets.`,
+      text: `${c.D.name} Market has stalls for SAR 200 a week, and there are shops to let on the streets.`,
       nod: "agree",
     };
   if (has("bus", "danfo", "travel", "go to", "keke", "road"))
@@ -12245,11 +12246,11 @@ function ShopView({
             onClick={onFood}
             className="w-full rounded-xl bg-[#1f6f63] py-3 font-bold text-[#fdf8ec]"
           >
-            🍽️ Buy something to eat · ₦50
+            🍽️ Buy something to eat · SAR 5
           </button>
         )}
         <p className="text-[12px] opacity-70">
-          Want your own stall? Empty spaces cost ₦2,000 a week.
+          Want your own stall? Empty spaces cost SAR 200 a week.
         </p>
       </div>
     );
@@ -12260,7 +12261,7 @@ function ShopView({
         <p>
           {kind === "shop"
             ? `A lock-up shop on ${where}, with a counter and a roller shutter. Rent it, give it a name and show your products to every player who passes.`
-            : `A market stall in ${where}. ₦2,000 a week. Add your business name and product photos, and they show on your stall for everyone to see.`}
+            : `A market stall in ${where}. SAR 200 a week. Add your business name and product photos, and they show on your stall for everyone to see.`}
         </p>
         {kind === "shop" ? (
           <>
@@ -12338,7 +12339,7 @@ function ShopView({
                     ps.map((x, j) => (j === k ? { ...x, price: e.target.value } : x)),
                   )
                 }
-                placeholder="Price, e.g. ₦3,500"
+                placeholder="Price, e.g. SAR 35"
                 className="w-full rounded-lg border border-black/10 px-2 py-1 text-[13px]"
               />
             </div>
@@ -12607,7 +12608,7 @@ const BROTHER_CLOTHES = [0xf4efe4, 0xcdb38a, 0x2f6f8f, 0x3d5a4a, 0x5a3f6a, 0x2a2
 const SISTER_CLOTHES = [0x1d1d26, 0x3d5a4a, 0x5a3f6a, 0x7d2f3a, 0x2a4a6a, 0xcdb38a];
 const CAPS = [0xffffff, 0x2f8f83, 0x1d1d26, 0x7d2f3a, 0xd9b45a];
 const HIJABS = [0xe9e2d0, 0x8a2f4f, 0x2a4a6a, 0x3d5a4a, 0x1d1d26];
-/** More to buy in the clothes shop (₦500 each). */
+/** More to buy in the clothes shop (SAR 50 each). */
 const SHOP_THOBES = [
   ...BROTHER_CLOTHES,
   0x1f2f55,
@@ -12886,8 +12887,8 @@ function Onboarding({
               <span>
                 <span className="block text-[16px] font-bold">Rich family pack</span>
                 <span className="block text-[13px] opacity-75">
-                  A furnished family house and ₦20,000. Start any life, then buy it from Wallet →
-                  Buy naira.
+                  A furnished family house and SAR 2,000. Start any life, then buy it from Wallet →
+                  Buy riyals.
                 </span>
               </span>
             </div>
@@ -13188,13 +13189,13 @@ const GUIDE: GuideStep[] = [
   {
     id: "clothes",
     title: "Your clothes",
-    text: "👤 Profile → Clothes shows what you own. New thobes, abayas, caps and hijabs (₦500) are sold at IlmWorld Fashion shops.",
+    text: "👤 Profile → Clothes shows what you own. New thobes, abayas, caps and hijabs (SAR 50) are sold at IlmWorld Fashion shops.",
     open: { what: "clothes", label: "Open my clothes" },
   },
   {
     id: "wallet",
     title: "Your wallet",
-    text: "Open 📱 Phone → Wallet: see your naira and send money to a friend with their IlmWorld number.",
+    text: "Open 📱 Phone → Wallet: see your riyals and send money to a friend with their IlmWorld number.",
     open: { what: "wallet", label: "Open my wallet" },
   },
   {
@@ -13235,7 +13236,7 @@ function Guide({
       <div className="pointer-events-auto w-full max-w-sm rounded-2xl border-2 border-[#e6b84a] bg-[#10201e]/92 p-3 text-[#fdf8ec] shadow-2xl">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#e6b84a]">
-            Step {step} of {GUIDE.length} · +₦100
+            Step {step} of {GUIDE.length} · +SAR 10
           </div>
           <button onClick={onSkip} className="text-[11px] opacity-60 underline">
             Skip guide
@@ -13340,7 +13341,7 @@ function placesIn(id: string): Place[] {
     out.push({
       icon: "🛒",
       name: `${D.name} Market`,
-      sub: "Stalls for rent · ₦2,000 a week",
+      sub: "Stalls for rent · SAR 200 a week",
       prefix: `stall:${D.id}-m`,
     });
   if (!D.landmarks.some((l) => l.kind === "field"))
@@ -14376,7 +14377,7 @@ function FuelView({
   return (
     <div className="space-y-3">
       <p className="text-[13px] opacity-75">
-        Barakah Oil filling station, {where}. Petrol is ₦{FUEL.perLitre * 10} a litre. A trip across
+        Barakah Oil filling station, {where}. Petrol is SAR {FUEL.perLitre} a litre. A trip across
         town uses {FUEL.trip} litres; to another city, {FUEL.far}.
       </p>
       <div className="rounded-xl bg-white p-3 shadow-sm">
@@ -14462,7 +14463,7 @@ function WalletView({
           onClick={() => setTab(t)}
           className={`flex-1 rounded-lg py-1.5 text-[13px] font-bold ${tab === t ? "bg-white shadow-sm" : "opacity-60"}`}
         >
-          {t === "wallet" ? "💰 Wallet" : t === "buy" ? "➕ Buy naira" : "📤 Send"}
+          {t === "wallet" ? "💰 Wallet" : t === "buy" ? "➕ Buy riyals" : "📤 Send"}
         </button>
       ))}
     </div>
@@ -14486,7 +14487,7 @@ function WalletView({
           </p>
         )}
         {!online || !canBuy ? (
-          <p className="text-[13px] opacity-75">Log in to IlmStation to buy IlmWorld naira.</p>
+          <p className="text-[13px] opacity-75">Log in to IlmStation to buy IlmWorld riyals.</p>
         ) : (
           <>
             <div className="space-y-2">
@@ -14533,8 +14534,8 @@ function WalletView({
             ))}
             {err && <p className="text-[13px] font-bold text-[#b3261e]">{err}</p>}
             <p className="text-[12px] opacity-70">
-              Paid securely with Paystack (card, bank transfer or USSD). Naira you buy is for
-              spending in IlmWorld; only naira you earn can be cashed out.
+              Paid securely with Paystack (card, bank transfer or USSD). Riyals you buy is for
+              spending in IlmWorld; only riyals you earn can be cashed out.
             </p>
           </>
         )}
@@ -14543,12 +14544,12 @@ function WalletView({
   }
   if (tab === "send") {
     const naira = Math.floor(Number(amt.replace(/[^0-9]/g, "")) || 0);
-    const units = Math.floor(naira / NAIRA_PER_POINT);
+    const units = naira;
     return (
       <div className="space-y-3">
         {tabs}
         <p className="text-[13px] opacity-75">
-          Send IlmWorld naira to another player with their IlmWorld number (Phone → Calls shows
+          Send riyals to another player with their IlmWorld number (Phone → Calls shows
           yours). You have {N(bal)}.
         </p>
         <input
@@ -14561,7 +14562,7 @@ function WalletView({
           value={amt}
           onChange={(e) => setAmt(e.target.value)}
           inputMode="numeric"
-          placeholder="Amount in ₦ (e.g. 500)"
+          placeholder="Amount in SAR (e.g. 50)"
           className="w-full rounded-xl border border-[#10201e]/15 bg-white px-3 py-2.5 text-[15px]"
         />
         <input
@@ -14602,7 +14603,7 @@ function WalletView({
     <div className="space-y-3">
       {tabs}
       <div className="rounded-2xl bg-gradient-to-br from-[#1d6b3a] to-[#10201e] p-4 text-white">
-        <div className="text-[12px] opacity-80">IlmWorld naira</div>
+        <div className="text-[12px] opacity-80">IlmWorld riyals</div>
         <div className="text-[30px] font-black leading-tight">{N(bal)}</div>
         <div className="text-[13px] opacity-85">
           Cash value ₦{Math.floor((bal * NAIRA_PER_POINT) / CASH_RATE).toLocaleString()}
@@ -15592,7 +15593,7 @@ function HomeShopView({
               <div className="text-[13px] font-bold leading-tight">{i.name}</div>
               <div className="text-[11px] opacity-70">{i.does}</div>
               <div className="mt-1 text-[12px] font-bold text-[#1f6f63]">
-                ₦{i.naira} · {N(itemPoints(i))}
+                {N(itemPoints(i))} · or ₦{i.naira} by card
               </div>
             </button>
           );
@@ -16469,10 +16470,10 @@ function ProfileView({
         <summary className="cursor-pointer font-bold">Badges others see</summary>
         <div className="mt-1.5 space-y-1 opacity-85">
           <div>
-            • 💚 <b>Generous giver</b>: ₦5,000 or more given in the masjid sadaqah box.
+            • 💚 <b>Generous giver</b>: SAR 500 or more given in the masjid sadaqah box.
           </div>
           <div>
-            • ✨ <b>Blessed</b>: ₦100,000 in the wallet, or a house of your own. Your name tag turns
+            • ✨ <b>Blessed</b>: SAR 10,000 in the wallet, or a house of your own. Your name tag turns
             gold.
           </div>
           <div>• Premium clothes, a big car and a duplex show it too. Be grateful, not proud.</div>
@@ -16483,7 +16484,7 @@ function ProfileView({
   );
 }
 
-/** Your clothes: wear what you own, buy new ones for ₦500. */
+/** Your clothes: wear what you own, buy new ones for SAR 50. */
 function WardrobeView({
   look,
   owned,
@@ -16544,7 +16545,7 @@ function WardrobeView({
             >
               {!mine && (
                 <span className="absolute -bottom-1 -right-1 rounded-full bg-[#10201e] px-1 text-[8.5px] font-bold text-white">
-                  ₦
+                  SAR
                 </span>
               )}
             </button>
@@ -16558,7 +16559,7 @@ function WardrobeView({
       <p className="text-[13px] opacity-75">
         {shop
           ? `Tap a colour to try it. New clothes cost ${N(CLOTHES_PRICE)} each, premium ${N(PREMIUM_PRICE)}. You have ${N(money)}.`
-          : "Tap something you own to wear it. Clothes marked ₦ are sold at IlmWorld Fashion."}
+          : "Tap something you own to wear it. Clothes marked SAR are sold at IlmWorld Fashion."}
       </p>
       {row(cur.female ? "Abaya" : "Thobe", "robe", cur.female ? SHOP_ABAYAS : SHOP_THOBES)}
       {row(cur.female ? "Hijab" : "Cap", "accent", cur.female ? SHOP_HIJABS : SHOP_CAPS)}
@@ -18165,7 +18166,7 @@ function NoPointsView({
         This costs {N(price)} and you have {N(points)}.
       </p>
       <p className="rounded-xl bg-white p-3 text-[14px]">
-        Earn money by praying on time (+₦20 for each fard salah), lecture minutes and the mosque
+        Earn money by praying on time (+SAR 2 for each fard salah), lecture minutes and the mosque
         quiz, or top up your wallet.
       </p>
       <button

@@ -2521,3 +2521,72 @@ export function qubaCompound(
   b.base.identity();
   return colliders;
 }
+
+/* ---------------- the coffee garden ---------------- */
+/** A café's garden beside it: paving, lawns with palms, a low hedge open to the street, and
+    tables under parasols in the café's colour. The front (+z before turning) faces the street.
+    Each table has a free chair on its +z side (in the world), where a player can sit. */
+export function coffeeGarden(
+  b: Batch,
+  o: { x: number; z: number; turn: number; w: number; d: number; color: number; trim: number; back?: boolean },
+) {
+  const { to, colliders, solid } = frameOf(b, o.x, o.z, o.turn);
+  const W = o.w,
+    D = o.d;
+  b.add(groundGeo(W, D, 2), MAT.plain(0xe6dcc6), 0, 0.035, 0, 0, false);
+  // lawns down the two sides, a palm at each end
+  for (const s of [-1, 1]) {
+    b.add(groundGeo(3, D - 1.2, 2), MAT2.lawn(), s * (W / 2 - 2.1), 0.05, 0, 0, false);
+    for (const lz of [-D / 2 + 2, D / 2 - 2.2]) {
+      palm(b, s * (W / 2 - 2.1), lz, 0.85);
+      solid(s * (W / 2 - 2.1) - 0.3, s * (W / 2 - 2.1) + 0.3, lz - 0.3, lz + 0.3);
+    }
+  }
+  // a low hedge round the back and sides, and either side of the way in at the front
+  const hedge = MAT.plain(0x3f7a3a);
+  if (o.back !== false) {
+    b.box(W, 0.7, 0.5, hedge, 0, 0, -D / 2 + 0.25);
+    solid(-W / 2, W / 2, -D / 2, -D / 2 + 0.5);
+  }
+  for (const s of [-1, 1]) {
+    b.box(0.5, 0.7, D, hedge, s * (W / 2 - 0.25), 0, 0);
+    solid(s * (W / 2 - 0.5), s * (W / 2), -D / 2, D / 2);
+    const fw = W / 2 - 2.2;
+    b.box(fw, 0.7, 0.5, hedge, s * (W / 2 - fw / 2), 0, D / 2 - 0.25);
+    solid(s * (W / 2 - fw), s * (W / 2), D / 2 - 0.5, D / 2);
+  }
+  // lamps at the gate
+  const lamp = mat("cafe-lamp", () => new THREE.MeshStandardMaterial({ color: 0xfff3d0, emissive: 0xffd890 }), 1.4, 0xffd890);
+  for (const s of [-1, 1]) {
+    b.add(new THREE.CylinderGeometry(0.07, 0.1, 2.6, 8), MAT.plain(0x2e2e2a), s * 2, 1.3, D / 2 - 0.25);
+    b.add(new THREE.SphereGeometry(0.22, 10, 8), lamp, s * 2, 2.75, D / 2 - 0.25);
+  }
+  b.base.identity();
+  // the tables: two rows, as many across as fit between the lawns
+  const seats: { x: number; z: number }[] = [];
+  const wood = MAT.plain(0x6d4a2b);
+  const chairM = MAT.plain(o.trim);
+  const shade = mat(
+    "cafe-shade-" + o.color.toString(16),
+    () => new THREE.MeshStandardMaterial({ color: o.color, roughness: 0.85, side: THREE.DoubleSide }),
+  );
+  const across = Math.max(1, Math.floor((W - 8) / 4));
+  for (const lz of [-D / 4 + 0.3, D / 4 - 0.6])
+    for (let i = 0; i < across; i++) {
+      const lx = (i - (across - 1) / 2) * 4;
+      const p = to(lx, lz);
+      b.add(new THREE.CylinderGeometry(0.55, 0.55, 0.06, 16), wood, p.x, 0.78, p.z);
+      b.add(new THREE.CylinderGeometry(0.06, 0.06, 0.78, 8), wood, p.x, 0.39, p.z);
+      // the parasol
+      b.add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), MAT.plain(0xeeeeee), p.x, 1.2, p.z);
+      b.add(new THREE.ConeGeometry(1.5, 0.55, 8, 1, true), shade, p.x, 2.55, p.z);
+      // chairs either side (in the world), the +z one free to sit on
+      for (const cz of [-0.95, 0.95]) {
+        b.box(0.5, 0.45, 0.5, chairM, p.x, 0, p.z + cz);
+        b.box(0.5, 0.5, 0.08, chairM, p.x, 0.45, p.z + cz + Math.sign(cz) * 0.22);
+      }
+      colliders.push({ x0: p.x - 0.6, x1: p.x + 0.6, z0: p.z - 0.6, z1: p.z + 0.6 });
+      seats.push({ x: p.x, z: p.z + 1.75 });
+    }
+  return { colliders, seats, gate: to(0, D / 2 + 0.4), sign: to(0, D / 2 - 0.25) };
+}
