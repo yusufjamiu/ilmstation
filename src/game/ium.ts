@@ -1603,8 +1603,8 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
   const decor = (x0: number, x1: number, z0: number, z1: number) =>
     late.push({ x0: cx + x0, x1: cx + x1, z0: cz + z0, z1: cz + z1 });
   // 58 m long: the back corner minarets stop just short of the local market's ground
-  const W = 58,
-    D = 26,
+  const W = 52,
+    D = 20,
     H = 13,
     BH = 4.6;
   const w = QM.white();
@@ -1654,26 +1654,26 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
   b.box(3, 3.4, 0.12, QM.wood(), 0, 0, D / 2 + 1.72);
   for (let k = -4; k <= 4; k++) b.box(0.6, 0.8, 0.6, w, k * 1.0, H + 2.4, D / 2 + 1.4);
   // the domes: the great dome and three more over the prayer hall, at the east end
-  ribbedDome(b, 16, H, 3, 6.6, 20);
-  ribbedDome(b, 5.5, H, 4, 4.2);
-  ribbedDome(b, 26.5, H, 4, 4.2);
-  ribbedDome(b, 16, H, -6.5, 4.0);
-  b.box(30, 1.2, 20, w, 16, H, -0.5); // the raised roof they stand on
+  ribbedDome(b, 13.5, H, 2, 6.0, 20);
+  ribbedDome(b, 4, H, 2.5, 3.7);
+  ribbedDome(b, 23, H, 2.5, 3.7);
+  ribbedDome(b, 13.5, H, -5.6, 3.3);
+  b.box(26, 1.2, 16, w, 13.5, H, 0); // the raised roof they stand on
   // little domes in rows over the west end, round the shaded court
-  for (let x = -27; x <= -1; x += 3.4)
-    for (let z = -10.2; z <= 10.2; z += 3.4) {
-      if (x > -20 && x < -6 && z > -7 && z < 7) continue;
+  for (let x = -24; x <= -1; x += 3.3)
+    for (let z = -6.6; z <= 6.6; z += 3.3) {
+      if (x > -18 && x < -6 && z > -4.5 && z < 4.5) continue;
       b.add(new THREE.CylinderGeometry(1.2, 1.25, 0.5, 10), w, x, H + 0.25, z);
       b.add(new THREE.SphereGeometry(1.2, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), w, x, H + 0.5, z);
     }
   // the shaded court: a grey sliding canopy in peaks over its middle
   for (let i = 0; i < 4; i++) {
-    const g = new THREE.ConeGeometry(2.6, 1.6, 4, 1, true);
+    const g = new THREE.ConeGeometry(2.2, 1.4, 4, 1, true);
     g.rotateY(Math.PI / 4);
-    b.add(g, QM.canopy(), -16.5 + i * 3.5, H + 1.6, -3.5, 0, false);
-    b.add(g.clone(), QM.canopy(), -16.5 + i * 3.5, H + 1.6, 3.5, 0, false);
+    b.add(g, QM.canopy(), -16 + i * 3.1, H + 1.5, -2.2, 0, false);
+    b.add(g.clone(), QM.canopy(), -16 + i * 3.1, H + 1.5, 2.2, 0, false);
   }
-  b.box(15, 0.3, 15, QM.dark(), -11.25, H + 0.6, 0);
+  b.box(13, 0.3, 9, QM.dark(), -11.35, H + 0.6, 0);
   // the four minarets at the corners
   for (const [mx, mz] of [
     [-W / 2 - 1.5, D / 2 + 1.5],
@@ -1686,15 +1686,36 @@ export function qubaMosque(b: Batch, cx: number, cz: number, plaza: { x0: number
   }
   // palms in round lawns, lamps and folded umbrellas on the plaza
   const lamp = M.tex("lamp", winTex(), 1.2);
-  for (const s of [-1, 1]) {
-    const lx = s * (W / 2 - 4),
-      lz = pz1 - 3.5;
+  // the gardens in front: four big round lawns with palms, and long beds along the road
+  for (const [lx, r] of [
+    [-W / 2 + 2, 4.2],
+    [-W / 2 + 15, 3.4],
+    [W / 2 - 15, 3.4],
+    [W / 2 - 2, 4.2],
+  ] as [number, number][]) {
+    const lz = D / 2 + (pz1 - D / 2) * 0.5;
     const ring = new THREE.Shape();
-    ring.absarc(0, 0, 2.6, 0, Math.PI * 2, false);
+    ring.absarc(0, 0, r, 0, Math.PI * 2, false);
     b.add(flat(ring), MAT2.lawn(), lx, 0.07, lz, 0, false);
-    b.add(new THREE.TorusGeometry(2.7, 0.12, 4, 24), MAT.plain(0x2f7a52), lx, 0.25, lz, 0);
-    palm(b, lx, lz, 1.1);
+    b.add(new THREE.TorusGeometry(r + 0.1, 0.12, 4, 32), MAT.plain(0x2f7a52), lx, 0.25, lz, 0);
+    palm(b, lx, lz, 1.15);
     decor(lx - 0.4, lx + 0.4, lz - 0.4, lz + 0.4);
+    if (r > 4) {
+      for (const dx of [-2.2, 2.2]) {
+        palm(b, lx + dx, lz + 1.4, 0.8);
+        decor(lx + dx - 0.3, lx + dx + 0.3, lz + 1.1, lz + 1.7);
+      }
+    }
+  }
+  for (const s of [-1, 1]) {
+    const bx = s * (W / 4 + 4),
+      bz = pz1 - 2.6;
+    b.add(groundGeo(W / 2 - 14, 2.2, 1), MAT2.lawn(), bx, 0.07, bz, 0, false);
+    b.box(W / 2 - 13.4, 0.3, 2.6, MAT.plain(0x2f7a52), bx, 0, bz);
+    for (let k = -2; k <= 2; k++) {
+      palm(b, bx + k * 4, bz, 0.7);
+      decor(bx + k * 4 - 0.3, bx + k * 4 + 0.3, bz - 0.3, bz + 0.3);
+    }
   }
   for (const x of [px0 + 3, px1 - 3])
     for (let z = pz0 + 3; z < pz1 - 2; z += 6) {

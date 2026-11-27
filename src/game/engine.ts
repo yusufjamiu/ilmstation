@@ -10319,9 +10319,16 @@ export class IlmCityEngine {
   private lateBoxes: { x0: number; x1: number; z0: number; z1: number }[] = [];
   /** Masjid Quba as it stands today (see qubaMosque), its white plaza reaching the road. */
   private buildQuba(l: Landmark, sz: number) {
-    // set back from the road so the billboard beside it keeps its place (and every plot its number)
+    // well back from the road, its back by Awali Street, with a long white plaza and gardens
+    // in front; the ground it stood on is held, so every plot keeps its number
     const cx = l.x,
-      cz = sz - 40; // its back on the same line as before, a long white plaza in front
+      cz = sz - 45;
+    this.reserved.push({
+      x0: this.ox + cx - 32.9,
+      x1: this.ox + cx + 32.9,
+      z0: this.oz + sz - 56.9,
+      z1: this.oz + sz - 23.1,
+    });
     const q = qubaMosque(this.curBatch, cx, cz, { x0: cx - 38, x1: cx + 38, z1: sz - 11 });
     for (const c of q.colliders) this.addCollider("out", c.x0, c.x1, c.z0, c.z1);
     for (const c of q.late)
