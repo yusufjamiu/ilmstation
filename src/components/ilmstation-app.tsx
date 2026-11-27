@@ -463,7 +463,7 @@ function PlansPanel(){
 
 /** "You": everything about the user in one place. */
 function YouScreen({ go }: { go: (s: Screen) => void }) {
-  const { logOut } = useAuth(); const navigate = useNavigate();
+  const { logOut, account: yAcct } = useAuth(); const navigate = useNavigate();
   const pr = usePremium() as unknown as { premium: boolean; trial?: boolean; premiumUntil?: number | string | null; points?: number };
   const [me, setMe] = useState<{ name?: string; username?: string; zone?: string; xp?: number; level?: number; streak?: number }>({});
   useEffect(() => {
@@ -475,7 +475,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
         xp: num(pb.xp) ?? num(pa.xp), level: num(pb.level) ?? num(pa.level), streak: num(pb.streak) ?? num(pa.streak) });
     }).catch(() => {});
   }, []);
-  const kid = me.zone === "kids";
+  const kid = (yAcct?.zone ?? me.zone) === "kids";
   const until = pr.premiumUntil ? new Date(pr.premiumUntil).toLocaleDateString() : "";
   const status = pr.premium ? `${pr.trial ? "Free trial" : "Premium"}${until ? ` · until ${until}` : ""}` : "Free plan";
   let yti = 0; const YTINTS = ["max-sm:bg-primary", "max-sm:bg-[#d7ecd9]", "max-sm:bg-[#f7d9c4]", "max-sm:bg-[#d9e3f7]"];
@@ -508,8 +508,7 @@ function YouScreen({ go }: { go: (s: Screen) => void }) {
     </section>
     <div className="mt-5 grid gap-3 sm:grid-cols-2 max-sm:gap-0 max-sm:overflow-hidden max-sm:rounded-2xl max-sm:border-[1.5px] max-sm:border-foreground max-sm:bg-card max-sm:shadow-[0_4px_0_var(--foreground)]">
       {kid ? <>
-        {tile(YTrend, "My progress", "Stars, levels and streak", () => go("kidprogress" as Screen))}
-        {tile(YAward, "My badges", "Everything you’ve earned", () => go("kidprogress" as Screen))}
+                {tile(YAward, "My stars & badges", "Stars, streak and badges", () => go("kidprogress" as Screen))}
         {tile(YBook, "My lessons", "Keep learning", () => go("study"))}
         {tile(YCog, "Settings", "Language and more", () => go("settings"))}
       </> : <>
