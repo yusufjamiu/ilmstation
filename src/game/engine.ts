@@ -5747,7 +5747,7 @@ export class IlmCityEngine {
             c.textAlign = "center";
             c.textBaseline = "middle";
             c.font = `800 ${Math.round(CH * 0.5)}px "Work Sans", system-ui, sans-serif`;
-            c.fillText(cname.toUpperCase(), CW / 2, CH * 0.53);
+            c.fillText((/coffee|caf/i.test(cname) ? cname : cname + " Coffee").toUpperCase(), CW / 2, CH * 0.53);
           },
           512,
         );

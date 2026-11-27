@@ -2546,10 +2546,10 @@ export function coffeeGarden(
   b.add(groundGeo(W, D, 2), MAT.plain(0xe6dcc6), 0, 0.035, 0, 0, false);
   // lawns down the two sides, a palm at each end
   for (const s of [-1, 1]) {
-    b.add(groundGeo(3, D - 1.2, 2), MAT2.lawn(), s * (W / 2 - 2.1), 0.05, 0, 0, false);
+    b.add(groundGeo(2, D - 1.2, 2), MAT2.lawn(), s * (W / 2 - 1.5), 0.05, 0, 0, false);
     for (const lz of [-D / 2 + 2, D / 2 - 2.2]) {
-      palm(b, s * (W / 2 - 2.1), lz, 0.85);
-      solid(s * (W / 2 - 2.1) - 0.3, s * (W / 2 - 2.1) + 0.3, lz - 0.3, lz + 0.3);
+      palm(b, s * (W / 2 - 1.5), lz, 0.85);
+      solid(s * (W / 2 - 1.5) - 0.3, s * (W / 2 - 1.5) + 0.3, lz - 0.3, lz + 0.3);
     }
   }
   // a low hedge round the back and sides, and either side of the way in at the front
@@ -2585,16 +2585,33 @@ export function coffeeGarden(
     // a chair at (cx, cz), its sitter facing (fx, fz); the spot to tap is just behind it
     seats.push({ x: cx - fx * 0.7, z: cz - fz * 0.7, sx: cx, sz: cz, ry: Math.atan2(fx, fz) });
   };
-  const across = Math.max(1, Math.floor((W - 8) / 4));
+  // ten tables: two rows of five
+  const across = W >= 20 ? 5 : 3,
+    step = Math.min(4, (W - 6) / across);
   for (const lz of [-D / 4 + 0.4, D / 4 - 0.7])
     for (let i = 0; i < across; i++) {
-      const lx = (i - (across - 1) / 2) * 4;
+      const lx = (i - (across - 1) / 2) * step;
       const p = to(lx, lz);
       b.add(new THREE.CylinderGeometry(0.55, 0.55, 0.06, 16), wood, p.x, 0.78, p.z);
       b.add(new THREE.CylinderGeometry(0.06, 0.06, 0.78, 8), wood, p.x, 0.39, p.z);
       // the parasol
       b.add(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6), MAT.plain(0xeeeeee), p.x, 1.2, p.z);
       b.add(new THREE.ConeGeometry(1.5, 0.55, 8, 1, true), shade, p.x, 2.55, p.z);
+      // coffee on the table: cups of coffee on saucers, and a small plate of dates
+      const cup = MAT.plain(0xf7f4ee),
+        coffee = MAT.plain(0x4a2c17);
+      for (const [cx, cz] of [
+        [0.28, 0.2],
+        [-0.28, -0.2],
+        [-0.22, 0.26],
+      ]) {
+        b.add(new THREE.CylinderGeometry(0.11, 0.11, 0.015, 12), cup, p.x + cx, 0.82, p.z + cz);
+        b.add(new THREE.CylinderGeometry(0.065, 0.05, 0.11, 10), cup, p.x + cx, 0.88, p.z + cz);
+        b.add(new THREE.CylinderGeometry(0.058, 0.058, 0.01, 10), coffee, p.x + cx, 0.935, p.z + cz);
+      }
+      b.add(new THREE.CylinderGeometry(0.14, 0.12, 0.02, 12), cup, p.x + 0.2, 0.82, p.z - 0.24);
+      for (let k = 0; k < 3; k++)
+        b.add(new THREE.SphereGeometry(0.035, 6, 4), MAT.plain(0x5a2e12), p.x + 0.16 + k * 0.04, 0.845, p.z - 0.24 + (k % 2) * 0.03);
       for (const [dx, dz] of [
         [0, 1],
         [0, -1],
@@ -2613,7 +2630,7 @@ export function coffeeGarden(
   // benches on the lawns, facing in
   for (const s of [-1, 1])
     for (const lz of [-D / 4 + 0.4, D / 4 - 0.7]) {
-      const bx = s * (W / 2 - 2.6);
+      const bx = s * (W / 2 - 1.6);
       const p = to(bx, lz);
       const q = to(bx - s, lz);
       const fx = q.x - p.x,
