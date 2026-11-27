@@ -194,7 +194,7 @@ export function IlmStationApp() {
   // links from the homepage open a screen directly: /app?s=hifz
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get("s");
-    const ok = ["home", "study", "play", "quests", "hifz", "halaqah", "chatrooms", "challenge", "library", "wisdom", "bot", "community", "progress", "rewards", "ramadan", "family", "settings", "cards", "games"];
+    const ok = ["home", "study", "play", "quests", "hifz", "halaqah", "chatrooms", "challenge", "library", "bot", "community", "progress", "rewards", "ramadan", "family", "settings", "cards", "games"];
     if (s && ok.includes(s)) { setScreen(s as Screen); window.history.replaceState(null, "", window.location.pathname); }
   }, []);
 
@@ -232,7 +232,6 @@ export function IlmStationApp() {
         {screen === "challenge" && <ChallengeScreen />}
         {screen === "study" && <StudyScreen />}
         {screen === "library" && <LibraryScreen onShare={openShare} />}
-        {screen === "wisdom" && <WisdomScreen onShare={openShare} />}
         {screen === "bot" && <BotScreen />}
         {screen === "community" && <CommunityScreen go={selectScreen} onShare={openShare} />}
         {screen === "you" && <YouScreen go={selectScreen} />}
@@ -371,7 +370,6 @@ function QuestScreen({ onShare }: { onShare: () => void }) { void onShare; retur
 
 
 function HalaqahScreen({ onShare }: { onShare: () => void }) { void onShare; return <Frame eyebrow="Family learning" title="Family Halaqah"><FamilyHalaqahLive /></Frame>; }
-function WisdomScreen({onShare}:{onShare:(card?:ShareCard)=>void}){const[saved,setSaved]=useState(false);return <Frame eyebrow="A new entry every Fajr" title="Daily Wisdom"><Panel title="Today · Patience" tag="Hadith"><p className="font-arabic text-4xl leading-loose" dir="rtl">وَمَن يَتَصَبَّرْ يُصَبِّرْهُ اللَّهُ</p><p className="mt-4 font-serif text-3xl italic">“Whoever strives to be patient, Allah will make him patient.”</p><p className="mt-3 text-sm text-muted-foreground">Sahih al-Bukhari 1469 · Authenticated</p><div className="mt-6 flex gap-3"><Button onClick={()=>{setSaved(!saved);toast.success(saved?"Removed from bookmarks":"Wisdom saved")}}>{saved?"Saved ✓":"Bookmark"}</Button><Button variant="outline" onClick={() => onShare(patienceCard)}><Share2/> Share</Button></div></Panel><h2 className="mb-4 mt-8 font-serif text-3xl">Recent wisdom</h2><div className="grid gap-3 md:grid-cols-3">{["Gratitude","Sincerity","Good character"].map((x,i)=><button key={x} className="border-2 border-foreground p-5 text-left hover:bg-primary"><span className="text-xs uppercase text-muted-foreground">{i+1} day ago</span><h3 className="mt-2 font-serif text-2xl">{x}</h3><p className="mt-2 text-sm">A sourced reflection from Qur’an and Sunnah.</p></button>)}</div></Frame>}
 
 function BotScreen(){return <Frame eyebrow="Ask about your deen" title="IlmBot"><IlmBot /></Frame>}
 
