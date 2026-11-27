@@ -75,6 +75,7 @@ export const FEATURE_LIMITS = [
   { id: "duels", label: "Live duels", on: false, free: 3 },
   { id: "halaqah", label: "Family Halaqah games (hosting)", on: true, free: 2 },
   { id: "voice", label: "Voice checking (minutes per day)", on: true, free: 3 },
+  { id: "bot", label: "IlmBot questions per day", on: true, free: 5 },
   { id: "lessons", label: "Study lessons", on: false, free: 2 },
   { id: "cards", label: "Cards created", on: false, free: 3 },
 ];

@@ -34,8 +34,9 @@ export async function handleBot(request: Request): Promise<Response> {
   const [ent, cfgDoc, prof] = await Promise.all([db.doc(`entitlements/${uid}`).get(), db.doc("siteConfig/premium").get(), db.doc(`profiles/${uid}`).get()]);
   if (prof.get("zone") === "kids") return json({ error: "IlmBot is for teens and adults." }, 403);
   const premium = Math.max(Number(ent.get("premiumUntil") ?? 0), Number(ent.get("familyUntil") ?? 0)) > Date.now();
-  const feat = ((cfgDoc.get("features") as { id: string; on?: boolean; free?: number; premium?: number }[] | undefined) ?? []).find((f) => f.id === "bot");
-  const limit = premium ? (Number(feat?.premium ?? 0) || 50) : Number(feat?.free ?? 5);
+  const rawF = cfgDoc.get("features") as unknown;
+  const feat = (Array.isArray(rawF) ? (rawF as { id: string; on?: boolean; free?: number; premium?: number }[]).find((f) => f?.id === "bot") : (rawF as Record<string, { id: string; on?: boolean; free?: number; premium?: number }> | undefined)?.["bot"]) as { id: string; on?: boolean; free?: number; premium?: number } | undefined;
+  const limit = feat?.on === false ? 50 : premium ? (Number(feat?.premium ?? 0) || 50) : Number(feat?.free ?? 5);
   const ref = db.collection("botUsage").doc(`${uid}_${day}`);
 
   if (body.peek) { const n = Number((await ref.get()).get("n") ?? 0); return json({ left: Math.max(0, limit - n), limit, premium }); }

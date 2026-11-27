@@ -27,7 +27,8 @@ export async function handleStt(request: Request): Promise<Response> {
   const [ent, cfgDoc] = await Promise.all([db.doc(`entitlements/${uid}`).get(), db.doc("siteConfig/premium").get()]);
   const now = Date.now();
   const premium = Math.max(Number(ent.get("premiumUntil") ?? 0), Number(ent.get("familyUntil") ?? 0)) > now;
-  const feat = ((cfgDoc.get("features") as { id: string; on?: boolean; free?: number; premium?: number }[] | undefined) ?? []).find((f) => f.id === "voice");
+  const rawF = cfgDoc.get("features") as unknown;
+  const feat = (Array.isArray(rawF) ? (rawF as { id: string; on?: boolean; free?: number; premium?: number }[]).find((f) => f?.id === "voice") : (rawF as Record<string, { id: string; on?: boolean; free?: number; premium?: number }> | undefined)?.["voice"]) as { id: string; on?: boolean; free?: number; premium?: number } | undefined;
   const freeMin = feat?.on === false ? 0 : Number(feat?.free ?? 3);
   const premMin = Number(feat?.premium ?? 0) || 120;
   const limit = (premium ? premMin : freeMin) * 60000;
