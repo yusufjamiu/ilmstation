@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Loader2, Pause, Play, RotateCcw, Trophy, Volume2 } from "lucide-react";
+import { ChevronRight, Loader2, RotateCcw, Trophy, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { QuizFeedback, QuizNext, QuizProgress } from "@/components/quiz-ui";
 import { surahList, type SurahMeta } from "@/components/quran-data";
@@ -297,7 +297,7 @@ let shared: HTMLAudioElement | null = null;
 const player = () => (shared ??= new Audio());
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
 /** Call inside a tap (Start, an answer…). */
-function unlockAudio() { const a = player(); if (!a.src || a.src === SILENT) { a.src = SILENT; void a.play().catch(() => {}); } }
+function unlockAudio() { try { actx ??= new AudioContext(); void actx.resume(); } catch { /* ignore */ } const a = player(); if (!a.src || a.src === SILENT) { a.src = SILENT; void a.play().catch(() => {}); } }
 
 function useRecital() {
   const [active, setActive] = useState(-1);
@@ -471,6 +471,23 @@ function QuranPack({ onBack }: { onBack: () => void }) {
   </div>;
 }
 
+/** Seconds to answer, counted after the question has been read: by difficulty, a little more where there's more to read or tap. */
+const BASE_SECS: Record<string, number> = { Easy: 5, Medium: 10, Hard: 15, "From memory": 10 };
+const timeFor = (q: Q) => (BASE_SECS[q.tag] ?? 10) + (q.kind === "arrange" ? 10 : ["meaning", "begin", "end"].includes(q.pk) ? 5 : 0);
+
+/** Clock tick for the countdown (made in the browser, no file). Higher and louder for the last 3 seconds. */
+let actx: AudioContext | null = null;
+function tick(last: boolean) {
+  try {
+    actx ??= new AudioContext();
+    if (actx.state === "suspended") void actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = "square"; o.frequency.value = last ? 1320 : 880;
+    g.gain.setValueAtTime(last ? 0.12 : 0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.07);
+  } catch { /* no sound */ }
+}
+
 /** IlmStation's own look: cream, charcoal and the logo's gold, bold borders. */
 const GOLD = "#e6b84a";
 const LEVEL_CHIP: Record<string, [string, string]> = { Easy: ["🌱", "bg-[#d7ecd9] text-[#1c1a17]"], Medium: ["🌿", "bg-primary"], Hard: ["🔥", "bg-[#f7d9c4] text-[#1c1a17]"], "From memory": ["🧠", "bg-secondary text-secondary-foreground"] };
@@ -497,14 +514,13 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
   const [order, setOrder] = useState<number[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [left, setLeft] = useState(0);
-  const [paused, setPaused] = useState(false);
   const [finished, setFinished] = useState(false);
   const [sent, setSent] = useState<"idle" | "ok" | "already" | "fail">("idle");
   const rc = useRecital();
   const pt = usePlaytime(!finished);
 
   const show = (x: Q) => {
-    setQ(x); setLeft(x.secs * 1000); setPaused(false); setShown(x.prompt);
+    setQ(x); setLeft(timeFor(x) * 1000); setShown(x.prompt);
     if (x.kind === "arrange") { let o = shuffle(Math.random, x.words.map((_, i) => i)); if (o.every((v, i) => v === i)) o = o.reverse(); setOrder(o); }
     const tok = ++showTok.current;
     void (async () => {
@@ -553,8 +569,11 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
 
   // timer: runs while the question is open; "pause for more time"
   const waiting = !!q && answered === null && !(q.kind === "reveal" && revealed);
+  const counting = waiting && ready && !rc.playing;
+  const secLeft = Math.ceil(left / 1000);
+  useEffect(() => { if (counting && secLeft > 0) tick(secLeft <= 3); }, [secLeft, counting]);
   // the countdown only runs once the question has been read, and stops while a verse is playing
-  useEffect(() => { if (!waiting || !ready || paused || rc.playing) return undefined; const id = setInterval(() => setLeft((l) => Math.max(0, l - 100)), 100); return () => clearInterval(id); }, [waiting, ready, paused, rc.playing]);
+  useEffect(() => { if (!waiting || !ready || rc.playing) return undefined; const id = setInterval(() => setLeft((l) => Math.max(0, l - 100)), 100); return () => clearInterval(id); }, [waiting, ready, rc.playing]);
   useEffect(() => { if (answered === null || !afterRead || rc.playing || hold) return undefined; const id = setTimeout(goNext, 3500); return () => clearTimeout(id); }, [answered, afterRead, rc.playing, hold]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (left === 0 && waiting) { if (q?.kind === "reveal") setRevealed(true); else mark(false); } }, [left]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -624,7 +643,6 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
             <Button size="sm" variant="outline" onClick={() => { unlockAudio(); void rc.play(q.rec!, done ? undefined : q.stopBefore); }}><Volume2 /> {q.kind === "arrange" && !done ? "Listen (hint)" : "Listen"}</Button>
             <span className="text-xs text-muted-foreground">{rc.who ?? q.rec.reciter.name}</span>
           </>}
-          {waiting && <Button size="sm" variant={paused ? "default" : "outline"} className="ms-auto" onClick={() => setPaused((p) => !p)}>{paused ? <><Play /> <span dir="auto">Continue</span></> : <><Pause /> <span dir="auto">Need more time?</span></>}</Button>}
         </div>
 
         {q.kind === "choice" && <div className={cn("mt-4 grid gap-3", !q.options[0]?.arabic && q.options.every((o) => o.label.length < 30) && "sm:grid-cols-2")}>{q.options.map((o, k) => {
