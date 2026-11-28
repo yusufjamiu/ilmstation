@@ -2,11 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, Pause, Play, RotateCcw, Trophy, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { surahList, type SurahMeta } from "@/components/quran-data";
-import { reciters } from "@/components/hifz";
 import { quranEdition } from "@/components/language";
 import { usePlaytime, TimeUp, KidGames, useAdminGames } from "@/components/kids";
 import { auth } from "@/lib/firebase";
-import { wordTimings } from "@/lib/word-timing";
 import { awardXp } from "@/lib/xp";
 import { cn } from "@/lib/utils";
 
@@ -17,11 +15,27 @@ import { cn } from "@/lib/utils";
    ============================================================ */
 
 type Rng = () => number;
-type Reciter = (typeof reciters)[number];
+type Reciter = { key: string; name: string; words: boolean; cdn?: string; bitrate?: number };
+/** Quiz reciters. `words`: words light up as they recite. `cdn`: verse-by-verse files on islamic.network (also the backup). */
+const RECITERS: Reciter[] = [
+  { key: "alafasy", name: "Mishary Alafasy", words: true, cdn: "ar.alafasy", bitrate: 128 },
+  { key: "dosari", name: "Yasser Al-Dosari", words: true },
+  { key: "sudais", name: "Abdur-Rahman As-Sudais", words: true, cdn: "ar.abdurrahmaansudais", bitrate: 192 },
+  { key: "shuraim", name: "Saud Ash-Shuraim", words: true, cdn: "ar.saoodshuraym", bitrate: 64 },
+  { key: "husary", name: "Mahmoud Al-Husary", words: true, cdn: "ar.husary", bitrate: 128 },
+  { key: "minshawi", name: "Al-Minshawi", words: true, cdn: "ar.minshawi", bitrate: 128 },
+  { key: "abdulbasit", name: "Abdul Basit (Murattal)", words: true, cdn: "ar.abdulbasitmurattal", bitrate: 192 },
+  { key: "shatri", name: "Abu Bakr Ash-Shatri", words: true },
+  { key: "raad", name: "Raad Al-Kurdi", words: false },
+  { key: "juhani", name: "Abdullah Al-Juhani", words: false },
+  { key: "maher", name: "Maher Al-Muaiqly", words: false, cdn: "ar.mahermuaiqly", bitrate: 128 },
+  { key: "ayyub", name: "Muhammad Ayyub", words: false, cdn: "ar.muhammadayyoub", bitrate: 128 },
+];
+const CDN_ONLY = new Set(["maher", "ayyub"]);
 type Rec = { reciter: Reciter; surah: number; ayah: number; global: number };
 type Opt = { label: string; sub?: string; arabic?: boolean };
 type Base = { prompt: string; tag: string; ref: string; secs: number; meaning?: string; fullArabic?: string; note?: string; rec?: Rec; preAudio?: boolean; stopBefore?: number };
-type ChoiceQ = Base & { kind: "choice"; verse?: string[]; blank?: number; blankWord?: string; options: Opt[]; answer: number };
+type ChoiceQ = Base & { kind: "choice"; verse?: string[]; blank?: number; blankWord?: string; options: Opt[]; answer: number; optRecs?: Rec[] };
 type ArrangeQ = Base & { kind: "arrange"; words: string[] };
 type RevealQ = Base & { kind: "reveal"; verse: string[]; blank: number; blankWord: string };
 type TapQ = Base & { kind: "tap"; verse: string[]; answer: number; correctWord: string };
@@ -75,10 +89,13 @@ const levelSurahs = (l: string) => surahList.filter((s) => s.n >= (LEVELS.find((
 const tagOf = (s: SurahMeta) => (s.n >= 78 ? "Easy" : s.n >= 58 ? "Medium" : "Hard");
 /** Bigger surahs come up more often (so the whole Qur'an is fair), but every surah can appear. */
 const pickSurah = (r: Rng, list: SurahMeta[]) => { const total = list.reduce((s, x) => s + Math.sqrt(x.ayahs), 0); let v = r() * total; for (const s of list) { v -= Math.sqrt(s.ayahs); if (v <= 0) return s; } return list[list.length - 1]!; };
-// reciters that have word timings, so the words can light up as they recite
-const TIMED = ["ar.alafasy", "ar.husary", "ar.minshawi", "ar.abdulbasitmurattal", "ar.abdurrahmaansudais"];
-const reciterFor = (c: Ctx) => (c.s.reciter === "mixed" ? pick(c.r, reciters.filter((x) => TIMED.includes(x.id))) : reciters.find((x) => x.id === c.s.reciter) ?? reciters[0]!);
-const recOf = (c: Ctx, v: Verse): Rec => ({ reciter: reciterFor(c), surah: v.surah.n, ayah: v.n, global: v.global });
+/** `words`: this question hides a word, so it needs a reciter whose recitation can stop just before it. */
+const reciterFor = (c: Ctx, words = false) => {
+  const chosen = RECITERS.find((x) => x.key === c.s.reciter);
+  if (chosen && (!words || chosen.words)) return chosen;
+  return pick(c.r, RECITERS.filter((x) => x.words));
+};
+const recOf = (c: Ctx, v: Verse, words = false): Rec => ({ reciter: reciterFor(c, words), surah: v.surah.n, ayah: v.n, global: v.global });
 const refOf = (v: Verse) => `Surah ${v.surah.name} · ${v.surah.n}:${v.n}`;
 const about = (v: Verse) => ({ ref: refOf(v), meaning: v.meaning, fullArabic: v.text, tag: tagOf(v.surah) });
 
@@ -121,12 +138,12 @@ async function finishAyah(c: Ctx): Promise<Q> {
   const { v, w, blank, right, ends } = await lastWordQ(c);
   const opts = shuffle(c.r, [right, ...ends]);
   return { kind: "choice", prompt: "Finish the ayah", verse: w, blank, blankWord: right, options: opts.map((o) => ({ label: o, arabic: true })), answer: opts.indexOf(right),
-    rec: recOf(c, v), preAudio: true, stopBefore: blank, secs: 20, ...about(v) };
+    rec: recOf(c, v, true), preAudio: true, stopBefore: blank, secs: 20, ...about(v) };
 }
 async function onlyHuffaz(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, wc(4));
   const w = words(v.text);
-  return { kind: "reveal", prompt: "Finish the ayah", verse: w, blank: w.length - 1, blankWord: w.at(-1)!, rec: recOf(c, v), preAudio: true, stopBefore: w.length - 1, secs: 15, ...about(v), tag: "Only Huffaz" };
+  return { kind: "reveal", prompt: "Finish the ayah", verse: w, blank: w.length - 1, blankWord: w.at(-1)!, rec: recOf(c, v, true), preAudio: true, stopBefore: w.length - 1, secs: 15, ...about(v), tag: "Only Huffaz" };
 }
 
 /** Shows verse k, asks for the verse after (or before). */
@@ -157,7 +174,7 @@ async function edgeVerse(c: Ctx, end: "first" | "last"): Promise<Q> {
   for (const x of shuffle(c.r, list.filter((y) => y.n !== s.n))) { if (others.length >= 3) break; const v = await at(x); const k = plain(short(v.text)); if (!seen.has(k)) { seen.add(k); others.push(v); } }
   const opts = shuffle(c.r, [right, ...others]);
   return { kind: "choice", prompt: end === "first" ? `How does Surah ${s.name} begin?` : `How does Surah ${s.name} end?`, options: opts.map((o) => ({ label: short(o.text), arabic: true })), answer: opts.indexOf(right),
-    rec: recOf(c, right), secs: 25, ...about(right) };
+    optRecs: opts.map((o) => recOf(c, o)), rec: recOf(c, right), secs: 30, ...about(right) };
 }
 
 async function makkahMadinah(c: Ctx): Promise<Q> {
@@ -251,30 +268,51 @@ const PACKS: Pack[] = [
 ];
 
 /* ---------------- reciter with words lighting up ---------------- */
+type Track = { url: string; from: number; to: number; words: number[][] };
+const trackCache = new Map<string, Promise<{ url: string; verses: Record<number, { from: number; to: number; words?: number[][] }> }>>();
+const cdnTrack = (R: Reciter, global: number): Track | null => (R.cdn ? { url: `https://cdn.islamic.network/quran/audio/${R.bitrate}/${R.cdn}/${global}.mp3`, from: 0, to: Infinity, words: [] } : null);
+async function trackFor(rec: Rec): Promise<Track | null> {
+  const R = rec.reciter;
+  if (CDN_ONLY.has(R.key)) return cdnTrack(R, rec.global);
+  const key = `${R.key}:${rec.surah}`;
+  if (!trackCache.has(key)) {
+    const p = fetch(`/api/recite?r=${R.key}&s=${rec.surah}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error("recite"))));
+    p.catch(() => trackCache.delete(key));
+    trackCache.set(key, p);
+  }
+  try { const d = await trackCache.get(key)!; const v = d.verses[rec.ayah]; if (v) return { url: d.url, from: v.from, to: v.to, words: v.words ?? [] }; } catch { /* use the backup */ }
+  return cdnTrack(R, rec.global);
+}
+
 function useRecital() {
   const [active, setActive] = useState(-1);
   const [playing, setPlaying] = useState(false);
   const cur = useRef<{ a?: HTMLAudioElement; t?: number; tok: number }>({ tok: 0 });
   const stop = useCallback(() => { const c = cur.current; c.tok++; c.a?.pause(); if (c.t) clearInterval(c.t); c.a = undefined; setPlaying(false); setActive(-1); }, []);
-  /** Plays the verse; with `stopBefore`, stops before that word (so the hidden word isn't given away). */
+  /** Plays one verse; with `stopBefore`, stops before that word (so the hidden word isn't given away). */
   const play = useCallback(async (rec: Rec, stopBefore?: number) => {
     stop(); const tok = cur.current.tok;
-    const t = await wordTimings(rec.reciter.id, rec.surah, rec.ayah);
-    if (cur.current.tok !== tok) return;
-    const cut = stopBefore !== undefined ? t?.segs.find((s) => s.word === stopBefore + 1)?.start : undefined;
-    if (stopBefore !== undefined && cut === undefined) return; // no timings: stay quiet rather than give the answer away
-    const a = new Audio(t?.url ?? `https://cdn.islamic.network/quran/audio/${rec.reciter.bitrate}/${rec.reciter.id}/${rec.global}.mp3`);
+    const tr = await trackFor(rec);
+    if (cur.current.tok !== tok || !tr) return;
+    const cut = stopBefore !== undefined ? tr.words.find((w) => w[0] === stopBefore + 1)?.[1] : undefined;
+    if (stopBefore !== undefined && cut === undefined) return; // no word timings: stay quiet rather than give the answer away
+    const endAt = cut !== undefined ? cut - 60 : tr.to;
+    const a = new Audio(tr.url); a.preload = "auto";
     cur.current.a = a;
-    const end = () => { if (cur.current.a !== a) return; if (cur.current.t) clearInterval(cur.current.t); setPlaying(false); setActive(-1); };
+    const end = () => { if (cur.current.a !== a) return; a.pause(); if (cur.current.t) clearInterval(cur.current.t); setPlaying(false); setActive(-1); };
     a.onended = end; a.onerror = end;
-    setPlaying(true);
-    if (t) cur.current.t = window.setInterval(() => {
-      const ms = a.currentTime * 1000;
-      if (cut !== undefined && ms >= cut - 60) { a.pause(); end(); return; }
-      let w = -1; for (const s of t.segs) if (ms >= s.start) w = s.word - 1;
-      setActive(w);
-    }, 60);
-    a.play().catch(end);
+    const go = () => {
+      if (cur.current.a !== a) return;
+      setPlaying(true);
+      cur.current.t = window.setInterval(() => {
+        const ms = a.currentTime * 1000;
+        if (ms >= endAt) { end(); return; }
+        let w = -1; for (const s of tr.words) if (ms >= s[1]!) w = s[0]! - 1;
+        setActive(w);
+      }, 50);
+      a.play().catch(end);
+    };
+    if (tr.from > 0) { a.addEventListener("loadedmetadata", () => { a.currentTime = tr.from / 1000; go(); }, { once: true }); a.load(); } else go();
   }, [stop]);
   useEffect(() => stop, [stop]);
   return { active, playing, play, stop };
@@ -311,7 +349,8 @@ function QuranPack({ onBack }: { onBack: () => void }) {
   const [choosingSurah, setChoosingSurah] = useState(false);
   const [surah, setSurah] = useState<number | undefined>();
   const [level, setLevel] = useState(() => { try { return localStorage.getItem("iq_qlevel") ?? "easy"; } catch { return "easy"; } });
-  const [reciter, setReciter] = useState("mixed");
+  const [reciter, setReciter] = useState(() => { try { return localStorage.getItem("iq_qreciter") ?? "mixed"; } catch { return "mixed"; } });
+  useEffect(() => { try { localStorage.setItem("iq_qreciter", reciter); } catch { /* ignore */ } }, [reciter]);
   useEffect(() => { try { localStorage.setItem("iq_qlevel", level); } catch { /* ignore */ } }, [level]);
   const today = utcDay();
   const played = (() => { try { return localStorage.getItem(`iq_qdaily_${today}`); } catch { return null; } })();
@@ -351,7 +390,7 @@ function QuranPack({ onBack }: { onBack: () => void }) {
         <div className="mt-2 flex flex-wrap gap-2">{LEVELS.map(([id, label]) => <Button key={id} size="sm" variant={level === id ? "default" : "outline"} onClick={() => setLevel(id)}>{label}</Button>)}</div></div>
       <label className="text-xs font-bold uppercase">Reciter
         <select value={reciter} onChange={(e) => setReciter(e.target.value)} className="mt-2 block h-10 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case">
-          <option value="mixed">Different reciter each question</option>{reciters.map((r) => <option key={r.id} value={r.id}>{r.name}{TIMED.includes(r.id) ? "" : " (no word highlight)"}</option>)}
+          <option value="mixed">Different reciter each question</option>{RECITERS.map((r) => <option key={r.key} value={r.key}>{r.name}{r.words ? "" : " (no word highlight)"}</option>)}
         </select></label>
     </div>
 
@@ -461,7 +500,10 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
     <div className="rounded-2xl border-2 border-foreground bg-[#14130f] p-5 text-[#f3ead6] shadow-brutal">
       <div className="flex items-center justify-between gap-2">
         <span className="flex gap-1.5">{Array.from({ length: total }, (_, k) => <span key={k} className={cn("size-2 rounded-full", k < round ? "bg-[#3fa66b]" : k === round ? "bg-[#d4af37]" : "bg-[#3a362c]")} />)}</span>
-        {q && <span className={cn("rounded-full border px-3 py-0.5 text-xs font-bold uppercase tracking-wider", TAG_TONE[q.tag] ?? TAG_TONE.Medium)}>{q.tag}</span>}
+        {q && <span className="flex items-center gap-2">
+          <span className={cn("rounded-full border px-3 py-0.5 text-xs font-bold uppercase tracking-wider", TAG_TONE[q.tag] ?? TAG_TONE.Medium)}>{q.tag}</span>
+          <span aria-label="Seconds left" className={cn("grid size-12 place-items-center rounded-full border-2 font-serif text-2xl font-bold tabular-nums", !waiting ? "border-[#3a362c] text-[#f3ead6]/40" : left <= 5000 ? "animate-pulse border-[#c94653] text-[#ff8a95]" : "border-[#d4af37] text-[#d4af37]")}>{Math.ceil(left / 1000)}</span>
+        </span>}
       </div>
 
       {err && <div className="py-10 text-center"><p>Couldn’t load the question. Check your internet.</p><Button className="mt-3" onClick={() => (session.current ? loadNext(true) : begin())}>Try again</Button></div>}
@@ -481,14 +523,14 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
             return <span key={i} className={cn("transition-colors duration-150", dim ? "text-[#f3ead6]/30" : rc.playing && i === rc.active ? "text-[#d4af37]" : "")}>{w}</span>;
           })}
         </div>}
+        {q.kind === "tap" && !done && <p className="mt-2 text-center text-xs text-[#f3ead6]/60">The reciter reads it after you answer, so the mistake isn’t given away.</p>}
         {q.kind === "tap" && done && <p className="mt-2 text-center text-sm">The right word: <span dir="rtl" lang="ar" className="font-arabic text-2xl text-[#6fd39a]">{q.correctWord}</span></p>}
 
-        {/* timer + pause */}
-        <div className="mt-4 flex items-center gap-3">
-          <button data-plain onClick={() => setPaused((p) => !p)} disabled={!waiting} className="flex shrink-0 items-center gap-1 text-[11px] font-bold uppercase tracking-widest text-[#f3ead6]/70 disabled:opacity-40">
-            {paused ? <Play className="size-3" /> : <Pause className="size-3" />}{paused ? "Resume" : "Pause for more time"}</button>
-          <span className="h-1 flex-1 overflow-hidden rounded-full bg-[#3a362c]"><span className="block h-full bg-[#d4af37] transition-[width] duration-100" style={{ width: `${(left / (q.secs * 1000)) * 100}%` }} /></span>
-        </div>
+        {/* countdown is at the top; pause gives more time */}
+        {waiting && <div className="mt-3 flex justify-center">
+          <button data-plain onClick={() => setPaused((p) => !p)} className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-widest", paused ? "border-[#d4af37] bg-[#d4af37] text-[#14130f]" : "border-[#3a362c] text-[#f3ead6]/70")}>
+            {paused ? <Play className="size-3" /> : <Pause className="size-3" />}{paused ? "Paused · tap to resume" : "Pause for more time"}</button>
+        </div>}
 
         {q.rec && (q.preAudio || q.kind === "arrange" || done) && <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
           <button data-plain onClick={() => void rc.play(q.rec!, done ? undefined : q.stopBefore)} className="flex items-center gap-1 rounded-full border border-[#d4af37] px-3 py-1 font-bold text-[#d4af37]">
@@ -498,14 +540,15 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
 
         {q.kind === "choice" && <div className={cn("mt-4 grid gap-2.5", !q.options[0]?.arabic && q.options.every((o) => o.label.length < 30) && "sm:grid-cols-2")}>{q.options.map((o, k) => {
           const st = !done ? "border-[#3a362c] bg-[#1d1b16] hover:border-[#d4af37]" : k === q.answer ? "border-[#3fa66b] bg-[#173d27]" : picked === k ? "border-[#c94653] bg-[#3d1719]" : "border-[#3a362c] bg-[#1d1b16] opacity-40";
-          return <button key={`${k}-${o.label}`} data-plain disabled={done} onClick={() => { setPicked(k); mark(k === q.answer); }} className={cn("flex items-center gap-3 rounded-xl border px-4 py-3 text-start transition", st)}>
+          const listen = q.optRecs?.[k];
+          return <div key={`${k}-${o.label}`} className="flex items-stretch gap-2"><button data-plain disabled={done} onClick={() => { setPicked(k); mark(k === q.answer); }} className={cn("flex flex-1 items-center gap-3 rounded-xl border px-4 py-3 text-start transition", st)}>
             <span className="w-5 shrink-0 font-bold text-[#d4af37]">{k + 1}</span>
             <span className="min-w-0 flex-1 text-center">
               {o.arabic ? <span dir="rtl" lang="ar" className="block font-arabic text-2xl leading-loose">{o.label}</span> : <span className="block font-semibold" dir="auto">{o.label}</span>}
               {o.sub && <span className="block text-xs text-[#f3ead6]/60" dir="auto">{o.sub}</span>}
             </span>
             {done && k === q.answer && <span className="text-[#6fd39a]">✓</span>}
-          </button>;
+          </button>{listen && <button data-plain aria-label="Listen to this verse" onClick={() => void rc.play(listen)} className="grid w-12 shrink-0 place-items-center rounded-xl border border-[#3a362c] bg-[#1d1b16] text-[#d4af37]"><Volume2 className="size-5" /></button>}</div>;
         })}</div>}
 
         {q.kind === "reveal" && <div className="mt-4 grid gap-3">
