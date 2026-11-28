@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, Pause, Play, RotateCcw, Trophy, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { QuizFeedback, QuizNext, QuizOption, QuizProgress } from "@/components/quiz-ui";
+import { QuizFeedback, QuizNext, QuizProgress } from "@/components/quiz-ui";
 import { surahList, type SurahMeta } from "@/components/quran-data";
 import { quranEdition, useLanguage } from "@/components/language";
 import { usePlaytime, TimeUp, KidGames, useAdminGames } from "@/components/kids";
@@ -286,46 +286,70 @@ async function trackFor(rec: Rec): Promise<Track | null> {
   return cdnTrack(R, rec.global);
 }
 
+/* One audio player for the whole quiz. Phones (iPhone especially) only let a page play sound after a tap,
+   so the first tap "unlocks" this player and every later verse plays through it. */
+let shared: HTMLAudioElement | null = null;
+const player = () => (shared ??= new Audio());
+const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+/** Call inside a tap (Start, an answer…). */
+function unlockAudio() { const a = player(); if (!a.src || a.src === SILENT) { a.src = SILENT; void a.play().catch(() => {}); } }
+
 function useRecital() {
   const [active, setActive] = useState(-1);
   const [playing, setPlaying] = useState(false);
-  const cur = useRef<{ a?: HTMLAudioElement; t?: number; tok: number; done?: () => void }>({ tok: 0 });
-  const stop = useCallback(() => { const c = cur.current; c.tok++; c.a?.pause(); if (c.t) clearInterval(c.t); c.a = undefined; c.done?.(); c.done = undefined; setPlaying(false); setActive(-1); }, []);
-  /** The spoken guide (question in the user's language). Resolves when it ends or is stopped. */
+  const [who, setWho] = useState<string | null>(null); // the backup reciter, when one was used
+  const cur = useRef<{ t?: number; tok: number; done?: () => void }>({ tok: 0 });
+  const stop = useCallback(() => {
+    const c = cur.current; c.tok++; player().pause(); if (c.t) clearInterval(c.t);
+    const d = c.done; c.done = undefined; d?.();
+    setPlaying(false); setActive(-1);
+  }, []);
+  /** Spoken guide (the question in the user's language). Resolves when it ends or is stopped. */
   const say = useCallback((url: string) => new Promise<void>((resolve) => {
-    stop();
-    const a = new Audio(url); cur.current.a = a; cur.current.done = resolve;
-    const end = () => { if (cur.current.a === a) { cur.current.a = undefined; cur.current.done = undefined; } resolve(); };
-    a.onended = end; a.onerror = end;
+    stop(); const tok = cur.current.tok; cur.current.done = resolve;
+    const a = player();
+    const end = () => { if (cur.current.tok !== tok) return; cur.current.done = undefined; resolve(); };
+    a.onended = end; a.onerror = end; a.src = url;
     a.play().catch(end);
   }), [stop]);
-  /** Plays one verse; with `stopBefore`, stops before that word (so the hidden word isn't given away). */
-  const play = useCallback(async (rec: Rec, stopBefore?: number) => {
-    stop(); const tok = cur.current.tok;
-    const tr = await trackFor(rec);
-    if (cur.current.tok !== tok || !tr) return;
-    const cut = stopBefore !== undefined ? tr.words.find((w) => w[0] === stopBefore + 1)?.[1] : undefined;
-    if (stopBefore !== undefined && cut === undefined) return; // no word timings: stay quiet rather than give the answer away
-    const endAt = cut !== undefined ? cut - 60 : tr.to;
-    const a = new Audio(tr.url); a.preload = "auto";
-    cur.current.a = a;
-    const end = () => { if (cur.current.a !== a) return; a.pause(); if (cur.current.t) clearInterval(cur.current.t); setPlaying(false); setActive(-1); };
-    a.onended = end; a.onerror = end;
-    const go = () => {
-      if (cur.current.a !== a) return;
-      setPlaying(true);
-      cur.current.t = window.setInterval(() => {
-        const ms = a.currentTime * 1000;
-        if (ms >= endAt) { end(); return; }
-        let w = -1; for (const s of tr.words) if (ms >= s[1]!) w = s[0]! - 1;
-        setActive(w);
-      }, 50);
-      a.play().catch(end);
-    };
-    if (tr.from > 0) { a.addEventListener("loadedmetadata", () => { a.currentTime = tr.from / 1000; go(); }, { once: true }); a.load(); } else go();
-  }, [stop]);
+  /** Plays one verse; resolves when it has finished (or was stopped). With `stopBefore`, stops just before
+      that word so a hidden word isn't given away; if this reciter has no word times for it, a backup reciter is used. */
+  const play = useCallback((rec: Rec, stopBefore?: number) => new Promise<void>((resolve) => {
+    stop(); const tok = cur.current.tok; cur.current.done = resolve;
+    const end = () => { if (cur.current.tok !== tok) return; player().pause(); if (cur.current.t) clearInterval(cur.current.t); cur.current.done = undefined; setPlaying(false); setActive(-1); resolve(); };
+    void (async () => {
+      const cutOf = (t: Track | null) => (!t || stopBefore === undefined ? undefined : t.words.find((w) => w[0] === stopBefore + 1)?.[1] ?? t.words.find((w) => w[0] === stopBefore)?.[2]);
+      let tr = await trackFor(rec); let backup: string | null = null; let cut = cutOf(tr);
+      if (stopBefore !== undefined && cut === undefined) {
+        for (const R of RECITERS.filter((x) => x.words && x.key !== rec.reciter.key)) {
+          const t2 = await trackFor({ ...rec, reciter: R }); const c2 = cutOf(t2);
+          if (c2 !== undefined) { tr = t2; cut = c2; backup = R.name; break; }
+        }
+      }
+      if (cur.current.tok !== tok) return;
+      setWho(backup);
+      if (!tr || (stopBefore !== undefined && cut === undefined)) { end(); return; }
+      const endAt = cut !== undefined ? cut - 60 : tr.to;
+      const words = tr.words;
+      const a = player();
+      a.onended = end; a.onerror = end;
+      const go = () => {
+        if (cur.current.tok !== tok) return;
+        setPlaying(true);
+        cur.current.t = window.setInterval(() => {
+          const ms = a.currentTime * 1000;
+          if (ms >= endAt) { end(); return; }
+          let w = -1; for (const x of words) if (ms >= x[1]!) w = x[0]! - 1;
+          setActive(w);
+        }, 50);
+        a.play().catch(end);
+      };
+      a.src = tr.url;
+      if (tr.from > 0) { a.addEventListener("loadedmetadata", () => { if (cur.current.tok !== tok) return; a.currentTime = tr.from / 1000; go(); }, { once: true }); a.load(); } else go();
+    })().catch(end);
+  }), [stop]);
   useEffect(() => stop, [stop]);
-  return { active, playing, play, stop, say };
+  return { active, playing, who, play, stop, say };
 }
 
 /* ---------------- the question in the user's language ---------------- */
@@ -400,13 +424,13 @@ function QuranPack({ onBack }: { onBack: () => void }) {
     <Button variant="outline" onClick={onBack}>← Subjects</Button>
     <h1 className="mt-4 font-serif text-5xl leading-none">📖 Qur’an</h1>
 
-    <div className="mt-5 flex flex-wrap items-center gap-4 border-2 border-foreground bg-secondary p-5 text-secondary-foreground shadow-brutal">
-      <span className="text-5xl">🏆</span>
+    <div className="mt-5 flex flex-col gap-4 border-2 border-foreground bg-secondary p-5 text-secondary-foreground shadow-brutal sm:flex-row sm:items-center">
+      <span className="flex min-w-0 flex-1 items-start gap-4"><span className="text-5xl">🏆</span>
       <span className="min-w-0 flex-1"><span className="text-xs font-bold uppercase">Daily Qur’an challenge</span>
         <b className="block font-serif text-3xl leading-none">5 questions · same for everyone</b>
-        <span className="text-sm opacity-80">{played !== null ? `You scored ${played}/${DAILY_N} today. Come back tomorrow, in shaa Allah.` : "One try a day. Fastest with the most right answers tops the board."}</span></span>
-      <span className="flex gap-2">
-        {played === null && <button onClick={() => setDaily("play")} className="animate-pulse border-2 border-foreground bg-primary px-4 py-2 font-bold text-foreground shadow-brutal-sm">▶ Start</button>}
+        <span className="text-sm opacity-80">{played !== null ? `You scored ${played}/${DAILY_N} today. Come back tomorrow, in shaa Allah.` : "One try a day. Fastest with the most right answers tops the board."}</span></span></span>
+      <span className="grid grid-cols-2 gap-2 sm:flex">
+        {played === null && <button onClick={() => { unlockAudio(); setDaily("play"); }} className="animate-pulse border-2 border-foreground bg-primary px-4 py-2 font-bold text-foreground shadow-brutal-sm">▶ Start</button>}
         <button onClick={() => setDaily("board")} className="border-2 border-foreground bg-background px-4 py-2 font-bold text-foreground shadow-brutal-sm"><Trophy className="inline size-4" /> Board</button>
       </span>
     </div>
@@ -426,7 +450,7 @@ function QuranPack({ onBack }: { onBack: () => void }) {
 
     {QURAN_GROUPS.map(([group, modes]) => <section key={group} className="mt-6">
       <h2 className="font-serif text-3xl">{group}</h2>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">{modes.map((m, i) => <button key={m.id} onClick={() => (m.id === "chain" ? setChoosingSurah(true) : setMode(m))}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">{modes.map((m, i) => <button key={m.id} onClick={() => { unlockAudio(); if (m.id === "chain") setChoosingSurah(true); else setMode(m); }}
         className={cn("flex items-center gap-4 border-2 border-foreground p-4 text-start shadow-brutal transition hover:-translate-y-1", ["bg-primary", "bg-secondary text-secondary-foreground", "bg-[#d7ecd9] text-[#1c1a17]", "bg-background"][i % 4])}>
         <span className="text-4xl">{m.emoji}</span>
         <span className="min-w-0 flex-1"><b className="block font-serif text-2xl leading-tight">{m.title}</b><span className="text-sm">{m.blurb}</span></span>
@@ -444,6 +468,9 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
   const { lang } = useLanguage();
   const [shown, setShown] = useState("");      // the question, in the user's language
   const [speaking, setSpeaking] = useState(false);
+  const [ready, setReady] = useState(false);       // the question has been read: the countdown can start
+  const [afterRead, setAfterRead] = useState(false); // the answer verse has been recited: move on by itself
+  const [hold, setHold] = useState(false);          // "Stay here": don't move on by itself
   const showTok = useRef(0);
   const session = useRef<Session | null>(null);
   const prefetch = useRef<Promise<Q> | null>(null);
@@ -474,11 +501,12 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
       if (showTok.current !== tok) return;
       setShown(t);
       if (guide) { setSpeaking(true); await rc.say(guideUrl(t, lang)); if (showTok.current !== tok) return; setSpeaking(false); }
-      if (x.preAudio && x.rec) void rc.play(x.rec, x.stopBefore);
+      if (x.preAudio && x.rec) await rc.play(x.rec, x.stopBefore);
+      if (showTok.current === tok) setReady(true);
     })();
   };
   const loadNext = (fresh: boolean) => {
-    showTok.current++; setSpeaking(false); rc.stop(); setQ(null); setErr(false); setAnswered(null); setPicked(null); setBuilt([]); setRevealed(false);
+    showTok.current++; setSpeaking(false); setReady(false); setAfterRead(false); setHold(false); rc.stop(); setQ(null); setErr(false); setAnswered(null); setPicked(null); setBuilt([]); setRevealed(false);
     const s = session.current!;
     const p = fresh || !prefetch.current ? s.next() : prefetch.current;
     prefetch.current = null;
@@ -493,7 +521,10 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
   const mark = (ok: boolean) => {
     if (answered !== null) return;
     setAnswered(ok); if (ok) setScore((n) => n + 1);
-    if (q?.rec) void rc.play(q.rec); // full verse after answering
+    setSpeaking(false); setAfterRead(false);
+    const tok = ++showTok.current;
+    // the full verse after answering, then on to the next question
+    if (q?.rec) void rc.play(q.rec).then(() => { if (showTok.current === tok) setAfterRead(true); }); else setAfterRead(true);
   };
   const finish = () => {
     rc.stop(); setFinished(true);
@@ -512,7 +543,9 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
 
   // timer: runs while the question is open; "pause for more time"
   const waiting = !!q && answered === null && !(q.kind === "reveal" && revealed);
-  useEffect(() => { if (!waiting || paused || speaking) return undefined; const id = setInterval(() => setLeft((l) => Math.max(0, l - 100)), 100); return () => clearInterval(id); }, [waiting, paused, speaking]);
+  // the countdown only runs once the question has been read, and stops while a verse is playing
+  useEffect(() => { if (!waiting || !ready || paused || rc.playing) return undefined; const id = setInterval(() => setLeft((l) => Math.max(0, l - 100)), 100); return () => clearInterval(id); }, [waiting, ready, paused, rc.playing]);
+  useEffect(() => { if (answered === null || !afterRead || rc.playing || hold) return undefined; const id = setTimeout(goNext, 3500); return () => clearTimeout(id); }, [answered, afterRead, rc.playing, hold]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (left === 0 && waiting) { if (q?.kind === "reveal") setRevealed(true); else mark(false); } }, [left]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (pt.locked) return <TimeUp resetsAt={pt.resetsAt} kid={false} onBack={onExit} />;
@@ -536,7 +569,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
   const chip = q ? LEVEL_CHIP[q.tag] ?? LEVEL_CHIP.Medium! : null;
   const secs = Math.ceil(left / 1000);
 
-  return <div className="iq-rise mx-auto grid max-w-3xl gap-3">
+  return <div className="iq-rise mx-auto grid max-w-3xl gap-3 pb-28 md:pb-0">
     <div className="flex items-center justify-between gap-3">
       <Button variant="outline" onClick={() => { showTok.current++; rc.stop(); onExit(); }}>← Games</Button>
       <span className="flex items-center gap-2 text-sm font-bold">{pt.left >= 0 && <span className="border-2 border-foreground px-2 py-1">⏱ {Math.ceil(pt.left / 60)} min</span>}<span className="border-2 border-foreground bg-primary px-3 py-1">✓ {score}</span></span>
@@ -546,11 +579,11 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
       <div className="-mx-5 -mt-5 mb-4 h-1.5" style={{ background: GOLD }} />
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase text-muted-foreground">{title} · question {round + 1} of {total}</p>
+          <p className="text-xs font-bold uppercase text-muted-foreground">Question {round + 1} of {total}</p>
           <div className="mt-2"><QuizProgress value={(round + (done ? 1 : 0)) / total * 100} /></div>
         </div>
         {q && chip && <span className={cn("shrink-0 border-2 border-foreground px-2 py-1 text-xs font-bold", chip[1])}>{chip[0]} {q.tag}</span>}
-        {q && <span aria-label="Seconds left" className={cn("grid size-12 shrink-0 place-items-center border-2 border-foreground font-serif text-2xl tabular-nums shadow-brutal-sm", !waiting ? "bg-muted text-muted-foreground" : secs <= 5 ? "animate-pulse bg-[#c94653] text-white" : "bg-background")}>{secs}</span>}
+        {q && <span aria-label="Seconds left" className={cn("grid size-12 shrink-0 place-items-center border-2 border-foreground text-xl font-extrabold tabular-nums shadow-brutal-sm", !waiting || !ready ? "bg-muted text-muted-foreground" : secs <= 5 ? "animate-pulse bg-[#c94653] text-white" : "bg-background")}>{secs}</span>}
       </div>
 
       {err && <div className="py-10 text-center"><p>Couldn’t load the question. Check your internet.</p><Button className="mt-3" onClick={() => (session.current ? loadNext(true) : begin())}>Try again</Button></div>}
@@ -564,10 +597,10 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
             if (i === blankIdx) return blankShow ? <span key={i} className="bg-[#c9f2dc] px-1 text-[#2f7352]">{blankShow}</span> : <span key={i} className="inline-block min-w-20 border-b-4" style={{ borderColor: GOLD }}>&nbsp;</span>;
             if (q.kind === "tap") {
               const st = !done ? "hover:bg-primary/50" : i === q.answer ? "bg-[#fdecef] text-[#c94653] line-through" : "";
-              return <button key={i} data-plain disabled={done} onClick={() => { setPicked(i); mark(i === q.answer); }} className={cn("px-1 transition", st)}>{w}</button>;
+              return <button key={i} data-plain disabled={done} onClick={() => { unlockAudio(); setPicked(i); mark(i === q.answer); }} className={cn("px-1 transition", st)}>{w}</button>;
             }
             const lit = rc.playing && i === rc.active;
-            return <span key={i} className={cn("px-0.5 transition-colors duration-150", rc.playing && i > rc.active && "opacity-35")} style={lit ? { background: `${GOLD}aa` } : undefined}>{w}</span>;
+            return <span key={i} className={cn("px-0.5 transition-colors duration-150", rc.playing && i > rc.active && "opacity-45")} style={lit ? { background: `${GOLD}aa` } : undefined}>{w}</span>;
           })}
         </div>}
         {q.kind === "tap" && !done && <p className="mt-2 text-center text-xs text-muted-foreground">The reciter reads it after you answer, so the mistake isn’t given away.</p>}
@@ -575,21 +608,25 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {q.rec && (q.preAudio || q.kind === "arrange" || done) && <>
-            <Button size="sm" variant="outline" onClick={() => void rc.play(q.rec!, done ? undefined : q.stopBefore)}><Volume2 /> {q.kind === "arrange" && !done ? "Listen (hint)" : "Listen"}</Button>
-            <span className="text-xs text-muted-foreground">{q.rec.reciter.name}</span>
+            <Button size="sm" variant="outline" onClick={() => { unlockAudio(); void rc.play(q.rec!, done ? undefined : q.stopBefore); }}><Volume2 /> {q.kind === "arrange" && !done ? "Listen (hint)" : "Listen"}</Button>
+            <span className="text-xs text-muted-foreground">{rc.who ?? q.rec.reciter.name}</span>
           </>}
           {waiting && <Button size="sm" variant={paused ? "default" : "outline"} className="ms-auto" onClick={() => setPaused((p) => !p)}>{paused ? <><Play /> Continue</> : <><Pause /> Need more time?</>}</Button>}
         </div>
 
         {q.kind === "choice" && <div className={cn("mt-4 grid gap-3", !q.options[0]?.arabic && q.options.every((o) => o.label.length < 30) && "sm:grid-cols-2")}>{q.options.map((o, k) => {
           const listen = q.optRecs?.[k];
+          const st = !done ? "bg-background" : k === q.answer ? "bg-[#2f7352] text-white" : picked === k ? "bg-[#c94653] text-white" : "bg-background opacity-50";
           return <div key={`${k}-${o.label}`} className="flex items-center gap-2">
-            <div className="min-w-0 flex-1"><QuizOption letter={"ABCD"[k] ?? "•"} disabled={done}
-              text={o.arabic ? <span dir="rtl" lang="ar" className="block text-right font-arabic text-2xl leading-loose">{o.label}{o.sub && <span dir="auto" className="ms-2 font-sans text-xs opacity-70">{o.sub}</span>}</span>
-                : <span dir="auto">{o.label}{o.sub && <span className="ms-2 text-sm opacity-70">{o.sub}</span>}</span>}
-              state={!done ? "idle" : k === q.answer ? "correct" : picked === k ? "wrong" : "idle"}
-              onClick={() => { setPicked(k); mark(k === q.answer); }} /></div>
-            {listen && <button data-plain aria-label="Listen to this verse" onClick={() => void rc.play(listen)} className="grid size-11 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground bg-background shadow-[0_3px_0_var(--foreground)]"><Volume2 className="size-5" /></button>}
+            <button data-plain disabled={done} onClick={() => { unlockAudio(); setPicked(k); mark(k === q.answer); }}
+              className={cn("flex min-w-0 flex-1 items-center gap-3 rounded-2xl border-2 border-foreground px-3 py-2.5 text-start shadow-[0_3px_0_var(--foreground)] transition active:translate-y-0.5", st)}>
+              <span className="grid size-8 shrink-0 place-items-center rounded-full border-2 border-current text-sm font-bold">{"ABCD"[k]}</span>
+              {o.arabic && !o.sub && <span dir="rtl" lang="ar" className="min-w-0 flex-1 text-right font-arabic text-2xl leading-loose">{o.label}</span>}
+              {o.arabic && o.sub && <span className="flex min-w-0 flex-1 items-center justify-between gap-3"><span className="text-sm font-semibold">{o.sub}</span><span dir="rtl" lang="ar" className="font-arabic text-2xl leading-loose">{o.label}</span></span>}
+              {!o.arabic && <span className="flex min-w-0 flex-1 items-center justify-between gap-3"><span dir="auto" className="font-semibold">{o.label}</span>{o.sub && <span dir="rtl" lang="ar" className="font-arabic text-lg">{o.sub}</span>}</span>}
+              {done && k === q.answer && <span className="shrink-0 font-bold">✓</span>}
+            </button>
+            {listen && <button data-plain aria-label="Listen to this verse" onClick={() => { unlockAudio(); void rc.play(listen); }} className="grid size-11 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background shadow-[0_3px_0_var(--foreground)]"><Volume2 className="size-5" /></button>}
           </div>;
         })}</div>}
 
@@ -614,6 +651,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
             {q.note && <span className="mt-1 block text-xs opacity-70">{q.note}</span>}
           </>} />
           <QuizNext label={round + 1 < total ? "Next question" : "See my score"} onClick={goNext} />
+          <p className="text-center text-xs text-muted-foreground">{hold ? "Tap Next when you’re ready." : rc.playing ? "Listening to the verse…" : afterRead ? <>Moving on… <button data-plain className="font-bold underline" onClick={() => setHold(true)}>Stay here</button></> : null}</p>
         </div>}
       </>}
     </section>
