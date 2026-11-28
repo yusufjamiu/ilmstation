@@ -37,7 +37,7 @@ const RECITERS: Reciter[] = [
 ];
 type Rec = { reciter: Reciter; surah: number; ayah: number; global: number };
 type Opt = { label: string; sub?: string; arabic?: boolean };
-type Base = { prompt: string; tag: string; ref: string; secs: number; meaning?: string; fullArabic?: string; note?: string; rec?: Rec; preAudio?: boolean; stopBefore?: number };
+type Base = { prompt: string; pk: string; ps?: SurahMeta; vFrom?: number; vTo?: number; tag: string; ref: string; secs: number; meaning?: string; fullArabic?: string; note?: string; rec?: Rec; preAudio?: boolean; stopBefore?: number };
 type ChoiceQ = Base & { kind: "choice"; verse?: string[]; blank?: number; blankWord?: string; options: Opt[]; answer: number; optRecs?: Rec[] };
 type ArrangeQ = Base & { kind: "arrange"; words: string[] };
 type RevealQ = Base & { kind: "reveal"; verse: string[]; blank: number; blankWord: string };
@@ -61,6 +61,9 @@ const words = (t: string) => t.split(/\s+/).filter((w) => hasLetter.test(w));
 /** Letters only, to compare words without marks. */
 const plain = (t: string) => t.replace(/[ؐ-ًؚ-ٰٟۖ-ۭـ]/g, "").replace(/[ٱأإآ]/g, "ا");
 const short = (t: string, n = 12) => { const w = words(t); return w.length > n ? `${w.slice(0, n).join(" ")} …` : w.join(" "); };
+/** Long verses: show only part (the start, or the end when the hidden word is at the end). */
+const win = (len: number, keepEnd = false, n = 12) => (len <= n ? { vFrom: 0, vTo: len } : keepEnd ? { vFrom: len - n, vTo: len } : { vFrom: 0, vTo: n });
+const shortEnd = (t: string, n = 9) => { const w = words(t); return w.length > n ? `… ${w.slice(-n).join(" ")}` : w.join(" "); };
 const trimText = (t: string, n = 170) => (t.length > n ? `${t.slice(0, n).trim()}…` : t);
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
@@ -87,7 +90,7 @@ function loadSurah(n: number): Promise<Verse[]> {
   return surahCache.get(key)!;
 }
 
-const LEVELS: [string, string, number, string][] = [["easy", "Easy · Juz ʿAmma", 78, "Beginner"], ["medium", "Medium · Juz 28–30", 58, "Intermediate"], ["hard", "Hard · Whole Qur’an", 1, "Advanced"]];
+const LEVELS: [string, string, number, string][] = [["easy", "Short surahs (Juz ʿAmma)", 78, "Beginner"], ["medium", "Last 3 juz (28–30)", 58, "Intermediate"], ["hard", "Whole Qur’an", 1, "Advanced"]];
 const levelSurahs = (l: string) => surahList.filter((s) => s.n >= (LEVELS.find(([id]) => id === l)?.[2] ?? 78));
 const tagOf = (s: SurahMeta) => (s.n >= 78 ? "Easy" : s.n >= 58 ? "Medium" : "Hard");
 /** Bigger surahs come up more often (so the whole Qur'an is fair), but every surah can appear. */
@@ -125,9 +128,9 @@ async function gather<T>(c: Ctx, s: SurahMeta, need: number, from: (all: Verse[]
 /* ---------------- Qur'an games ---------------- */
 async function guessSurah(c: Ctx): Promise<Q> {
   const list = levelSurahs(c.s.level);
-  const { v } = await verseFrom(c, wc(4));
+  const { v } = await verseFrom(c, wc(4, 18));
   const opts = shuffle(c.r, [v.surah, ...shuffle(c.r, list.filter((x) => x.n !== v.surah.n)).slice(0, 3)]);
-  return { kind: "choice", prompt: "Guess the surah", verse: words(v.text), options: opts.map((o) => ({ label: o.arabic, sub: o.name, arabic: true })), answer: opts.indexOf(v.surah),
+  return { kind: "choice", prompt: "Guess the surah", pk: "surah", verse: words(v.text), ...win(words(v.text).length), options: opts.map((o) => ({ label: o.arabic, sub: o.name, arabic: true })), answer: opts.indexOf(v.surah),
     rec: recOf(c, v), preAudio: true, secs: 20, ...about(v), fullArabic: undefined };
 }
 
@@ -140,31 +143,32 @@ async function lastWordQ(c: Ctx) {
 async function finishAyah(c: Ctx): Promise<Q> {
   const { v, w, blank, right, ends } = await lastWordQ(c);
   const opts = shuffle(c.r, [right, ...ends]);
-  return { kind: "choice", prompt: "Finish the ayah", verse: w, blank, blankWord: right, options: opts.map((o) => ({ label: o, arabic: true })), answer: opts.indexOf(right),
+  return { kind: "choice", prompt: "Finish the ayah", pk: "finish", verse: w, ...win(w.length, true), blank, blankWord: right, options: opts.map((o) => ({ label: o, arabic: true })), answer: opts.indexOf(right),
     rec: recOf(c, v, true), preAudio: true, stopBefore: blank, secs: 20, ...about(v) };
 }
 async function onlyHuffaz(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, wc(4));
   const w = words(v.text);
-  return { kind: "reveal", prompt: "Finish the ayah", verse: w, blank: w.length - 1, blankWord: w.at(-1)!, rec: recOf(c, v, true), preAudio: true, stopBefore: w.length - 1, secs: 15, ...about(v), tag: "From memory" };
+  return { kind: "reveal", prompt: "Finish the ayah", pk: "finish", verse: w, ...win(w.length, true), blank: w.length - 1, blankWord: w.at(-1)!, rec: recOf(c, v, true), preAudio: true, stopBefore: w.length - 1, secs: 15, ...about(v), tag: "From memory" };
 }
 
 /** Shows verse k, asks for the verse after (or before). */
-async function neighbourQ(c: Ctx, all: Verse[], k: number, dir: 1 | -1, prompt: string): Promise<Q> {
+async function neighbourQ(c: Ctx, all: Verse[], k: number, dir: 1 | -1, prompt: string, pk: string): Promise<Q> {
   const cur = all[k]!, right = all[k + dir]!;
   const others = await gather(c, cur.surah, 3, (list) => list.filter((x) => x.global !== cur.global && x.global !== right.global).map((x) => x.text), (t) => plain(short(t)), new Set([plain(short(right.text)), plain(short(cur.text))]));
   const opts = shuffle(c.r, [right.text, ...others]);
-  return { kind: "choice", prompt, verse: words(cur.text), options: opts.map((o) => ({ label: short(o), arabic: true })), answer: opts.indexOf(right.text),
+  const opt = (t: string) => (dir === 1 ? short(t, 9) : shortEnd(t));
+  return { kind: "choice", prompt, pk, verse: words(cur.text), ...win(words(cur.text).length, dir === 1), options: opts.map((o) => ({ label: opt(o), arabic: true })), answer: opts.indexOf(right.text),
     rec: recOf(c, cur), preAudio: true, secs: 25, ...about(right) };
 }
-async function nextVerse(c: Ctx): Promise<Q> { const { v, all } = await verseFrom(c, (x, a) => x.n < a.length); return neighbourQ(c, all, v.n - 1, 1, "What comes next?"); }
-async function prevVerse(c: Ctx): Promise<Q> { const { v, all } = await verseFrom(c, (x) => x.n > 1); return neighbourQ(c, all, v.n - 1, -1, "What comes before?"); }
+async function nextVerse(c: Ctx): Promise<Q> { const { v, all } = await verseFrom(c, (x, a) => x.n < a.length); return neighbourQ(c, all, v.n - 1, 1, "What comes next?", "next"); }
+async function prevVerse(c: Ctx): Promise<Q> { const { v, all } = await verseFrom(c, (x) => x.n > 1); return neighbourQ(c, all, v.n - 1, -1, "What comes before?", "prev"); }
 
 async function verseNumber(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, wc(3), levelSurahs(c.s.level).filter((s) => s.ayahs >= 4));
   const near = shuffle(c.r, Array.from({ length: v.surah.ayahs }, (_, i) => i + 1).filter((x) => x !== v.n && Math.abs(x - v.n) <= 5));
   const opts = [v.n, ...near.slice(0, 3)].sort((a, b) => a - b);
-  return { kind: "choice", prompt: `Which ayah of Surah ${v.surah.name} is this?`, verse: words(v.text), options: opts.map((o) => ({ label: `Ayah ${o}` })), answer: opts.indexOf(v.n),
+  return { kind: "choice", prompt: `Which ayah of Surah ${v.surah.name} is this?`, pk: "number", ps: v.surah, verse: words(v.text), ...win(words(v.text).length), options: opts.map((o) => ({ label: `Ayah ${o}` })), answer: opts.indexOf(v.n),
     rec: recOf(c, v), preAudio: true, secs: 20, ...about(v), fullArabic: undefined };
 }
 
@@ -176,14 +180,15 @@ async function edgeVerse(c: Ctx, end: "first" | "last"): Promise<Q> {
   const seen = new Set([plain(short(right.text))]); const others: Verse[] = [];
   for (const x of shuffle(c.r, list.filter((y) => y.n !== s.n))) { if (others.length >= 3) break; const v = await at(x); const k = plain(short(v.text)); if (!seen.has(k)) { seen.add(k); others.push(v); } }
   const opts = shuffle(c.r, [right, ...others]);
-  return { kind: "choice", prompt: end === "first" ? `How does Surah ${s.name} begin?` : `How does Surah ${s.name} end?`, options: opts.map((o) => ({ label: short(o.text), arabic: true })), answer: opts.indexOf(right),
+  return { kind: "choice", prompt: end === "first" ? `How does Surah ${s.name} begin?` : `How does Surah ${s.name} end?`, pk: end === "first" ? "begin" : "end", ps: s,
+    options: opts.map((o) => ({ label: end === "first" ? short(o.text, 9) : shortEnd(o.text), arabic: true })), answer: opts.indexOf(right),
     optRecs: opts.map((o) => recOf(c, o)), rec: recOf(c, right), secs: 30, ...about(right) };
 }
 
 async function makkahMadinah(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, wc(3));
   const med = v.surah.type === "Medinan";
-  return { kind: "choice", prompt: `Was Surah ${v.surah.name} revealed in Makkah or Madinah?`, verse: words(v.text), options: [{ label: "Makkah", sub: "مكية" }, { label: "Madinah", sub: "مدنية" }], answer: med ? 1 : 0,
+  return { kind: "choice", prompt: `Was Surah ${v.surah.name} revealed in Makkah or Madinah?`, pk: "place", ps: v.surah, verse: words(v.text), ...win(words(v.text).length), options: [{ label: "Makkah", sub: "مكية" }, { label: "Madinah", sub: "مدنية" }], answer: med ? 1 : 0,
     rec: recOf(c, v), preAudio: true, secs: 15, ...about(v), fullArabic: undefined, note: `Surah ${v.surah.name} is ${med ? "Madani" : "Makki"} by the common classification. Scholars differ on a few surahs.` };
 }
 
@@ -195,21 +200,21 @@ async function findMistake(c: Ctx): Promise<Q> {
   if (!pool.length) throw new Error("no swap");
   const p = Math.floor(c.r() * w.length);
   const shown = [...w]; shown[p] = pick(c.r, pool);
-  return { kind: "tap", prompt: "Find the mistake", verse: shown, answer: p, correctWord: w[p]!, rec: recOf(c, v), secs: 30, ...about(v), tag: "Hard" };
+  return { kind: "tap", prompt: "Find the mistake", pk: "mistake", verse: shown, answer: p, correctWord: w[p]!, rec: recOf(c, v), secs: 30, ...about(v), tag: "Hard" };
 }
 
 async function meaningMatch(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, (x) => wc(3)(x) && !!x.meaning);
   const others = await gather(c, v.surah, 3, (all) => all.filter((x) => x.n !== v.n).map((x) => x.meaning), (t) => t.slice(0, 60), new Set([v.meaning.slice(0, 60)]));
   const opts = shuffle(c.r, [v.meaning, ...others]);
-  return { kind: "choice", prompt: "What does this verse mean?", verse: words(v.text), options: opts.map((o) => ({ label: trimText(o) })), answer: opts.indexOf(v.meaning),
+  return { kind: "choice", prompt: "What does this verse mean?", pk: "meaning", verse: words(v.text), ...win(words(v.text).length), options: opts.map((o) => ({ label: trimText(o, 120) })), answer: opts.indexOf(v.meaning),
     rec: recOf(c, v), preAudio: true, secs: 30, ...about(v), fullArabic: undefined };
 }
 
 async function arrangeVerse(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, wc(4));
   const w = words(v.text); const part = w.length > 9; // long verse → arrange its first part
-  return { kind: "arrange", prompt: part ? "Arrange the start of the verse" : "Arrange the verse", words: part ? w.slice(0, 8) : w, rec: recOf(c, v), secs: 45, ...about(v) };
+  return { kind: "arrange", prompt: part ? "Arrange the start of the verse" : "Arrange the verse", pk: part ? "arrangeStart" : "arrange", words: part ? w.slice(0, 8) : w, rec: recOf(c, v), secs: 45, ...about(v) };
 }
 
 const MAKERS: Record<string, (c: Ctx) => Promise<Q>> = {
@@ -224,7 +229,7 @@ async function chainSession(c: Ctx): Promise<Session> {
   const start = all.length <= 11 ? 0 : Math.floor(c.r() * (all.length - 10));
   const total = Math.min(10, all.length - 1 - start);
   let i = 0;
-  return { total, next: () => { const k = start + i++; return neighbourQ(c, all, k, 1, `Complete Surah ${s.name}: what comes next?`); } };
+  return { total, next: () => { const k = start + i++; return neighbourQ(c, all, k, 1, "What comes next?", "next"); } };
 }
 
 function quranSession(mode: string, s: Settings): Promise<Session> {
@@ -243,7 +248,7 @@ function quranSession(mode: string, s: Settings): Promise<Session> {
 const QURAN_GROUPS: [string, Mode[]][] = [
   ["Memorisation", [
     { id: "finish", title: "Finish the ayah", emoji: "✍️", blurb: "The last word is missing. Pick it." },
-    { id: "chain", title: "Complete the surah", emoji: "📿", blurb: "Pick the next verse, all through a surah." },
+    { id: "chain", title: "Pick the next verse", emoji: "📿", blurb: "Go through a surah, one verse after another." },
     { id: "huffaz", title: "Hifz check", emoji: "🧠", blurb: "No choices. Recite the missing word from memory." },
     { id: "prev", title: "What comes before?", emoji: "⏪", blurb: "Pick the verse before this one." },
     { id: "arrange", title: "Arrange the verse", emoji: "🧩", blurb: "Tap the words in the right order." },
@@ -352,17 +357,25 @@ function useRecital() {
   return { active, playing, who, play, stop, say };
 }
 
-/* ---------------- the question in the user's language ---------------- */
-const trCache = new Map<string, Promise<string>>();
-function translated(text: string, lang: string): Promise<string> {
-  if (lang === "en") return Promise.resolve(text);
-  const key = `${lang}|${text}`;
-  if (!trCache.has(key)) {
-    const p = fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, lang }) })
-      .then((r) => r.json()).then((j: { text?: string }) => j.text || text).catch(() => text);
-    trCache.set(key, p);
-  }
-  return trCache.get(key)!;
+/* ---------------- the question in the user's language ----------------
+   Fixed translations ({s} = surah name). Machine translation refused Qur'an-related text, so these are written out. */
+const PROMPTS: Record<string, Record<string, string>> = {
+  ar: { surah: "خمّن السورة", finish: "أكمل الآية", next: "ما الآية التالية؟", prev: "ما الآية السابقة؟", number: "ما رقم هذه الآية في سورة {s}؟", begin: "بماذا تبدأ سورة {s}؟", end: "بماذا تنتهي سورة {s}؟", place: "هل سورة {s} مكية أم مدنية؟", mistake: "أين الخطأ؟", meaning: "ما معنى هذه الآية؟", arrange: "رتّب كلمات الآية", arrangeStart: "رتّب بداية الآية" },
+  fr: { surah: "Devine la sourate", finish: "Termine le verset", next: "Quel verset vient ensuite ?", prev: "Quel verset vient avant ?", number: "Quel est le numéro de ce verset dans la sourate {s} ?", begin: "Comment commence la sourate {s} ?", end: "Comment se termine la sourate {s} ?", place: "La sourate {s} a-t-elle été révélée à La Mecque ou à Médine ?", mistake: "Trouve l’erreur", meaning: "Que signifie ce verset ?", arrange: "Remets les mots du verset dans l’ordre", arrangeStart: "Remets le début du verset dans l’ordre" },
+  ur: { surah: "سورت پہچانیں", finish: "آیت مکمل کریں", next: "اگلی آیت کون سی ہے؟", prev: "پچھلی آیت کون سی ہے؟", number: "سورہ {s} میں یہ کون سی آیت ہے؟", begin: "سورہ {s} کیسے شروع ہوتی ہے؟", end: "سورہ {s} کیسے ختم ہوتی ہے؟", place: "کیا سورہ {s} مکہ میں نازل ہوئی یا مدینہ میں؟", mistake: "غلطی تلاش کریں", meaning: "اس آیت کا مطلب کیا ہے؟", arrange: "آیت کے الفاظ ترتیب دیں", arrangeStart: "آیت کے شروع کے الفاظ ترتیب دیں" },
+  ha: { surah: "Gane surar", finish: "Cika ayar", next: "Wace aya ce ta biyo baya?", prev: "Wace aya ce ta gabace ta?", number: "Wannan aya ta nawa ce a Surat {s}?", begin: "Da me Surat {s} ke farawa?", end: "Da me Surat {s} ke ƙarewa?", place: "An saukar da Surat {s} a Makka ne ko a Madina?", mistake: "Nemo kuskuren", meaning: "Mene ne ma’anar wannan aya?", arrange: "Jera kalmomin ayar", arrangeStart: "Jera farkon ayar" },
+  id: { surah: "Tebak suratnya", finish: "Lengkapi ayatnya", next: "Ayat apa selanjutnya?", prev: "Ayat apa sebelumnya?", number: "Ini ayat ke berapa dalam Surah {s}?", begin: "Bagaimana Surah {s} dimulai?", end: "Bagaimana Surah {s} diakhiri?", place: "Apakah Surah {s} turun di Makkah atau Madinah?", mistake: "Temukan kesalahannya", meaning: "Apa arti ayat ini?", arrange: "Susun kata-kata ayat ini", arrangeStart: "Susun awal ayat ini" },
+  tl: { surah: "Hulaan ang surah", finish: "Tapusin ang ayah", next: "Ano ang susunod na ayah?", prev: "Ano ang naunang ayah?", number: "Pang-ilang ayah ito sa Surah {s}?", begin: "Paano nagsisimula ang Surah {s}?", end: "Paano nagtatapos ang Surah {s}?", place: "Ibinaba ba ang Surah {s} sa Makkah o sa Madinah?", mistake: "Hanapin ang mali", meaning: "Ano ang ibig sabihin ng ayah na ito?", arrange: "Ayusin ang mga salita ng ayah", arrangeStart: "Ayusin ang simula ng ayah" },
+  yo: { surah: "Dá sùúrà náà mọ̀", finish: "Parí àyá náà", next: "Àyá wo ló tẹ̀lé e?", prev: "Àyá wo ló ṣáájú rẹ̀?", number: "Àyá mélòó ni èyí nínú Sùúrà {s}?", begin: "Báwo ni Sùúrà {s} ṣe bẹ̀rẹ̀?", end: "Báwo ni Sùúrà {s} ṣe parí?", place: "Ṣé ní Mẹ́kà tàbí ní Mẹ́dínà ni wọ́n ti sọ Sùúrà {s} kalẹ̀?", mistake: "Wá àṣìṣe náà", meaning: "Kí ni ìtumọ̀ àyá yìí?", arrange: "To àwọn ọ̀rọ̀ àyá náà lẹ́sẹẹsẹ", arrangeStart: "To ìbẹ̀rẹ̀ àyá náà lẹ́sẹẹsẹ" },
+  ig: { surah: "Chọpụta surah ahụ", finish: "Mechaa ayah ahụ", next: "Kedu ayah na-esote?", prev: "Kedu ayah bu ụzọ?", number: "Ayah nke ole ka nke a bụ na Surah {s}?", begin: "Kedu ka Surah {s} si malite?", end: "Kedu ka Surah {s} si agwụ?", place: "E zitere Surah {s} na Makkah ka ọ bụ na Madinah?", mistake: "Chọta njehie ahụ", meaning: "Gịnị ka ayah a pụtara?", arrange: "Hazie okwu ayah ahụ n’usoro", arrangeStart: "Hazie mmalite ayah ahụ n’usoro" },
+  bn: { surah: "সূরাটি চিনুন", finish: "আয়াতটি সম্পূর্ণ করুন", next: "পরের আয়াত কোনটি?", prev: "আগের আয়াত কোনটি?", number: "সূরা {s}-এ এটি কত নম্বর আয়াত?", begin: "সূরা {s} কীভাবে শুরু হয়?", end: "সূরা {s} কীভাবে শেষ হয়?", place: "সূরা {s} কি মক্কায় নাকি মদিনায় নাযিল হয়েছে?", mistake: "ভুলটি খুঁজুন", meaning: "এই আয়াতের অর্থ কী?", arrange: "আয়াতের শব্দগুলো সাজান", arrangeStart: "আয়াতের শুরুটা সাজান" },
+  ms: { surah: "Teka surahnya", finish: "Lengkapkan ayat ini", next: "Apakah ayat seterusnya?", prev: "Apakah ayat sebelumnya?", number: "Ini ayat ke berapa dalam Surah {s}?", begin: "Bagaimanakah Surah {s} bermula?", end: "Bagaimanakah Surah {s} berakhir?", place: "Adakah Surah {s} diturunkan di Makkah atau Madinah?", mistake: "Cari kesilapannya", meaning: "Apakah maksud ayat ini?", arrange: "Susun perkataan ayat ini", arrangeStart: "Susun permulaan ayat ini" },
+};
+function promptFor(q: Q, lang: string): string {
+  const t = lang === "en" ? undefined : PROMPTS[lang]?.[q.pk];
+  if (!t) return q.prompt;
+  const name = q.ps ? (lang === "ar" || lang === "ur" ? q.ps.arabic : q.ps.name) : "";
+  return t.replace("{s}", name);
 }
 const guideUrl = (text: string, lang: string) => `/api/tts?text=${encodeURIComponent(text)}&lang=${lang}&who=adult`;
 
@@ -412,10 +425,10 @@ function QuranPack({ onBack }: { onBack: () => void }) {
 
   if (choosingSurah) return <div className="iq-rise">
     <Button variant="outline" onClick={() => setChoosingSurah(false)}>← Qur’an</Button>
-    <h1 className="mt-4 font-serif text-4xl">📿 Complete which surah?</h1>
+    <h1 className="mt-4 font-serif text-4xl">📿 Pick the next verse: which surah?</h1>
     <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <button onClick={() => { setChoosingSurah(false); setMode({ id: "chain", title: "Complete the surah", emoji: "📿", blurb: "" }); }} className="border-2 border-foreground bg-primary p-3 font-bold">🎲 Surprise me</button>
-      {levelSurahs(level).filter((s) => s.ayahs >= 3).map((s) => <button key={s.n} onClick={() => { setSurah(s.n); setChoosingSurah(false); setMode({ id: "chain", title: `Complete ${s.name}`, emoji: "📿", blurb: "" }); }}
+      <button onClick={() => { setChoosingSurah(false); setMode({ id: "chain", title: "Pick the next verse", emoji: "📿", blurb: "" }); }} className="border-2 border-foreground bg-primary p-3 font-bold">🎲 Surprise me</button>
+      {levelSurahs(level).filter((s) => s.ayahs >= 3).map((s) => <button key={s.n} onClick={() => { setSurah(s.n); setChoosingSurah(false); setMode({ id: "chain", title: `Next verse · ${s.name}`, emoji: "📿", blurb: "" }); }}
         className="flex items-center justify-between gap-2 border-2 border-foreground bg-background p-3 text-start"><span className="text-sm font-semibold">{s.n}. {s.name}</span><span dir="rtl" lang="ar" className="font-arabic">{s.arabic}</span></button>)}
     </div>
   </div>;
@@ -424,19 +437,17 @@ function QuranPack({ onBack }: { onBack: () => void }) {
     <Button variant="outline" onClick={onBack}>← Subjects</Button>
     <h1 className="mt-4 font-serif text-5xl leading-none">📖 Qur’an</h1>
 
-    <div className="mt-5 flex flex-col gap-4 border-2 border-foreground bg-secondary p-5 text-secondary-foreground shadow-brutal sm:flex-row sm:items-center">
-      <span className="flex min-w-0 flex-1 items-start gap-4"><span className="text-5xl">🏆</span>
-      <span className="min-w-0 flex-1"><span className="text-xs font-bold uppercase">Daily Qur’an challenge</span>
-        <b className="block font-serif text-3xl leading-none">5 questions · same for everyone</b>
-        <span className="text-sm opacity-80">{played !== null ? `You scored ${played}/${DAILY_N} today. Come back tomorrow, in shaa Allah.` : "One try a day. Fastest with the most right answers tops the board."}</span></span></span>
-      <span className="grid grid-cols-2 gap-2 sm:flex">
-        {played === null && <button onClick={() => { unlockAudio(); setDaily("play"); }} className="animate-pulse border-2 border-foreground bg-primary px-4 py-2 font-bold text-foreground shadow-brutal-sm">▶ Start</button>}
-        <button onClick={() => setDaily("board")} className="border-2 border-foreground bg-background px-4 py-2 font-bold text-foreground shadow-brutal-sm"><Trophy className="inline size-4" /> Board</button>
-      </span>
+    <div className="mt-5 flex items-center gap-3 border-2 border-foreground bg-secondary p-3 text-secondary-foreground shadow-brutal">
+      <span className="text-3xl">🏆</span>
+      <span className="min-w-0 flex-1"><b className="block font-serif text-xl leading-tight">Daily challenge</b>
+        <span className="text-xs opacity-90">{played !== null ? `You scored ${played}/${DAILY_N} today · new one tomorrow` : `${DAILY_N} questions · one try a day`}</span></span>
+      {played === null
+        ? <button onClick={() => { unlockAudio(); setDaily("play"); }} className="shrink-0 animate-pulse border-2 border-foreground bg-primary px-3 py-1.5 text-sm font-bold text-foreground shadow-brutal-sm">▶ Start</button>
+        : <button onClick={() => setDaily("board")} className="shrink-0 border-2 border-foreground bg-background px-3 py-1.5 text-sm font-bold text-foreground shadow-brutal-sm"><Trophy className="inline size-4" /> Board</button>}
     </div>
 
     <div className="mt-5 grid gap-3 border-2 border-foreground bg-background p-4">
-      <div><p className="text-xs font-bold uppercase">Level</p>
+      <div><p className="text-xs font-bold uppercase">Questions from</p><p className="text-xs text-muted-foreground">Which part of the Qur’an the verses come from. Start small, then go bigger.</p>
         <div className="mt-2 flex flex-wrap gap-2">{LEVELS.map(([id, label]) => <Button key={id} size="sm" variant={level === id ? "default" : "outline"} onClick={() => setLevel(id)}>{label}</Button>)}</div></div>
       <label className="text-xs font-bold uppercase">Reciter
         <select value={reciter} onChange={(e) => setReciter(e.target.value)} className="mt-2 block h-10 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case">
@@ -497,8 +508,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
     if (x.kind === "arrange") { let o = shuffle(Math.random, x.words.map((_, i) => i)); if (o.every((v, i) => v === i)) o = o.reverse(); setOrder(o); }
     const tok = ++showTok.current;
     void (async () => {
-      const t = await translated(x.prompt, lang);
-      if (showTok.current !== tok) return;
+      const t = promptFor(x, lang);
       setShown(t);
       if (guide) { setSpeaking(true); await rc.say(guideUrl(t, lang)); if (showTok.current !== tok) return; setSpeaking(false); }
       if (x.preAudio && x.rec) await rc.play(x.rec, x.stopBefore);
@@ -593,7 +603,9 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
         <h2 dir="auto" className="mt-4 font-serif text-3xl leading-tight sm:text-4xl">{shown || q.prompt}{speaking && <Volume2 className="ms-2 inline size-6 animate-pulse" />}</h2>
 
         {q.kind !== "arrange" && "verse" in q && q.verse && <div dir="rtl" lang="ar" className="mt-4 flex flex-wrap justify-center gap-x-2 gap-y-1 border-2 border-foreground bg-[#fdf8ec] px-4 py-5 font-arabic text-3xl leading-[2.1] text-[#1c1a17] sm:text-4xl">
-          {q.verse.map((w, i) => {
+          {(q.vFrom ?? 0) > 0 && <span className="opacity-50">…</span>}
+          {q.verse.slice(q.vFrom ?? 0, q.vTo ?? q.verse.length).map((w, j) => {
+            const i = j + (q.vFrom ?? 0);
             if (i === blankIdx) return blankShow ? <span key={i} className="bg-[#c9f2dc] px-1 text-[#2f7352]">{blankShow}</span> : <span key={i} className="inline-block min-w-20 border-b-4" style={{ borderColor: GOLD }}>&nbsp;</span>;
             if (q.kind === "tap") {
               const st = !done ? "hover:bg-primary/50" : i === q.answer ? "bg-[#fdecef] text-[#c94653] line-through" : "";
@@ -602,6 +614,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
             const lit = rc.playing && i === rc.active;
             return <span key={i} className={cn("px-0.5 transition-colors duration-150", rc.playing && i > rc.active && "opacity-45")} style={lit ? { background: `${GOLD}aa` } : undefined}>{w}</span>;
           })}
+          {(q.vTo ?? q.verse.length) < q.verse.length && <span className="opacity-50">…</span>}
         </div>}
         {q.kind === "tap" && !done && <p className="mt-2 text-center text-xs text-muted-foreground">The reciter reads it after you answer, so the mistake isn’t given away.</p>}
         {q.kind === "tap" && done && <p className="mt-2 text-center text-sm">The right word: <span dir="rtl" lang="ar" className="font-arabic text-2xl text-[#2f7352]">{q.correctWord}</span></p>}
@@ -611,7 +624,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
             <Button size="sm" variant="outline" onClick={() => { unlockAudio(); void rc.play(q.rec!, done ? undefined : q.stopBefore); }}><Volume2 /> {q.kind === "arrange" && !done ? "Listen (hint)" : "Listen"}</Button>
             <span className="text-xs text-muted-foreground">{rc.who ?? q.rec.reciter.name}</span>
           </>}
-          {waiting && <Button size="sm" variant={paused ? "default" : "outline"} className="ms-auto" onClick={() => setPaused((p) => !p)}>{paused ? <><Play /> Continue</> : <><Pause /> Need more time?</>}</Button>}
+          {waiting && <Button size="sm" variant={paused ? "default" : "outline"} className="ms-auto" onClick={() => setPaused((p) => !p)}>{paused ? <><Play /> <span dir="auto">Continue</span></> : <><Pause /> <span dir="auto">Need more time?</span></>}</Button>}
         </div>
 
         {q.kind === "choice" && <div className={cn("mt-4 grid gap-3", !q.options[0]?.arabic && q.options.every((o) => o.label.length < 30) && "sm:grid-cols-2")}>{q.options.map((o, k) => {
