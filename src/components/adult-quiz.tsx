@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, Pause, Play, RotateCcw, Trophy, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { QuizFeedback, QuizNext, QuizOption, QuizProgress } from "@/components/quiz-ui";
 import { surahList, type SurahMeta } from "@/components/quran-data";
 import { quranEdition, useLanguage } from "@/components/language";
 import { usePlaytime, TimeUp, KidGames, useAdminGames } from "@/components/kids";
@@ -145,7 +146,7 @@ async function finishAyah(c: Ctx): Promise<Q> {
 async function onlyHuffaz(c: Ctx): Promise<Q> {
   const { v } = await verseFrom(c, wc(4));
   const w = words(v.text);
-  return { kind: "reveal", prompt: "Finish the ayah", verse: w, blank: w.length - 1, blankWord: w.at(-1)!, rec: recOf(c, v, true), preAudio: true, stopBefore: w.length - 1, secs: 15, ...about(v), tag: "Only Huffaz" };
+  return { kind: "reveal", prompt: "Finish the ayah", verse: w, blank: w.length - 1, blankWord: w.at(-1)!, rec: recOf(c, v, true), preAudio: true, stopBefore: w.length - 1, secs: 15, ...about(v), tag: "From memory" };
 }
 
 /** Shows verse k, asks for the verse after (or before). */
@@ -243,7 +244,7 @@ const QURAN_GROUPS: [string, Mode[]][] = [
   ["Memorisation", [
     { id: "finish", title: "Finish the ayah", emoji: "✍️", blurb: "The last word is missing. Pick it." },
     { id: "chain", title: "Complete the surah", emoji: "📿", blurb: "Pick the next verse, all through a surah." },
-    { id: "huffaz", title: "Only Huffaz", emoji: "🧠", blurb: "No choices. Say the missing word, then reveal." },
+    { id: "huffaz", title: "Hifz check", emoji: "🧠", blurb: "No choices. Recite the missing word from memory." },
     { id: "prev", title: "What comes before?", emoji: "⏪", blurb: "Pick the verse before this one." },
     { id: "arrange", title: "Arrange the verse", emoji: "🧩", blurb: "Tap the words in the right order." },
     { id: "first", title: "How does it begin?", emoji: "🌅", blurb: "Pick the first verse of a surah." },
@@ -399,14 +400,14 @@ function QuranPack({ onBack }: { onBack: () => void }) {
     <Button variant="outline" onClick={onBack}>← Subjects</Button>
     <h1 className="mt-4 font-serif text-5xl leading-none">📖 Qur’an</h1>
 
-    <div className="mt-5 flex flex-wrap items-center gap-4 border-2 border-foreground bg-[#14130f] p-5 text-[#f3ead6] shadow-brutal">
+    <div className="mt-5 flex flex-wrap items-center gap-4 border-2 border-foreground bg-secondary p-5 text-secondary-foreground shadow-brutal">
       <span className="text-5xl">🏆</span>
-      <span className="min-w-0 flex-1"><span className="text-xs font-bold uppercase tracking-widest text-[#d4af37]">Daily Qur’an challenge</span>
+      <span className="min-w-0 flex-1"><span className="text-xs font-bold uppercase">Daily Qur’an challenge</span>
         <b className="block font-serif text-3xl leading-none">5 questions · same for everyone</b>
         <span className="text-sm opacity-80">{played !== null ? `You scored ${played}/${DAILY_N} today. Come back tomorrow, in shaa Allah.` : "One try a day. Fastest with the most right answers tops the board."}</span></span>
       <span className="flex gap-2">
-        {played === null && <button onClick={() => setDaily("play")} className="animate-pulse border-2 border-[#d4af37] bg-[#d4af37] px-4 py-2 font-bold text-[#14130f]">▶ Start</button>}
-        <button onClick={() => setDaily("board")} className="border-2 border-[#d4af37] px-4 py-2 font-bold text-[#d4af37]"><Trophy className="inline size-4" /> Board</button>
+        {played === null && <button onClick={() => setDaily("play")} className="animate-pulse border-2 border-foreground bg-primary px-4 py-2 font-bold text-foreground shadow-brutal-sm">▶ Start</button>}
+        <button onClick={() => setDaily("board")} className="border-2 border-foreground bg-background px-4 py-2 font-bold text-foreground shadow-brutal-sm"><Trophy className="inline size-4" /> Board</button>
       </span>
     </div>
 
@@ -419,7 +420,7 @@ function QuranPack({ onBack }: { onBack: () => void }) {
         </select></label>
       <label className="flex items-center justify-between gap-3 text-sm font-semibold">
         <span>🔊 Voice guide <span className="block text-xs font-normal text-muted-foreground">Reads each question aloud in your language before the reciter.</span></span>
-        <input type="checkbox" className="size-5 accent-[#d4af37]" checked={guide} onChange={(e) => setGuide(e.target.checked)} />
+        <input type="checkbox" className="size-5 accent-[#e6b84a]" checked={guide} onChange={(e) => setGuide(e.target.checked)} />
       </label>
     </div>
 
@@ -435,7 +436,9 @@ function QuranPack({ onBack }: { onBack: () => void }) {
   </div>;
 }
 
-const TAG_TONE: Record<string, string> = { Easy: "border-[#3fa66b] text-[#6fd39a]", Medium: "border-[#d4af37] text-[#d4af37]", Hard: "border-[#e07a3f] text-[#f0a070]", "Only Huffaz": "border-[#c94653] bg-[#3d1719] text-[#ff8a95]" };
+/** IlmStation's own look: cream, charcoal and the logo's gold, bold borders. */
+const GOLD = "#e6b84a";
+const LEVEL_CHIP: Record<string, [string, string]> = { Easy: ["🌱", "bg-[#d7ecd9] text-[#1c1a17]"], Medium: ["🌿", "bg-primary"], Hard: ["🔥", "bg-[#f7d9c4] text-[#1c1a17]"], "From memory": ["🧠", "bg-secondary text-secondary-foreground"] };
 
 function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = true }: { title: string; start: () => Promise<Session>; onExit: () => void; xpLevel: string; topic: string; daily?: boolean; guide?: boolean }) {
   const { lang } = useLanguage();
@@ -514,14 +517,14 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
 
   if (pt.locked) return <TimeUp resetsAt={pt.resetsAt} kid={false} onBack={onExit} />;
   if (finished) return <div className="iq-rise mx-auto grid max-w-2xl gap-4">
-    <div className="border-2 border-foreground bg-[#14130f] p-8 text-center text-[#f3ead6] shadow-brutal">
+    <div className="border-2 border-foreground bg-primary p-8 text-center shadow-brutal">
       <p className="text-6xl">{score >= total * 0.8 ? "🏆" : score >= total / 2 ? "🌟" : "🤲"}</p>
-      <h2 className="mt-3 font-serif text-5xl text-[#d4af37]">{score >= total * 0.8 ? "Mā shā’ Allāh!" : score >= total / 2 ? "Bārak Allāhu fīk!" : "Keep going!"}</h2>
-      <p className="mt-2 text-xl font-semibold">Your score: {score}/{total} · {title}</p>
-      {daily && sent === "fail" && <p className="mt-2 text-sm text-[#ff8a95]">Couldn’t save your score to the board.</p>}
+      <h2 className="mt-3 font-serif text-5xl">{score >= total * 0.8 ? "Mā shā’ Allāh!" : score >= total / 2 ? "Bārak Allāhu fīk!" : "Keep going!"}</h2>
+      <p className="mt-2 text-xl font-semibold">{score} out of {total} · {title}</p>
+      {daily && sent === "fail" && <p className="mt-2 text-sm font-semibold text-[#c94653]">Couldn’t save your score to the board.</p>}
       <div className="mt-6 flex flex-wrap justify-center gap-3">
-        {!daily && <Button size="lg" onClick={begin}><RotateCcw /> Play again</Button>}
-        <Button size="lg" variant="outline" className="bg-background text-foreground" onClick={onExit}>Back to games</Button>
+        {!daily && <Button size="lg" variant="outline" className="bg-background" onClick={begin}><RotateCcw /> Play again</Button>}
+        <Button size="lg" variant="outline" className="bg-background" onClick={onExit}>Back to games</Button>
       </div>
     </div>
     {daily && sent !== "idle" && <DailyBoard date={utcDay()} />}
@@ -530,6 +533,8 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
   const done = answered !== null;
   const blankIdx = q && (q.kind === "choice" || q.kind === "reveal") ? q.blank : undefined;
   const blankShow = q && done ? (q.kind === "reveal" || q.kind === "choice" ? q.blankWord : undefined) : q?.kind === "reveal" && revealed ? q.blankWord : undefined;
+  const chip = q ? LEVEL_CHIP[q.tag] ?? LEVEL_CHIP.Medium! : null;
+  const secs = Math.ceil(left / 1000);
 
   return <div className="iq-rise mx-auto grid max-w-3xl gap-3">
     <div className="flex items-center justify-between gap-3">
@@ -537,83 +542,81 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = 
       <span className="flex items-center gap-2 text-sm font-bold">{pt.left >= 0 && <span className="border-2 border-foreground px-2 py-1">⏱ {Math.ceil(pt.left / 60)} min</span>}<span className="border-2 border-foreground bg-primary px-3 py-1">✓ {score}</span></span>
     </div>
 
-    <div className="rounded-2xl border-2 border-foreground bg-[#14130f] p-5 text-[#f3ead6] shadow-brutal">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex gap-1.5">{Array.from({ length: total }, (_, k) => <span key={k} className={cn("size-2 rounded-full", k < round ? "bg-[#3fa66b]" : k === round ? "bg-[#d4af37]" : "bg-[#3a362c]")} />)}</span>
-        {q && <span className="flex items-center gap-2">
-          <span className={cn("rounded-full border px-3 py-0.5 text-xs font-bold uppercase tracking-wider", TAG_TONE[q.tag] ?? TAG_TONE.Medium)}>{q.tag}</span>
-          <span aria-label="Seconds left" className={cn("grid size-12 place-items-center rounded-full border-2 font-serif text-2xl font-bold tabular-nums", !waiting ? "border-[#3a362c] text-[#f3ead6]/40" : left <= 5000 ? "animate-pulse border-[#c94653] text-[#ff8a95]" : "border-[#d4af37] text-[#d4af37]")}>{Math.ceil(left / 1000)}</span>
-        </span>}
+    <section className="border-2 border-foreground bg-background p-5 shadow-brutal">
+      <div className="-mx-5 -mt-5 mb-4 h-1.5" style={{ background: GOLD }} />
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold uppercase text-muted-foreground">{title} · question {round + 1} of {total}</p>
+          <div className="mt-2"><QuizProgress value={(round + (done ? 1 : 0)) / total * 100} /></div>
+        </div>
+        {q && chip && <span className={cn("shrink-0 border-2 border-foreground px-2 py-1 text-xs font-bold", chip[1])}>{chip[0]} {q.tag}</span>}
+        {q && <span aria-label="Seconds left" className={cn("grid size-12 shrink-0 place-items-center border-2 border-foreground font-serif text-2xl tabular-nums shadow-brutal-sm", !waiting ? "bg-muted text-muted-foreground" : secs <= 5 ? "animate-pulse bg-[#c94653] text-white" : "bg-background")}>{secs}</span>}
       </div>
 
       {err && <div className="py-10 text-center"><p>Couldn’t load the question. Check your internet.</p><Button className="mt-3" onClick={() => (session.current ? loadNext(true) : begin())}>Try again</Button></div>}
-      {!q && !err && <div className="grid place-items-center py-16"><Loader2 className="size-8 animate-spin text-[#d4af37]" /></div>}
+      {!q && !err && <div className="grid place-items-center py-16"><Loader2 className="size-8 animate-spin" /></div>}
 
       {q && <>
-        <p dir="auto" className="mt-4 text-center text-xs font-bold uppercase tracking-[0.25em] text-[#d4af37]">— {shown || q.prompt} —{speaking && " 🔊"}</p>
+        <h2 dir="auto" className="mt-4 font-serif text-3xl leading-tight sm:text-4xl">{shown || q.prompt}{speaking && <Volume2 className="ms-2 inline size-6 animate-pulse" />}</h2>
 
-        {q.kind !== "arrange" && "verse" in q && q.verse && <div dir="rtl" lang="ar" className="mt-4 flex flex-wrap justify-center gap-x-2.5 gap-y-1 font-arabic text-3xl leading-[2.1] sm:text-4xl">
+        {q.kind !== "arrange" && "verse" in q && q.verse && <div dir="rtl" lang="ar" className="mt-4 flex flex-wrap justify-center gap-x-2 gap-y-1 border-2 border-foreground bg-[#fdf8ec] px-4 py-5 font-arabic text-3xl leading-[2.1] text-[#1c1a17] sm:text-4xl">
           {q.verse.map((w, i) => {
-            const dim = rc.playing && i > rc.active;
-            if (i === blankIdx) return blankShow ? <span key={i} className="text-[#6fd39a]">{blankShow}</span> : <span key={i} className="inline-block min-w-24 border-b-2 border-[#d4af37]">&nbsp;</span>;
+            if (i === blankIdx) return blankShow ? <span key={i} className="bg-[#c9f2dc] px-1 text-[#2f7352]">{blankShow}</span> : <span key={i} className="inline-block min-w-20 border-b-4" style={{ borderColor: GOLD }}>&nbsp;</span>;
             if (q.kind === "tap") {
-              const st = !done ? "" : i === q.answer ? "bg-[#3d1719] text-[#ff8a95] line-through" : picked === i ? "bg-[#3d1719]" : "";
-              return <button key={i} data-plain disabled={done} onClick={() => { setPicked(i); mark(i === q.answer); }} className={cn("rounded-lg px-1.5 transition hover:bg-[#2a271f]", st)}>{w}</button>;
+              const st = !done ? "hover:bg-primary/50" : i === q.answer ? "bg-[#fdecef] text-[#c94653] line-through" : "";
+              return <button key={i} data-plain disabled={done} onClick={() => { setPicked(i); mark(i === q.answer); }} className={cn("px-1 transition", st)}>{w}</button>;
             }
-            return <span key={i} className={cn("transition-colors duration-150", dim ? "text-[#f3ead6]/30" : rc.playing && i === rc.active ? "text-[#d4af37]" : "")}>{w}</span>;
+            const lit = rc.playing && i === rc.active;
+            return <span key={i} className={cn("px-0.5 transition-colors duration-150", rc.playing && i > rc.active && "opacity-35")} style={lit ? { background: `${GOLD}aa` } : undefined}>{w}</span>;
           })}
         </div>}
-        {q.kind === "tap" && !done && <p className="mt-2 text-center text-xs text-[#f3ead6]/60">The reciter reads it after you answer, so the mistake isn’t given away.</p>}
-        {q.kind === "tap" && done && <p className="mt-2 text-center text-sm">The right word: <span dir="rtl" lang="ar" className="font-arabic text-2xl text-[#6fd39a]">{q.correctWord}</span></p>}
+        {q.kind === "tap" && !done && <p className="mt-2 text-center text-xs text-muted-foreground">The reciter reads it after you answer, so the mistake isn’t given away.</p>}
+        {q.kind === "tap" && done && <p className="mt-2 text-center text-sm">The right word: <span dir="rtl" lang="ar" className="font-arabic text-2xl text-[#2f7352]">{q.correctWord}</span></p>}
 
-        {/* countdown is at the top; pause gives more time */}
-        {waiting && <div className="mt-3 flex justify-center">
-          <button data-plain onClick={() => setPaused((p) => !p)} className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-widest", paused ? "border-[#d4af37] bg-[#d4af37] text-[#14130f]" : "border-[#3a362c] text-[#f3ead6]/70")}>
-            {paused ? <Play className="size-3" /> : <Pause className="size-3" />}{paused ? "Paused · tap to resume" : "Pause for more time"}</button>
-        </div>}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {q.rec && (q.preAudio || q.kind === "arrange" || done) && <>
+            <Button size="sm" variant="outline" onClick={() => void rc.play(q.rec!, done ? undefined : q.stopBefore)}><Volume2 /> {q.kind === "arrange" && !done ? "Listen (hint)" : "Listen"}</Button>
+            <span className="text-xs text-muted-foreground">{q.rec.reciter.name}</span>
+          </>}
+          {waiting && <Button size="sm" variant={paused ? "default" : "outline"} className="ms-auto" onClick={() => setPaused((p) => !p)}>{paused ? <><Play /> Continue</> : <><Pause /> Need more time?</>}</Button>}
+        </div>
 
-        {q.rec && (q.preAudio || q.kind === "arrange" || done) && <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          <button data-plain onClick={() => void rc.play(q.rec!, done ? undefined : q.stopBefore)} className="flex items-center gap-1 rounded-full border border-[#d4af37] px-3 py-1 font-bold text-[#d4af37]">
-            <Volume2 className="size-4" /> {q.kind === "arrange" && !done ? "Listen (hint)" : "Listen"}</button>
-          <span className="text-xs text-[#f3ead6]/60">Reciter: {q.rec.reciter.name}</span>
-        </div>}
-
-        {q.kind === "choice" && <div className={cn("mt-4 grid gap-2.5", !q.options[0]?.arabic && q.options.every((o) => o.label.length < 30) && "sm:grid-cols-2")}>{q.options.map((o, k) => {
-          const st = !done ? "border-[#3a362c] bg-[#1d1b16] hover:border-[#d4af37]" : k === q.answer ? "border-[#3fa66b] bg-[#173d27]" : picked === k ? "border-[#c94653] bg-[#3d1719]" : "border-[#3a362c] bg-[#1d1b16] opacity-40";
+        {q.kind === "choice" && <div className={cn("mt-4 grid gap-3", !q.options[0]?.arabic && q.options.every((o) => o.label.length < 30) && "sm:grid-cols-2")}>{q.options.map((o, k) => {
           const listen = q.optRecs?.[k];
-          return <div key={`${k}-${o.label}`} className="flex items-stretch gap-2"><button data-plain disabled={done} onClick={() => { setPicked(k); mark(k === q.answer); }} className={cn("flex flex-1 items-center gap-3 rounded-xl border px-4 py-3 text-start transition", st)}>
-            <span className="w-5 shrink-0 font-bold text-[#d4af37]">{k + 1}</span>
-            <span className="min-w-0 flex-1 text-center">
-              {o.arabic ? <span dir="rtl" lang="ar" className="block font-arabic text-2xl leading-loose">{o.label}</span> : <span className="block font-semibold" dir="auto">{o.label}</span>}
-              {o.sub && <span className="block text-xs text-[#f3ead6]/60" dir="auto">{o.sub}</span>}
-            </span>
-            {done && k === q.answer && <span className="text-[#6fd39a]">✓</span>}
-          </button>{listen && <button data-plain aria-label="Listen to this verse" onClick={() => void rc.play(listen)} className="grid w-12 shrink-0 place-items-center rounded-xl border border-[#3a362c] bg-[#1d1b16] text-[#d4af37]"><Volume2 className="size-5" /></button>}</div>;
+          return <div key={`${k}-${o.label}`} className="flex items-center gap-2">
+            <div className="min-w-0 flex-1"><QuizOption letter={"ABCD"[k] ?? "•"} disabled={done}
+              text={o.arabic ? <span dir="rtl" lang="ar" className="block text-right font-arabic text-2xl leading-loose">{o.label}{o.sub && <span dir="auto" className="ms-2 font-sans text-xs opacity-70">{o.sub}</span>}</span>
+                : <span dir="auto">{o.label}{o.sub && <span className="ms-2 text-sm opacity-70">{o.sub}</span>}</span>}
+              state={!done ? "idle" : k === q.answer ? "correct" : picked === k ? "wrong" : "idle"}
+              onClick={() => { setPicked(k); mark(k === q.answer); }} /></div>
+            {listen && <button data-plain aria-label="Listen to this verse" onClick={() => void rc.play(listen)} className="grid size-11 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground bg-background shadow-[0_3px_0_var(--foreground)]"><Volume2 className="size-5" /></button>}
+          </div>;
         })}</div>}
 
         {q.kind === "reveal" && <div className="mt-4 grid gap-3">
-          <button data-plain disabled={revealed} onClick={() => setRevealed(true)} className={cn("mx-auto grid h-24 w-full max-w-xs place-items-center rounded-xl border-2", revealed ? "border-[#3fa66b] bg-[#173d27]" : "border-[#3a362c] bg-[#1d1b16]")}>
-            {revealed ? <span dir="rtl" lang="ar" className="font-arabic text-4xl">{q.blankWord}</span> : <span className="font-serif text-6xl text-[#d4af37]">?</span>}
+          <button data-plain disabled={revealed} onClick={() => setRevealed(true)} className={cn("mx-auto grid h-24 w-full max-w-xs place-items-center border-2 border-foreground", revealed ? "bg-[#c9f2dc] text-[#2f7352]" : "border-dashed bg-muted")}>
+            {revealed ? <span dir="rtl" lang="ar" className="font-arabic text-4xl">{q.blankWord}</span> : <span className="font-serif text-5xl">?</span>}
           </button>
-          {!revealed && <p className="text-center text-xs font-bold uppercase tracking-widest text-[#ff8a95]">No choices. Only your hifz. Say it, then tap to reveal.</p>}
+          {!revealed && <p className="text-center text-sm text-muted-foreground">Recite the missing word from memory, then tap to check.</p>}
           {revealed && !done && <div className="grid grid-cols-2 gap-3">
-            <button data-plain onClick={() => mark(true)} className="rounded-xl border border-[#3fa66b] bg-[#173d27] py-3 font-bold">✓ I got it</button>
-            <button data-plain onClick={() => mark(false)} className="rounded-xl border border-[#c94653] bg-[#3d1719] py-3 font-bold">✗ I missed it</button>
+            <Button size="lg" className="bg-[#2f7352] text-white hover:bg-[#2f7352]/90" onClick={() => mark(true)}>✓ I knew it</Button>
+            <Button size="lg" variant="outline" onClick={() => mark(false)}>✗ I didn’t</Button>
           </div>}
         </div>}
 
         {q.kind === "arrange" && <ArrangeBoard q={q} order={order} built={built} setBuilt={setBuilt} answered={answered} onCheck={mark} />}
 
-        {done && <div className={cn("mt-4 rounded-xl border p-3", answered ? "border-[#3fa66b] bg-[#173d27]/60" : "border-[#c94653] bg-[#3d1719]/60")}>
-          <p className="text-sm font-bold">{answered ? "✓ Correct!" : picked === null && q.kind !== "reveal" && q.kind !== "arrange" ? "⏱ Time’s up" : "✗ Not quite"}</p>
-          {q.fullArabic && <p dir="rtl" lang="ar" className="mt-1 text-right font-arabic text-xl leading-loose">{q.fullArabic}</p>}
-          {q.meaning && <p className="mt-1 text-sm opacity-90" dir="auto">{q.meaning}</p>}
-          {q.note && <p className="mt-1 text-xs opacity-70">{q.note}</p>}
-          <p className="mt-2 font-mono text-xs text-[#d4af37]">{q.ref}</p>
+        {done && <div className="mt-4 grid gap-3">
+          {picked === null && q.kind !== "reveal" && q.kind !== "arrange" && !answered && <p className="text-sm font-bold">⏱ Time’s up</p>}
+          <QuizFeedback ok={!!answered} source={q.ref} text={<>
+            {q.fullArabic && <span dir="rtl" lang="ar" className="block text-right font-arabic text-xl leading-loose">{q.fullArabic}</span>}
+            {q.meaning && <span className="mt-1 block" dir="auto">{q.meaning}</span>}
+            {q.note && <span className="mt-1 block text-xs opacity-70">{q.note}</span>}
+          </>} />
+          <QuizNext label={round + 1 < total ? "Next question" : "See my score"} onClick={goNext} />
         </div>}
-        {done && <button data-plain onClick={goNext} className="mt-4 w-full rounded-full bg-[#d4af37] py-3.5 font-extrabold uppercase text-[#14130f]">{round + 1 < total ? "Next question →" : "See my score"}</button>}
       </>}
-    </div>
+    </section>
   </div>;
 }
 
@@ -622,14 +625,14 @@ function ArrangeBoard({ q, order, built, setBuilt, answered, onCheck }: { q: Arr
   // compare words, not positions, so repeated words in a verse don't count as wrong
   const ok = built.length === q.words.length && built.every((idx, i) => q.words[idx] === q.words[i]);
   useEffect(() => { if (!done && built.length === q.words.length) onCheck(ok); }, [built]); // eslint-disable-line react-hooks/exhaustive-deps
-  const chip = "rounded-full border px-4 py-1.5 font-arabic text-2xl";
+  const chip = "border-2 border-foreground px-3 py-1 font-arabic text-2xl shadow-brutal-sm transition active:translate-y-0.5";
   return <div className="mt-4 grid gap-3">
-    <div dir="rtl" className={cn("flex min-h-20 flex-wrap items-center justify-center gap-2 rounded-xl border-2 border-dashed p-3", done ? (answered ? "border-[#3fa66b] bg-[#173d27]" : "border-[#c94653] bg-[#3d1719]") : "border-[#3a362c]")}>
-      {built.length === 0 && <span dir="ltr" className="text-sm text-[#f3ead6]/60">Tap the words below, starting with the first word (right to left).</span>}
-      {built.map((idx, i) => <button key={`${idx}-${i}`} data-plain disabled={done} onClick={() => setBuilt(built.filter((_, j) => j !== i))} lang="ar" className={cn(chip, "border-[#d4af37] bg-[#2a271f]")}>{q.words[idx]}</button>)}
+    <div dir="rtl" className={cn("flex min-h-20 flex-wrap items-center justify-center gap-2 border-2 border-dashed border-foreground p-3", done ? (answered ? "bg-[#c9f2dc]" : "bg-[#fdecef]") : "bg-[#fdf8ec] text-[#1c1a17]")}>
+      {built.length === 0 && <span dir="ltr" className="text-sm text-muted-foreground">Tap the words below, starting with the first word (right to left).</span>}
+      {built.map((idx, i) => <button key={`${idx}-${i}`} data-plain disabled={done} onClick={() => setBuilt(built.filter((_, j) => j !== i))} lang="ar" className={cn(chip, "bg-primary text-foreground")}>{q.words[idx]}</button>)}
     </div>
-    {!done && <div dir="rtl" className="flex flex-wrap justify-center gap-2">{order.filter((idx) => !built.includes(idx)).map((idx) => <button key={idx} data-plain onClick={() => setBuilt([...built, idx])} lang="ar" className={cn(chip, "border-[#3a362c] bg-[#1d1b16]")}>{q.words[idx]}</button>)}</div>}
-    {!done && built.length > 0 && <button data-plain onClick={() => setBuilt([])} className="justify-self-center text-sm text-[#f3ead6]/70 underline">Clear</button>}
+    {!done && <div dir="rtl" className="flex flex-wrap justify-center gap-2">{order.filter((idx) => !built.includes(idx)).map((idx) => <button key={idx} data-plain onClick={() => setBuilt([...built, idx])} lang="ar" className={cn(chip, "bg-background")}>{q.words[idx]}</button>)}</div>}
+    {!done && built.length > 0 && <Button variant="outline" size="sm" className="justify-self-center" onClick={() => setBuilt([])}><RotateCcw /> Clear</Button>}
   </div>;
 }
 
@@ -646,7 +649,7 @@ function DailyBoard({ date }: { date: string }) {
     })();
   }, [date]);
   return <div className="border-2 border-foreground bg-background p-5 shadow-brutal">
-    <h2 className="flex items-center gap-2 font-serif text-3xl"><Trophy className="text-[#d4af37]" /> Today’s board</h2>
+    <h2 className="flex items-center gap-2 font-serif text-3xl"><Trophy className="text-[#e6b84a]" /> Today’s board</h2>
     {err && <p className="mt-3 text-sm text-muted-foreground">Couldn’t load the board.</p>}
     {!data && !err && <Loader2 className="mt-4 size-6 animate-spin" />}
     {data && <>
