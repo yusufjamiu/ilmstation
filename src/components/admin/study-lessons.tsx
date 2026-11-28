@@ -1,3 +1,4 @@
+import { Trash2 as LTrash } from "lucide-react";
 import { liveVoiceLangs } from "@/components/study-core";
 import { useVoiceLangs } from "@/components/voice-langs";
 import { useEffect, useMemo, useState } from "react";
@@ -161,11 +162,22 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
     finally { setBusy(""); }
   };
 
+  const inStage = rows.filter((l) => (l as { stage?: string }).stage === stage);
+  const deleteAllInStage = async () => {
+    if (!inStage.length) return;
+    if (!window.confirm(`Delete all ${inStage.length} lessons in this level? This can't be undone.`)) return;
+    try {
+      for (let i = 0; i < inStage.length; i += 400) { const b = writeBatch(db); inStage.slice(i, i + 400).forEach((l) => b.delete(doc(db, "studyLessons", l.id))); await b.commit(); }
+      toast.success(`Deleted ${inStage.length} lessons`);
+    } catch (e) { toast.error((e as Error).message || "Couldn't delete."); }
+  };
+
   return <div>
     <Button variant="ghost" onClick={onBack}><ArrowLeft /> All subjects</Button>
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <h2 className="mr-auto font-serif text-3xl">{subject.name} · lessons</h2>
       <Button variant="outline" onClick={() => void publishAll()} disabled={!rows.length}>Publish all</Button>
+      <Button variant="outline" className="border-[#d11a2a] text-[#d11a2a]" disabled={!inStage.length} onClick={() => void deleteAllInStage()}><LTrash /> Delete all</Button>
       <Button onClick={() => open()} disabled={!stage}><Plus /> Add lesson</Button>
     </div>
     <div className="mt-3 flex flex-wrap items-center gap-2 border-2 border-foreground bg-muted p-3 text-sm">
