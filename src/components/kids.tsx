@@ -49,6 +49,7 @@ const STARTERS: KidGame[] = ([["Dua", "🤲", "yellow"], ["Qur’an", "📖", "g
   .map(([t, e, c]) => ({ id: `start-${t}`, title: t, emoji: e, tint: TINT[c]!, questions: quizQuestionsFor(t).slice(0, 5) as KidQ[] }));
 
 /** The admin's published kids games, or the starters until there are some. */
+export function useAdminGames(audience: "kids" | "all") { return useKidGames(audience); }
 function useKidGames(audience: "kids" | "all") {
   const [games, setGames] = useState<KidGame[]>(audience === "kids" ? STARTERS : []);
   useEffect(() => onSnapshot(query(collection(db, "kidGames"), where("status", "==", "published")), (s) => {

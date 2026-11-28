@@ -21,6 +21,7 @@ import { InstallBanner, InstallCard } from "@/components/install-app";
 import { DeleteMyAccount, MyCustomPlans, QuoteButton } from "@/components/premium";
 import { consumeFeature } from "@/components/premium";
 import { isQuote, lagosDate } from "@/lib/premium-config";
+import { AdultGames } from "@/components/adult-quiz";
 import { KidGames, KidHome, TimeUp, usePlaytime, useShowQuickQuiz } from "@/components/kids";
 import { AdhanWatcher } from "@/components/today";
 import { KahfReminder } from "@/components/today";
@@ -223,7 +224,7 @@ export function IlmStationApp() {
         {screen === "kidrank" && <KidLeaderboard />}
         {!isKid && <PremiumEnded go={selectScreen} />}
         {screen === "kidgames" && <KidGames />}
-        {screen === "games" && <KidGames audience="all" />}
+        {screen === "games" && <AdultGames />}
         {screen === "play" && <PlayScreen go={selectScreen} onShare={openShare} />}
         {screen === "quests" && <QuestScreen onShare={openShare} />}
         {screen === "hifz" && <QuranScreen />}
@@ -349,7 +350,7 @@ function PlayScreen({ go, onShare }: { go: (s: Screen) => void; onShare: (card?:
       <button onClick={() => go("games")} className="border-2 border-foreground bg-secondary p-6 text-left text-secondary-foreground shadow-brutal transition hover:-translate-y-0.5 md:col-span-2">
         <small className="text-xs font-bold uppercase">New</small>
         <strong className="mt-2 block font-serif text-4xl font-normal">Games &amp; quizzes</strong>
-        <p className="mt-2 text-sm opacity-90">Fresh quizzes and interactive games from the IlmStation team.</p>
+        <p className="mt-2 text-sm opacity-90">Qur’an quizzes with real reciters: name the surah, complete the verse, arrange the verse. Hadith, Qira’ah and Arabiyyah next.</p>
         <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold">Play now <ChevronRight className="size-4" /></span>
       </button>
     </div>
