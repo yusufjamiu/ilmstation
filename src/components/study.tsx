@@ -2,7 +2,7 @@ import { CalendarDays as SCal } from "lucide-react";
 import { Check as QCheck, Lock as QLock, MapPin as QPin } from "lucide-react";
 import { useLanguage as useAppLangS } from "@/components/language";
 import { usePremium as useKidPremium } from "@/components/premium";
-import { catFor } from "@/components/study-core";
+import { catFor, lessonName } from "@/components/study-core";
 import { useAuth } from "@/components/auth";
 import { liveVoiceLangs } from "@/components/study-core";
 import { useVoiceLangs } from "@/components/voice-langs";
@@ -394,6 +394,7 @@ export function QuestMap() {
   const cid = catId ?? cats[0]?.id;
   const { uid, progress } = useStudyMe();
   const voice = useVoiceLang();
+  const appLang = useAppLangS().lang;
   const { premium } = useKidPremium();
   const subjects = useDocs<Subject>("studySubjects", cid ? [["category", cid]] : [], !!cid);
   const lessonsAll = useDocs<Lesson>("studyLessons", [], true);
@@ -420,7 +421,7 @@ export function QuestMap() {
     <div className="mt-5 grid gap-3">{lessons.map((l, i) => { const locked = l.tier === "premium" && !premium; return <button key={l.id} onClick={() => (locked ? toast("This lesson is Premium.") : setLessonId(l.id))}
       className={cn("flex items-center gap-4 border-2 border-foreground p-4 text-left shadow-brutal-sm", done(l.id) ? "bg-primary/40" : "bg-background", locked && "opacity-70")}>
       <span className="grid size-11 shrink-0 place-items-center border-2 border-foreground bg-background font-bold">{done(l.id) ? <QCheck className="size-5" /> : i + 1}</span>
-      <span className="min-w-0 flex-1"><b className="block leading-tight">{l.title}</b><span className="text-xs text-muted-foreground">{l.mins ? `${l.mins} min` : ""}</span></span>
+      <span className="min-w-0 flex-1"><b className="block leading-tight">{lessonName(l, appLang)}</b><span className="text-xs text-muted-foreground">{l.mins ? `${l.mins} min` : ""}</span></span>
       {locked && <QLock className="size-4" />}
     </button>; })}
     {!lessons.length && <p className="border-2 border-dashed border-foreground p-5 text-sm">Coming soon</p>}</div>

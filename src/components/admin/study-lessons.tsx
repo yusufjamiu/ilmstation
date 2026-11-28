@@ -77,9 +77,13 @@ export function LessonsManager({ cat, subject, onBack }: { cat: Category | undef
         const f = list[n]!;
         const id = newId("les") + n;
         const url = await upload(`study/lessons/${id}/lesson-${bulkLang}.html`, f, (p) => setBusy(`Uploading ${n + 1} of ${list.length} · ${p}%`), "text/html");
-        const inner = (await f.text()).match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+        // the page's <title> is the English name; <meta name="ilm-titles"> carries the name in the other app languages
+        const page = new DOMParser().parseFromString(await f.text(), "text/html");
+        const inner = page.title.trim();
+        let titles: Record<string, string> = {};
+        try { titles = JSON.parse(page.querySelector('meta[name="ilm-titles"]')?.getAttribute("content") || "{}") as Record<string, string>; } catch { /* no names */ }
         const title = inner || f.name.replace(/\.html?$/i, "").replace(/^[\d\s._-]+/, "").replace(/[-_]+/g, " ").trim() || `Lesson ${rows.length + n + 1}`;
-        await setDoc(doc(db, "studyLessons", id), { subjectId: subject.id, stage, order: rows.length + n, title, mins: 10, tier: "free", status: "draft", kind: "html", html: { [bulkLang]: url }, book, part: "", screens: [], createdAt: Date.now() });
+        await setDoc(doc(db, "studyLessons", id), { subjectId: subject.id, stage, order: rows.length + n, title, titles, mins: 10, tier: "free", status: "draft", kind: "html", html: { [bulkLang]: url }, book, part: "", screens: [], createdAt: Date.now() });
         made++;
       }
       record(`Bulk uploaded ${made} lessons to ${subject.name}`);

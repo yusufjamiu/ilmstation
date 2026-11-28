@@ -5,8 +5,11 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Award, Check, CheckCircle2, ChevronRight, GraduationCap, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/components/language";
+import { lessonName } from "@/components/study-core";
 
-type L = { id: string; title: string; mins?: number; tier?: string };
+type L = { id: string; title: string; titles?: Record<string, string>; mins?: number; tier?: string };
+const useName = () => { const { lang } = useLanguage(); return (l: L) => lessonName(l, lang); };
 const isFinal = (t: string) => /final (exam|check)/i.test(t);
 const short = (t: string) => t.replace(/\s*·.*$/, "");
 
@@ -18,6 +21,7 @@ export function KidRoad({ lessons, isDone, nextId, isShut, isPremiumLocked, onOp
   lessons: L[]; isDone: (id: string) => boolean; nextId?: string; isShut: (id: string) => boolean; isPremiumLocked: (l: L) => boolean;
   onOpen: (l: L) => void; trophy: string; trophyDone: boolean; footer?: ReactNode;
 }) {
+  const name = useName();
   const nextRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { nextRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [nextId]);
   const pts = [...lessons.map((_, i) => ({ x: SWAY[i % SWAY.length], y: 60 + i * ROW })), { x: 50, y: 60 + lessons.length * ROW }];
@@ -34,7 +38,7 @@ export function KidRoad({ lessons, isDone, nextId, isShut, isPremiumLocked, onOp
     {lessons.map((l, i) => {
       const done = isDone(l.id), next = l.id === nextId, shut = isShut(l.id), prem = isPremiumLocked(l), fin = isFinal(l.title);
       return <div key={l.id} className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center" style={{ left: `${pts[i].x}%`, top: pts[i].y }}>
-        <button ref={next ? nextRef : undefined} onClick={() => onOpen(l)} aria-label={l.title}
+        <button ref={next ? nextRef : undefined} onClick={() => onOpen(l)} aria-label={name(l)}
           className={cn("relative grid place-items-center rounded-full border-[3px] border-foreground font-serif shadow-brutal transition-transform active:translate-y-0.5",
             next ? "size-[84px] bg-secondary text-4xl text-secondary-foreground" : "size-[70px] text-3xl",
             done ? "bg-primary" : !next && "bg-background", (shut || prem) && "opacity-55")}>
@@ -42,7 +46,7 @@ export function KidRoad({ lessons, isDone, nextId, isShut, isPremiumLocked, onOp
           {done ? (fin ? "🏆" : "⭐") : next ? <span className="animate-bounce">👉</span> : prem ? "💎" : shut ? "🔒" : fin ? "🎯" : i + 1}
           {next && <span className="absolute -right-9 -top-3 text-3xl" aria-hidden>🌙</span>}
         </button>
-        <span className={cn("mt-1 max-w-[150px] truncate rounded-full border-2 border-foreground bg-background px-2 text-center text-xs font-bold", next && "bg-foreground text-background")}>{next ? "Play ▶ " : ""}{short(l.title)}</span>
+        <span className={cn("mt-1 max-w-[150px] truncate rounded-full border-2 border-foreground bg-background px-2 text-center text-xs font-bold", next && "bg-foreground text-background")}>{next ? "Play ▶ " : ""}{short(name(l))}</span>
       </div>;
     })}
     <div className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center" style={{ left: "50%", top: pts[pts.length - 1].y }}>
@@ -58,13 +62,14 @@ export function LessonPath({ lessons, isDone, firstOpen, canOpen, premiumLocked,
   lessons: L[]; isDone: (id: string) => boolean; firstOpen: number; canOpen: (i: number) => boolean; premiumLocked: (l: L) => boolean;
   onOpen: (l: L) => void; levelName: string; certificate: "earned" | "locked";
 }) {
+  const name = useName();
   const doneN = lessons.filter((l) => isDone(l.id)).length;
   const cur = firstOpen >= 0 ? lessons[firstOpen] : undefined;
   return <div>
     {cur && <button onClick={() => onOpen(cur)} className="mt-3 flex w-full items-center gap-4 border-2 border-foreground bg-primary p-4 text-left shadow-brutal">
       <span className="grid size-12 shrink-0 place-items-center rounded-full border-2 border-foreground bg-background font-serif text-xl">{firstOpen + 1}</span>
       <span className="min-w-0 flex-1"><span className="block text-xs font-bold uppercase">{`${doneN ? "Continue" : "Start here"} · ${doneN} of ${lessons.length} done`}</span>
-        <span className="block truncate font-serif text-xl leading-tight">{cur.title}</span></span>
+        <span className="block truncate font-serif text-xl leading-tight">{name(cur)}</span></span>
       <span className="shrink-0 animate-pulse border-2 border-foreground bg-foreground px-3 py-1.5 text-sm font-bold text-background">{doneN ? "Continue ▶" : "Start ▶"}</span>
     </button>}
     <div className="mt-2 h-2 w-full overflow-hidden border-2 border-foreground bg-background max-sm:rounded-full max-sm:border-[1.5px]"><div className="h-full bg-secondary" style={{ width: `${(doneN / Math.max(1, lessons.length)) * 100}%` }} /></div>
@@ -76,7 +81,7 @@ export function LessonPath({ lessons, isDone, firstOpen, canOpen, premiumLocked,
           <span className={cn("grid size-12 shrink-0 place-items-center rounded-xl text-lg font-bold", done ? "bg-[#2f7352] text-white" : cur ? "bg-white text-[#1c1a17]" : "bg-primary/25")}>
             {fin ? <GraduationCap className="size-6" /> : done ? <Check className="size-6" /> : !open ? <Lock className="size-5" /> : i + 1}
           </span>
-          <span className="min-w-0 flex-1"><span className="block font-semibold leading-tight">{l.title}</span>
+          <span className="min-w-0 flex-1"><span className="block font-semibold leading-tight">{name(l)}</span>
             <span className={cn("text-xs", cur ? "text-[#1c1a17]/70" : "text-muted-foreground")}>{fin ? "Final exam · opens the next level" : `Lesson ${i + 1}${l.mins ? ` · ${l.mins} min` : ""}`}{l.tier === "premium" ? " · Premium" : ""}</span></span>
           {prem ? <span className="shrink-0 rounded-full border border-foreground px-2 text-xs font-bold">Premium</span>
             : cur ? <span className="shrink-0 rounded-full bg-[#1c1a17] px-3 py-1.5 text-xs font-bold text-white">Start ▶</span>
@@ -103,7 +108,7 @@ export function LessonPath({ lessons, isDone, firstOpen, canOpen, premiumLocked,
           <button disabled={!open} onClick={() => onOpen(l)}
             className={cn("flex w-full items-center gap-3 border-2 border-foreground p-3 text-left disabled:opacity-50",
               cur ? "bg-primary shadow-brutal" : fin ? "bg-card shadow-brutal-sm border-dashed" : "bg-card shadow-brutal-sm")}>
-            <span className="min-w-0 flex-1"><span className="block font-semibold leading-tight">{l.title}</span>
+            <span className="min-w-0 flex-1"><span className="block font-semibold leading-tight">{name(l)}</span>
               <span className="text-xs text-muted-foreground">{fin ? "Final exam · opens the next level" : `Lesson ${i + 1}${l.mins ? ` · ${l.mins} min` : ""}`}{l.tier === "premium" ? " · Premium" : ""}</span></span>
             {prem ? <span className="border-2 border-foreground px-2 text-xs font-bold">Premium</span>
               : cur ? <span className="shrink-0 border-2 border-foreground bg-foreground px-2.5 py-1 text-xs font-bold text-background">Start ▶</span>

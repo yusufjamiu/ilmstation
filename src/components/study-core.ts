@@ -109,7 +109,10 @@ export const SCREEN_LABEL: Record<ScreenType, string> = {
 
 export type Lesson = {
   id: string; subjectId: string; stage: string; order: number;
-  title: string; mins: number; tier: "free" | "premium"; status: "draft" | "published";
+  title: string;
+  /** The lesson's name in other app languages (from the page's <meta name="ilm-titles">); `title` is the English one. */
+  titles?: Record<string, string>;
+  mins: number; tier: "free" | "premium"; status: "draft" | "published";
   /** "html" (default): one uploaded HTML page per voice language. "screens": built in the admin. */
   kind?: "html" | "screens";
   html?: Partial<Record<VoiceLang, string>>;
@@ -117,6 +120,8 @@ export type Lesson = {
   book?: string; part?: string;
   screens: Screen[]; pdfUrl?: string; createdAt: number;
 };
+/** The lesson's name in the user's language, falling back to English. */
+export const lessonName = (l: { title: string; titles?: Record<string, string> }, lang: string) => l.titles?.[lang] || l.title;
 export const isHtmlLesson = (l: Pick<Lesson, "kind" | "screens">) => (l.kind ? l.kind === "html" : !l.screens?.length);
 
 /* ---------------- Exams ----------------

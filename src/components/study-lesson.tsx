@@ -8,6 +8,8 @@ import { awardXp } from "@/lib/xp";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useLessonBridge } from "@/lib/lesson-bridge";
+import { useLanguage } from "@/components/language";
+import { lessonName } from "@/components/study-core";
 import { isHtmlLesson, isRight, pick, voiceName, youtubeId, type Lesson, type Screen, type Voices } from "@/components/study-data";
 
 /* ---------------- voice ---------------- */
@@ -55,6 +57,7 @@ async function markDone(uid: string | null, lessonId: string, done: boolean) {
 /* ---------------- HTML lesson: the uploaded page, in the learner's voice language ---------------- */
 
 function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: PlayerProps) {
+  const title = lessonName(lesson, useLanguage().lang);
   const langs = Object.entries(lesson.html ?? {}).filter(([, u]) => u).map(([k]) => k);
   const [chosen, setChosen] = useState(lesson.html?.[lang as keyof typeof lesson.html] ? lang : langs.includes("en") ? "en" : langs[0] ?? "");
   const url = lesson.html?.[chosen as keyof typeof lesson.html];
@@ -84,13 +87,13 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
     {!smart && <div className="flex flex-wrap items-center gap-3">
       <button aria-label="Close lesson" onClick={() => { saveNote(); onExit(); }} className="grid size-10 place-items-center border-2 border-foreground bg-background"><X className="size-5" /></button>
       <div className="min-w-0 flex-1">
-        <h1 className="font-serif text-2xl leading-tight sm:text-3xl">{lesson.title}</h1>
+        <h1 className="font-serif text-2xl leading-tight sm:text-3xl">{title}</h1>
         {(lesson.book || lesson.part) && <p dir="auto" className="text-sm text-muted-foreground">{[lesson.book, lesson.part].filter(Boolean).join(" · ")}</p>}
       </div>
       {langs.length > 1 && <select value={chosen} onChange={(e) => setChosen(e.target.value)} aria-label="Lesson voice" className="border-2 border-foreground bg-background px-2 py-2 text-sm font-semibold">{langs.map((l) => <option key={l} value={l}>🔊 {voiceName(l)}</option>)}</select>}
     </div>}
     {/* phones: the lesson fills the screen between the app bar and the bottom menu, so there's no box-in-a-page scrolling */}
-    {url ? <iframe ref={frameRef} key={url} src={url} title={lesson.title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
+    {url ? <iframe ref={frameRef} key={url} src={url} title={title} sandbox="allow-scripts allow-popups" allow="autoplay; fullscreen"
       onLoad={() => frameRef.current?.contentWindow?.postMessage({ type: "ilmstation:ping" }, "*")}
       className={cn("w-full scroll-mt-20 bg-background", smart
         ? "h-[calc(100dvh-9.5rem)] min-h-[440px] border-y-2 border-foreground sm:h-[calc(100dvh-8rem)] sm:border-2"
@@ -111,6 +114,7 @@ function HtmlLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Playe
 /* ---------------- screens lesson (built in the admin) ---------------- */
 
 function ScreensLesson({ lesson, lang, uid, done, note, onExit, onFinished }: PlayerProps) {
+  const title = lessonName(lesson, useLanguage().lang);
   const screens = lesson.screens ?? [];
   const [i, setI] = useState(0);
   const [ok, setOk] = useState(false);
@@ -136,7 +140,7 @@ function ScreensLesson({ lesson, lang, uid, done, note, onExit, onFinished }: Pl
       <div className="border-2 border-foreground bg-primary p-8 text-center shadow-brutal">
         <Trophy className="mx-auto size-14" />
         <h1 className="mt-3 font-serif text-4xl">{screens.length ? "Lesson complete" : "This lesson has no screens yet"}</h1>
-        <p className="mt-1">{lesson.title}</p>
+        <p className="mt-1">{title}</p>
         {asked > 0 && <p className="mt-2 text-sm">{mistakes === 0 ? "No mistakes. Excellent!" : `${mistakes} mistake${mistakes > 1 ? "s" : ""} on the way. Keep going!`}</p>}
       </div>
       <div className="mt-5 border-2 border-foreground bg-card p-5 shadow-brutal-sm">
