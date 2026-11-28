@@ -137,6 +137,8 @@ export default {
     if (url.pathname === "/api/study-exam")
       return import("./lib/study-server").then((m) => m.handleStudyExam(request));
     // Ramadan prize quiz: marked on the server
+    if (url.pathname === "/api/quran-daily")
+      return import("./lib/quran-daily-server").then((m) => m.handleQuranDaily(request));
     if (url.pathname === "/api/ramadan-quiz")
       return import("./lib/ramadan-server").then((m) => m.handleRamadanQuiz(request));
     if (url.pathname === "/api/ramadan-payout")

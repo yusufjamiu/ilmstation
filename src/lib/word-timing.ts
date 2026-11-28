@@ -46,3 +46,4 @@ export async function playPhraseAudio(reciter: string, surah: number, ayah: numb
 }
 
 export const PIECE_RECITERS = Object.keys(QURAN_COM_IDS);
+export const wordTimings = timings;
