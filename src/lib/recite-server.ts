@@ -3,7 +3,7 @@
    Sources: Quran.com (QDC: word timings) and mp3quran.net (verse timings only). */
 
 const QDC: Record<string, number> = { alafasy: 7, sudais: 3, husary: 6, minshawi: 9, abdulbasit: 2, dosari: 97, shuraim: 10, shatri: 4 };
-const MP3Q: Record<string, number> = { raad: 221, juhani: 62 };
+const MP3Q: Record<string, number> = { raad: 221, juhani: 62, alijaber: 76, ghamdi: 30, baleela: 217 };
 
 type Verses = Record<number, { from: number; to: number; words?: number[][] }>;
 const mem = new Map<string, Promise<{ url: string; verses: Verses }>>();

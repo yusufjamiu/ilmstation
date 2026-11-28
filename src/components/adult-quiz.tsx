@@ -28,6 +28,9 @@ const RECITERS: Reciter[] = [
   { key: "shatri", name: "Abu Bakr Ash-Shatri", words: true },
   { key: "raad", name: "Raad Al-Kurdi", words: false },
   { key: "juhani", name: "Abdullah Al-Juhani", words: false },
+  { key: "ghamdi", name: "Saad Al-Ghamdi", words: false },
+  { key: "alijaber", name: "Ali Jaber", words: false },
+  { key: "baleela", name: "Bandar Baleela", words: false },
   { key: "maher", name: "Maher Al-Muaiqly", words: false, cdn: "ar.mahermuaiqly", bitrate: 128 },
   { key: "ayyub", name: "Muhammad Ayyub", words: false, cdn: "ar.muhammadayyoub", bitrate: 128 },
 ];
