@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, Pause, Play, RotateCcw, Trophy, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { surahList, type SurahMeta } from "@/components/quran-data";
-import { quranEdition } from "@/components/language";
+import { quranEdition, useLanguage } from "@/components/language";
 import { usePlaytime, TimeUp, KidGames, useAdminGames } from "@/components/kids";
 import { auth } from "@/lib/firebase";
 import { awardXp } from "@/lib/xp";
@@ -34,7 +34,6 @@ const RECITERS: Reciter[] = [
   { key: "maher", name: "Maher Al-Muaiqly", words: false, cdn: "ar.mahermuaiqly", bitrate: 128 },
   { key: "ayyub", name: "Muhammad Ayyub", words: false, cdn: "ar.muhammadayyoub", bitrate: 128 },
 ];
-const CDN_ONLY = new Set(["maher", "ayyub"]);
 type Rec = { reciter: Reciter; surah: number; ayah: number; global: number };
 type Opt = { label: string; sub?: string; arabic?: boolean };
 type Base = { prompt: string; tag: string; ref: string; secs: number; meaning?: string; fullArabic?: string; note?: string; rec?: Rec; preAudio?: boolean; stopBefore?: number };
@@ -272,26 +271,33 @@ const PACKS: Pack[] = [
 
 /* ---------------- reciter with words lighting up ---------------- */
 type Track = { url: string; from: number; to: number; words: number[][] };
-const trackCache = new Map<string, Promise<{ url: string; verses: Record<number, { from: number; to: number; words?: number[][] }> }>>();
+const trackCache = new Map<string, Promise<{ url: string; verses: Record<number, { from: number; to: number; words?: number[][]; url?: string }> }>>();
 const cdnTrack = (R: Reciter, global: number): Track | null => (R.cdn ? { url: `https://cdn.islamic.network/quran/audio/${R.bitrate}/${R.cdn}/${global}.mp3`, from: 0, to: Infinity, words: [] } : null);
 async function trackFor(rec: Rec): Promise<Track | null> {
   const R = rec.reciter;
-  if (CDN_ONLY.has(R.key)) return cdnTrack(R, rec.global);
   const key = `${R.key}:${rec.surah}`;
   if (!trackCache.has(key)) {
     const p = fetch(`/api/recite?r=${R.key}&s=${rec.surah}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error("recite"))));
     p.catch(() => trackCache.delete(key));
     trackCache.set(key, p);
   }
-  try { const d = await trackCache.get(key)!; const v = d.verses[rec.ayah]; if (v) return { url: d.url, from: v.from, to: v.to, words: v.words ?? [] }; } catch { /* use the backup */ }
+  try { const d = await trackCache.get(key)!; const v = d.verses[rec.ayah]; if (v) return { url: v.url ?? d.url, from: v.from, to: v.to || Infinity, words: v.words ?? [] }; } catch { /* use the backup */ }
   return cdnTrack(R, rec.global);
 }
 
 function useRecital() {
   const [active, setActive] = useState(-1);
   const [playing, setPlaying] = useState(false);
-  const cur = useRef<{ a?: HTMLAudioElement; t?: number; tok: number }>({ tok: 0 });
-  const stop = useCallback(() => { const c = cur.current; c.tok++; c.a?.pause(); if (c.t) clearInterval(c.t); c.a = undefined; setPlaying(false); setActive(-1); }, []);
+  const cur = useRef<{ a?: HTMLAudioElement; t?: number; tok: number; done?: () => void }>({ tok: 0 });
+  const stop = useCallback(() => { const c = cur.current; c.tok++; c.a?.pause(); if (c.t) clearInterval(c.t); c.a = undefined; c.done?.(); c.done = undefined; setPlaying(false); setActive(-1); }, []);
+  /** The spoken guide (question in the user's language). Resolves when it ends or is stopped. */
+  const say = useCallback((url: string) => new Promise<void>((resolve) => {
+    stop();
+    const a = new Audio(url); cur.current.a = a; cur.current.done = resolve;
+    const end = () => { if (cur.current.a === a) { cur.current.a = undefined; cur.current.done = undefined; } resolve(); };
+    a.onended = end; a.onerror = end;
+    a.play().catch(end);
+  }), [stop]);
   /** Plays one verse; with `stopBefore`, stops before that word (so the hidden word isn't given away). */
   const play = useCallback(async (rec: Rec, stopBefore?: number) => {
     stop(); const tok = cur.current.tok;
@@ -318,8 +324,22 @@ function useRecital() {
     if (tr.from > 0) { a.addEventListener("loadedmetadata", () => { a.currentTime = tr.from / 1000; go(); }, { once: true }); a.load(); } else go();
   }, [stop]);
   useEffect(() => stop, [stop]);
-  return { active, playing, play, stop };
+  return { active, playing, play, stop, say };
 }
+
+/* ---------------- the question in the user's language ---------------- */
+const trCache = new Map<string, Promise<string>>();
+function translated(text: string, lang: string): Promise<string> {
+  if (lang === "en") return Promise.resolve(text);
+  const key = `${lang}|${text}`;
+  if (!trCache.has(key)) {
+    const p = fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, lang }) })
+      .then((r) => r.json()).then((j: { text?: string }) => j.text || text).catch(() => text);
+    trCache.set(key, p);
+  }
+  return trCache.get(key)!;
+}
+const guideUrl = (text: string, lang: string) => `/api/tts?text=${encodeURIComponent(text)}&lang=${lang}&who=adult`;
 
 /* ---------------- screens ---------------- */
 
@@ -355,13 +375,15 @@ function QuranPack({ onBack }: { onBack: () => void }) {
   const [reciter, setReciter] = useState(() => { try { return localStorage.getItem("iq_qreciter") ?? "mixed"; } catch { return "mixed"; } });
   useEffect(() => { try { localStorage.setItem("iq_qreciter", reciter); } catch { /* ignore */ } }, [reciter]);
   useEffect(() => { try { localStorage.setItem("iq_qlevel", level); } catch { /* ignore */ } }, [level]);
+  const [guide, setGuide] = useState(() => { try { return localStorage.getItem("iq_qguide") !== "0"; } catch { return true; } });
+  useEffect(() => { try { localStorage.setItem("iq_qguide", guide ? "1" : "0"); } catch { /* ignore */ } }, [guide]);
   const today = utcDay();
   const played = (() => { try { return localStorage.getItem(`iq_qdaily_${today}`); } catch { return null; } })();
   const lv = LEVELS.find(([id]) => id === level) ?? LEVELS[0]!;
 
   if (daily === "board") return <div className="iq-rise mx-auto max-w-2xl"><Button variant="outline" onClick={() => setDaily(null)}>← Qur’an</Button><div className="mt-4"><DailyBoard date={today} /></div></div>;
-  if (daily === "play") return <QuizRun title="Daily challenge" daily start={() => quranSession("daily", { level: "medium", reciter: "mixed" })} xpLevel="Intermediate" topic="Qur’an: Daily challenge" onExit={() => setDaily(null)} />;
-  if (mode) return <QuizRun title={mode.title} start={() => quranSession(mode.id, { level, reciter, surah })} xpLevel={lv[3]} topic={`Qur’an: ${mode.title}`} onExit={() => { setMode(null); setSurah(undefined); }} />;
+  if (daily === "play") return <QuizRun title="Daily challenge" daily guide={guide} start={() => quranSession("daily", { level: "medium", reciter: "mixed" })} xpLevel="Intermediate" topic="Qur’an: Daily challenge" onExit={() => setDaily(null)} />;
+  if (mode) return <QuizRun title={mode.title} guide={guide} start={() => quranSession(mode.id, { level, reciter, surah })} xpLevel={lv[3]} topic={`Qur’an: ${mode.title}`} onExit={() => { setMode(null); setSurah(undefined); }} />;
 
   if (choosingSurah) return <div className="iq-rise">
     <Button variant="outline" onClick={() => setChoosingSurah(false)}>← Qur’an</Button>
@@ -395,6 +417,10 @@ function QuranPack({ onBack }: { onBack: () => void }) {
         <select value={reciter} onChange={(e) => setReciter(e.target.value)} className="mt-2 block h-10 w-full border-2 border-foreground bg-background px-2 text-sm font-normal normal-case">
           <option value="mixed">Different reciter each question</option>{RECITERS.map((r) => <option key={r.key} value={r.key}>{r.name}{r.words ? "" : " (no word highlight)"}</option>)}
         </select></label>
+      <label className="flex items-center justify-between gap-3 text-sm font-semibold">
+        <span>🔊 Voice guide <span className="block text-xs font-normal text-muted-foreground">Reads each question aloud in your language before the reciter.</span></span>
+        <input type="checkbox" className="size-5 accent-[#d4af37]" checked={guide} onChange={(e) => setGuide(e.target.checked)} />
+      </label>
     </div>
 
     {QURAN_GROUPS.map(([group, modes]) => <section key={group} className="mt-6">
@@ -411,7 +437,11 @@ function QuranPack({ onBack }: { onBack: () => void }) {
 
 const TAG_TONE: Record<string, string> = { Easy: "border-[#3fa66b] text-[#6fd39a]", Medium: "border-[#d4af37] text-[#d4af37]", Hard: "border-[#e07a3f] text-[#f0a070]", "Only Huffaz": "border-[#c94653] bg-[#3d1719] text-[#ff8a95]" };
 
-function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { title: string; start: () => Promise<Session>; onExit: () => void; xpLevel: string; topic: string; daily?: boolean }) {
+function QuizRun({ title, start, onExit, xpLevel, topic, daily = false, guide = true }: { title: string; start: () => Promise<Session>; onExit: () => void; xpLevel: string; topic: string; daily?: boolean; guide?: boolean }) {
+  const { lang } = useLanguage();
+  const [shown, setShown] = useState("");      // the question, in the user's language
+  const [speaking, setSpeaking] = useState(false);
+  const showTok = useRef(0);
   const session = useRef<Session | null>(null);
   const prefetch = useRef<Promise<Q> | null>(null);
   const t0 = useRef(Date.now());
@@ -433,12 +463,19 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
   const pt = usePlaytime(!finished);
 
   const show = (x: Q) => {
-    setQ(x); setLeft(x.secs * 1000); setPaused(false);
+    setQ(x); setLeft(x.secs * 1000); setPaused(false); setShown(x.prompt);
     if (x.kind === "arrange") { let o = shuffle(Math.random, x.words.map((_, i) => i)); if (o.every((v, i) => v === i)) o = o.reverse(); setOrder(o); }
-    if (x.preAudio && x.rec) void rc.play(x.rec, x.stopBefore);
+    const tok = ++showTok.current;
+    void (async () => {
+      const t = await translated(x.prompt, lang);
+      if (showTok.current !== tok) return;
+      setShown(t);
+      if (guide) { setSpeaking(true); await rc.say(guideUrl(t, lang)); if (showTok.current !== tok) return; setSpeaking(false); }
+      if (x.preAudio && x.rec) void rc.play(x.rec, x.stopBefore);
+    })();
   };
   const loadNext = (fresh: boolean) => {
-    rc.stop(); setQ(null); setErr(false); setAnswered(null); setPicked(null); setBuilt([]); setRevealed(false);
+    showTok.current++; setSpeaking(false); rc.stop(); setQ(null); setErr(false); setAnswered(null); setPicked(null); setBuilt([]); setRevealed(false);
     const s = session.current!;
     const p = fresh || !prefetch.current ? s.next() : prefetch.current;
     prefetch.current = null;
@@ -472,7 +509,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
 
   // timer: runs while the question is open; "pause for more time"
   const waiting = !!q && answered === null && !(q.kind === "reveal" && revealed);
-  useEffect(() => { if (!waiting || paused) return undefined; const id = setInterval(() => setLeft((l) => Math.max(0, l - 100)), 100); return () => clearInterval(id); }, [waiting, paused]);
+  useEffect(() => { if (!waiting || paused || speaking) return undefined; const id = setInterval(() => setLeft((l) => Math.max(0, l - 100)), 100); return () => clearInterval(id); }, [waiting, paused, speaking]);
   useEffect(() => { if (left === 0 && waiting) { if (q?.kind === "reveal") setRevealed(true); else mark(false); } }, [left]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (pt.locked) return <TimeUp resetsAt={pt.resetsAt} kid={false} onBack={onExit} />;
@@ -496,7 +533,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
 
   return <div className="iq-rise mx-auto grid max-w-3xl gap-3">
     <div className="flex items-center justify-between gap-3">
-      <Button variant="outline" onClick={() => { rc.stop(); onExit(); }}>← Games</Button>
+      <Button variant="outline" onClick={() => { showTok.current++; rc.stop(); onExit(); }}>← Games</Button>
       <span className="flex items-center gap-2 text-sm font-bold">{pt.left >= 0 && <span className="border-2 border-foreground px-2 py-1">⏱ {Math.ceil(pt.left / 60)} min</span>}<span className="border-2 border-foreground bg-primary px-3 py-1">✓ {score}</span></span>
     </div>
 
@@ -513,7 +550,7 @@ function QuizRun({ title, start, onExit, xpLevel, topic, daily = false }: { titl
       {!q && !err && <div className="grid place-items-center py-16"><Loader2 className="size-8 animate-spin text-[#d4af37]" /></div>}
 
       {q && <>
-        <p className="mt-4 text-center text-xs font-bold uppercase tracking-[0.25em] text-[#d4af37]">— {q.prompt} —</p>
+        <p dir="auto" className="mt-4 text-center text-xs font-bold uppercase tracking-[0.25em] text-[#d4af37]">— {shown || q.prompt} —{speaking && " 🔊"}</p>
 
         {q.kind !== "arrange" && "verse" in q && q.verse && <div dir="rtl" lang="ar" className="mt-4 flex flex-wrap justify-center gap-x-2.5 gap-y-1 font-arabic text-3xl leading-[2.1] sm:text-4xl">
           {q.verse.map((w, i) => {

@@ -32,6 +32,7 @@ import { AdhanSection } from "./adhan";
 import { LanguagesSection } from "./languages";
 import { PremiumSection } from "./premium";
 import { KidGamesSection } from "./kid-games";
+import { QuranAudioSection } from "./quran-audio";
 import { EventsSection } from "./events";
 import { CentresSection } from "./centres";
 import { CommunitySection } from "./community";
@@ -42,7 +43,7 @@ import { WorldAdvertsSection, WorldAwardSection, WorldQuizzesSection, WorldRaces
 import { WorldContentSection } from "./world-content";
 import { seedAdverts, type Advert } from "./world-data";
 
-export const sections = ["dashboard", "users", "study", "library", "ramadan", "cards", "wisdom", "xp", "adhan", "languages", "premium", "kidGames", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "flyers", "about", "legal", "settings"] as const;
+export const sections = ["dashboard", "users", "study", "library", "ramadan", "cards", "wisdom", "xp", "adhan", "languages", "premium", "kidGames", "quranAudio", "content", "events", "centres", "community", "sponsors", "billing", "world-adverts", "world-award", "world-quizzes", "world-races", "world-content", "announcements", "flyers", "about", "legal", "settings"] as const;
 export type Section = (typeof sections)[number];
 
 const nav: { id: Section; label: string; icon: typeof Users; group: string }[] = [
@@ -58,6 +59,7 @@ const nav: { id: Section; label: string; icon: typeof Users; group: string }[] =
   { id: "languages", label: "Languages", icon: Languages, group: "App" },
   { id: "premium", label: "Premium", icon: CrownIcon, group: "App" },
   { id: "kidGames", label: "Games & quizzes", icon: Gamepad2, group: "App" },
+  { id: "quranAudio", label: "Quiz reciters", icon: Gamepad2, group: "App" },
   { id: "flyers", label: "Flyers", icon: FlyerIcon, group: "Platform" },
   { id: "about", label: "About page", icon: AboutIcon, group: "Platform" },
   { id: "legal", label: "Legal pages", icon: LegalIcon, group: "Platform" },
@@ -160,6 +162,7 @@ function Shell({ session, section, onNavigate, onLogout }: { session: NonNullabl
           {current === "languages" && <><LiveLanguagesAdmin /><div className="mt-6"><LanguagesSection /></div></>}
           {current === "premium" && <PremiumSection />}
           {current === "kidGames" && <KidGamesSection />}
+          {current === "quranAudio" && <QuranAudioSection />}
           {current === "legal" && <LegalSection />}
           {current === "about" && <AboutSection />}
           {current === "flyers" && <FlyersSection />}

@@ -137,6 +137,8 @@ export default {
     if (url.pathname === "/api/study-exam")
       return import("./lib/study-server").then((m) => m.handleStudyExam(request));
     // Ramadan prize quiz: marked on the server
+    if (url.pathname === "/api/recite-align")
+      return import("./lib/recite-server").then((m) => m.handleReciteAlign(request));
     if (url.pathname === "/api/recite")
       return import("./lib/recite-server").then((m) => m.handleRecite(request));
     if (url.pathname === "/api/quran-daily")
